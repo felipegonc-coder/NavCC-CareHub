@@ -1,0 +1,170 @@
+/*
+ * Content styles for @carehub/editor. Colors come only from the @carehub/ui tokens
+ * (--ch-<name> holds RGB channels, used as rgb(var(--ch-<name>))).
+ */
+
+.ch-editor {
+  color: rgb(var(--ch-fg));
+  font-size: 1rem;
+  line-height: 1.6;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.ch-editor > * + *,
+.ch-editor li > * + * {
+  margin-top: 0.25rem;
+}
+
+.ch-editor h1,
+.ch-editor h2,
+.ch-editor h3 {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ch-editor h1 {
+  font-size: 1.875rem;
+  margin-top: 1.5rem;
+}
+
+.ch-editor h2 {
+  font-size: 1.5rem;
+  margin-top: 1.25rem;
+}
+
+.ch-editor h3 {
+  font-size: 1.25rem;
+  margin-top: 1rem;
+}
+
+.ch-editor > :first-child {
+  margin-top: 0;
+}
+
+.ch-editor ul,
+.ch-editor ol {
+  padding-left: 1.5rem;
+}
+
+.ch-editor ul {
+  list-style: disc;
+}
+
+.ch-editor ul ul {
+  list-style: circle;
+}
+
+.ch-editor ol {
+  list-style: decimal;
+}
+
+.ch-editor ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+
+.ch-editor ul[data-type='taskList'] li {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ch-editor ul[data-type='taskList'] li > label {
+  flex: none;
+  user-select: none;
+}
+
+.ch-editor ul[data-type='taskList'] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.ch-editor ul[data-type='taskList'] input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.3rem;
+  accent-color: rgb(var(--ch-primary));
+  cursor: pointer;
+}
+
+.ch-editor li[data-checked='true'] > div {
+  color: rgb(var(--ch-muted));
+  text-decoration: line-through;
+}
+
+.ch-editor blockquote {
+  border-left: 3px solid rgb(var(--ch-fg));
+  padding-left: 1rem;
+}
+
+.ch-editor hr {
+  border: none;
+  border-top: 1px solid rgb(var(--ch-border));
+  margin: 1rem 0;
+}
+
+.ch-editor pre {
+  background: rgb(var(--ch-fill));
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  font-size: 0.875rem;
+}
+
+.ch-editor code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ch-editor :not(pre) > code {
+  background: rgb(var(--ch-fill));
+  border-radius: 0.25rem;
+  padding: 0.1em 0.3em;
+  font-size: 0.875em;
+}
+
+.ch-editor a {
+  color: rgb(var(--ch-primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Placeholders. */
+.ch-editor :is(p, h1, h2, h3).is-empty::before {
+  content: attr(data-placeholder);
+  color: rgb(var(--ch-muted));
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Other people's carets and selections. */
+.ch-caret {
+  position: relative;
+  margin: 0 -1px;
+  border-left: 2px solid var(--ch-caret);
+  pointer-events: none;
+}
+
+.ch-caret-label {
+  position: absolute;
+  bottom: 100%;
+  left: -2px;
+  padding: 0 0.25rem;
+  border-radius: 0.25rem 0.25rem 0.25rem 0;
+  background: color-mix(in srgb, var(--ch-caret) 30%, rgb(var(--ch-bg)));
+  color: rgb(var(--ch-fg));
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ch-remote-selection {
+  background: color-mix(in srgb, var(--ch-caret) 25%, transparent);
+}
+
+.ch-editor .ProseMirror-selectednode {
+  outline: 2px solid rgb(var(--ch-ring));
+  border-radius: 0.25rem;
+}

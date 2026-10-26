@@ -1,0 +1,36 @@
+{
+  "name": "@carehub/editor",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3",
+    "@tiptap/extension-collaboration": "^3",
+    "@tiptap/extension-collaboration-caret": "^3",
+    "@tiptap/extension-list": "^3",
+    "@tiptap/extensions": "^3",
+    "@tiptap/pm": "^3",
+    "@tiptap/react": "^3",
+    "@tiptap/starter-kit": "^3",
+    "@tiptap/suggestion": "^3",
+    "lucide-react": ">=0.460.0 <1.0.0",
+    "react": "^19",
+    "react-dom": "^19",
+    "y-protocols": "^1",
+    "yjs": "^13"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "jsdom": "^26",
+    "vitest": "^3.2"
+  }
+}
