@@ -74,7 +74,8 @@ describe('BlockEditor', () => {
     );
     expect(ready.editor?.schema.nodes.shiftNote).toBeDefined();
     ready.editor?.commands.setContent('<aside>Bring the signed form</aside>');
-    expect(ydoc.getXmlFragment('default').toString()).toContain('<shiftNote>');
+    expect(ready.editor?.getJSON().content?.[0]?.type).toBe('shiftNote');
+    expect(ydoc.getXmlFragment('default').toString()).toContain('Bring the signed form');
   });
 });
 
