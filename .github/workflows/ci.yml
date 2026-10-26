@@ -1,0 +1,104 @@
+name: CI
+
+# Quick checks only (docs/decisions/0006-ci-within-free-minutes.md). Builds and browser tests
+# run in e2e.yml and image.yml.
+on:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'deploy/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/e2e.yml'
+      - '.github/workflows/image.yml'
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'deploy/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/e2e.yml'
+      - '.github/workflows/image.yml'
+
+# A newer push cancels the older run on the same branch, on main too.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        id: checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        id: setup-node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Cache npm downloads
+        id: npm-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package.json', 'apps/*/package.json', 'packages/*/package.json', 'tests/*/package.json', 'package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install
+        id: install
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-logs"
+          npm install --no-audit --no-fund 2>&1 | tee "$RUNNER_TEMP/ci-logs/install.log"
+
+      # Each check runs even if an earlier one failed (not if install failed) and keeps its
+      # output in $RUNNER_TEMP/ci-logs/<step id>.log for the report step.
+      - name: Type check
+        id: typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run typecheck 2>&1 | tee "$RUNNER_TEMP/ci-logs/typecheck.log"
+
+      - name: Lint
+        id: lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint 2>&1 | tee "$RUNNER_TEMP/ci-logs/lint.log"
+
+      - name: Unit tests
+        id: test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test 2>&1 | tee "$RUNNER_TEMP/ci-logs/test.log"
+
+      - name: License check
+        id: license
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run license:check 2>&1 | tee "$RUNNER_TEMP/ci-logs/license.log"
+
+      # Keep this step last. On a pull request it posts or updates one comment with the result:
+      # the end of each failed step's log, or that everything passed.
+      - name: Report on the pull request
+        id: report
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          STEPS_JSON: ${{ toJSON(steps) }}
+        run: node .github/scripts/ci-report.mjs
