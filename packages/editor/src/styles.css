@@ -55,8 +55,20 @@
   list-style: circle;
 }
 
+.ch-editor ul ul ul {
+  list-style: square;
+}
+
 .ch-editor ol {
   list-style: decimal;
+}
+
+.ch-editor ol ol {
+  list-style: lower-alpha;
+}
+
+.ch-editor ol ol ol {
+  list-style: lower-roman;
 }
 
 .ch-editor ul[data-type='taskList'] {
@@ -131,7 +143,7 @@
 /* Placeholders. */
 .ch-editor :is(p, h1, h2, h3).is-empty::before {
   content: attr(data-placeholder);
-  color: rgb(var(--ch-muted));
+  color: rgb(var(--ch-faint));
   float: left;
   height: 0;
   pointer-events: none;

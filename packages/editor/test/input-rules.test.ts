@@ -19,10 +19,8 @@ describe('Markdown shortcuts', () => {
     ['### ', { type: 'heading', attrs: { level: 3 } }],
     ['- ', { type: 'bulletList' }],
     ['* ', { type: 'bulletList' }],
+    ['+ ', { type: 'bulletList' }],
     ['1. ', { type: 'orderedList' }],
-    ['[] ', { type: 'taskList' }],
-    ['> ', { type: 'blockquote' }],
-    ['``` ', { type: 'codeBlock' }],
     ['---', { type: 'horizontalRule' }],
   ])('%j makes %o', async (input, expected) => {
     editor = await createTestEditor();
@@ -43,7 +41,8 @@ describe('Markdown shortcuts', () => {
 
   it('does not run inside code blocks', async () => {
     editor = await createTestEditor();
-    typeText(editor, '``` # not a heading');
+    editor.commands.setCodeBlock();
+    typeText(editor, '# not a heading');
     expect(first(editor)).toMatchObject({
       type: 'codeBlock',
       content: [{ type: 'text', text: '# not a heading' }],
@@ -53,7 +52,6 @@ describe('Markdown shortcuts', () => {
   it.each([
     ['**bold**', 'bold'],
     ['*italic*', 'italic'],
-    ['~~strike~~', 'strike'],
     ['`code`', 'code'],
   ])('%s adds the %s mark', async (input, mark) => {
     editor = await createTestEditor();

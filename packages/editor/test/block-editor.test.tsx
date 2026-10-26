@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { BlockEditor, type Editor } from '../src';
-import { flush, testUser, typeText } from './helpers';
+import { renderCaret } from '../src/extensions';
+import { flush, testUser } from './helpers';
 
 let root: Root | undefined;
 let awareness: Awareness | undefined;
@@ -13,6 +14,7 @@ let awareness: Awareness | undefined;
 afterEach(async () => {
   await act(async () => root?.unmount());
   awareness?.destroy();
+  awareness = undefined;
   document.body.innerHTML = '';
 });
 
@@ -29,7 +31,7 @@ describe('BlockEditor', () => {
   it('works on a local Y.Doc and reports when it is ready', async () => {
     let ready: Editor | null = null;
     const container = await render(
-      <BlockEditor ydoc={new Y.Doc()} user={testUser} onReady={(editor) => (ready = editor)} />,
+      <BlockEditor ydoc={new Y.Doc()} onReady={(editor) => (ready = editor)} />,
     );
     const textbox = container.querySelector('[role="textbox"]');
     expect(textbox?.getAttribute('aria-label')).toBe('Page content');
@@ -38,10 +40,10 @@ describe('BlockEditor', () => {
     expect(ready).not.toBeNull();
   });
 
-  it('shares the user through awareness when it is given', async () => {
+  it("publishes the user through the provider's awareness", async () => {
     const ydoc = new Y.Doc();
     awareness = new Awareness(ydoc);
-    await render(<BlockEditor ydoc={ydoc} user={testUser} awareness={awareness} />);
+    await render(<BlockEditor ydoc={ydoc} provider={{ awareness }} user={testUser} />);
     expect(awareness.getLocalState()?.user).toMatchObject({
       name: testUser.name,
       color: testUser.color,
@@ -50,14 +52,14 @@ describe('BlockEditor', () => {
 
   it('can be read-only', async () => {
     const container = await render(
-      <BlockEditor ydoc={new Y.Doc()} user={testUser} editable={false} ariaLabel="Shift notes" />,
+      <BlockEditor ydoc={new Y.Doc()} editable={false} ariaLabel="Shift notes" />,
     );
     const textbox = container.querySelector('[role="textbox"]');
     expect(textbox?.getAttribute('contenteditable')).toBe('false');
     expect(textbox?.getAttribute('aria-label')).toBe('Shift notes');
   });
 
-  it('takes extra extensions and "/" menu entries', async () => {
+  it('takes extra extensions', async () => {
     const Note = Node.create({
       name: 'shiftNote',
       group: 'block',
@@ -65,37 +67,25 @@ describe('BlockEditor', () => {
       parseHTML: () => [{ tag: 'aside' }],
       renderHTML: () => ['aside', 0],
     });
+    const ydoc = new Y.Doc();
     const ready: { editor?: Editor } = {};
     await render(
-      <BlockEditor
-        ydoc={new Y.Doc()}
-        user={testUser}
-        extensions={[Note]}
-        slashItems={[
-          {
-            id: 'shiftNote',
-            title: 'Shift note',
-            group: 'Care',
-            run: (e) => e.commands.setNode('shiftNote'),
-          },
-        ]}
-        onReady={(editor) => (ready.editor = editor)}
-      />,
+      <BlockEditor ydoc={ydoc} extensions={[Note]} onReady={(editor) => (ready.editor = editor)} />,
     );
-    const editor = ready.editor;
-    expect(editor?.schema.nodes.shiftNote).toBeDefined();
-    if (!editor) return;
-    await act(async () => {
-      typeText(editor, '/shift');
-      await flush();
-    });
-    const options = [...document.querySelectorAll('[role="option"]')];
-    expect(options.map((option) => option.textContent)).toEqual(['Shift note']);
-    expect(document.querySelector('[role="group"]')?.textContent).toContain('Care');
-    await act(async () => {
-      options[0]?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-      await flush();
-    });
-    expect(editor.getJSON().content?.[0]?.type).toBe('shiftNote');
+    expect(ready.editor?.schema.nodes.shiftNote).toBeDefined();
+    ready.editor?.commands.setContent('<aside>Bring the signed form</aside>');
+    expect(ydoc.getXmlFragment('default').toString()).toContain('<shiftNote>');
+  });
+});
+
+describe('carets', () => {
+  it('show the name as text and only accept plain colors', () => {
+    const caret = renderCaret({ name: '<b>Sam</b>', color: 'red; background: url(x)' });
+    expect(caret.textContent).toContain('<b>Sam</b>');
+    expect(caret.querySelector('b')).toBeNull();
+    expect(caret.style.getPropertyValue('--ch-caret')).toBe('currentColor');
+    expect(
+      renderCaret({ name: 'Sam', color: '#2563eb' }).style.getPropertyValue('--ch-caret'),
+    ).toBe('#2563eb');
   });
 });

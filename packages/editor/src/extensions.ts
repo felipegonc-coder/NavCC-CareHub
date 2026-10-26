@@ -1,24 +1,12 @@
 import type { AnyExtension, Extensions } from '@tiptap/core';
 import { Collaboration } from '@tiptap/extension-collaboration';
 import { CollaborationCaret } from '@tiptap/extension-collaboration-caret';
-import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { Placeholder } from '@tiptap/extensions';
-import { StarterKit } from '@tiptap/starter-kit';
-import type { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
-import { isSafeHref } from './links';
-import { SlashCommand, type SlashMenuStore } from './slash';
+import { PAGE_FIELD, pageExtensions } from './schema';
+import type { CollabProvider, EditorUser } from './types';
 
 export const DEFAULT_PLACEHOLDER = "Type '/' for commands";
-
-/** Link settings shared by every editor: only safe addresses, no navigation while editing. */
-export const LINK_OPTIONS = {
-  openOnClick: false,
-  autolink: true,
-  linkOnPaste: true,
-  defaultProtocol: 'https',
-  isAllowedUri: (url: string) => isSafeHref(url),
-};
 
 /** Only plain CSS color syntax, so another person's color can't inject styles. */
 const safeColor = (color: unknown) =>
@@ -26,7 +14,8 @@ const safeColor = (color: unknown) =>
     ? color
     : 'currentColor';
 
-function renderCaret(user: Record<string, unknown>): HTMLElement {
+/** Another person's caret, with their name. Built from text nodes only (no HTML). */
+export function renderCaret(user: Record<string, unknown>): HTMLElement {
   const caret = document.createElement('span');
   caret.className = 'ch-caret';
   caret.setAttribute('aria-hidden', 'true');
@@ -45,35 +34,24 @@ const renderSelection = (user: Record<string, unknown>) => ({
 });
 
 export interface BlockExtensionsOptions {
-  /** The page's Y.Doc; the editor content lives in its XML fragment `field`. */
+  /** The page's Y.Doc; the blocks live in its XML fragment `field`. */
   ydoc: Y.Doc;
   field?: string;
-  user: { id: string; name: string; color: string };
-  /** Shows other people's carets when set (usually the Hocuspocus provider's awareness). */
-  awareness?: Awareness | null;
+  /** With `user`, publishes your caret and shows other people's (through its awareness). */
+  provider?: CollabProvider | null;
+  user?: EditorUser;
   /** Placeholder for an empty page. */
   placeholder?: () => string | undefined;
-  /** Enables the "/" menu. */
-  slashMenu?: SlashMenuStore;
   /** More nodes, marks and extensions (like a database block), added after the built-in ones. */
   extensions?: AnyExtension[];
 }
 
-/** The extensions of the page editor. Undo and redo come from Yjs, not ProseMirror. */
+/** The extensions of the page editor: the page schema, Yjs, carets and placeholders. */
 export function createBlockExtensions(options: BlockExtensionsOptions): Extensions {
-  const {
-    ydoc,
-    field = 'default',
-    user,
-    awareness,
-    placeholder,
-    slashMenu,
-    extensions = [],
-  } = options;
+  const { ydoc, field = PAGE_FIELD, provider, user, placeholder, extensions = [] } = options;
+  const awareness = provider?.awareness;
   return [
-    StarterKit.configure({ undoRedo: false, heading: { levels: [1, 2, 3] }, link: LINK_OPTIONS }),
-    TaskList,
-    TaskItem.configure({ nested: true }),
+    ...pageExtensions(extensions),
     Placeholder.configure({
       includeChildren: true,
       placeholder: ({ editor, node }) => {
@@ -83,7 +61,7 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
       },
     }),
     Collaboration.configure({ document: ydoc, field }),
-    ...(awareness
+    ...(awareness && user
       ? [
           CollaborationCaret.configure({
             provider: { awareness },
@@ -93,7 +71,5 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
           }),
         ]
       : []),
-    ...(slashMenu ? [SlashCommand.configure({ store: slashMenu })] : []),
-    ...extensions,
   ];
 }

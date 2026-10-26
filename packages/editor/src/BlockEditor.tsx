@@ -1,29 +1,21 @@
 import type { AnyExtension } from '@tiptap/core';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
-import { useEffect, useRef, useState } from 'react';
-import type { Awareness } from 'y-protocols/awareness';
+import { useEffect, useRef } from 'react';
 import type * as Y from 'yjs';
 import { createBlockExtensions } from './extensions';
-import { SlashMenuStore } from './slash';
-import { SlashMenu } from './SlashMenu';
-import type { SlashItem } from './types';
+import { PAGE_FIELD } from './schema';
+import type { CollabProvider, EditorUser } from './types';
 import './styles.css';
 
-export interface EditorUser {
-  id: string;
-  name: string;
-  /** CSS color for this person's caret, like `#2563eb`. */
-  color: string;
-}
-
 export interface BlockEditorProps {
-  /** The page's Y.Doc. Works on its own; connect a provider to share it. */
+  /** The page's Y.Doc. Works on its own; a `provider` on the same doc shares it live. */
   ydoc: Y.Doc;
-  /** Name of the XML fragment in `ydoc` that holds the page (default `default`). */
+  /** XML fragment in `ydoc` that holds the blocks (default `PAGE_FIELD`, "default"). */
   field?: string;
-  user: EditorUser;
-  /** The provider's awareness. When set, other people's carets and selections show. */
-  awareness?: Awareness | null;
+  /** The collab provider of `ydoc`. With `user`, carets and selections show for everyone. */
+  provider?: CollabProvider | null;
+  /** You, as others see you next to your caret. */
+  user?: EditorUser;
   editable?: boolean;
   /** Shown in an empty page (default: "Type '/' for commands"). */
   placeholder?: string;
@@ -36,28 +28,26 @@ export interface BlockEditorProps {
    * Read when the editor is created: remount the editor (with a `key`) to change them.
    */
   extensions?: AnyExtension[];
-  /** More "/" menu entries. One with the id of a basic block (like `heading1`) replaces it. */
-  slashItems?: SlashItem[];
 }
 
-/** The page editor: blocks, a "/" menu and Markdown shortcuts, on Yjs. */
+/** The page editor: blocks and Markdown shortcuts on a Y.Doc, live with a collab provider. */
 export function BlockEditor({
   ydoc,
-  field = 'default',
+  field = PAGE_FIELD,
+  provider,
   user,
-  awareness = null,
   editable = true,
   placeholder,
   ariaLabel = 'Page content',
   className,
   onReady,
   extensions,
-  slashItems,
 }: BlockEditorProps) {
-  const [slashMenu] = useState(() => new SlashMenuStore());
-  const latest = useRef({ user, placeholder, onReady });
-  latest.current = { user, placeholder, onReady };
+  const awareness = provider?.awareness ?? null;
+  const latest = useRef({ placeholder, onReady });
+  latest.current = { placeholder, onReady };
 
+  // A new provider or person makes a new editor; the blocks stay in the Y.Doc.
   const editor = useEditor(
     {
       editable,
@@ -65,10 +55,9 @@ export function BlockEditor({
       extensions: createBlockExtensions({
         ydoc,
         field,
-        awareness,
-        slashMenu,
+        provider: awareness ? { awareness } : null,
+        user,
         extensions,
-        user: latest.current.user,
         placeholder: () => latest.current.placeholder,
       }),
       editorProps: {
@@ -80,21 +69,12 @@ export function BlockEditor({
         },
       },
     },
-    [ydoc, field, awareness, slashMenu],
+    [ydoc, field, awareness, user?.id, user?.name, user?.color],
   );
-
-  useEffect(() => {
-    slashMenu.setItems(slashItems);
-  }, [slashMenu, slashItems]);
 
   useEffect(() => {
     if (editor && !editor.isDestroyed) editor.setEditable(editable, false);
   }, [editor, editable]);
-
-  const { id, name, color } = user;
-  useEffect(() => {
-    if (editor && awareness) editor.commands.updateUser({ id, name, color });
-  }, [editor, awareness, id, name, color]);
 
   useEffect(() => {
     if (editor) latest.current.onReady?.(editor);
@@ -104,7 +84,6 @@ export function BlockEditor({
   return (
     <div className={className ? `ch-block-editor ${className}` : 'ch-block-editor'}>
       <EditorContent editor={editor} />
-      {editable && <SlashMenu editor={editor} store={slashMenu} />}
     </div>
   );
 }

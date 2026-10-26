@@ -1,9 +1,23 @@
 import type { Editor } from '@tiptap/core';
 import type { ReactNode } from 'react';
+import type { Awareness } from 'y-protocols/awareness';
+
+/** The person editing, as other people see them next to their caret. */
+export interface EditorUser {
+  id?: string;
+  name: string;
+  /** A CSS color for the caret, like `#2563eb`. */
+  color: string;
+}
+
+/** What the editor needs from a collab provider. A Hocuspocus or y-websocket provider fits. */
+export interface CollabProvider {
+  awareness?: Awareness | null;
+}
 
 /** An entry in the "/" menu. */
 export interface SlashItem {
-  /** Unique. An entry with the id of a basic block (like `heading1`) replaces that block. */
+  /** Unique. An entry with the id of a built-in block (like `heading1`) replaces it. */
   id: string;
   title: string;
   description?: string;
@@ -11,7 +25,7 @@ export interface SlashItem {
   icon?: ReactNode;
   /** More words that find this entry when typed after "/". */
   keywords?: string[];
-  /** Heading the entry is listed under (default "Other"). The basic blocks use "Basic blocks". */
+  /** Heading the entry is listed under, like "Basic blocks" or "Media" (default "Other"). */
   group?: string;
   /** Runs once the typed "/query" is gone, with the cursor where it was. */
   run(editor: Editor): void;

@@ -1,9 +1,9 @@
 export { BlockEditor } from './BlockEditor';
-export type { BlockEditorProps, EditorUser } from './BlockEditor';
-export { BASIC_BLOCKS, filterSlashItems, mergeSlashItems } from './blocks';
-export { createBlockExtensions } from './extensions';
+export type { BlockEditorProps } from './BlockEditor';
+export { createBlockExtensions, DEFAULT_PLACEHOLDER } from './extensions';
 export type { BlockExtensionsOptions } from './extensions';
 export { isSafeHref } from './links';
-export type { BubbleItem, LinkPicker, SlashItem } from './types';
-export type { AnyExtension } from '@tiptap/core';
+export { createPageSchema, LINK_OPTIONS, PAGE_FIELD, pageExtensions } from './schema';
+export type { BubbleItem, CollabProvider, EditorUser, LinkPicker, SlashItem } from './types';
+export type { AnyExtension, JSONContent } from '@tiptap/core';
 export type { Editor } from '@tiptap/react';
