@@ -7,7 +7,7 @@ on:
   pull_request:
     types: [labeled]
   schedule:
-    - cron: '30 3 * * *' # 03:30 UTC
+    - cron: '0 1 * * *' # 01:00 UTC
   workflow_dispatch:
 
 # One run per branch: a new request cancels the running one. Events for other labels land in a
@@ -18,7 +18,7 @@ concurrency:
 
 permissions:
   contents: write # push screenshots to the ci-screenshots branch
-  pull-requests: write # the sticky comment
+  pull-requests: write # the report comment
   issues: write # the nightly issue
 
 jobs:
@@ -41,14 +41,20 @@ jobs:
         options: --health-cmd "pg_isready -U carehub" --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       DATABASE_URL: postgres://carehub@localhost:5432/carehub
+      # Fictional and throwaway, like the database: the password of the seeded test accounts.
+      CAREHUB_SEED_PASSWORD: e2e-only-fictional-password
       E2E_BASE_URL: http://127.0.0.1:3000
+    # Every step that can fail has an id and keeps its output in $RUNNER_TEMP/ci-logs/<id>.log, so
+    # the report step at the end can show the end of the log.
     steps:
       - name: Check out
+        id: checkout
         uses: actions/checkout@v5
 
       - name: Skip the nightly run when main has no new commits
         id: gate
         run: |
+          mkdir -p "$RUNNER_TEMP/ci-logs"
           age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
           if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$age" -gt 86400 ]; then
             echo "No commit on main in the last 24 hours, so there is nothing new to test."
@@ -58,6 +64,7 @@ jobs:
           fi
 
       - name: Set up Node.js
+        id: setup-node
         if: steps.gate.outputs.run == 'true'
         uses: actions/setup-node@v5
         with:
@@ -65,6 +72,7 @@ jobs:
           package-manager-cache: false
 
       - name: Cache npm downloads
+        id: npm-cache
         if: steps.gate.outputs.run == 'true'
         uses: actions/cache@v4
         with:
@@ -73,30 +81,47 @@ jobs:
           restore-keys: npm-${{ runner.os }}-
 
       - name: Install
+        id: install
         if: steps.gate.outputs.run == 'true'
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund 2>&1 | tee "$RUNNER_TEMP/ci-logs/install.log"
 
       - name: Build
+        id: build
         if: steps.gate.outputs.run == 'true'
-        run: npm run build
+        run: npm run build 2>&1 | tee "$RUNNER_TEMP/ci-logs/build.log"
 
       - name: Make a throwaway session secret
+        id: secret
         if: steps.gate.outputs.run == 'true'
         run: |
           secret=$(openssl rand -hex 32)
           echo "::add-mask::$secret"
           echo "SESSION_SECRET=$secret" >> "$GITHUB_ENV"
 
-      - name: Start the server
+      # Fictional people and data for the screens, once the server has the seed command.
+      - name: Seed the database
+        id: seed
         if: steps.gate.outputs.run == 'true'
         run: |
-          PORT=3000 HOST=127.0.0.1 nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server.log" 2>&1 &
+          if [ -f apps/server/dist/cli.js ]; then
+            node apps/server/dist/cli.js seed 2>&1 | tee "$RUNNER_TEMP/ci-logs/seed.log"
+          else
+            echo 'apps/server/dist/cli.js does not exist yet, so there is nothing to seed.'
+          fi
+
+      - name: Start the server
+        id: server
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          PORT=3000 HOST=127.0.0.1 nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server-output.log" 2>&1 &
+          pid=$!
           for _ in $(seq 60); do
             if curl -fsS -o /dev/null "$E2E_BASE_URL/api/health" 2> /dev/null; then exit 0; fi
+            if ! kill -0 "$pid" 2> /dev/null; then break; fi
             sleep 1
           done
-          echo "The server did not answer $E2E_BASE_URL/api/health within 60 seconds:"
-          cat "$RUNNER_TEMP/server.log"
+          { echo "The server did not answer $E2E_BASE_URL/api/health:"; cat "$RUNNER_TEMP/server-output.log"; } \
+            | tee "$RUNNER_TEMP/ci-logs/server.log"
           exit 1
 
       - name: Find the Playwright version
@@ -104,8 +129,8 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: echo "version=$(npx playwright --version | awk '{ print $2 }')" >> "$GITHUB_OUTPUT"
 
-      - name: Cache the browser
-        id: browser
+      - name: Cache Chromium
+        id: browser-cache
         if: steps.gate.outputs.run == 'true'
         uses: actions/cache@v4
         with:
@@ -113,17 +138,25 @@ jobs:
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-headless-shell
 
       - name: Install Chromium
-        if: steps.gate.outputs.run == 'true' && steps.browser.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps --only-shell chromium
-
-      - name: Install the system packages for Chromium
-        if: steps.gate.outputs.run == 'true' && steps.browser.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+        id: browser
+        if: steps.gate.outputs.run == 'true'
+        env:
+          CACHE_HIT: ${{ steps.browser-cache.outputs.cache-hit }}
+        run: |
+          if [ "$CACHE_HIT" = true ]; then
+            npx playwright install-deps chromium 2>&1 | tee "$RUNNER_TEMP/ci-logs/browser.log"
+          else
+            npx playwright install --with-deps --only-shell chromium 2>&1 | tee "$RUNNER_TEMP/ci-logs/browser.log"
+          fi
 
       - name: Run the browser tests
         id: e2e
         if: steps.gate.outputs.run == 'true'
-        run: npm run e2e 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+        run: |
+          if npm run e2e 2>&1 | tee "$RUNNER_TEMP/ci-logs/e2e.log"; then exit 0; fi
+          { echo; echo 'End of the server output:'; tail -n 30 "$RUNNER_TEMP/server-output.log"; } \
+            | tee -a "$RUNNER_TEMP/ci-logs/e2e.log"
+          exit 1
 
       - name: Upload the Playwright report
         if: failure() && steps.gate.outputs.run == 'true'
@@ -132,34 +165,46 @@ jobs:
           name: playwright-report
           path: |
             tests/e2e/playwright-report/
-            ${{ runner.temp }}/server.log
+            ${{ runner.temp }}/server-output.log
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Publish the screenshots
-        id: screenshots
-        if: ${{ !cancelled() && steps.gate.outputs.run == 'true' && hashFiles('tests/e2e/screenshots/*.png') != '' }}
+      # Publishes the screenshots on the branch ci-screenshots and writes the results with the
+      # screenshot table to the job summary and to e2e-report.md for the report step.
+      - name: Summarize
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
         continue-on-error: true
         env:
           FOLDER: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
         run: |
-          folder=${FOLDER//\//-}
-          sha=$(bash tests/e2e/ci/push-screenshots.sh "$folder" tests/e2e/screenshots/*.png)
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "folder=$folder" >> "$GITHUB_OUTPUT"
+          shopt -s nullglob
+          files=(tests/e2e/screenshots/*.png)
+          if [ ${#files[@]} -gt 0 ]; then
+            folder=${FOLDER//\//-}
+            if sha=$(bash tests/e2e/ci/push-screenshots.sh "$folder" "${files[@]}"); then
+              export SCREENSHOT_SHA=$sha SCREENSHOT_FOLDER=$folder
+            else
+              echo '::warning::The screenshots could not be pushed to the branch ci-screenshots.'
+            fi
+          fi
+          node tests/e2e/ci/report.mjs > "$RUNNER_TEMP/e2e-report.md"
+          if [ -s "$RUNNER_TEMP/e2e-report.md" ]; then
+            { echo '### Browser tests'; echo; cat "$RUNNER_TEMP/e2e-report.md"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
+      # Keep this step last. One comment on the pull request, updated on later runs: passed or
+      # failed, the results and screenshots, and the end of each failed step's log. Nightly runs
+      # open the issue "Nightly browser tests failing" or comment on it; a pass closes it.
       - name: Report
+        id: report
         if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
-        uses: actions/github-script@v7
+        continue-on-error: true
         env:
-          E2E_OUTCOME: ${{ steps.e2e.outcome }}
-          E2E_RESULTS: tests/e2e/test-results/results.json
-          E2E_LOG: ${{ runner.temp }}/e2e.log
-          SERVER_LOG: ${{ runner.temp }}/server.log
-          E2E_SCREENSHOTS: tests/e2e/screenshots
-          SCREENSHOT_SHA: ${{ steps.screenshots.outputs.sha }}
-          SCREENSHOT_FOLDER: ${{ steps.screenshots.outputs.folder }}
-        with:
-          script: |
-            const { publish } = await import(`${process.env.GITHUB_WORKSPACE}/tests/e2e/ci/report.mjs`);
-            await publish({ github, context, core });
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          STEPS_JSON: ${{ toJSON(steps) }}
+          REPORT_NAME: Browser tests
+          REPORT_EXTRA_FILE: ${{ runner.temp }}/e2e-report.md
+          REPORT_ISSUE_TITLE: ${{ github.event_name == 'schedule' && 'Nightly browser tests failing' || '' }}
+        run: node .github/scripts/ci-report.mjs

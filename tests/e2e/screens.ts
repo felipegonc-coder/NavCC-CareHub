@@ -13,4 +13,16 @@ export interface Screen {
   setup?: (page: Page) => Promise<void>;
 }
 
-export const screens: Screen[] = [{ name: 'home', path: '/' }];
+// The core screens, then one line per lane. Each lane lists its screens in its own file,
+// <lane>/screens.ts (see README.md), so parallel pull requests never edit the same lines.
+export const screens: Screen[] = [
+  { name: 'home', path: '/' },
+
+  ...(await import('./learning/screens.js')).screens, // feature: learning
+
+  ...(await import('./databases/screens.js')).screens, // feature: databases
+
+  ...(await import('./forms/screens.js')).screens, // feature: forms
+
+  ...(await import('./team/screens.js')).screens, // feature: team
+];
