@@ -1,0 +1,90 @@
+# Care Hub on one server: the app, PostgreSQL, Caddy (HTTPS) and nightly backups.
+# install.sh copies this folder to /opt/carehub and creates .env. See README.md.
+name: carehub
+
+x-logging: &logging
+  driver: local # compact, rotated log files
+
+services:
+  app:
+    image: ${CAREHUB_IMAGE:-ghcr.io/felipegonc-coder/navcc-carehub:latest}
+    platform: linux/amd64
+    init: true
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - files:/data/files
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-carehub}
+      POSTGRES_DB: ${POSTGRES_DB:-carehub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: ${TZ:-America/Denver}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      # 127.0.0.1, not the socket, so the temporary server during first start doesn't count.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+      start_interval: 2s
+    logging: *logging
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      CAREHUB_DOMAIN: ${CAREHUB_DOMAIN:?set CAREHUB_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      # *.ts.net certificates come from the host's tailscaled. The folder, not the
+      # socket file, is mounted so Caddy still finds the socket after tailscaled restarts.
+      - /var/run/tailscale:/var/run/tailscale:ro
+    depends_on:
+      - app
+    logging: *logging
+
+  # Also used by restore.sh: docker compose run --rm backup restore STAMP --confirmed
+  backup:
+    image: postgres:17
+    init: true
+    restart: unless-stopped
+    entrypoint: ['bash', '/opt/carehub/backup.sh']
+    command: ['schedule']
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-carehub}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      PGDATABASE: ${POSTGRES_DB:-carehub}
+      TZ: ${TZ:-America/Denver}
+      BACKUP_AT: ${BACKUP_AT:-02:00}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+    volumes:
+      - ./backup.sh:/opt/carehub/backup.sh:ro
+      - ./backups:/backups
+      - files:/data/files
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  db:
+  files:
+  caddy-data:
+  caddy-config:

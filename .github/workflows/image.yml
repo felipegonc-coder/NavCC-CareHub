@@ -1,0 +1,221 @@
+name: Image
+
+# Builds the Docker image, smoke-tests it and, on main, pushes it to GHCR
+# (docs/decisions/0003-image-and-deploy.md). It runs only:
+# - daily at 04:00 UTC on main, and stops early if that commit already has an image;
+# - by hand (Actions > Image > Run workflow): pushes on main, only builds elsewhere;
+# - on a pull request when the "image" label is added: builds and tests, never pushes.
+#   A pull request that changes only deploy/ is validated without a build.
+# Nothing here deletes old image versions.
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+# A newer run for the same ref and label cancels the older one.
+concurrency:
+  group: image-${{ github.ref }}-${{ github.event.label.name || 'run' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+env:
+  IMAGE: ghcr.io/felipegonc-coder/navcc-carehub
+
+jobs:
+  image:
+    name: image
+    if: github.event_name != 'pull_request' || github.event.label.name == 'image'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        id: checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      # Each run step keeps its output in $RUNNER_TEMP/ci-logs/<step id>.log for the report.
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-logs"
+          {
+            head=${PR_HEAD:-$GITHUB_SHA}
+            build=true validate=true push=false tag=sha-${head::7}
+            if [[ $GITHUB_EVENT_NAME == pull_request ]]; then
+              changed=$(git diff --name-only HEAD^1 HEAD)
+              printf 'Changed files:\n%s\n' "$changed"
+              if ! grep -qv '^deploy/' <<<"$changed"; then
+                build=false
+                echo "Only deploy/ changed: validating it without building the image."
+              fi
+            elif [[ $GITHUB_REF == refs/heads/main ]]; then
+              docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
+              if docker buildx imagetools inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+                build=false validate=false
+                echo "$IMAGE:$tag exists already: nothing to do."
+              else
+                push=true
+              fi
+            fi
+            printf 'build=%s\nvalidate=%s\npush=%s\ntag=%s\n' "$build" "$validate" "$push" "$tag" | tee -a "$GITHUB_OUTPUT"
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/plan.log"
+
+      - name: Validate deploy files
+        id: validate
+        if: steps.plan.outputs.validate == 'true'
+        run: |
+          {
+            cp deploy/.env.example deploy/.env
+            docker compose -f deploy/docker-compose.yml config --quiet
+            echo "docker-compose.yml is valid."
+            command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
+            shellcheck -S warning deploy/*.sh
+            echo "shellcheck found no warnings."
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/validate.log"
+
+      # docker buildx reads the Actions cache URL and token from ACTIONS_* variables,
+      # which only JavaScript actions get. This passes them on to the later steps.
+      - name: Expose the Actions cache to docker buildx
+        id: cache-env
+        if: steps.plan.outputs.build == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            for (const [name, value] of Object.entries(process.env)) {
+              if (name.startsWith('ACTIONS_')) core.exportVariable(name, value);
+            }
+
+      - name: Set up Docker Buildx
+        id: buildx
+        if: steps.plan.outputs.build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        id: build
+        if: steps.plan.outputs.build == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.tag }}
+        run: |
+          {
+            docker buildx build --platform linux/amd64 --load --tag carehub:ci \
+              --build-arg "CAREHUB_VERSION=$VERSION" \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              --cache-from type=gha,scope=image \
+              --cache-to type=gha,scope=image,mode=max,ignore-error=true \
+              --progress plain .
+            docker image ls carehub:ci
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/build.log"
+
+      - name: Smoke test
+        id: smoke
+        if: steps.plan.outputs.build == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.tag }}
+        run: |
+          {
+            fail() { echo "::error::$*"; exit 1; }
+            # Waits until container $1 is healthy; fails clearly after about 60 seconds.
+            wait_healthy() {
+              local state=""
+              for _ in $(seq 30); do
+                state=$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' "$1")
+                [[ $state == 'running healthy' ]] && return 0
+                [[ $state == running* ]] || break
+                sleep 2
+              done
+              docker logs --tail 80 "$1" 2>&1
+              fail "$1 is not healthy ($state) after up to 60 seconds; its last log lines are above."
+            }
+
+            docker network create carehub-ci
+            docker run -d --name ci-db --network carehub-ci \
+              -e POSTGRES_USER=carehub -e POSTGRES_DB=carehub -e POSTGRES_PASSWORD=ci-only \
+              --health-cmd 'pg_isready -h 127.0.0.1 -U carehub -d carehub' --health-interval 2s postgres:17
+            wait_healthy ci-db
+            docker run -d --name ci-app --network carehub-ci --init -p 127.0.0.1:3000:3000 \
+              -v carehub-ci-files:/data/files \
+              -e DATABASE_URL=postgres://carehub:ci-only@ci-db:5432/carehub \
+              -e SESSION_SECRET="$(openssl rand -hex 32)" carehub:ci
+            wait_healthy ci-app
+
+            curl -fsS -o health.json http://127.0.0.1:3000/api/health || fail 'GET /api/health failed'
+            cat health.json; echo
+            jq -e --arg v "$VERSION" '.status == "ok" and .version == $v' health.json >/dev/null \
+              || fail "GET /api/health should report status ok and version $VERSION"
+            curl -fsS -D page.headers -o page.html http://127.0.0.1:3000/ || fail 'GET / failed'
+            grep -qi '^content-type: text/html' page.headers || fail 'GET / did not return HTML'
+            grep -q '<title>Care Hub' page.html || fail 'GET / is not the Care Hub page'
+            echo "GET /api/health and GET / work."
+
+            # A backup of this database and files volume, checked as on a server.
+            docker exec -u node ci-app sh -c 'echo ci > /data/files/ci-probe.txt'
+            mkdir -p "$RUNNER_TEMP/backups"
+            docker run --rm --network carehub-ci -v carehub-ci-files:/data/files \
+              -v "$RUNNER_TEMP/backups:/backups" -v "$PWD/deploy/backup.sh:/opt/carehub/backup.sh:ro" \
+              -e PGHOST=ci-db -e PGUSER=carehub -e PGPASSWORD=ci-only -e PGDATABASE=carehub \
+              postgres:17 bash /opt/carehub/backup.sh now
+            jq . "$RUNNER_TEMP/backups/status.json"
+            jq -e '.result == "ok" and .fileCount >= 1' "$RUNNER_TEMP/backups/status.json" >/dev/null \
+              || fail 'the backup did not finish or did not check out'
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/smoke.log"
+
+      - name: Push
+        id: push
+        if: steps.plan.outputs.push == 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          {
+            for tag in "$TAG" latest; do
+              docker tag carehub:ci "$IMAGE:$tag"
+              docker push --quiet "$IMAGE:$tag"
+            done
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/push.log"
+
+      # Keep this step last. On a pull request it posts or updates one comment (its own,
+      # next to the CI report) with the result: agents' tokens can't read check runs.
+      - name: Report on the pull request
+        id: report
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          STEPS_JSON: ${{ toJSON(steps) }}
+          BUILT: ${{ steps.plan.outputs.build }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const marker = '<!-- carehub-image-report -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const steps = JSON.parse(process.env.STEPS_JSON);
+            const failed = Object.keys(steps).filter((id) => steps[id].outcome === 'failure');
+            const section = (id) => {
+              const file = `${process.env.RUNNER_TEMP}/ci-logs/${id}.log`;
+              if (!fs.existsSync(file)) return `\`${id}\` failed before writing a log; see the [run](${run}).`;
+              const tail = fs.readFileSync(file, 'utf8').trimEnd().split('\n').slice(-120).join('\n').slice(-25000);
+              return `<details open>\n<summary><code>${id}</code>: last 120 lines</summary>\n\n\`\`\`\`text\n${tail}\n\`\`\`\`\n\n</details>`;
+            };
+            const done = process.env.BUILT === 'true' ? 'built and smoke-tested, not pushed' : 'deploy/ validated, no build needed';
+            const body = failed.length
+              ? [marker, `### ❌ Image failed on ${sha}: ${failed.map((id) => `\`${id}\``).join(', ')}`, `[Run](${run})`, ...failed.map(section)].join('\n\n')
+              : `${marker}\n\n### ✅ Image passed on ${sha}: ${done}\n\n[Run](${run})`;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const old = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker));
+            if (old) await github.rest.issues.updateComment({ owner, repo, comment_id: old.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });

@@ -1,0 +1,6 @@
+# CAREHUB_DOMAIN comes from .env. A *.ts.net name gets its certificate from
+# Tailscale (through the tailscaled socket); any other name from Let's Encrypt.
+{$CAREHUB_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy app:3000
+}

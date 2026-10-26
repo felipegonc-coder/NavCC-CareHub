@@ -1,0 +1,19 @@
+# Keep the build context small and free of secrets.
+.git
+.github
+deploy
+docs
+Dockerfile
+.dockerignore
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+**/*.tsbuildinfo
+**/*.log
+**/.env
+**/.env.*
+**/playwright-report
+**/test-results
+**/blob-report
+**/screenshots
