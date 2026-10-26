@@ -13,7 +13,7 @@ Several builders work in parallel without network access. They need one install,
 2. **One config each at the root:** `tsconfig.base.json` (strict, `moduleResolution: "bundler"`, plus `noUncheckedIndexedAccess` and `verbatimModuleSyntax`), an ESLint flat config (typescript-eslint everywhere, react-hooks and jsx-a11y on TSX; warnings fail the check) and Prettier.
 3. **Server build:** esbuild writes `apps/server/dist/index.js`. It bundles `@carehub/*` and keeps every other package external, so the runtime needs production `node_modules`.
 4. **Registration points:** a feature replaces only its own `// feature: <name>` line in `apps/server/src/app.ts` or `apps/web/src/routes.tsx` and imports lazily on that line (`app.register(import(...))`, route `lazy`), so parallel pull requests never meet in an import block.
-5. **CI** follows 0006: `ci.yml` runs the quick checks in one job, runs every check even after an earlier one fails, and keeps one pull request comment with the end of each failed log. `repo-bot.yml` regenerates `package-lock.json` on `main`.
+5. **CI** follows 0006: `ci.yml` runs the quick checks in one job, runs every check even after an earlier one fails, and keeps one pull request comment with the result: the end of each failed log, or "passed" (agents can't read check runs with their token). `repo-bot.yml` regenerates `package-lock.json` on `main`.
 
 ## Consequences
 

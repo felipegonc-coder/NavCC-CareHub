@@ -90,8 +90,8 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run license:check 2>&1 | tee "$RUNNER_TEMP/ci-logs/license.log"
 
-      # Keep this step last. On a pull request it posts or updates one comment with the end of
-      # each failed step's log, and marks that comment as passed once everything is green.
+      # Keep this step last. On a pull request it posts or updates one comment with the result:
+      # the end of each failed step's log, or that everything passed.
       - name: Report on the pull request
         id: report
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}

@@ -1,7 +1,7 @@
 // Last step of .github/workflows/ci.yml on pull requests: posts or updates one comment
-// (found by MARKER) with the end of each failed step's log, and marks it as passed once every
-// step succeeds. Outcomes come from STEPS_JSON (toJSON(steps)), logs from
-// $RUNNER_TEMP/ci-logs/<step id>.log.
+// (found by MARKER) with the result, that is the end of each failed step's log, or that every
+// step passed. Agents' GitHub tokens can't read check runs, so this comment is how they see CI.
+// Outcomes come from STEPS_JSON (toJSON(steps)), logs from $RUNNER_TEMP/ci-logs/<step id>.log.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -71,7 +71,7 @@ if (!repo || !env.GITHUB_TOKEN || !env.PR_NUMBER) {
   console.log('Not a pull request run; nothing to report.');
 } else {
   const existing = await findComment();
-  let body;
+  let body = `${MARKER}\n\n### ✅ CI passed on ${commit}\n\n[Run](${runUrl})`;
   if (failed.length > 0) {
     const budget = Math.floor(MAX_BODY_CHARS / failed.length) - 300;
     const names = failed.map((id) => `\`${id}\``).join(', ');
@@ -82,12 +82,8 @@ if (!repo || !env.GITHUB_TOKEN || !env.PR_NUMBER) {
       `[Run](${runUrl})`,
       ...sections,
     ].join('\n\n');
-  } else if (existing) {
-    body = `${MARKER}\n\n### ✅ CI passed on ${commit}\n\n[Run](${runUrl})`;
   }
-  if (!body) {
-    console.log('All steps passed.');
-  } else if (existing) {
+  if (existing) {
     await github('PATCH', `/issues/comments/${existing.id}`, { body });
     console.log('Updated the CI report comment.');
   } else {
