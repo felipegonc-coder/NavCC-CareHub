@@ -1,0 +1,35 @@
+{
+  "name": "carehub",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tests/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint . --max-warnings=0",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "e2e": "npm run e2e --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "license:check": "node scripts/license-check.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "eslint": "^9",
+    "eslint-plugin-jsx-a11y": "^6",
+    "eslint-plugin-react-hooks": "^5",
+    "globals": "^16",
+    "prettier": "^3",
+    "typescript": "~5.9",
+    "typescript-eslint": "^8"
+  }
+}
