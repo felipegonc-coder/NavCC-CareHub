@@ -1,0 +1,62 @@
+name: Repo bot
+
+# Regenerates files that nobody edits by hand and commits them to main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/package.json'
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  generated-files:
+    name: generated files
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Update package-lock.json
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      # --- THIRD_PARTY_NOTICES.md: owned by the CI-gates builder ---
+      # Generate THIRD_PARTY_NOTICES.md here; the commit step below picks it up.
+      - name: THIRD_PARTY_NOTICES.md (placeholder)
+        run: echo 'THIRD_PARTY_NOTICES.md is not generated yet.'
+      # --- end THIRD_PARTY_NOTICES.md ---
+
+      - name: Commit generated files
+        run: |
+          git add package-lock.json
+          if [ -f THIRD_PARTY_NOTICES.md ]; then git add THIRD_PARTY_NOTICES.md; fi
+          if git diff --cached --quiet; then
+            echo 'Generated files are up to date.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: update generated files'
+          if ! git push origin HEAD:main; then
+            echo 'main moved; rebasing and trying once more.'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi

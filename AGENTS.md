@@ -70,8 +70,14 @@ docs/decisions    decision records
 
 ## 5. Lanes
 
-- **Learning (Phase 4)** has its own lead, who reviews and merges Learning pull requests. Learning owns `packages/learning*/`, `apps/server/src/features/learning/`, `apps/web/src/features/learning/`, `tests/e2e/learning/`, migrations named `*_learning_*.sql`, and the `// feature: learning` lines. Learning builders change nothing else; they ask the main lead for anything outside those folders.
-- **Everything else** (root files, CI, deploy, the design kit, shared packages and conventions) belongs to the main lead.
+Four lanes build in parallel. Each lane changes only its own folders and its own `// feature:` lines; folders, branches, decision numbers and the shared contracts (user and session API, page model, permission checks, how to add tables, routes and screens) are in [`docs/decisions/0007-shared-contracts.md`](docs/decisions/0007-shared-contracts.md).
+
+- **Core** (main lead): root files, CI, `deploy/`, the design kit, the app shell and navigation, sign-in and users, roles and permissions, the page model, the editor, files, search, comments, history, templates, import and export. Branches `feat/<name>`.
+- **Learning** (Learning lead): `packages/learning*/`, `apps/{server,web}/src/features/learning/`, `tests/e2e/learning/`, `docs/learning/`. Branches `feat/learning-*`.
+- **Databases and Forms** (Databases lead): `packages/databases*/`, `apps/{server,web}/src/features/{databases,forms}/`, `tests/e2e/{databases,forms}/`, `docs/databases/`. Branches `feat/db-*` and `feat/forms-*`.
+- **Team tools** (Team tools lead): `packages/team-*/`, `apps/{server,web}/src/features/{messages,notices,live,push,jobs,reminders,home,calendar,meetings,automations,analytics,status,claude}/` (web also `notifications`), `tests/e2e/team/`, `docs/team/`. Branches `feat/team-*`.
+
+Lane leads review and squash-merge their own lane's pull requests. Anything outside a lane's folders goes through the main lead.
 
 ## 6. How to work
 
