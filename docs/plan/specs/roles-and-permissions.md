@@ -50,7 +50,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 3. Limit it by the role. Without Edit, the most is Can comment (with Comment) or Can view. Without Share, Full access works as Can edit. Without Comment, there's no commenting.
 
 - People can give access only up to their own level.
-- Admins can see and manage every shared space (including limited ones) and join any of them. They can't open other people's private spaces, chats they aren't in, private events, connected calendars, transcripts or Claude chats (🟨 RP-D1).
+- Admins can see and manage every shared space (including limited ones) and join any of them. They can't open other people's private spaces, chats they aren't in, private events, connected calendars, transcripts or Claude chats (RP-D1: never).
 - A workspace always keeps at least one Admin: the last one can't be removed or changed ("A workspace needs at least one Admin."). A site admin can make any member an Admin.
 - Changes take effect at once. Open pages switch to the new access within 5 seconds with a banner ("Your access changed. This page is now view-only."), and live editing stops for anyone who lost it.
 - Nothing leaks: search, page cards, mentions, backlinks, relation chips, notices, Home, Calendar and Analytics never show the title or text of anything the person can't open.
@@ -94,4 +94,4 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 
 ## Decisions for Felipe
 
-- 🟨 **RP-D1** Can Admins open other people's private spaces, chats, private events and transcripts? **Default:** no, never.
+- ✅ **RP-D1** Can Admins open other people's private spaces, chats, private events and transcripts? **Felipe: the default** (no, never).
