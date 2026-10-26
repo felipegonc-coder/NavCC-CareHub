@@ -26,8 +26,8 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 | --- | --- | --- |
 | `apps/server/src/app.ts` | `await app.register(import('./features/<f>/routes'), { prefix: '/api/<f>' });` | auth, admin, workspaces, pages, collab, comments, mentions, files, search, history, templates, import-export, sharing, roles, learning, databases, forms, messages, notices, live, push, jobs, reminders, home, calendar, meetings, automations, analytics, status, claude |
 | `apps/server/src/seed.ts` | `await (await import('./features/<f>/seed')).seed(ctx);` | same names |
-| `apps/web/src/routes.tsx` | spreads the feature's lazy `RouteObject`s into `publicRoutes` or `appRoutes` | public: auth, status. App: home, pages, settings, search, learning, databases, forms, messages, calendar, meetings, automations, analytics, notifications, claude |
-| `apps/web/src/slots.ts` | `import('./features/<f>/slots')`, see section 4.3 | one line per web feature |
+| `apps/web/src/routes.tsx` | spreads the feature's lazy `RouteObject`s into `publicRoutes` or `appRoutes` | public: auth, status, design (the design kit gallery). App: shell, home, pages, settings, search, learning, databases, forms, messages, calendar, meetings, automations, analytics, notifications, claude |
+| `apps/web/src/slots.ts` | `import('./features/<f>/slots')`, see section 5.3 | one line per web feature |
 | `tests/e2e/screens.ts` | spreads `tests/e2e/<lane>/screens.ts` | learning, databases, forms, team |
 
 ### 1.2 Pre-approved root lines
