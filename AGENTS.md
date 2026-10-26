@@ -75,18 +75,21 @@ docs/decisions    decision records
 
 ## 6. How to work
 
-- One part per builder, on its own branch (`feat/<short-name>`), with one pull request into `main`. Keep it focused. Don't merge it yourself: the lead reviews and squash-merges.
-- **Tests:** Vitest for logic, Playwright for screens. Add each new screen to `tests/e2e` so it gets an axe check and screenshots in light and dark, on a computer and a phone.
-- **Done means:** matches the spec, CI is green, works with the keyboard and screen readers, works on phones, permissions are checked on the server, no secrets, nothing copied.
+- One part per builder, on its own branch (`feat/<short-name>`), with its own pull request into `main`. Don't merge it yourself: the lead reviews and squash-merges.
+- **Keep pull requests small** so they merge fast: aim for under about 600 changed lines of non-test code. Split bigger work into a series: open the first part, and start the next part on a new branch from `main` once the first one is merged.
+- **Tests:** Vitest for logic, Playwright for screens. Add each new screen to `tests/e2e/screens.ts` so it gets an axe check and screenshots in light and dark, on a computer and a phone.
+- **Done means:** matches the spec, the quick checks are green, pull requests that change screens have one green browser-test run, works with the keyboard and screen readers, works on phones, permissions are checked on the server, no secrets, nothing copied.
 - **Security:** check permissions on the server for every request (hiding a button is not security). Sessions in Secure, HttpOnly, SameSite cookies. CSRF protection on every state-changing request. Rate limits on sign-in. Validate all input with zod. Never log passwords, tokens or cookies.
 - **Look:** follow [`docs/plan/look-and-feel.md`](docs/plan/look-and-feel.md). Use the tokens and components from `@carehub/ui`, never hard-coded colors. 8 px corners, system font, text contrast of at least 4.5:1, a visible focus outline, and respect for reduced motion.
 - **Scope:** build what the plan and your task say, nothing more. Put open questions in the pull request description instead of guessing on anything hard to undo.
 
-## 7. CI
+## 7. CI (must fit GitHub's free 2,000 minutes a month)
 
-- `.github/workflows/ci.yml` runs on every pull request: install, type check, lint, tests, build, license check, then Playwright (smoke, axe and screenshots). When a step fails, CI posts the end of the log as a comment on the pull request.
-- `.github/workflows/image.yml` builds the Docker image and smoke-tests it. On `main` it pushes the image to a private GHCR package.
-- CI minutes are limited. Push complete, self-reviewed changes in as few commits as you can, and never push in a loop.
+- **Quick checks** (`.github/workflows/ci.yml`) run on every pull request and on `main`: install (cached), type check, lint, unit tests (Vitest, with Postgres) and the license check. They skip changes that only touch docs, Markdown, `deploy/` or other workflow files, and a newer push cancels the older run on the same branch. When a step fails, CI posts the end of the log as a comment on the pull request.
+- **Browser tests** (`.github/workflows/e2e.yml`): build, start the server, then Playwright smoke tests, axe and screenshots (light and dark, computer and phone), posted as a comment on the pull request. They run only when the pull request gets the label `e2e`, every night on `main`, or by hand. Add the label once your screens are ready (at most 2 runs per pull request without asking the lead), and put the result and the link to the screenshot comment in the pull request description. The review helper may add the label for you.
+- **Docker image** (`.github/workflows/image.yml`): built and smoke-tested once a day on `main` (only if `main` changed), by hand, or when a pull request gets the label `image`. Only runs on `main` push the image to the private GHCR package.
+- Agent computers have no network, so nobody can install or run the whole app locally: GitHub is the test runner. You can still run pure logic locally with `tsx` (zod is preinstalled).
+- Push complete, self-reviewed changes in as few commits as you can. Never push or re-label in a loop. If the minutes run out, the lead reviews the code and the latest results by hand and merges anyway.
 
 ## 8. Working without network access (agent computers)
 
@@ -94,5 +97,5 @@ If your computer has no internet access, you can't `git clone` or `npm install`:
 
 - Write files on your computer, then push them with the GitHub tool `push_files` (one commit per push). For more than a few files, write the tool's arguments as a JSON file and pass it with `arguments_file_path`.
 - Read repository files with `get_file_contents`.
-- CI is your test runner: watch `pull_request_read` with `get_check_runs`, and read the failure comments with `get_comments`.
+- CI is your test runner: watch `pull_request_read` with `get_check_runs`, and read the failure comments with `get_comments`. Add labels (`e2e`, `image`) with `issue_write`.
 - **Fixing a conflict without git:** if `update_pull_request_branch` fails because of a conflict in a file, (1) push that file with `main`'s exact content, (2) run `update_pull_request_branch` again, (3) push the file once more with your changes on top.
