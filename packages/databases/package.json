@@ -1,0 +1,25 @@
+{
+  "name": "@carehub/databases",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "Pure logic shared by the Care Hub web app and server for databases and forms.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./formula": "./src/formula/index.ts",
+    "./csv": "./src/csv/index.ts",
+    "./forms": "./src/forms/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "vitest": "^3.2"
+  }
+}
