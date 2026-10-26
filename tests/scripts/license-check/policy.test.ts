@@ -175,10 +175,18 @@ describe('license-policy.json', () => {
     evaluatePackage({ name, version: '1.0.0', license }, scope, real).ok;
 
   it('follows docs/decisions/0001-license-policy.md', () => {
-    for (const license of ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', '0BSD']) {
+    for (const license of [
+      'MIT',
+      'Apache-2.0',
+      'BSD-2-Clause',
+      'BSD-3-Clause',
+      'ISC',
+      '0BSD',
+      'BlueOak-1.0.0',
+    ]) {
       expect(judge(license, 'shipped')).toBe(true);
     }
-    for (const license of ['CC0-1.0', 'CC-BY-4.0', 'BlueOak-1.0.0']) {
+    for (const license of ['CC0-1.0', 'CC-BY-4.0']) {
       expect(judge(license, 'dev')).toBe(true);
       expect(judge(license, 'shipped')).toBe(false);
     }

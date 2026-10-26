@@ -2,8 +2,17 @@
   "decision": "docs/decisions/0001-license-policy.md",
   "note": "Lists for scripts/license-check.mjs. Changing a list or adding an exception needs a new decision record. Exceptions: { name, version (optional, exact), license (SPDX, checked by hand), reason }.",
   "allowed": {
-    "shipped": ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD", "PostgreSQL"],
-    "devOnly": ["CC0-1.0", "CC-BY-4.0", "BlueOak-1.0.0", "MIT-0", "Unlicense", "Python-2.0"]
+    "shipped": [
+      "MIT",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "0BSD",
+      "BlueOak-1.0.0",
+      "PostgreSQL"
+    ],
+    "devOnly": ["CC0-1.0", "CC-BY-4.0", "MIT-0", "Unlicense", "Python-2.0"]
   },
   "allowedForPackages": [
     {
