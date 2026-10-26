@@ -32,9 +32,3 @@ export function applyTheme(theme: ResolvedTheme): void {
   root.classList.toggle('dark', theme === 'dark');
   root.style.colorScheme = theme;
 }
-
-/**
- * Put this in a <script> at the top of index.html <head>: it applies the saved theme
- * before the first paint, so dark mode doesn't flash white on load.
- */
-export const themeScript = `(function(){try{var t=window.localStorage.getItem('${THEME_STORAGE_KEY}');var d=t==='dark'||(t!=='light'&&window.matchMedia('${DARK_QUERY}').matches);var r=document.documentElement;r.classList.toggle('dark',d);r.style.colorScheme=d?'dark':'light'}catch(e){}})();`;

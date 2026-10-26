@@ -2,8 +2,14 @@ import { useId, useMemo, type ComponentProps, type ReactNode } from 'react';
 import { cn } from '../lib/cn';
 import { FieldContext } from './field-context';
 
-export function Label({ className, ...props }: ComponentProps<'label'>) {
-  return <label className={cn('text-small font-medium text-fg', className)} {...props} />;
+export function Label({ className, htmlFor, ...props }: ComponentProps<'label'>) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className={cn('text-small font-medium text-fg', className)}
+      {...props}
+    />
+  );
 }
 
 export interface FieldProps {

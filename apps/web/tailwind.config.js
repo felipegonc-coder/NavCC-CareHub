@@ -1,5 +1,8 @@
+import preset from '@carehub/ui/tailwind-preset';
+
 /** @type {import('tailwindcss').Config} */
 export default {
+  presets: [preset],
   darkMode: 'class',
   content: {
     relative: true,

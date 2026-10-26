@@ -1,15 +1,15 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { THEME_STORAGE_KEY, ThemeProvider, ThemeToggle, themeScript } from '../src';
+import { THEME_STORAGE_KEY, ThemeProvider, ThemeSwitch } from '../src';
 import { setMedia } from './media';
 
 const html = () => document.documentElement;
 
-function renderToggle() {
+function renderSwitch(compact = false) {
   return render(
     <ThemeProvider>
-      <ThemeToggle />
+      <ThemeSwitch compact={compact} />
     </ThemeProvider>,
   );
 }
@@ -17,43 +17,46 @@ function renderToggle() {
 describe('theme', () => {
   it('follows the device setting until the person picks one', () => {
     setMedia({ dark: true });
-    renderToggle();
+    renderSwitch();
+    expect(screen.getByRole('radio', { name: 'System' })).toBeChecked();
     expect(html()).toHaveClass('dark');
     setMedia({ dark: false });
     expect(html()).not.toHaveClass('dark');
+    expect(html().style.colorScheme).toBe('light');
   });
 
-  it('switches to dark from the keyboard and remembers it', async () => {
+  it('switches to dark and remembers it on this device', async () => {
     const user = userEvent.setup();
-    renderToggle();
-    await user.tab();
-    const toggle = screen.getByRole('button', { name: 'Change theme' });
-    expect(toggle).toHaveFocus();
+    renderSwitch();
+    expect(screen.getByRole('radiogroup', { name: 'Theme' })).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: 'Dark' }));
 
-    await user.keyboard('{Enter}');
-    await waitFor(() => expect(screen.getByRole('menuitemradio', { name: 'Light' })).toHaveFocus());
-    expect(screen.getByRole('menuitemradio', { name: 'System' })).toBeChecked();
-    await user.keyboard('{ArrowDown}{Enter}');
-
+    expect(screen.getByRole('radio', { name: 'Dark' })).toBeChecked();
     expect(html()).toHaveClass('dark');
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
-    await waitFor(() => expect(toggle).toHaveFocus());
-  });
 
-  it('starts with the saved choice', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
-    renderToggle();
-    expect(html()).toHaveClass('dark');
-  });
-
-  it('has an inline script that applies the theme before React loads', () => {
-    setMedia({ dark: true });
-    globalThis.eval(themeScript);
-    expect(html()).toHaveClass('dark');
-
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
-    globalThis.eval(themeScript);
+    await user.click(screen.getByRole('radio', { name: 'System' }));
     expect(html()).not.toHaveClass('dark');
-    expect(html().style.colorScheme).toBe('light');
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('system');
+  });
+
+  it('starts with the saved choice and keeps the names when compact', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    renderSwitch(true);
+    expect(screen.getByRole('radio', { name: 'Dark' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Light' })).not.toBeChecked();
+    expect(html()).toHaveClass('dark');
+  });
+
+  it('follows a change made in another tab', () => {
+    renderSwitch();
+    act(() => {
+      window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+      window.dispatchEvent(
+        new StorageEvent('storage', { key: THEME_STORAGE_KEY, newValue: 'dark' }),
+      );
+    });
+    expect(screen.getByRole('radio', { name: 'Dark' })).toBeChecked();
+    expect(html()).toHaveClass('dark');
   });
 });
