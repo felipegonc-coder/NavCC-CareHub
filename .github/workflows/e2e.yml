@@ -1,0 +1,165 @@
+# Browser tests (Playwright, Chromium only), see tests/e2e/README.md. They cost CI minutes, so
+# they run only on request (the label "e2e" on a pull request, or by hand) and nightly on main
+# after new commits. The quick checks are in ci.yml.
+name: Browser tests
+
+on:
+  pull_request:
+    types: [labeled]
+  schedule:
+    - cron: '30 3 * * *' # 03:30 UTC
+  workflow_dispatch:
+
+# One run per branch: a new request cancels the running one. Events for other labels land in a
+# group of their own, so adding another label does not cancel a run.
+concurrency:
+  group: e2e-${{ github.head_ref || github.ref_name }}-${{ github.event_name != 'pull_request' || github.event.label.name == 'e2e' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # push screenshots to the ci-screenshots branch
+  pull-requests: write # the sticky comment
+  issues: write # the nightly issue
+
+jobs:
+  e2e:
+    name: Browser tests
+    if: github.event_name != 'pull_request' || github.event.label.name == 'e2e'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash # bash -eo pipefail, so "| tee" keeps the exit code
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: carehub
+          POSTGRES_DB: carehub
+          POSTGRES_HOST_AUTH_METHOD: trust # a throwaway database that only this job can reach
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U carehub" --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgres://carehub@localhost:5432/carehub
+      E2E_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Skip the nightly run when main has no new commits
+        id: gate
+        run: |
+          age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$age" -gt 86400 ]; then
+            echo "No commit on main in the last 24 hours, so there is nothing new to test."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Cache npm downloads
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package.json', 'apps/*/package.json', 'packages/*/package.json', 'tests/*/package.json', 'package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install
+        if: steps.gate.outputs.run == 'true'
+        run: npm install --no-audit --no-fund
+
+      - name: Build
+        if: steps.gate.outputs.run == 'true'
+        run: npm run build
+
+      - name: Make a throwaway session secret
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          secret=$(openssl rand -hex 32)
+          echo "::add-mask::$secret"
+          echo "SESSION_SECRET=$secret" >> "$GITHUB_ENV"
+
+      - name: Start the server
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          PORT=3000 HOST=127.0.0.1 nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 60); do
+            if curl -fsS -o /dev/null "$E2E_BASE_URL/api/health" 2> /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "The server did not answer $E2E_BASE_URL/api/health within 60 seconds:"
+          cat "$RUNNER_TEMP/server.log"
+          exit 1
+
+      - name: Find the Playwright version
+        id: playwright
+        if: steps.gate.outputs.run == 'true'
+        run: echo "version=$(npx playwright --version | awk '{ print $2 }')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the browser
+        id: browser
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-headless-shell
+
+      - name: Install Chromium
+        if: steps.gate.outputs.run == 'true' && steps.browser.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps --only-shell chromium
+
+      - name: Install the system packages for Chromium
+        if: steps.gate.outputs.run == 'true' && steps.browser.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run the browser tests
+        id: e2e
+        if: steps.gate.outputs.run == 'true'
+        run: npm run e2e 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+
+      - name: Upload the Playwright report
+        if: failure() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            tests/e2e/playwright-report/
+            ${{ runner.temp }}/server.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Publish the screenshots
+        id: screenshots
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'true' && hashFiles('tests/e2e/screenshots/*.png') != '' }}
+        continue-on-error: true
+        env:
+          FOLDER: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+        run: |
+          folder=${FOLDER//\//-}
+          sha=$(bash tests/e2e/ci/push-screenshots.sh "$folder" tests/e2e/screenshots/*.png)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "folder=$folder" >> "$GITHUB_OUTPUT"
+
+      - name: Report
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
+        uses: actions/github-script@v7
+        env:
+          E2E_OUTCOME: ${{ steps.e2e.outcome }}
+          E2E_RESULTS: tests/e2e/test-results/results.json
+          E2E_LOG: ${{ runner.temp }}/e2e.log
+          SERVER_LOG: ${{ runner.temp }}/server.log
+          E2E_SCREENSHOTS: tests/e2e/screenshots
+          SCREENSHOT_SHA: ${{ steps.screenshots.outputs.sha }}
+          SCREENSHOT_FOLDER: ${{ steps.screenshots.outputs.folder }}
+        with:
+          script: |
+            const { publish } = await import(`${process.env.GITHUB_WORKSPACE}/tests/e2e/ci/report.mjs`);
+            await publish({ github, context, core });
