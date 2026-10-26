@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Care Hub base styles. The colour variables come from the Tailwind preset. */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  /* Bigger-text option: every rem-based size grows by an eighth. */
+  html[data-text-size='large'] {
+    font-size: 112.5%;
+  }
+  body {
+    @apply bg-bg font-sans text-body text-fg antialiased;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: rgb(var(--ch-faint));
+    opacity: 1;
+  }
+  ::selection {
+    background-color: rgb(var(--ch-ring) / 0.25);
+  }
+  /* A clear focus outline on everything reached by keyboard. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--ch-ring));
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
