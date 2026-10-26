@@ -14,6 +14,9 @@ services:
     env_file: .env
     volumes:
       - files:/data/files
+      # For the Status page: backup results (read-only), and requests/now to ask for a backup.
+      - ./backups:/data/backups:ro
+      - ./backups/requests:/data/backups/requests
     depends_on:
       db:
         condition: service_healthy

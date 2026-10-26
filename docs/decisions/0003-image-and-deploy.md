@@ -7,9 +7,9 @@
 
 1. **One image** (`Dockerfile`, linux/amd64): the server bundle with its production dependencies, the built web app, migrations, `LICENSE` and `THIRD_PARTY_NOTICES.md`. It runs as `node` on port 3000, with a health check on `/api/health`.
 2. **GHCR tags:** `latest` and `sha-<commit>` in `ghcr.io/felipegonc-coder/navcc-carehub`.
-3. **`image.yml` runs only** daily at 04:00 UTC on `main` (skipped when the commit already has an image), by hand, and on pull requests labelled `image` (build and smoke test, never push). A pull request that changes only `deploy/` is validated without a build.
+3. **`image.yml` runs only** daily at 01:30 UTC on `main` (evening in Denver) (skipped when the commit already has an image), by hand, and on pull requests labelled `image` (build and smoke test, never push). A pull request that changes only `deploy/` is validated without a build.
 4. **Deploy** (`deploy/`): Docker Compose with the app, `postgres:17`, `caddy:2` and a backup service. A systemd timer pulls `latest` every 15 minutes. A `sha-` tag in `.env` holds or rolls back a version.
-5. **Backups:** `pg_dump` and a tar of the files every night, kept 30 days. A backup counts only after it was restored into a scratch database and the archive was read back. `restore.sh` saves the current data first and swaps the database in by renaming.
+5. **Backups:** `pg_dump` and a tar of the files every night, kept 30 days. A backup counts only after it was restored into a scratch database and the archive was read back. Each run writes `backups/runs/<UTC time>.json` and `backups/status.json` for the Status page, which can also ask for a backup through `backups/requests/now`. `restore.sh` saves the current data first and swaps the database in by renaming.
 6. **Nothing deletes old image versions automatically**, in CI or on the server.
 
 ## Consequences

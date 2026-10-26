@@ -43,7 +43,7 @@ FROM node:24-slim
 LABEL org.opencontainers.image.title="Care Hub" \
       org.opencontainers.image.description="Care Hub workspace app (server and web app)" \
       org.opencontainers.image.source="https://github.com/felipegonc-coder/NavCC-CareHub"
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST_DIR=/app/apps/web/dist
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST_DIR=/app/apps/web/dist FILES_DIR=/data/files
 COPY --from=server-deps /app/ /app/
 COPY --from=build /app/ /app/
 # Uploaded files live here; a new named volume copies this owner.

@@ -2,14 +2,14 @@ name: Image
 
 # Builds the Docker image, smoke-tests it and, on main, pushes it to GHCR
 # (docs/decisions/0003-image-and-deploy.md). It runs only:
-# - daily at 04:00 UTC on main, and stops early if that commit already has an image;
+# - daily at 01:30 UTC on main, and stops early if that commit already has an image;
 # - by hand (Actions > Image > Run workflow): pushes on main, only builds elsewhere;
 # - on a pull request when the "image" label is added: builds and tests, never pushes.
-#   A pull request that changes only deploy/ is validated without a build.
+#   A pull request that changes only deploy/ (but not backup.sh) is validated without a build.
 # Nothing here deletes old image versions.
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '30 1 * * *'
   workflow_dispatch:
   pull_request:
     types: [labeled]
@@ -57,9 +57,9 @@ jobs:
             if [[ $GITHUB_EVENT_NAME == pull_request ]]; then
               changed=$(git diff --name-only HEAD^1 HEAD)
               printf 'Changed files:\n%s\n' "$changed"
-              if ! grep -qv '^deploy/' <<<"$changed"; then
+              if ! grep -qv '^deploy/' <<<"$changed" && ! grep -qx 'deploy/backup.sh' <<<"$changed"; then
                 build=false
-                echo "Only deploy/ changed: validating it without building the image."
+                echo "Only deploy/ changed, not backup.sh: validating it without building the image."
               fi
             elif [[ $GITHUB_REF == refs/heads/main ]]; then
               docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
@@ -139,6 +139,17 @@ jobs:
               docker logs --tail 80 "$1" 2>&1
               fail "$1 is not healthy ($state) after up to 60 seconds; its last log lines are above."
             }
+            sql() { docker exec ci-db psql -X -q -t -A -v ON_ERROR_STOP=1 -U carehub -d carehub -c "$1"; }
+
+            # Mounts as in deploy/docker-compose.yml: the app sees backups/ read-only, except
+            # requests/, which belongs to its user (uid 1000).
+            b=$RUNNER_TEMP/backups
+            mkdir -p "$b/requests"
+            sudo chown 1000:1000 "$b/requests"
+            backup=(--network carehub-ci -v carehub-ci-files:/data/files -v "$b:/backups"
+              -v "$PWD/deploy/backup.sh:/opt/carehub/backup.sh:ro"
+              -e PGHOST=ci-db -e PGUSER=carehub -e PGPASSWORD=ci-only -e PGDATABASE=carehub
+              --entrypoint bash postgres:17 /opt/carehub/backup.sh)
 
             docker network create carehub-ci
             docker run -d --name ci-db --network carehub-ci \
@@ -146,9 +157,10 @@ jobs:
               --health-cmd 'pg_isready -h 127.0.0.1 -U carehub -d carehub' --health-interval 2s postgres:17
             wait_healthy ci-db
             docker run -d --name ci-app --network carehub-ci --init -p 127.0.0.1:3000:3000 \
-              -v carehub-ci-files:/data/files \
+              -v carehub-ci-files:/data/files -v "$b:/data/backups:ro" -v "$b/requests:/data/backups/requests" \
               -e DATABASE_URL=postgres://carehub:ci-only@ci-db:5432/carehub \
-              -e SESSION_SECRET="$(openssl rand -hex 32)" carehub:ci
+              -e SESSION_SECRET="$(openssl rand -hex 32)" \
+              -e CAREHUB_PUBLIC_URL=http://127.0.0.1:3000 -e COOKIE_SECURE=false carehub:ci
             wait_healthy ci-app
 
             curl -fsS -o health.json http://127.0.0.1:3000/api/health || fail 'GET /api/health failed'
@@ -160,16 +172,42 @@ jobs:
             grep -q '<title>Care Hub' page.html || fail 'GET / is not the Care Hub page'
             echo "GET /api/health and GET / work."
 
-            # A backup of this database and files volume, checked as on a server.
-            docker exec -u node ci-app sh -c 'echo ci > /data/files/ci-probe.txt'
-            mkdir -p "$RUNNER_TEMP/backups"
-            docker run --rm --network carehub-ci -v carehub-ci-files:/data/files \
-              -v "$RUNNER_TEMP/backups:/backups" -v "$PWD/deploy/backup.sh:/opt/carehub/backup.sh:ro" \
-              -e PGHOST=ci-db -e PGUSER=carehub -e PGPASSWORD=ci-only -e PGDATABASE=carehub \
-              postgres:17 bash /opt/carehub/backup.sh now
-            jq . "$RUNNER_TEMP/backups/status.json"
-            jq -e '.result == "ok" and .fileCount >= 1' "$RUNNER_TEMP/backups/status.json" >/dev/null \
-              || fail 'the backup did not finish or did not check out'
+            # Some data, then a backup asked for the way the Status page will ask for one.
+            sql 'CREATE TABLE ci_probe (id int); INSERT INTO ci_probe VALUES (1), (2);'
+            docker exec -u node ci-app sh -c 'echo ci > /data/files/ci-probe.txt' \
+              || fail 'the app cannot write to /data/files'
+            docker exec -u node ci-app touch /data/backups/requests/now \
+              || fail 'the app cannot ask for a backup in /data/backups/requests'
+            docker run -d --name ci-backup --init -e BACKUP_AT=23:59 "${backup[@]}" schedule
+            for _ in $(seq 30); do [[ -e $b/status.json ]] && break; sleep 2; done
+            docker logs ci-backup 2>&1
+            [[ -e $b/status.json ]] || fail 'the requested backup did not finish within 60 seconds'
+            [[ ! -e $b/requests/now ]] || fail 'backup.sh did not remove requests/now'
+            docker exec -u node ci-app cat /data/backups/status.json > status.json \
+              || fail 'the app cannot read /data/backups/status.json'
+            jq . status.json
+            jq -e '.ok and .restoreTest.ok and .dbBytes > 0 and .filesBytes > 0
+              and (.restoreTest.details | test(" [1-9][0-9]* rows"))' status.json >/dev/null \
+              || fail 'the backup failed or its restore test did not check out'
+            stamp=$(jq -r '.startedAt | gsub("[-:]"; "")' status.json)
+            cmp -s status.json "$b/runs/$stamp.json" || fail "runs/$stamp.json should match status.json"
+            [[ -f $b/carehub-$stamp.sha256 ]] || fail "backup $stamp has no checksum file"
+            docker stop ci-backup >/dev/null
+
+            # Lose the data, then put the backup back with the app stopped, as restore.sh does.
+            sql 'DROP TABLE ci_probe;'
+            docker exec ci-app rm /data/files/ci-probe.txt
+            docker stop ci-app >/dev/null
+            docker run --rm "${backup[@]}" restore "$stamp" --confirmed \
+              || fail "the restore of $stamp failed (exit $?)"
+            docker start ci-app >/dev/null
+            wait_healthy ci-app
+            [[ $(sql 'SELECT count(*) FROM ci_probe;') == 2 ]] \
+              || fail 'the restore did not bring back the table ci_probe'
+            [[ $(docker exec ci-app cat /data/files/ci-probe.txt) == ci ]] \
+              || fail 'the restore did not bring back the uploaded file'
+            ls "$b"/pre-restore-*.db.dump >/dev/null || fail 'the restore did not save the data it replaced'
+            echo "The requested backup checked out, and restoring it brought back the table and the file."
           } 2>&1 | tee "$RUNNER_TEMP/ci-logs/smoke.log"
 
       - name: Push
@@ -211,7 +249,7 @@ jobs:
               const tail = fs.readFileSync(file, 'utf8').trimEnd().split('\n').slice(-120).join('\n').slice(-25000);
               return `<details open>\n<summary><code>${id}</code>: last 120 lines</summary>\n\n\`\`\`\`text\n${tail}\n\`\`\`\`\n\n</details>`;
             };
-            const done = process.env.BUILT === 'true' ? 'built and smoke-tested, not pushed' : 'deploy/ validated, no build needed';
+            const done = process.env.BUILT === 'true' ? 'built and smoke-tested with a backup and a restore, not pushed' : 'deploy/ validated, no build needed';
             const body = failed.length
               ? [marker, `### ❌ Image failed on ${sha}: ${failed.map((id) => `\`${id}\``).join(', ')}`, `[Run](${run})`, ...failed.map(section)].join('\n\n')
               : `${marker}\n\n### ✅ Image passed on ${sha}: ${done}\n\n[Run](${run})`;

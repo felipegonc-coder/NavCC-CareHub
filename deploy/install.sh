@@ -10,8 +10,9 @@ domain_re='^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'
 docker compose version >/dev/null 2>&1 || { echo "Install Docker Engine with the compose plugin first." >&2; exit 1; }
 command -v flock >/dev/null || { echo "flock is missing (package util-linux)." >&2; exit 1; }
 
-install -d -m 755 "$dir"
-install -d -m 700 "$dir/backups"
+install -d -m 755 "$dir" "$dir/backups" "$dir/backups/runs"
+# The app (user node, uid 1000) asks for backups here; see "Status page" in README.md.
+install -d -m 755 -o 1000 -g 1000 "$dir/backups/requests"
 if [[ $src != "$(readlink -f "$dir")" ]]; then
   for f in docker-compose.yml Caddyfile .env.example README.md carehub-update.service carehub-update.timer; do
     install -m 644 "$src/$f" "$dir/$f"
@@ -27,6 +28,7 @@ else
   password=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
   secret=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
   (umask 077; sed -e "s|^CAREHUB_DOMAIN=.*|CAREHUB_DOMAIN=$domain|" \
+    -e "s|^CAREHUB_PUBLIC_URL=.*|CAREHUB_PUBLIC_URL=https://$domain|" \
     -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$password|" \
     -e "/^DATABASE_URL=/s|:change-me@|:$password@|" \
     -e "s|^SESSION_SECRET=.*|SESSION_SECRET=$secret|" .env.example > .env)

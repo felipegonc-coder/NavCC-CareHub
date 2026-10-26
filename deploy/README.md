@@ -42,8 +42,9 @@ journalctl -u carehub-update            # what the updates did
 
 ## Updates, holding and rolling back
 
-Every commit on `main` gets an image within a day, tagged `latest` and `sha-<commit>`.
-The timer pulls `latest` every 15 minutes and restarts the app when it changed.
+The image workflow builds `main` every day at 01:30 UTC if it changed, and tags the image
+`latest` and `sha-<commit>`. The timer pulls `latest` every 15 minutes and restarts the
+app when it changed.
 PostgreSQL (17.x) and Caddy (2.x) are pulled only in the 03:00 run.
 
 To hold a version or go back to one, set
@@ -62,21 +63,51 @@ restarts Caddy.
 
 Every night at `BACKUP_AT` (in `TZ`) the `backup` service writes three files to
 `backups/`: `carehub-STAMP.db.dump` (pg_dump), `carehub-STAMP.files.tar.gz` (uploaded
-files) and `carehub-STAMP.sha256`. The checksum file is written last, only after the dump
-was restored into a scratch database (same number of tables as the dump, rows counted)
-and the archive was read back. Backups older than `BACKUP_KEEP_DAYS` days are deleted.
+files) and `carehub-STAMP.sha256`. STAMP is the UTC start time, for example
+`20261027T080000Z`. The checksum file is written last, only after the dump was restored
+into a scratch database (same number of tables as the dump, rows counted) and the archive
+was read back. Backups and run records older than `BACKUP_KEEP_DAYS` days are deleted.
+The backup files are readable by root only.
 
-`backups/status.json` describes the last run: `result` (`ok` or `failed`), `message`,
-`lastSuccessAt`, sizes and counts. To back up right now:
-`sudo docker compose exec backup bash /opt/carehub/backup.sh now`.
+To back up right now: `sudo docker compose exec backup bash /opt/carehub/backup.sh now`.
 
 The backups are on the same disk as the data. Copy `backups/` somewhere else too.
+
+## Status page
+
+Every backup run, good or failed, writes `backups/runs/STAMP.json` and the same content
+to `backups/status.json` (the latest run):
+
+```json
+{
+  "startedAt": "2026-10-27T08:00:00Z",
+  "finishedAt": "2026-10-27T08:00:09Z",
+  "ok": true,
+  "dbBytes": 1048576,
+  "filesBytes": 52428800,
+  "restoreTest": {
+    "ok": true,
+    "checkedAt": "2026-10-27T08:00:08Z",
+    "details": "Restored into a scratch database: 12 tables (as listed in the dump), 3456 rows. Read back the files archive: 78 files."
+  }
+}
+```
+
+Times are UTC. On a failure `ok` is false, the sizes are `null`, and `restoreTest.details`
+says what went wrong (`Not run: ...` when it failed before the restore test).
+
+The app container mounts `backups/` read-only at `/data/backups`, so it can read
+`status.json` and `runs/` but not the backup files. It also mounts `backups/requests`
+read-write at `/data/backups/requests`. To ask for a backup, the app creates a file
+named `now` there. The backup service checks for it every 30 seconds, deletes it and
+runs a backup; the result shows up in `status.json`. `install.sh` makes `requests/`
+writable for the app's `node` user (uid 1000).
 
 ## Restore
 
 ```sh
 sudo ./restore.sh          # lists the finished backups
-sudo ./restore.sh latest   # or a STAMP from the list; asks you to type RESTORE
+sudo ./restore.sh latest   # or a STAMP (UTC) from the list; asks you to type RESTORE
 ```
 
 It stops the app, saves the current data as `backups/pre-restore-*` (kept until you
