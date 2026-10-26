@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ReadValue } from './row';
 import { defaultConfig, newProperty, relationConfig } from './schema';
 import type {
   ChecklistItem,
@@ -6,6 +7,7 @@ import type {
   ConfigOf,
   NumberDisplay,
   OptionColor,
+  Property,
   SelectOption,
   Viewer,
 } from './types';
@@ -34,7 +36,11 @@ const viewer: Viewer = {
   now: new Date('2026-10-26T18:00:00.000Z'),
 };
 const names: Record<string, string> = { 'u-avery': 'Avery Lin', 'u-jordan': 'Jordan Park' };
-const titles: Record<string, string> = { 'r-leak': 'Fix kitchen leak', 'r-blank': '' };
+const titles: Record<string, string> = {
+  'r-leak': 'Fix kitchen leak',
+  'r-heat': 'Install heater',
+  'r-blank': '',
+};
 const ctx: FormatContext = {
   properties: [],
   viewer,
@@ -58,6 +64,12 @@ const title = newProperty('Name', defaultConfig('title'));
 const notes = newProperty('Notes', defaultConfig('text'));
 const amount = newProperty('Amount', defaultConfig('number'));
 const percent = newProperty('Done', { ...defaultConfig('number'), format: 'percent' });
+const euro = newProperty('Amount', {
+  ...defaultConfig('number'),
+  format: 'currency',
+  currency: 'EUR',
+  decimals: 2,
+});
 const trades = [opt('o-plumb', 'Plumbing'), opt('o-hvac', 'HVAC', 'green')];
 const trade = newProperty('Trade', { type: 'select', options: trades });
 const tags = newProperty('Tags', { type: 'multi_select', options: trades });
@@ -605,6 +617,10 @@ describe('formatValue', () => {
     expect(formatValue(amount, '1234.5', ctx)).toBe('1234.5');
     expect(formatValue(amount, null, ctx)).toBe('');
   });
+  it('shows a Euro amount as €1,234.50 in cells and exports (additions DB-37)', () => {
+    expect(formatValue(euro, '1234.5', ctx)).toBe('€1,234.50');
+    expect(formatValue(euro, '1234.5', ctx, EXPORT)).toBe('€1,234.50');
+  });
   it('shows the number text for rings and bars', () => {
     const ring = newProperty('Progress', {
       ...defaultConfig('number'),
@@ -769,5 +785,48 @@ describe('related row text', () => {
     expect(relationTitlesText(['r-leak', 'r-x', 'r-blank'], ctx)).toBe(
       'Fix kitchen leak, Untitled',
     );
+  });
+});
+
+describe('exported values read back the same (DB-15)', () => {
+  const lookup = {
+    findUser: (text: string) => Object.keys(names).find((id) => names[id] === text),
+    findRow: (text: string) => Object.keys(titles).find((id) => titles[id] === text),
+  };
+  const at = { start: '2026-10-26T21:30:00.000Z', end: null, hasTime: true };
+  const cases: [string, Property, ReadValue][] = [
+    ['a Euro amount', euro, '1234.5'],
+    ['a negative amount', amount, '-0.001'],
+    ['a percent', percent, '0.455'],
+    ['a date and time', due, at],
+    ['a relative date', dueRelative, at],
+    [
+      'a Day/Month/Year range',
+      dueDayFirst,
+      { start: '2026-10-26', end: '2026-10-28', hasTime: false },
+    ],
+    ['a time range', due, { ...at, end: '2026-10-26T23:00:00.000Z' }],
+    ['a ticked checkbox', done, true],
+    ['an unticked checkbox', done, false],
+    ['options', tags, ['o-hvac', 'o-plumb']],
+    ['people', owners, ['u-jordan', 'u-avery']],
+    ['related rows', jobs, ['r-heat', 'r-leak']],
+    ['text with a line break', notes, [{ text: 'Call back\nBlue Pine' }]],
+    ['a link', site, 'https://bluepine.example/quote?id=3'],
+  ];
+  it.each(cases)('%s', (_label: string, prop: Property, value: ReadValue) => {
+    const text = formatValue(prop, value, ctx, EXPORT);
+    expect(parseTyped(prop, text, viewer, lookup)).toEqual(good(value));
+  });
+  it('a checklist', () => {
+    const items = [
+      { id: 'c1', text: 'Call back', done: true },
+      { id: 'c2', text: 'Send recap', done: false },
+    ];
+    const text = formatValue(steps, items, ctx, EXPORT);
+    expect(parseTyped(steps, text, viewer)).toMatchObject({
+      ok: true,
+      value: items.map(({ text: t, done: d }) => ({ text: t, done: d })),
+    });
   });
 });
