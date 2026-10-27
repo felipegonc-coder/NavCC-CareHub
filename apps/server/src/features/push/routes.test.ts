@@ -1,7 +1,11 @@
+import { notifyDecision } from '@carehub/team-chat';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { errorHandler } from '../../core/errors';
+import { registerEvents } from '../../core/events';
 import { createTestApp, createUser, hasDatabase, injectAs } from '../../testing';
+import { NOTICE_CREATED_EVENT, type NoticeSummary } from '../notices';
+import type { DeliverySources } from './delivery';
 import { createTestSubscription, type TestSubscription } from './protocol/testing';
 import { generateVapidKeys } from './protocol/vapid';
 import pushRoutes, { TEST_COOLDOWN_MS } from './routes';
@@ -28,10 +32,14 @@ function on(): PushConfig {
   });
 }
 
-async function build(config: PushConfig = on()): Promise<FastifyInstance> {
+async function build(
+  config: PushConfig = on(),
+  sources?: DeliverySources,
+): Promise<FastifyInstance> {
   store = createMemoryPushStore();
   sent.length = 0;
   app = Fastify();
+  registerEvents(app);
   app.setErrorHandler(errorHandler);
   await app.register(pushRoutes, {
     prefix: '/api/push',
@@ -46,6 +54,7 @@ async function build(config: PushConfig = on()): Promise<FastifyInstance> {
       const user = request.headers['x-test-user'];
       return typeof user === 'string' ? user : null;
     },
+    ...(sources ? { sources } : {}),
   });
   return app;
 }
@@ -214,6 +223,56 @@ describe('/api/push/preferences', () => {
     });
     const unknown = await call('PATCH', '/preferences', avery, { notifyAbout: 'everything' });
     expect(unknown.statusCode).toBe(400);
+  });
+});
+
+describe('push for new notices', () => {
+  it('pushes each new notice while Care Hub is not open, until the app closes', async () => {
+    const noticeId = 'a3f1c9e2-5b7d-4e8a-9c1f-6d2b4e8a0c53';
+    const notice: NoticeSummary = {
+      id: noticeId,
+      workspaceId: '9d4e2b61-7a3c-4f8e-b5d1-2c6a8e0f4b97',
+      userId: avery,
+      kind: 'comment',
+      title: 'Commented on a page you follow',
+      text: 'Can you check the follow-up dates?',
+      senderName: 'Sam Ortiz',
+      link: '/p/page-1',
+      createdAt: new Date(clock),
+      latestAt: new Date(clock),
+    };
+    const running = await build(on(), {
+      hasOpenTabs: () => false,
+      getNotice: async (id) => (id === noticeId ? notice : null),
+      decide: notifyDecision,
+    });
+    const browser = createTestSubscription();
+    expect((await subscribe(avery, browser)).statusCode).toBe(201);
+    const created = {
+      workspaceId: notice.workspaceId,
+      userId: avery,
+      noticeId,
+      kind: notice.kind,
+      grouped: false,
+    };
+
+    running.events.emit(NOTICE_CREATED_EVENT, created);
+    await running.events.settled();
+    expect(sent).toHaveLength(1);
+    expect(
+      JSON.parse(new TextDecoder().decode(browser.decrypt(sent[0]?.body ?? new Uint8Array()))),
+    ).toEqual({
+      title: 'Sam Ortiz',
+      body: 'Commented on a page you follow · Can you check the follow-up dates?',
+      url: '/p/page-1',
+      tag: `notice:${noticeId}`,
+    });
+
+    await running.close();
+    app = undefined;
+    running.events.emit(NOTICE_CREATED_EVENT, created);
+    await running.events.settled();
+    expect(sent).toHaveLength(1);
   });
 });
 
