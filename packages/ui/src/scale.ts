@@ -64,8 +64,8 @@ export const shadows = {
   dialog: '0 16px 48px rgb(0 0 0 / 0.16), 0 2px 8px rgb(0 0 0 / 0.08)',
 } as const;
 
-/** `max-w-page` (the reading column) and `w-sidebar`. */
-export const widths = { page: '48rem', sidebar: '16rem' } as const;
+/** `max-w-page` (the reading column), `w-sidebar`, `max-w-dialog`, `max-w-toast`. */
+export const widths = { page: '48rem', sidebar: '16rem', dialog: '32rem', toast: '24rem' } as const;
 
 /** `outline-offset-inset`: a focus outline drawn inside rows that sit in a scrolling list. */
 export const outlineOffsets = { inset: '-2px' } as const;
@@ -100,7 +100,6 @@ export function scaleVariables(): Record<string, string> {
   for (const [name, value] of Object.entries(shadows)) {
     variables[`--ch-shadow-${name}`] = value;
   }
-  variables['--ch-page-width'] = widths.page;
-  variables['--ch-sidebar-width'] = widths.sidebar;
+  for (const [name, value] of Object.entries(widths)) variables[`--ch-${name}-width`] = value;
   return variables;
 }

@@ -8,7 +8,7 @@ const merge = extendTailwindMerge({
     classGroups: {
       'font-size': [{ text: Object.keys(typeScale) }],
       shadow: [{ shadow: Object.keys(shadows) }],
-      'max-w': [{ 'max-w': ['page'] }],
+      'max-w': [{ 'max-w': ['page', 'dialog', 'toast'] }],
       'outline-offset': [{ 'outline-offset': Object.keys(outlineOffsets) }],
       z: [{ z: Object.keys(layers) }],
     },

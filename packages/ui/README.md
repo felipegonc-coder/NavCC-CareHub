@@ -49,9 +49,9 @@ import { Button, ThemeProvider } from '@carehub/ui';
     `small`, `label` (`text-small` is `--ch-text-small`); `--ch-weight-<style>` for `title` and
     `h1` to `h3`; `--ch-tracking-title`. Weights `--ch-weight-normal`, `-medium`, `-semibold`,
     `-bold`; fonts `--ch-font-sans`, `--ch-font-mono`.
-  - Also `--ch-shadow-menu`, `--ch-shadow-dialog`, `--ch-page-width` (48rem),
-    `--ch-sidebar-width` (16rem). Scrims use `bg-overlay/50`; the logo uses `brand` and
-    `brand-fg`.
+  - Also `--ch-shadow-menu`, `--ch-shadow-dialog`, and widths `--ch-page-width` (48rem),
+    `--ch-sidebar-width` (16rem), `--ch-dialog-width` (32rem), `--ch-toast-width` (24rem). Scrims
+    use `bg-overlay/50`; the logo uses `brand` and `brand-fg`.
 - **Theme:** `ThemeProvider` + `ThemeSwitch` (light, dark, system), saved on the device.
   `apps/web/public/theme-init.js` applies the saved theme before the first paint; it is a file, not
   an inline script, because the Content Security Policy allows only `script-src 'self'`.

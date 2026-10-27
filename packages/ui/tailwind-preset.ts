@@ -52,7 +52,7 @@ const preset = {
       borderColor: { DEFAULT: 'rgb(var(--ch-border))' },
       borderRadius: { ...radii },
       spacing: { ...spacing, sidebar: widths.sidebar },
-      maxWidth: { page: widths.page },
+      maxWidth: { page: widths.page, dialog: widths.dialog, toast: widths.toast },
       fontFamily: { sans: [...fontStacks.sans], mono: [...fontStacks.mono] },
       fontSize,
       fontWeight: { ...fontWeights },

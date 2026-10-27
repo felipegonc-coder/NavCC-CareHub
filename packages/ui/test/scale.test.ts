@@ -33,6 +33,7 @@ describe('scale', () => {
       '--ch-weight-semibold': '600',
       '--ch-page-width': '48rem',
       '--ch-sidebar-width': '16rem',
+      '--ch-dialog-width': '32rem',
     });
     expect(variables['--ch-font-mono']).toMatch(/^ui-monospace, SFMono-Regular, /);
     expect(variables['--ch-weight-body']).toBeUndefined();
