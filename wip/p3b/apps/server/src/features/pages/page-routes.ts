@@ -27,7 +27,7 @@ import {
 import { cardsFor } from './cards';
 import { forbidden, invalid, notFound, spaceArchived } from './http';
 import { pageChanged, treeChanged } from './live';
-import { movePage, whoCanOpen, type PageMove } from './move';
+import { movePage, whoCanOpen, type MovedPage, type PageMove } from './move';
 import { createPage, readPage, updatePage } from './pages';
 import { spacePlace } from './spaces';
 
@@ -47,7 +47,7 @@ async function checkPlace(tx: Executor, viewer: Viewer, input: CreatePageInput) 
 }
 
 /** Can edit where a moved page goes (Sidebar spec 5): on the parent, or at the space's top. */
-async function checkTarget(tx: Executor, viewer: Viewer, move: PageMove) {
+export async function checkTarget(tx: Executor, viewer: Viewer, move: PageMove) {
   if (move.parentId === null) {
     if (move.spaceId === undefined) throw invalid('Choose a page or a space to move it to.');
     await checkPlace(tx, viewer, { spaceId: move.spaceId });
@@ -73,6 +73,19 @@ function accessChange({ losing, gaining }: AccessChangeJson) {
         ? `${people(gaining)} will gain access.`
         : `${people(losing)} will lose access and ${gaining} will gain it.`;
   return httpError(409, 'conflict', message, { losing, gaining });
+}
+
+/** After a move's commit: `page.updated`, `page.kindChanged` if it changed kind, and nudges. */
+export function announceMove(app: FastifyInstance, moved: MovedPage, by: string): void {
+  const { pageId, workspaceId, from, to } = moved;
+  const changes = (['spaceId', 'parentId', 'kind'] as const).filter((key) => from[key] !== to[key]);
+  app.events.emit('page.updated', { pageId, workspaceId, by, changes: [...changes, 'position'] });
+  if (from.kind !== to.kind) {
+    app.events.emit('page.kindChanged', { pageId, workspaceId, from: from.kind, to: to.kind, by });
+  }
+  treeChanged(from.spaceId);
+  if (to.spaceId !== from.spaceId) treeChanged(to.spaceId);
+  pageChanged(pageId);
 }
 
 export function pageRoutes(app: FastifyInstance): void {
@@ -168,28 +181,7 @@ export function pageRoutes(app: FastifyInstance): void {
       }
       return { moved: result, losing };
     });
-    const { workspaceId, from, to } = moved;
-    const changes = (['spaceId', 'parentId', 'kind'] as const).filter(
-      (key) => from[key] !== to[key],
-    );
-    app.events.emit('page.updated', {
-      pageId,
-      workspaceId,
-      by: viewer.userId,
-      changes: [...changes, 'position'],
-    });
-    if (from.kind !== to.kind) {
-      app.events.emit('page.kindChanged', {
-        pageId,
-        workspaceId,
-        from: from.kind,
-        to: to.kind,
-        by: viewer.userId,
-      });
-    }
-    treeChanged(from.spaceId);
-    if (to.spaceId !== from.spaceId) treeChanged(to.spaceId);
-    pageChanged(pageId);
+    announceMove(app, moved, viewer.userId);
     for (const userId of losing) void recheckSubscriptions(userId);
     const level = (await resolvePages(db, viewer, [pageId])).get(pageId)?.level ?? 'none';
     return readPage(db, viewer, pageId, level);
