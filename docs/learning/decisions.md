@@ -115,3 +115,15 @@ Adds to 0302 (B2, #192).
 - Who does what: B1's `GET /courses/:id` sends `learnerCourse(course)`. B3's attempts route sends
   `quizPaper(lesson, plan)` as `questions`, and the submit step in `progress/reduce.ts` calls `paperResponses`
   first. B9's Studio label for `shuffleOptions` says it shuffles choice options.
+
+## 0315 · Learning help uses the shared Claude client
+Learning help (writing help in blocks, summaries and key points, quiz questions from a lesson, a first draft of a
+course) calls Extras' `askClaude` and `isClaudeFeatureOn` from `@carehub/extras/claude` with the feature key
+`learning_help` (workspace setting `claude.learning_help`). The whole Care Hub has one key, one monthly cap, one usage
+log and one admin page (Settings → Claude).
+- Off by default. While it's off, Learning shows no Claude buttons.
+- Authors only (`learning.author`), in Studio.
+- Only course content is sent: titles, lesson and block text. Never learner names, emails, answers, scores or
+  progress.
+- Claude's reply is checked with Learning's own schemas before it reaches the editor, and nothing is saved until the
+  author accepts it.
