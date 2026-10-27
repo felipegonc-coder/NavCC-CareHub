@@ -18,6 +18,17 @@ export function titleOf(doc: Document, space: string): string {
   return space && title.startsWith(prefix) ? title.slice(prefix.length).trim() : title;
 }
 
+/** A page tree item's own link, or the link in its own span. */
+function itemLink(item: Element): Element | null {
+  for (const child of Array.from(item.children)) {
+    if (child.tagName === 'A') return child;
+    if (child.tagName !== 'SPAN') continue;
+    const inner = Array.from(child.children).find((element) => element.tagName === 'A');
+    if (inner) return inner;
+  }
+  return null;
+}
+
 /**
  * The page tree that the space's index.html lists under "Available Pages": each page's entry and
  * the entry of the page it's under (null at the top), in the tree's order.
@@ -36,7 +47,7 @@ export function readPageTree(
     if (depth > IMPORT_LIMITS.depth) throw new ImportFileError(TOO_DEEP);
     for (const item of Array.from(items.children)) {
       if (item.tagName !== 'LI') continue;
-      const link = item.querySelector(':scope > a, :scope > span > a');
+      const link = itemLink(item);
       const entry = entryOf(indexEntry, link?.getAttribute('href') ?? '', names);
       const here = entry !== null && entry !== indexEntry && !tree.has(entry) ? entry : null;
       if (here !== null) tree.set(here, parent);
