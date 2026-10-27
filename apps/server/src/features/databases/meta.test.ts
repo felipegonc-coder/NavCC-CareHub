@@ -131,11 +131,16 @@ describe('viewForViewer', () => {
     expect(seen.calculations).toEqual({ [status.id]: 'count_all' });
   });
 
-  it('shows a form link only to people who can edit', () => {
+  it('shows a form link, and who mapped each question, only to people who can edit', () => {
     const { record } = fixture();
     const form = defaultView('form', record.properties, { databaseTitle: 'Jobs' });
+    const [name] = form.form!.questions;
+    form.form!.questions = [{ ...name!, mappedBy: 'avery', mapperLostAccess: true }];
     expect(viewForViewer(form, new Set(), true).form?.linkCode).not.toBe('');
-    expect(viewForViewer(form, new Set(), false).form?.linkCode).toBe('');
+    expect(viewForViewer(form, new Set(), true).form?.questions[0]?.mappedBy).toBe('avery');
+    const seen = viewForViewer(form, new Set(), false).form;
+    expect(seen?.linkCode).toBe('');
+    expect(seen?.questions).toEqual([name]);
   });
 });
 

@@ -7,6 +7,8 @@ import {
   newDatabaseSchema,
   newProperty,
   type FilterGroup,
+  type FormDefinition,
+  type FormQuestion,
   type Property,
   type View,
   type ViewLayout,
@@ -24,6 +26,7 @@ import {
   planNewView,
   planViewOrder,
   viewTabs,
+  type ViewEditor,
   type ViewPatch,
 } from './views';
 
@@ -99,12 +102,17 @@ function statusOf(plan: () => unknown): number | undefined {
 }
 
 /** The record with a view added, as the route would save it. */
+const avery = (hidden: string[] = [], canChange = (_id: string) => true): ViewEditor => ({
+  userId: AVERY,
+  hidden: new Set(hidden),
+  canChange,
+});
+
 function withView(record: DatabaseRecord, layout: ViewLayout, dashboardId?: string) {
-  const plan = planNewView(record, { layout, dashboardId, linkCode: CODE });
+  const plan = planNewView(record, { layout, dashboardId, linkCode: CODE }, avery());
   return { record: { ...record, views: plan.views }, view: plan.view };
 }
 
-const avery = (hidden: string[] = []) => ({ userId: AVERY, hidden: new Set(hidden) });
 const edit = (record: DatabaseRecord, viewId: string, patch: ViewPatch, hidden: string[] = []) =>
   planEditView(record, viewId, patch, avery(hidden));
 
@@ -365,6 +373,132 @@ describe('changing a view', () => {
   });
 });
 
+describe('who mapped each question', () => {
+  const ask = (propertyId: string, text: string): FormQuestion => ({
+    propertyId,
+    text,
+    description: [],
+    required: false,
+    display: 'default',
+    logic: null,
+  });
+  const jordan = (canChange = (_id: string) => true): ViewEditor => ({
+    userId: JORDAN,
+    hidden: new Set(),
+    canChange,
+  });
+  const withForm = (record: DatabaseRecord, viewId: string, form: FormDefinition) => ({
+    ...record,
+    views: record.views.map((v) => (v.id === viewId ? { ...v, form } : v)),
+  });
+  /** The jobs with a form Avery made, asking for the Name and Notes. */
+  function asked() {
+    const { record, view } = withView(jobs(), 'form');
+    const notes = prop(record, 'Notes');
+    const questions = [...view.form!.questions, ask(notes.id, 'Notes')];
+    const saved = edit(record, view.id, { form: { ...view.form!, questions } });
+    return { record: { ...record, views: saved.views }, view: saved.view, notes };
+  }
+  const mappers = (form: FormDefinition | undefined) =>
+    form?.questions.map((q) => [q.mappedBy, q.mapperLostAccess]);
+
+  it("makes a new form's questions, and new questions, the person's", () => {
+    expect(mappers(withView(jobs(), 'form').view.form)).toEqual([[AVERY, undefined]]);
+    expect(mappers(asked().view.form)).toEqual([
+      [AVERY, undefined],
+      [AVERY, undefined],
+    ]);
+  });
+
+  it("refuses a question on a property the person can't change, and ignores what's sent", () => {
+    const { record, view } = withView(jobs(), 'form');
+    const notes = prop(record, 'Notes');
+    const sent = { ...ask(notes.id, 'Notes'), mappedBy: JORDAN, mapperLostAccess: true };
+    const form = { ...view.form!, questions: [...view.form!.questions, sent] };
+    const cant = () =>
+      planEditView(
+        record,
+        view.id,
+        { form },
+        avery([], (id) => id !== notes.id),
+      );
+    expect(statusOf(cant)).toBe(403);
+    expect(cant).toThrow(VIEW_MESSAGES.mapping);
+    expect(mappers(edit(record, view.id, { form }).view.form)).toEqual([
+      [AVERY, undefined],
+      [AVERY, undefined],
+    ]);
+  });
+
+  it('hands an edited question to an editor who can change its property, and only then', () => {
+    const { record, view, notes } = asked();
+    const stored = view.form!;
+    const flag = (q: FormQuestion) =>
+      q.propertyId === notes.id ? { ...q, mapperLostAccess: true } : q;
+    const flagged = withForm(record, view.id, { ...stored, questions: stored.questions.map(flag) });
+    const plain = stored.questions.map((q) => ask(q.propertyId, q.text));
+    const reworded = plain.map((q) =>
+      q.propertyId === notes.id ? { ...q, text: 'Anything else?' } : q,
+    );
+    const change = (questions: FormQuestion[], editor: ViewEditor) =>
+      planEditView(flagged, view.id, { form: { ...stored, questions } }, editor).view.form;
+
+    expect(
+      mappers(
+        change(
+          reworded,
+          jordan(() => false),
+        ),
+      ),
+    ).toEqual([
+      [AVERY, undefined],
+      [AVERY, true],
+    ]);
+    expect(mappers(change(reworded, jordan()))).toEqual([
+      [AVERY, undefined],
+      [JORDAN, undefined],
+    ]);
+    expect(mappers(change(plain, jordan()))).toEqual([
+      [AVERY, undefined],
+      [AVERY, true],
+    ]);
+  });
+
+  it('treats a question moved to another property as a new one', () => {
+    const { record, view, notes } = asked();
+    const visit = prop(record, 'Visit');
+    const questions = view.form!.questions.map((q) =>
+      q.propertyId === notes.id ? ask(visit.id, 'When should we come?') : q,
+    );
+    const move = (editor: ViewEditor) =>
+      planEditView(record, view.id, { form: { ...view.form!, questions } }, editor);
+    expect(statusOf(() => move(jordan((id) => id !== visit.id)))).toBe(403);
+    expect(mappers(move(jordan()).view.form)).toEqual([
+      [AVERY, undefined],
+      [JORDAN, undefined],
+    ]);
+  });
+
+  it("makes a form's copy the person's, and refuses it when they can't change a property", () => {
+    const { record, view, notes } = asked();
+    const copy = (editor: ViewEditor) =>
+      planDuplicateView(record, view.id, { linkCode: CODE, editor }).view;
+    expect(mappers(copy(jordan()).form)).toEqual([
+      [JORDAN, undefined],
+      [JORDAN, undefined],
+    ]);
+    expect(statusOf(() => copy(jordan((id) => id !== notes.id)))).toBe(403);
+  });
+
+  it('saves a form anyone can fill in as anonymous', () => {
+    const { record, view } = withView(jobs(), 'form');
+    const form = { ...view.form!, audience: 'anyone' as const, anonymous: false };
+    const open = edit(record, view.id, { form });
+    expect(open.view.form?.anonymous).toBe(true);
+    expect(open.formAccess).toBe(true);
+  });
+});
+
 describe('deleting a view', () => {
   it('removes the view but never the last tab', () => {
     const record = jobs();
@@ -413,7 +547,10 @@ describe('duplicating a view', () => {
         v.id === view.id ? { ...v, form: { ...v.form!, notifyUserIds: [JORDAN] } } : v,
       ),
     };
-    const copy = planDuplicateView(noted, view.id, 'Zt3mV9pQx1sRk7LwYb2cHg').view;
+    const copy = planDuplicateView(noted, view.id, {
+      linkCode: 'Zt3mV9pQx1sRk7LwYb2cHg',
+      editor: avery(),
+    }).view;
     expect(copy.form?.linkCode).toBe('Zt3mV9pQx1sRk7LwYb2cHg');
     expect(copy.form?.notifyUserIds).toEqual([]);
     expect(hasOpenFormAccess(copy)).toBe(false);

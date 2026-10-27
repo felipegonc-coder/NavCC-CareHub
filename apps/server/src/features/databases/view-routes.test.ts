@@ -1,7 +1,7 @@
 // View routes on a real database (decision 0200; Databases spec 3.3): add, change, delete,
 // duplicate and order views, form link codes in forms_links, dashboards and their tiles, Lock
-// structure, Full access for a form's gates, and views that use hidden properties. Fictional
-// people only.
+// structure, Full access for a form's gates, views that use hidden properties, and who mapped each
+// form question. Fictional people only.
 import { defaultConfig, type Property, type View } from '@carehub/databases';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -265,5 +265,53 @@ describe.skipIf(!hasDatabase)('view routes', () => {
     expect(rename.statusCode).toBe(200);
     took(rename.json());
     expect(named(await read(people.admin), 'Margins').sorts).toEqual(sorts);
+  });
+
+  it("keeps who mapped each question, never on a property the editor can't change", async () => {
+    const added = await ws.send(people.admin, 'POST', url('/properties'), {
+      version,
+      name: 'Fee',
+      config: defaultConfig('number'),
+      access: { see: null, change: [{ type: 'user', id: people.admin.id }] },
+    });
+    expect(added.statusCode).toBe(200);
+    const fee = took(added.json()).properties.find((p) => p.name === 'Fee')!;
+    const form = named(await read(people.admin), 'Form');
+    const question = {
+      propertyId: fee.id,
+      text: 'Fee',
+      description: [],
+      required: false,
+      display: 'default',
+      logic: null,
+    };
+    const asking = (q: object) => ({
+      version,
+      form: { ...form.form, questions: [...(form.form?.questions ?? []), q] },
+    });
+
+    const refused = await changeView(people.avery, form.id, asking(question));
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toEqual({
+      error: { code: 'forbidden', message: 'A question can only use a property you can change.' },
+    });
+    const sent = { ...question, mappedBy: people.avery.id, mapperLostAccess: true };
+    const mapped = await changeView(people.admin, form.id, asking(sent));
+    expect(mapped.statusCode).toBe(200);
+    const saved = named(took(mapped.json()), 'Form').form?.questions.at(-1);
+    expect(saved?.mappedBy).toBe(people.admin.id);
+    expect(saved?.mapperLostAccess).toBeUndefined();
+
+    const copy = await ws.send(people.avery, 'POST', url(`/views/${form.id}/duplicate`), {
+      version,
+    });
+    expect(copy.statusCode).toBe(403);
+    const now = named(await read(people.admin), 'Form').form;
+    const open = await changeView(people.admin, form.id, {
+      version,
+      form: { ...now, audience: 'anyone', anonymous: false },
+    });
+    expect(open.statusCode).toBe(200);
+    expect(named(took(open.json()), 'Form').form?.anonymous).toBe(true);
   });
 });
