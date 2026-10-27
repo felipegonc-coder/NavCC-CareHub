@@ -10,6 +10,6 @@ export * from './crop';
 
 export * from './embed';
 
-// media: embed publish check
+export * from './embed-issues';
 
 // media: interactive blocks
