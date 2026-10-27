@@ -18,7 +18,7 @@ _Copied from the Notion plan (the source of truth) on 2026-10-26. If they differ
 - Allowed in anything we ship: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD and the PostgreSQL License. MPL-2.0 only for unmodified test tools.
 - Blocked: GPL, LGPL, AGPL, SSPL, BUSL, Elastic, Commons Clause, and paid or unknown licenses. Also not allowed: MinIO, Tiptap Pro extensions, FullCalendar Premium and paid UI kits.
 - A license check runs on every pull request and fails on anything blocked. `THIRD_PARTY_NOTICES.md` is generated automatically.
-- The repository's LICENSE: "Copyright © 2026 Felipe Gonçalves. All rights reserved." (The name follows Nav's answer.)
+- The repository's LICENSE: "Copyright © 2026 Felipe Gonçalves. All rights reserved."
 
 ## Tech choices
 

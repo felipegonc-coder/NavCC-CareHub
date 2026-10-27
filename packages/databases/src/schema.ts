@@ -13,7 +13,11 @@ import type {
   ViewLayout,
 } from './types';
 
-/** Types whose value people edit (stored in the row). */
+/**
+ * Types whose value people edit (stored in the row). Verification is stored too, but only the
+ * knowledge base's Verify and Remove verification change it, never cells, templates, buttons or
+ * imports (verification.ts).
+ */
 export const STORED_TYPES: ReadonlySet<PropertyType> = new Set<StoredType>([
   'title',
   'text',
@@ -70,6 +74,7 @@ export const TYPE_LABELS: Record<PropertyType, string> = {
   rollup: 'Rollup',
   unique_id: 'ID',
   button: 'Button',
+  verification: 'Verification',
 };
 
 /** Default settings for a new property. Relations need their target database. */
