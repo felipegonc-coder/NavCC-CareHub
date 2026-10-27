@@ -89,24 +89,27 @@ test.describe('Databases: row pages', () => {
       const t = await ticket(page);
       // Avery stands in for Sam (spec); any member who can edit gives the same result.
       const sam = await signedInPage(browser, 'admin');
-      const screen = new DatabaseScreen(page, t.database.id);
-      const rowPage = new RowPage(page);
-      await screen.open();
+      try {
+        const screen = new DatabaseScreen(page, t.database.id);
+        const rowPage = new RowPage(page);
+        await screen.open();
 
-      await test.step('In the side panel', async () => {
-        const panel = await screen.openRow(t.row.id, t.title);
-        await expect(panel.getByText('To do', { exact: true })).toBeVisible();
-        await t.set(sam, 'Doing');
-        await expect(panel.getByText('Doing', { exact: true })).toBeVisible({ timeout: 2_000 });
-      });
+        await test.step('In the side panel', async () => {
+          const panel = await screen.openRow(t.row.id, t.title);
+          await expect(panel.getByText('To do', { exact: true })).toBeVisible();
+          await t.set(sam, 'Doing');
+          await expect(panel.getByText('Doing', { exact: true })).toBeVisible({ timeout: 2_000 });
+        });
 
-      await test.step('On the full page', async () => {
-        const main = await rowPage.openFullPage(t.title, t.row.id);
-        await expect(main.getByText('Doing', { exact: true })).toBeVisible();
-        await t.set(sam, 'Done');
-        await expect(main.getByText('Done', { exact: true })).toBeVisible({ timeout: 2_000 });
-      });
-      await sam.context().close();
+        await test.step('On the full page', async () => {
+          const main = await rowPage.openFullPage(t.title, t.row.id);
+          await expect(main.getByText('Doing', { exact: true })).toBeVisible();
+          await t.set(sam, 'Done');
+          await expect(main.getByText('Done', { exact: true })).toBeVisible({ timeout: 2_000 });
+        });
+      } finally {
+        await sam.context().close();
+      }
     });
   });
 
@@ -117,18 +120,21 @@ test.describe('Databases: row pages', () => {
     await signInAs(page, 'editor');
     const t = await ticket(page);
     const viewer = await signedInPage(browser, 'viewer');
-    await viewer.goto(`/p/${t.row.id}`);
-    await expect(viewer.getByRole('main').getByText('To do', { exact: true })).toBeVisible();
+    try {
+      await viewer.goto(`/p/${t.row.id}`);
+      await expect(viewer.getByRole('main').getByText('To do', { exact: true })).toBeVisible();
 
-    const refused = await (
-      await apiFor(viewer)
-    ).send('PATCH', `/api/databases/${t.database.id}/rows/${t.row.id}`, {
-      values: { [t.status.id]: optionId(t.status, 'Done') },
-    });
-    expect(refused.status()).toBe(403);
-    expect(await refused.json()).toMatchObject({ error: { code: 'forbidden' } });
-    const kept = await getRow(page, t.database.id, t.row.id);
-    expect(kept.values[t.status.id]).toBe(optionId(t.status, 'To do'));
-    await viewer.context().close();
+      const refused = await (
+        await apiFor(viewer)
+      ).send('PATCH', `/api/databases/${t.database.id}/rows/${t.row.id}`, {
+        values: { [t.status.id]: optionId(t.status, 'Done') },
+      });
+      expect(refused.status()).toBe(403);
+      expect(await refused.json()).toMatchObject({ error: { code: 'forbidden' } });
+      const kept = await getRow(page, t.database.id, t.row.id);
+      expect(kept.values[t.status.id]).toBe(optionId(t.status, 'To do'));
+    } finally {
+      await viewer.context().close();
+    }
   });
 });

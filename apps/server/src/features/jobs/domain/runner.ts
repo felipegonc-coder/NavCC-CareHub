@@ -586,6 +586,11 @@ export function createJobRunner(options: JobRunnerOptions) {
 
     tick,
 
+    /** True from the first `start` until the last `stop`. */
+    isRunning(): boolean {
+      return starts > 0;
+    },
+
     /** Before `start` only. */
     useStore(next: JobStore): void {
       if (starts > 0) throw new Error('Set the job store before the runner starts.');
