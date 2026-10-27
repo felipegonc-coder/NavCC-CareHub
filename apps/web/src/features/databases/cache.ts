@@ -1,8 +1,9 @@
 /**
- * Pure helpers that change cached query answers: "Load more" pages, and the optimistic updates
- * that show a change before the server answers (rolled back if it refuses).
+ * Pure helpers that change cached answers: "Load more" pages, and the optimistic updates that show
+ * a change before the server answers (rolled back if it refuses), options typed into cells included.
  */
-import type { Id, Property } from '@carehub/databases';
+import type { Id, Property, SelectOption } from '@carehub/databases';
+import { findOptionByName } from '@carehub/databases/options';
 import type { QueryGroup, QueryRow, ViewQueryData } from './contract';
 
 /** What to ask the server for to load more of the view, a group or a board sub-group; null: nothing. */
@@ -45,9 +46,11 @@ export function mergeMore(
   subGroupKey?: string,
 ): ViewQueryData {
   const rowTitles = { ...data.rowTitles, ...page.rowTitles };
+  const named = data.people || page.people ? { people: { ...data.people, ...page.people } } : {};
   if (groupKey === undefined) {
     return {
       ...data,
+      ...named,
       rowTitles,
       rows: appendRows(data.rows, page.rows),
       nextCursor: page.nextCursor,
@@ -63,7 +66,7 @@ export function mergeMore(
       subGroups: group.subGroups?.map((s) => (s.key === subGroupKey ? continueGroup(s, sub) : s)),
     };
   });
-  return { ...data, rowTitles, groups: groups ?? null };
+  return { ...data, ...named, rowTitles, groups: groups ?? null };
 }
 
 /** Changes or removes (null) rows wherever they show, keeping counts right. */
@@ -208,4 +211,56 @@ export function moveInCache(data: ViewQueryData, rowId: Id, place: CachePlace): 
       : next;
   });
   return { ...data, groups };
+}
+
+// ---------------------------------------------------------------- options typed into cells
+
+/**
+ * The database with new options added to a Select or Multi-select property, in the order given,
+ * leaving out any whose id or name (ignoring case) the property already has.
+ */
+export function withTypedOptions<M extends { properties: Property[] }>(
+  meta: M,
+  propertyId: Id,
+  typed: readonly SelectOption[],
+): M {
+  let changed = false;
+  const properties = meta.properties.map((property) => {
+    const config = property.config;
+    if (property.id !== propertyId) return property;
+    if (config.type !== 'select' && config.type !== 'multi_select') return property;
+    const options = [...config.options];
+    for (const option of typed) {
+      const known = options.some((o) => o.id === option.id);
+      if (!known && !findOptionByName(options, option.name)) options.push(option);
+    }
+    if (options.length === config.options.length) return property;
+    changed = true;
+    return { ...property, config: { ...config, options } };
+  });
+  return changed ? { ...meta, properties } : meta;
+}
+
+/**
+ * The id to save for each new option once the property has them (as the server answered): its
+ * own, or the id of the option of the same name the property had already.
+ */
+export function savedOptionIds(
+  property: Property | undefined,
+  typed: readonly SelectOption[],
+): Record<Id, Id> {
+  const config = property?.config;
+  const options = config?.type === 'select' || config?.type === 'multi_select' ? config.options : [];
+  const ids: Record<Id, Id> = {};
+  for (const option of typed) {
+    const known = options.some((o) => o.id === option.id);
+    ids[option.id] = known ? option.id : (findOptionByName(options, option.name)?.id ?? option.id);
+  }
+  return ids;
+}
+
+/** A Select or Multi-select value with option ids swapped as savedOptionIds says. */
+export function withOptionIds(value: unknown, ids: Readonly<Record<Id, Id>>): unknown {
+  const swap = (id: unknown) => (typeof id === 'string' ? (ids[id] ?? id) : id);
+  return Array.isArray(value) ? [...new Set(value.map(swap))] : swap(value);
 }

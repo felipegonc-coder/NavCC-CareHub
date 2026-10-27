@@ -1,10 +1,10 @@
 /**
  * The Databases and Forms API (decision 0200): one typed method per route under /api/databases and
- * /api/forms. Screens get the client from DatabaseClientProvider (hooks.ts); tests pass
- * mockClient() from test-utils.tsx and never touch the network.
+ * /api/forms, and the workspace's people. Screens get the client from DatabaseClientProvider
+ * (hooks.ts); tests pass mockClient() from test-utils.tsx and never touch the network.
  *
- * Requests go through `fetchJson` below until `api` from apps/web/src/lib/api.ts lands (decision
- * 0007 section 5.2); then createDatabaseClient gets a RequestJson built on it, in this file only.
+ * Requests go through `api` from apps/web/src/lib/api.ts (decision 0007 section 5.2): the session
+ * cookie, the CSRF header on changes, JSON both ways and ApiError when something fails.
  */
 import type {
   DatabaseMeta,
@@ -20,27 +20,18 @@ import type {
   ViewOverride,
   ComputedValue,
 } from '@carehub/databases';
+import { api, ApiError } from '../../lib/api';
+import type { PersonChoice } from './cells/types';
 import type { ViewQueryResult } from './contract';
 
 // ---------------------------------------------------------------- requests and errors
+
+export { ApiError };
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /** Sends one JSON request and resolves to the parsed answer, or throws an ApiError. */
 export type RequestJson = <T>(method: HttpMethod, path: string, body?: unknown) => Promise<T>;
-
-/** What every failed request throws: the same shape as lib/api's ApiError. */
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.code = code;
-  }
-}
 
 /** Any error with an HTTP status and a code, whichever API client threw it. */
 export function isApiError(error: unknown): error is ApiError {
@@ -51,52 +42,25 @@ export function isApiError(error: unknown): error is ApiError {
   );
 }
 
-/** Shown when the server can't be reached at all. */
-export const OFFLINE_MESSAGE = "Couldn't reach Care Hub. Check your connection and try again.";
+/** Shown when the server can't be reached at all (lib/api's words). */
+export const OFFLINE_MESSAGE = "Can't reach Care Hub. Check your connection, then try again.";
 /** Shown when the server fails without saying why. */
 export const UNKNOWN_ERROR_MESSAGE = 'Something went wrong. Try again.';
 
-function errorFrom(status: number, body: unknown): ApiError {
-  const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
-  const code = typeof error?.code === 'string' ? error.code : 'unknown';
-  const message = typeof error?.message === 'string' ? error.message : UNKNOWN_ERROR_MESSAGE;
-  return new ApiError(status, code, message);
-}
-
-/**
- * Stand-in for lib/api: same-origin JSON with cookies. It doesn't send the CSRF header, because
- * web code never reads the cookie itself (decision 0007 section 3.1); lib/api adds it.
- */
-export const fetchJson: RequestJson = async <T>(
-  method: HttpMethod,
-  path: string,
-  body?: unknown,
-) => {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method,
-      credentials: 'same-origin',
-      headers:
-        body === undefined
-          ? { Accept: 'application/json' }
-          : { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    throw new ApiError(0, 'offline', OFFLINE_MESSAGE);
+/** One request through lib/api. An answer without a JSON body resolves to undefined. */
+export const fetchJson: RequestJson = <T>(method: HttpMethod, path: string, body?: unknown) => {
+  switch (method) {
+    case 'GET':
+      return api.get<T>(path);
+    case 'POST':
+      return api.post<T>(path, body);
+    case 'PUT':
+      return api.put<T>(path, body);
+    case 'PATCH':
+      return api.patch<T>(path, body);
+    case 'DELETE':
+      return api.delete<T>(path, body);
   }
-  const text = await response.text();
-  let parsed: unknown = null;
-  if (text) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = null;
-    }
-  }
-  if (!response.ok) throw errorFrom(response.status, parsed);
-  return parsed as T;
 };
 
 // ---------------------------------------------------------------- shapes
@@ -219,11 +183,30 @@ export interface FormLink {
   linkCode: string;
 }
 
+/** Someone in the workspace, guests included (`GET /api/workspace/members`, decision 0007). */
+export interface Member {
+  id: Id;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  roleId: Id;
+  roleName: string;
+  isGuest: boolean;
+}
+
+/** A member as Person cells list them (without a photo their initials show). */
+export function personChoice(member: Member): PersonChoice {
+  const person: PersonChoice = { id: member.id, name: member.name, email: member.email };
+  if (member.avatarUrl) person.avatarUrl = member.avatarUrl;
+  return person;
+}
+
 // ---------------------------------------------------------------- the client
 
 /**
  * One method per route. Answers that decision 0200 doesn't describe yet are `unknown`: the screen
- * that reads one checks its shape.
+ * that reads one checks its shape. Settings writes take the database's `version` (from GET /:id or
+ * the last settings answer); a stale one gets 409 "This database changed. Reload to see the latest."
  */
 export interface DatabaseClient {
   createDatabase(input: NewDatabase): Promise<DatabaseWithVersion>;
@@ -234,17 +217,27 @@ export interface DatabaseClient {
     settings: DatabaseSettings,
   ): Promise<SettingsAnswer>;
 
-  createProperty(databaseId: Id, property: NewProperty): Promise<SettingsAnswer>;
-  updateProperty(databaseId: Id, propertyId: Id, change: PropertyChange): Promise<PropertyAnswer>;
-  deleteProperty(databaseId: Id, propertyId: Id): Promise<SettingsAnswer>;
-  restoreProperty(databaseId: Id, propertyId: Id): Promise<SettingsAnswer>;
-  duplicateProperty(databaseId: Id, propertyId: Id): Promise<SettingsAnswer>;
+  createProperty(databaseId: Id, version: number, property: NewProperty): Promise<SettingsAnswer>;
+  updateProperty(
+    databaseId: Id,
+    version: number,
+    propertyId: Id,
+    change: PropertyChange,
+  ): Promise<PropertyAnswer>;
+  deleteProperty(databaseId: Id, version: number, propertyId: Id): Promise<SettingsAnswer>;
+  restoreProperty(databaseId: Id, version: number, propertyId: Id): Promise<SettingsAnswer>;
+  duplicateProperty(databaseId: Id, version: number, propertyId: Id): Promise<SettingsAnswer>;
 
-  createView(databaseId: Id, view: View): Promise<SettingsAnswer>;
-  updateView(databaseId: Id, viewId: Id, change: Partial<View>): Promise<SettingsAnswer>;
-  deleteView(databaseId: Id, viewId: Id): Promise<SettingsAnswer>;
-  duplicateView(databaseId: Id, viewId: Id): Promise<SettingsAnswer>;
-  orderViews(databaseId: Id, viewIds: readonly Id[]): Promise<SettingsAnswer>;
+  createView(databaseId: Id, version: number, view: View): Promise<SettingsAnswer>;
+  updateView(
+    databaseId: Id,
+    version: number,
+    viewId: Id,
+    change: Partial<View>,
+  ): Promise<SettingsAnswer>;
+  deleteView(databaseId: Id, version: number, viewId: Id): Promise<SettingsAnswer>;
+  duplicateView(databaseId: Id, version: number, viewId: Id): Promise<SettingsAnswer>;
+  orderViews(databaseId: Id, version: number, viewIds: readonly Id[]): Promise<SettingsAnswer>;
 
   query(databaseId: Id, request: QueryRequest): Promise<ViewQueryResult>;
   chart(databaseId: Id, request: ChartRequest): Promise<unknown>;
@@ -259,12 +252,21 @@ export interface DatabaseClient {
   moveRow(databaseId: Id, viewId: Id, rowId: Id, beforeRowId?: Id): Promise<Ok>;
   pickRows(databaseId: Id, q: string): Promise<RowPick[]>;
 
-  createTemplate(databaseId: Id, template: NewTemplate): Promise<SettingsAnswer>;
-  updateTemplate(databaseId: Id, templateId: Id, change: TemplateChange): Promise<SettingsAnswer>;
-  deleteTemplate(databaseId: Id, templateId: Id): Promise<SettingsAnswer>;
+  createTemplate(databaseId: Id, version: number, template: NewTemplate): Promise<SettingsAnswer>;
+  updateTemplate(
+    databaseId: Id,
+    version: number,
+    templateId: Id,
+    change: TemplateChange,
+  ): Promise<SettingsAnswer>;
+  deleteTemplate(databaseId: Id, version: number, templateId: Id): Promise<SettingsAnswer>;
   applyTemplate(databaseId: Id, templateId: Id, rowId: Id, replace: boolean): Promise<Row>;
 
-  setAccessRules(databaseId: Id, rules: readonly RowAccessRule[]): Promise<SettingsAnswer>;
+  setAccessRules(
+    databaseId: Id,
+    version: number,
+    rules: readonly RowAccessRule[],
+  ): Promise<SettingsAnswer>;
 
   pressButton(databaseId: Id, rowId: Id, propertyId: Id): Promise<unknown>;
   undoButtonRun(databaseId: Id, runId: Id): Promise<Ok>;
@@ -279,9 +281,15 @@ export interface DatabaseClient {
   getPublicForm(code: string): Promise<unknown>;
   submitPublicForm(code: string, answers: FormAnswers): Promise<Ok>;
   changeFormLink(databaseId: Id, viewId: Id): Promise<FormLink>;
+
+  /** Everyone in the workspace, or those whose name or email matches `q`. */
+  listMembers(q?: string): Promise<Member[]>;
 }
 
 const seg = encodeURIComponent;
+
+/** DELETE has no body: its version goes in the address. */
+const at = (version: number) => `?version=${version}`;
 
 /** Leaves out optional fields that are null, undefined or '' (strict request schemas). */
 function compact<T extends object>(body: T): Partial<T> {
@@ -300,25 +308,27 @@ export function createDatabaseClient(request: RequestJson = fetchJson): Database
     updateDatabase: (databaseId, version, settings) =>
       request('PATCH', db(databaseId), { ...settings, version }),
 
-    createProperty: (databaseId, property) =>
-      request('POST', db(databaseId, '/properties'), property),
-    updateProperty: (databaseId, propertyId, change) =>
-      request('PATCH', db(databaseId, `/properties/${seg(propertyId)}`), change),
-    deleteProperty: (databaseId, propertyId) =>
-      request('DELETE', db(databaseId, `/properties/${seg(propertyId)}`)),
-    restoreProperty: (databaseId, propertyId) =>
-      request('POST', db(databaseId, `/properties/${seg(propertyId)}/restore`)),
-    duplicateProperty: (databaseId, propertyId) =>
-      request('POST', db(databaseId, `/properties/${seg(propertyId)}/duplicate`)),
+    createProperty: (databaseId, version, property) =>
+      request('POST', db(databaseId, '/properties'), { ...property, version }),
+    updateProperty: (databaseId, version, propertyId, change) =>
+      request('PATCH', db(databaseId, `/properties/${seg(propertyId)}`), { ...change, version }),
+    deleteProperty: (databaseId, version, propertyId) =>
+      request('DELETE', db(databaseId, `/properties/${seg(propertyId)}${at(version)}`)),
+    restoreProperty: (databaseId, version, propertyId) =>
+      request('POST', db(databaseId, `/properties/${seg(propertyId)}/restore`), { version }),
+    duplicateProperty: (databaseId, version, propertyId) =>
+      request('POST', db(databaseId, `/properties/${seg(propertyId)}/duplicate`), { version }),
 
-    createView: (databaseId, view) => request('POST', db(databaseId, '/views'), view),
-    updateView: (databaseId, viewId, change) =>
-      request('PATCH', db(databaseId, `/views/${seg(viewId)}`), change),
-    deleteView: (databaseId, viewId) => request('DELETE', db(databaseId, `/views/${seg(viewId)}`)),
-    duplicateView: (databaseId, viewId) =>
-      request('POST', db(databaseId, `/views/${seg(viewId)}/duplicate`)),
-    orderViews: (databaseId, viewIds) =>
-      request('PUT', db(databaseId, '/views/order'), { viewIds }),
+    createView: (databaseId, version, view) =>
+      request('POST', db(databaseId, '/views'), { ...view, version }),
+    updateView: (databaseId, version, viewId, change) =>
+      request('PATCH', db(databaseId, `/views/${seg(viewId)}`), { ...change, version }),
+    deleteView: (databaseId, version, viewId) =>
+      request('DELETE', db(databaseId, `/views/${seg(viewId)}${at(version)}`)),
+    duplicateView: (databaseId, version, viewId) =>
+      request('POST', db(databaseId, `/views/${seg(viewId)}/duplicate`), { version }),
+    orderViews: (databaseId, version, viewIds) =>
+      request('PUT', db(databaseId, '/views/order'), { viewIds, version }),
 
     query: (databaseId, body) => request('POST', db(databaseId, '/query'), compact(body)),
     chart: (databaseId, body) => request('POST', db(databaseId, '/chart'), compact(body)),
@@ -343,16 +353,17 @@ export function createDatabaseClient(request: RequestJson = fetchJson): Database
     pickRows: (databaseId, q) =>
       request('GET', db(databaseId, `/rows/pick?q=${encodeURIComponent(q)}`)),
 
-    createTemplate: (databaseId, template) =>
-      request('POST', db(databaseId, '/templates'), template),
-    updateTemplate: (databaseId, templateId, change) =>
-      request('PATCH', db(databaseId, `/templates/${seg(templateId)}`), change),
-    deleteTemplate: (databaseId, templateId) =>
-      request('DELETE', db(databaseId, `/templates/${seg(templateId)}`)),
+    createTemplate: (databaseId, version, template) =>
+      request('POST', db(databaseId, '/templates'), { ...template, version }),
+    updateTemplate: (databaseId, version, templateId, change) =>
+      request('PATCH', db(databaseId, `/templates/${seg(templateId)}`), { ...change, version }),
+    deleteTemplate: (databaseId, version, templateId) =>
+      request('DELETE', db(databaseId, `/templates/${seg(templateId)}${at(version)}`)),
     applyTemplate: (databaseId, templateId, rowId, replace) =>
       request('POST', db(databaseId, `/templates/${seg(templateId)}/apply`), { rowId, replace }),
 
-    setAccessRules: (databaseId, rules) => request('PUT', db(databaseId, '/access-rules'), rules),
+    setAccessRules: (databaseId, version, rules) =>
+      request('PUT', db(databaseId, '/access-rules'), { rules, version }),
 
     pressButton: (databaseId, rowId, propertyId) =>
       request('POST', db(databaseId, `/rows/${seg(rowId)}/buttons/${seg(propertyId)}`)),
@@ -372,5 +383,8 @@ export function createDatabaseClient(request: RequestJson = fetchJson): Database
       request('POST', forms(`/public/${seg(code)}/responses`), { answers }),
     changeFormLink: (databaseId, viewId) =>
       request('POST', forms(`/${seg(databaseId)}/views/${seg(viewId)}/link`)),
+
+    listMembers: (q) =>
+      request('GET', q ? `/api/workspace/members?q=${seg(q)}` : '/api/workspace/members'),
   };
 }

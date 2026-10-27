@@ -21,9 +21,10 @@ import {
   type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query';
-import type { Id, View, ViewOverride } from '@carehub/databases';
+import type { Id, Row, SelectOption, View, ViewOverride } from '@carehub/databases';
 import {
   createDatabaseClient,
+  isApiError,
   type CreateRowRequest,
   type DatabaseClient,
   type DatabaseSettings,
@@ -38,7 +39,10 @@ import {
   mergeMore,
   moreRequest,
   moveInCache,
+  savedOptionIds,
   titlePropertyId,
+  withOptionIds,
+  withTypedOptions,
   withValues,
   type CachePlace,
 } from './cache';
@@ -86,6 +90,10 @@ export const databaseKeys = {
   chart: (databaseId: Id, viewId: Id, override: ViewOverride | null) =>
     ['databases', databaseId, 'chart', viewId, override] as const,
   pick: (databaseId: Id, q: string) => ['databases', databaseId, 'pick', q] as const,
+  /** The mutation key of a database's settings writes (they go one at a time). */
+  settings: (databaseId: Id) => ['databases', databaseId, 'settings'] as const,
+  /** The workspace's people matching `q`: not one database's, so no database refresh drops them. */
+  members: (q: string) => ['databases', 'members', q] as const,
 };
 
 // ---------------------------------------------------------------- reading
@@ -214,6 +222,15 @@ export function usePickRows(databaseId: Id, q: string) {
   });
 }
 
+/** The workspace's people (guests included) matching `q`, kept for a minute: Person pickers. */
+export function membersQuery(client: DatabaseClient, q: string) {
+  return {
+    queryKey: databaseKeys.members(q),
+    queryFn: () => client.listMembers(q),
+    staleTime: 60_000,
+  };
+}
+
 /** Chart views. The answer's shape is the chart engine's (checked by the chart layout). */
 export function useChartData(databaseId: Id, viewId: Id, override: ViewOverride | null = null) {
   const client = useDatabaseClient();
@@ -268,13 +285,35 @@ export function useCreateRow(databaseId: Id) {
   });
 }
 
-/** Changed values of one row, shown at once in every view and on its row page. */
+export interface UpdateValuesInput {
+  rowId: Id;
+  values: RowValues;
+  /** Options typed into Select or Multi-select cells, by property id: added before saving. */
+  newOptions?: Partial<Record<Id, readonly SelectOption[]>>;
+}
+
+/**
+ * Changed values of one row, shown at once in every view and on its row page. Options typed into
+ * a cell go into their property first; one the property already has by name is saved instead.
+ */
 export function useUpdateValues(databaseId: Id) {
   const client = useDatabaseClient();
   const queryClient = useQueryClient();
+  const addOptions = useAddOptions(databaseId);
   return useMutation({
-    mutationFn: ({ rowId, values }: { rowId: Id; values: RowValues }) =>
-      client.updateRow(databaseId, rowId, values),
+    mutationFn: async ({ rowId, values, newOptions }: UpdateValuesInput) => {
+      let saved = values;
+      for (const [propertyId, typed] of Object.entries(newOptions ?? {})) {
+        if (!typed || typed.length === 0) continue;
+        const meta = await addOptions.mutateAsync({ propertyId, options: typed });
+        const ids = savedOptionIds(
+          meta.properties.find((p) => p.id === propertyId),
+          typed,
+        );
+        saved = { ...saved, [propertyId]: withOptionIds(saved[propertyId], ids) };
+      }
+      return client.updateRow(databaseId, rowId, saved);
+    },
     onMutate: async ({ rowId, values }) => {
       const snapshot = await holdQueries(queryClient, databaseId);
       const meta = queryClient.getQueryData<DatabaseWithVersion>(databaseKeys.meta(databaseId));
@@ -311,6 +350,20 @@ export function useTrashRows(databaseId: Id) {
       return { snapshot };
     },
     onError: (_error, _rowIds, context) => restore(queryClient, context?.snapshot),
+    onSettled: () => refreshQueries(queryClient, databaseId),
+  });
+}
+
+/** Copies rows one after another, in the order given; the copies show once the views refresh. */
+export function useDuplicateRows(databaseId: Id) {
+  const client = useDatabaseClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (rowIds: readonly Id[]) => {
+      const copies: Row[] = [];
+      for (const rowId of rowIds) copies.push(await client.duplicateRow(databaseId, rowId));
+      return copies;
+    },
     onSettled: () => refreshQueries(queryClient, databaseId),
   });
 }
@@ -378,56 +431,147 @@ export function useMoveRow(databaseId: Id, viewId: Id) {
 // ---------------------------------------------------------------- settings
 
 /**
- * Any settings write (properties, views, templates, access rules): the answer is the whole
- * database, which replaces the cached one; then the views refresh.
+ * A settings write (decision 0200): the database's own settings, properties, views, view order,
+ * templates and access rules. Each sends the database's version, and the server refuses a stale
+ * one (409, "This database changed. Reload to see the latest."). So one database's writes go one
+ * at a time, each with the version the write before it got back.
  */
-export function useSettingsChange(databaseId: Id) {
-  const client = useDatabaseClient();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (write: (client: DatabaseClient) => Promise<SettingsAnswer>) => write(client),
-    onSuccess: (meta) => queryClient.setQueryData(databaseKeys.meta(databaseId), meta),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: databaseKeys.all(databaseId) }),
-  });
+export interface SettingsWrite<TInput> {
+  /**
+   * Sends the change. `meta` is the database as cached: the last answer, with the changes still
+   * waiting to be sent shown on top.
+   */
+  send(client: DatabaseClient, meta: DatabaseWithVersion, input: TInput): Promise<SettingsAnswer>;
+  /** The database with the change, shown until the server answers. */
+  show?(meta: DatabaseWithVersion, input: TInput): DatabaseWithVersion;
+  /** The change only adds things: after a 409 the database reloads and it's sent once more. */
+  retryOnConflict?: boolean;
 }
 
-/** PATCH /:id with the cached version (a stale one gets "This database changed..."). */
-export function useUpdateDatabase(databaseId: Id) {
+/**
+ * Runs settings writes: the answer (the whole database) replaces the cached one, a refusal puts
+ * back what was shown before, and the views refresh once no other write is waiting.
+ */
+export function useSettingsWrite<TInput>(databaseId: Id, write: SettingsWrite<TInput>) {
   const client = useDatabaseClient();
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (settings: DatabaseSettings) => {
-      const meta = queryClient.getQueryData<DatabaseWithVersion>(databaseKeys.meta(databaseId));
-      return client.updateDatabase(databaseId, meta?.version ?? 0, settings);
-    },
-    onSuccess: (meta) => queryClient.setQueryData(databaseKeys.meta(databaseId), meta),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: databaseKeys.all(databaseId) }),
-  });
-}
+  const metaKey = databaseKeys.meta(databaseId);
+  const mutationKey = databaseKeys.settings(databaseId);
+  const loadMeta = () => client.getDatabase(databaseId);
+  // This write is still counted while its callbacks run.
+  const othersWaiting = () => queryClient.isMutating({ mutationKey }) > 1;
 
-/** A view change for everyone, shown at once in the tabs and toolbar. */
-export function useUpdateView(databaseId: Id) {
-  const client = useDatabaseClient();
-  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ viewId, change }: { viewId: Id; change: Partial<View> }) =>
-      client.updateView(databaseId, viewId, change),
-    onMutate: async ({ viewId, change }) => {
-      const key = databaseKeys.meta(databaseId);
-      await queryClient.cancelQueries({ queryKey: key });
-      const before = queryClient.getQueryData<DatabaseWithVersion>(key);
-      if (before) {
-        queryClient.setQueryData<DatabaseWithVersion>(key, {
-          ...before,
-          views: before.views.map((v) => (v.id === viewId ? { ...v, ...change, id: v.id } : v)),
+    mutationKey,
+    scope: { id: mutationKey.join('/') },
+    mutationFn: async (input: TInput) => {
+      const meta = await queryClient.ensureQueryData({ queryKey: metaKey, queryFn: loadMeta });
+      try {
+        return await write.send(client, meta, input);
+      } catch (error) {
+        if (!write.retryOnConflict || !isApiError(error) || error.status !== 409) throw error;
+        const fresh = await queryClient.fetchQuery({
+          queryKey: metaKey,
+          queryFn: loadMeta,
+          staleTime: 0,
         });
+        return write.send(client, fresh, input);
       }
+    },
+    onMutate: async (input) => {
+      if (!write.show) return { before: undefined };
+      await queryClient.cancelQueries({ queryKey: metaKey });
+      const before = queryClient.getQueryData<DatabaseWithVersion>(metaKey);
+      if (before) queryClient.setQueryData(metaKey, write.show(before, input));
       return { before };
     },
-    onError: (_error, _input, context) => {
-      if (context?.before) queryClient.setQueryData(databaseKeys.meta(databaseId), context.before);
+    onSuccess: (answer) => {
+      // Writes still waiting stay shown; the last answer has all of them.
+      queryClient.setQueryData<DatabaseWithVersion>(metaKey, (cached) =>
+        othersWaiting() && cached ? { ...cached, version: answer.version } : answer,
+      );
     },
-    onSuccess: (meta) => queryClient.setQueryData(databaseKeys.meta(databaseId), meta),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: databaseKeys.all(databaseId) }),
+    onError: async (error, _input, context) => {
+      if (isApiError(error) && error.status === 409) {
+        // Someone else changed it: the writes still waiting go on top of their change.
+        await queryClient.refetchQueries({ queryKey: metaKey });
+      } else if (!othersWaiting() && context?.before) {
+        const { before } = context;
+        // Writes before this one may have answered since: keep the newest version.
+        queryClient.setQueryData<DatabaseWithVersion>(metaKey, (cached) => ({
+          ...before,
+          version: Math.max(before.version, cached?.version ?? 0),
+        }));
+      }
+    },
+    onSettled: () =>
+      othersWaiting()
+        ? undefined
+        : queryClient.invalidateQueries({ queryKey: databaseKeys.all(databaseId) }),
   });
+}
+
+/**
+ * Any other settings write, given the client and the version to send:
+ * `change.mutate((client, version) => client.deleteView(databaseId, version, viewId))`.
+ */
+export function useSettingsChange(databaseId: Id) {
+  return useSettingsWrite<(client: DatabaseClient, version: number) => Promise<SettingsAnswer>>(
+    databaseId,
+    { send: (client, meta, write) => write(client, meta.version) },
+  );
+}
+
+/** PATCH /:id: Lock structure, the default template, the row page layout, sub-items, dependencies. */
+export function useUpdateDatabase(databaseId: Id) {
+  return useSettingsWrite<DatabaseSettings>(databaseId, {
+    send: (client, meta, settings) => client.updateDatabase(databaseId, meta.version, settings),
+    show: (meta, settings) => ({ ...meta, ...definedOnly(settings) }),
+  });
+}
+
+/** A view change for everyone, shown at once in the tabs, toolbar and layout. */
+export function useUpdateView(databaseId: Id) {
+  return useSettingsWrite<{ viewId: Id; change: Partial<View> }>(databaseId, {
+    send: (client, meta, { viewId, change }) =>
+      client.updateView(databaseId, meta.version, viewId, change),
+    show: (meta, { viewId, change }) => ({
+      ...meta,
+      views: meta.views.map((v) => (v.id === viewId ? { ...v, ...change, id: v.id } : v)),
+    }),
+  });
+}
+
+export interface TypedOptions {
+  propertyId: Id;
+  options: readonly SelectOption[];
+}
+
+/**
+ * Options typed into a Select or Multi-select cell, added to the property (Can edit; Lock structure
+ * doesn't stop it). Names the property already has (ignoring case) aren't added again. Options are
+ * only ever added, so after a 409 it reloads the database and tries once more.
+ */
+export function useAddOptions(databaseId: Id) {
+  return useSettingsWrite<TypedOptions>(databaseId, {
+    send: async (client, meta, { propertyId, options }) => {
+      const property = withTypedOptions(meta, propertyId, options).properties.find(
+        (p) => p.id === propertyId,
+      );
+      const typed = new Set(options.map((o) => o.id));
+      const config = property?.config;
+      const adds =
+        (config?.type === 'select' || config?.type === 'multi_select') &&
+        config.options.some((o) => typed.has(o.id));
+      if (!config || !adds) return meta;
+      return client.updateProperty(databaseId, meta.version, propertyId, { config });
+    },
+    show: (meta, { propertyId, options }) => withTypedOptions(meta, propertyId, options),
+    retryOnConflict: true,
+  });
+}
+
+/** The fields that are set (undefined leaves a setting as it is; null clears it). */
+function definedOnly<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
