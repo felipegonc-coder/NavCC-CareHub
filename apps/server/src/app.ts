@@ -46,7 +46,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: workspaces
 
-  // feature: pages
+  await app.register(import('./features/pages/routes')); // /api/spaces, /api/pages, /api/trash, …
 
   // feature: collab
 
@@ -70,7 +70,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(import('./features/learning/routes'), { prefix: '/api/learning' });
 
-  // feature: databases
+  await app.register(import('./features/databases/routes'), { prefix: '/api/databases' });
 
   // feature: forms
 
