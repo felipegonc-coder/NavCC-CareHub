@@ -1,2 +1,3 @@
-// quiz module: owned by B2; see docs/learning/PLAN.md. Stub until it lands.
-export {};
+export { planAttempt, isPlanFor, type AttemptPlan } from './plan';
+export { scoreAttempt, type AttemptResult } from './attempt';
+export { quizStatus, type QuizStatus } from './status';

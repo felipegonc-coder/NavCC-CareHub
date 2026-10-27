@@ -45,3 +45,13 @@ export {
   type OutlineProgress,
   type OutlineRow,
 } from './outline';
+export {
+  COURSE_SEARCH_MIN_LENGTH,
+  buildCourseSearchIndex,
+  searchCourse,
+  searchCourseIndex,
+  type CourseSearchHit,
+  type CourseSearchIndex,
+  type CourseSearchResult,
+  type SearchSnippetPart,
+} from './search';
