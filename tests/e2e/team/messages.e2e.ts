@@ -9,12 +9,13 @@ import {
 } from '../flows/messages/messages-page.js';
 
 // Smoke flow for the Messages screen (docs/team/testing/messages.md): start a direct chat, send a
-// message, edit it with ↑ and delete it. The full flows are in ../flows/messages.
+// message, edit it with ↑, find it with search and delete it. The full flows are in
+// ../flows/messages.
 test.describe('Messages smoke', () => {
   onlyIn('desktop-light');
   needs('signIn');
 
-  test('starts a chat, sends, edits with ↑ and deletes a message', async ({ page }) => {
+  test('starts a chat, sends, edits with ↑, finds and deletes a message', async ({ page }) => {
     const text = uniqueName('Fictional QA smoke message');
     const edited = uniqueName('Fictional QA smoke message, edited');
     await signInAs(page, 'admin');
@@ -33,6 +34,16 @@ test.describe('Messages smoke', () => {
       await composer(page).fill(edited);
       await composer(page).press('Enter');
       await expect(messageRow(page, edited)).toContainText('(edited)');
+    });
+
+    await test.step('Search finds the message and opens the chat at it', async () => {
+      await page.getByRole('searchbox', { name: 'Search messages' }).fill(`"${edited}"`);
+      const results = page.getByRole('region', { name: 'Search results' });
+      await results.getByRole('link').filter({ hasText: edited }).click();
+      await expect(page).toHaveURL(/[?&]message=/);
+      await expect(messageRow(page, edited)).toBeInViewport();
+      await page.getByRole('searchbox', { name: 'Search messages' }).press('Escape');
+      await expect(results).toHaveCount(0);
     });
 
     await test.step('Delete asks first, then "This message was deleted" stays', async () => {
