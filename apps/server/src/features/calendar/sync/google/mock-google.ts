@@ -37,6 +37,51 @@ const json = (status: number, body: unknown, headers: Record<string, string> = {
 export const googleErrorBody = (status: number, reason: string, message = reason) => ({
   error: { code: status, message, errors: [{ domain: 'global', reason, message }] },
 });
+const apiError = (status: number, reason: string, message?: string) =>
+  json(status, googleErrorBody(status, reason, message));
+const isObject = (value: unknown): value is Json =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+/** Google's patch rules: objects merge, arrays replace, null clears. */
+function mergePatch(target: Json, patch: Json): Json {
+  const out: Json = { ...target };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (value === null) delete out[key];
+    else if (isObject(value)) out[key] = mergePatch(isObject(out[key]) ? out[key] : {}, value);
+    else out[key] = structuredClone(value);
+  }
+  return out;
+}
+const hasZone = (dateTime: string) => /(Z|[+-]\d\d:\d\d)$/.test(dateTime);
+/** Roughly when a time is, for window filters (all-day and zoneless times read as UTC). */
+function instant(time: unknown, fallback: number): number {
+  if (!isObject(time)) return fallback;
+  if (typeof time.date === 'string') return Date.parse(`${time.date}T00:00:00Z`);
+  if (typeof time.dateTime !== 'string') return fallback;
+  return Date.parse(hasZone(time.dateTime) ? time.dateTime : `${time.dateTime}Z`);
+}
+const BASE32HEX = '0123456789abcdefghijklmnopqrstuv';
+const newEventId = () => [...randomBytes(26)].map((byte) => BASE32HEX.charAt(byte & 31)).join('');
+const AUTH = 'https://www.googleapis.com/auth/';
+/** Which scopes let a token list calendars or read events. */
+const ACCEPTS = {
+  list: [
+    'calendar.calendarlist.readonly',
+    'calendar.calendarlist',
+    'calendar.readonly',
+    'calendar',
+  ],
+  read: ['calendar.events', 'calendar.events.readonly', 'calendar.readonly', 'calendar'],
+};
+const RANK = { freeBusyReader: 0, reader: 1, writer: 2, owner: 3 };
+export interface MockCalendar {
+  id: string;
+  summary: string;
+  summaryOverride?: string;
+  timeZone: string;
+  accessRole: keyof typeof RANK;
+  primary: boolean;
+}
 
 interface Grant {
   scopes: string[];
@@ -167,6 +212,170 @@ export function createMockGoogle(
     return json(200, {});
   }
 
+  const calendars = new Map<string, MockCalendar>();
+  const store = new Map<
+    string,
+    Map<string, { event: Json; version: number; start: number; end: number }>
+  >();
+  const pages = new Map<string, { key: string; items: Json[]; last: Json }>();
+  let version = 0;
+  let epoch = 0;
+  const iso = () => new Date(clock).toISOString();
+  const eventsOf = (calendarId: string) => {
+    const events = store.get(calendarId);
+    if (!events) throw new Error(`No calendar ${calendarId}`);
+    return events;
+  };
+
+  function addCalendar(input: Partial<MockCalendar> & { summary: string }): string {
+    const id = input.id ?? `${randomBytes(8).toString('hex')}@group.calendar.example.com`;
+    const defaults = {
+      timeZone: options.timeZone ?? 'America/New_York',
+      accessRole: 'owner' as const,
+    };
+    calendars.set(id, { ...defaults, primary: false, ...input, id });
+    store.set(id, new Map());
+    return id;
+  }
+  addCalendar({ id: account, summary: account, primary: true });
+
+  function save(calendarId: string, event: Json, window?: { start: number; end: number }): Json {
+    version += 1;
+    const saved: Json = { ...event, etag: `"${version}"`, updated: iso() };
+    const series = Array.isArray(saved.recurrence) && saved.recurrence.length > 0;
+    const start = instant(saved.start ?? saved.originalStartTime, -Infinity);
+    const end = series ? Infinity : instant(saved.end, start);
+    eventsOf(calendarId).set(String(saved.id), {
+      event: saved,
+      version,
+      ...(window ?? { start, end }),
+    });
+    return structuredClone(saved);
+  }
+
+  /** Deletes like Google: a short cancelled entry stays for sync, with the series' exceptions. */
+  function cancel(calendarId: string, id: string): void {
+    for (const stored of [...eventsOf(calendarId).values()]) {
+      const { event } = stored;
+      if ((event.id !== id && event.recurringEventId !== id) || event.status === 'cancelled')
+        continue;
+      const kept = ['kind', 'id', 'recurringEventId', 'originalStartTime'];
+      const short = Object.fromEntries(Object.entries(event).filter(([key]) => kept.includes(key)));
+      save(calendarId, { ...short, status: 'cancelled' }, { start: stored.start, end: stored.end });
+    }
+  }
+
+  function paginate(
+    scope: string,
+    query: URLSearchParams,
+    compute: () => Json[],
+    last: Json,
+    head: Json,
+  ) {
+    const key = `${scope}?${[...query.entries()]
+      .filter(([name]) => name !== 'pageToken')
+      .map(([name, value]) => `${name}=${value}`)
+      .sort()
+      .join('&')}`;
+    const pageToken = query.get('pageToken');
+    const saved = pageToken ? pages.get(pageToken) : { key, items: compute(), last };
+    if (!saved || saved.key !== key) return apiError(400, 'invalid', 'Invalid page token value.');
+    const size = Math.min(Number(query.get('maxResults') ?? 250), options.maxPageSize ?? 2500);
+    const rest = saved.items.slice(size);
+    if (rest.length === 0)
+      return json(200, { ...head, items: saved.items.slice(0, size), ...saved.last });
+    const nextPageToken = `mock-page-${token(9)}`;
+    pages.set(nextPageToken, { key, items: rest, last: saved.last });
+    return json(200, { ...head, items: saved.items.slice(0, size), nextPageToken });
+  }
+
+  function listEvents(calendar: MockCalendar, query: URLSearchParams): MockHttpResponse {
+    const syncToken = query.get('syncToken');
+    let pick: (stored: { event: Json; version: number; start: number; end: number }) => boolean;
+    if (syncToken && !query.has('pageToken')) {
+      if (
+        ['timeMin', 'timeMax', 'updatedMin', 'q', 'iCalUID', 'orderBy'].some((k) => query.has(k))
+      ) {
+        return apiError(400, 'invalid', 'The sync token cannot be used with other restrictions.');
+      }
+      const match = /^st-(\d+)-(\d+)$/.exec(syncToken);
+      if (!match) return apiError(400, 'invalid', 'Invalid sync token value.');
+      if (Number(match[2]) !== epoch) {
+        return apiError(
+          410,
+          'fullSyncRequired',
+          'Sync token is no longer valid, a full sync is required.',
+        );
+      }
+      pick = (stored) => stored.version > Number(match[1]);
+    } else {
+      const showDeleted = query.get('showDeleted') === 'true';
+      const min = query.has('timeMin') ? Date.parse(query.get('timeMin') ?? '') : -Infinity;
+      const max = query.has('timeMax') ? Date.parse(query.get('timeMax') ?? '') : Infinity;
+      pick = (stored) =>
+        (showDeleted || stored.event.status !== 'cancelled') &&
+        stored.end > min &&
+        stored.start < max;
+    }
+    const compute = () =>
+      [...eventsOf(calendar.id).values()]
+        .filter(pick)
+        .sort((a, b) => a.version - b.version)
+        .map((stored) => structuredClone(stored.event));
+    const head = {
+      kind: 'calendar#events',
+      summary: calendar.summary,
+      timeZone: calendar.timeZone,
+    };
+    return paginate(
+      `events:${calendar.id}`,
+      query,
+      compute,
+      { nextSyncToken: `st-${version}-${epoch}` },
+      head,
+    );
+  }
+
+  function calendarApi(method: string, url: URL, headers: Record<string, string>) {
+    const bearer = /^Bearer (.+)$/.exec(headers.authorization ?? '')?.[1];
+    const access = bearer ? accessTokens.get(bearer) : undefined;
+    if (!access || access.grant.revoked || access.expiresAt <= clock) {
+      return apiError(401, 'authError', 'Request had invalid authentication credentials.');
+    }
+    const allowed = (need: keyof typeof ACCEPTS) =>
+      access.grant.scopes.some((scope) => ACCEPTS[need].some((name) => scope === `${AUTH}${name}`));
+    const denied = apiError(
+      403,
+      'insufficientPermissions',
+      'Request had insufficient authentication scopes.',
+    );
+    const parts = url.pathname.slice('/calendar/v3/'.length).split('/').map(decodeURIComponent);
+    if (parts.join('/') === 'users/me/calendarList' && method === 'GET') {
+      if (!allowed('list')) return denied;
+      const min = RANK[url.searchParams.get('minAccessRole') as keyof typeof RANK] ?? 0;
+      const items = [...calendars.values()]
+        .filter((calendar) => RANK[calendar.accessRole] >= min)
+        .map(({ primary, ...calendar }) => ({
+          kind: 'calendar#calendarListEntry',
+          ...calendar,
+          ...(primary ? { primary } : {}),
+        }));
+      return paginate(
+        'calendarList',
+        url.searchParams,
+        () => items,
+        {},
+        { kind: 'calendar#calendarList' },
+      );
+    }
+    const calendar =
+      parts[0] === 'calendars' && parts[2] === 'events' ? calendars.get(parts[1] ?? '') : undefined;
+    if (!calendar || parts.length !== 3) return apiError(404, 'notFound', 'Not Found');
+    // Read-only access: Google refuses changes for lack of scopes.
+    if (method !== 'GET' || !allowed('read')) return denied;
+    return listEvents(calendar, url.searchParams);
+  }
+
   function handle(request: MockHttpRequest): MockHttpResponse {
     const url = new URL(request.url);
     const headers: Record<string, string> = {};
@@ -189,6 +398,9 @@ export function createMockGoogle(
     if (url.origin === 'https://oauth2.googleapis.com' && request.method === 'POST') {
       if (url.pathname === '/token') return tokenEndpoint(new URLSearchParams(body));
       if (url.pathname === '/revoke') return revokeEndpoint(new URLSearchParams(body));
+    }
+    if (url.origin === 'https://www.googleapis.com' && url.pathname.startsWith('/calendar/v3/')) {
+      return calendarApi(request.method, url, headers);
     }
     return json(404, { error: 'not_found' });
   }
@@ -229,6 +441,49 @@ export function createMockGoogle(
       for (const grant of grants) grant.revoked = true;
     },
     activeGrants: () => grants.filter((grant) => !grant.revoked).length,
+    /** An access token without the sign-in steps, for Calendar API tests. */
+    issueAccessToken(
+      scopes: readonly string[] = [
+        `${AUTH}calendar.calendarlist.readonly`,
+        `${AUTH}calendar.events.readonly`,
+      ],
+    ) {
+      const grant = { scopes: [...scopes], revoked: false };
+      grants.push(grant);
+      return String(issueTokens(grant, false).access_token);
+    },
+    addCalendar,
+    /** An event made in Google Calendar itself, or an invitation that arrived there. */
+    addEvent(calendarId: string, event: Json): Json {
+      const id = typeof event.id === 'string' ? event.id : newEventId();
+      const eid = Buffer.from(`${id} ${calendarId}`).toString('base64url');
+      const base = {
+        kind: 'calendar#event',
+        status: 'confirmed',
+        htmlLink: `https://www.google.com/calendar/event?eid=${eid}`,
+        iCalUID: `${id}@google.com`,
+        sequence: 0,
+        created: iso(),
+        organizer: { email: calendarId, self: true },
+        eventType: 'default',
+      };
+      return save(calendarId, mergePatch(base, { ...event, id }));
+    },
+    /** A change made in Google Calendar itself. */
+    editEvent(calendarId: string, id: string, changes: Json): Json {
+      const stored = eventsOf(calendarId).get(id);
+      if (!stored) throw new Error(`No event ${id}`);
+      return save(calendarId, mergePatch(stored.event, changes));
+    },
+    removeEvent: (calendarId: string, id: string) => cancel(calendarId, id),
+    event(calendarId: string, id: string): Json | undefined {
+      const stored = eventsOf(calendarId).get(id);
+      return stored ? structuredClone(stored.event) : undefined;
+    },
+    /** Google drops every sync token handed out so far (the next incremental sync gets 410). */
+    expireSyncTokens() {
+      epoch += 1;
+    },
   };
 }
 export type MockGoogle = ReturnType<typeof createMockGoogle>;

@@ -68,3 +68,50 @@ export const STATUS_GROUP_LABELS = {
   in_progress: 'In progress',
   complete: 'Complete',
 } as const;
+
+const rows = (count: number) => `${count.toLocaleString('en-US')} ${count === 1 ? 'row' : 'rows'}`;
+
+/** Words in the property menu, its confirms and the list of deleted properties. */
+export const PROPERTY_TEXT = {
+  propertyName: 'Property name',
+  changeType: 'Change type',
+  editProperty: 'Edit property',
+  type: 'Type',
+  back: 'Back',
+  hide: 'Hide in this view',
+  insertLeft: 'Insert left',
+  insertRight: 'Insert right',
+  duplicate: 'Duplicate',
+  propertyAccess: 'Property access',
+  delete: 'Delete',
+  cancel: 'Cancel',
+  nameEmpty: 'Enter a name.',
+  nameTooLong: 'Property names can be up to 100 characters.',
+  nameTaken: (name: string) => `A property named "${name}" already exists.`,
+  changeTitle: (name: string, type: string) => `Change "${name}" to ${type}?`,
+  valuesCleared: (count: number) => `Values in ${rows(count)} will be cleared.`,
+  deleteTitle: (name: string) => `Delete "${name}"?`,
+  valuesRemoved: (count: number) => `Values in ${rows(count)} will be removed.`,
+  restoreLater:
+    'Deleted properties can be restored with their values for 30 days from Properties → Deleted.',
+  twoWay: (name: string, database: string) => `This also deletes "${name}" in ${database}.`,
+  twoWayUnnamed: 'This also deletes the matching property in the other database.',
+  deletedList: 'Deleted properties',
+  noDeleted: 'No deleted properties.',
+  deletedOn: (date: string) => `Deleted ${date}`,
+  restore: 'Restore',
+  restoreNamed: (name: string) => `Restore ${name}`,
+} as const;
+
+/** Words in Edit property. */
+export const SETTINGS_TEXT = {
+  title: 'Edit property',
+  description: 'Description',
+  type: 'Type',
+  rowPage: 'On row pages',
+  rowPageChoices: {
+    always: 'Always show',
+    hide_when_empty: 'Hide when empty',
+    always_hide: 'Always hide',
+  },
+} as const;
