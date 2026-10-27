@@ -78,7 +78,7 @@ export function SaveState({
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => run(async () => onLoad(await saving.loadTheirs()))}
+            onClick={() => run(async () => onLoad(await saving.reload()))}
           >
             Load their version
           </Button>

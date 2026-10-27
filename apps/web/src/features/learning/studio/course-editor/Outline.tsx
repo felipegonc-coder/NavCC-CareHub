@@ -9,7 +9,7 @@ import {
 } from '@carehub/learning';
 import type { Course, Id, Lesson } from '@carehub/learning';
 import { Button, cn, IconButton } from '@carehub/ui';
-import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Plus, Settings, Trash2 } from 'lucide-react';
 import { TitleField } from './parts';
 import { SortableList, useSortableItem } from './sortable';
 import type { EditorActions } from './types';
@@ -83,8 +83,20 @@ function LessonRow(
   );
 }
 
-/** The course title and its lessons: select, add, reorder (drag or move buttons), duplicate and delete. */
-export function Outline(props: EditorActions & { course: Course; lessonId: Id | null }) {
+/** Props for {@link Outline}. */
+export type OutlineProps = EditorActions & {
+  course: Course;
+  /** The lesson on the canvas, or null when none is (for example while the settings are open). */
+  lessonId: Id | null;
+  settingsOpen: boolean;
+  onSettings(): void;
+};
+
+/**
+ * The course title, a way to the course settings, and the lessons: select, add, reorder (drag or move buttons),
+ * duplicate and delete.
+ */
+export function Outline(props: OutlineProps) {
   const { course, lessonId, edit } = props;
   const add = (kind: Lesson['kind']) => {
     const lesson = newLesson(course, kind);
@@ -100,6 +112,16 @@ export function Outline(props: EditorActions & { course: Course; lessonId: Id | 
         value={course.title}
         onChange={(text) => edit((c) => renameCourse(c, text), { group: 'course-title' })}
       />
+      <Button
+        size="sm"
+        variant={props.settingsOpen ? 'secondary' : 'ghost'}
+        className="justify-start"
+        aria-current={props.settingsOpen || undefined}
+        onClick={props.onSettings}
+      >
+        <Settings aria-hidden />
+        Course settings
+      </Button>
       <nav aria-label="Lessons" className="flex flex-col gap-2">
         <h2 className="text-small font-semibold text-muted">Lessons</h2>
         {course.lessons.length === 0 ? (

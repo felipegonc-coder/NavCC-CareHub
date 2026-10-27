@@ -1,6 +1,5 @@
 import {
   addBlock,
-  blockCatalog,
   deleteBlock,
   duplicateBlock,
   moveBlock,
@@ -13,16 +12,11 @@ import { Button, cn, IconButton } from '@carehub/ui';
 import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { BlockEditorFor } from '../editors/registry';
+import { blockLabel } from '../labels';
 import { BlockPicker } from './BlockPicker';
 import { TitleField } from './parts';
 import { SortableList, useSortableItem } from './sortable';
 import type { EditorActions } from './types';
-
-/** "Paragraph", "Image", "Knowledge check"… for a block. */
-export function blockLabel(block: Block): string {
-  if (block.type === 'knowledge_check') return 'Knowledge check';
-  return blockCatalog.find((entry) => entry.key === block.type)?.label ?? block.type;
-}
 
 type BlockCardProps = Pick<EditorActions, 'edit' | 'remove'> & {
   course: Course;
