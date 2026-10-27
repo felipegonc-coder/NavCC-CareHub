@@ -55,6 +55,7 @@ import { routes as formsRoutes } from './features/forms/routes';
 // feature: automations
 
 // feature: analytics
+import { routes as analyticsRoutes } from './features/analytics/routes';
 
 // feature: notifications
 
@@ -116,6 +117,7 @@ export const appRoutes: RouteObject[] = [
   // feature: automations
 
   // feature: analytics
+  ...analyticsRoutes,
 
   // feature: notifications
 
