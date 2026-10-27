@@ -1,6 +1,6 @@
 // When the index is updated (spec 3.3): page events at once (new pages and renames within 2
-// seconds, Trash at once), content edits by polling page_docs every 2 seconds, and pages missing
-// from the index when the server starts (for example made by the seed).
+// seconds, Trash and Archive at once), content edits by polling page_docs every 2 seconds, and
+// pages missing from the index when the server starts (for example made by the seed).
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../../db';
@@ -91,16 +91,19 @@ export function startSearchSync(app: FastifyInstance): void {
   const events = app.events as unknown as LooseEvents;
   const reindex = (payload: unknown) =>
     safely('indexing', () => indexPages(db, pageIdsOf(payload)));
+  // The pages under it too: their Trash and Archive state comes from the page model.
+  const reindexSubtree = (payload: unknown) =>
+    safely('indexing', async () => {
+      const ids = pageIdsOf(payload);
+      await indexPages(db, [...ids, ...(await subtreeIds(db, ids))]);
+    });
   const unsubscribe = [
     events.on('page.created', reindex),
     events.on('page.updated', reindex),
     events.on('page.kindChanged', reindex),
-    events.on('page.restored', (payload) =>
-      safely('indexing', async () => {
-        const ids = pageIdsOf(payload);
-        await indexPages(db, [...ids, ...(await subtreeIds(db, ids))]);
-      }),
-    ),
+    events.on('page.restored', reindexSubtree),
+    events.on('page.archived', reindexSubtree),
+    events.on('page.unarchived', reindexSubtree),
     events.on('page.trashed', (payload) =>
       safely('Trash', () => markTrashed(db, pageIdsOf(payload))),
     ),
