@@ -19,7 +19,8 @@ export type AssignmentRow = {
   createdBy: string;
   createdAt: Date;
 };
-export type NewAssignmentRow = Omit<AssignmentRow, 'id' | 'createdAt'>;
+/** A row to add. `createdAt` defaults to now; the rows of one path assignment share it. */
+export type NewAssignmentRow = Omit<AssignmentRow, 'id' | 'createdAt'> & { createdAt?: Date };
 
 /** A learning_assignment_learners row: the day `userId` got an assignment due some days later. */
 export type LearnerRow = { assignmentId: string; userId: string; since: string };
@@ -27,13 +28,16 @@ export type LearnerRow = { assignmentId: string; userId: string; since: string }
 /** The assignment tables. Lists and removals stay in one workspace; learners go by assignment. */
 export type AssignmentStore = {
   insert(rows: readonly NewAssignmentRow[]): Promise<AssignmentRow[]>;
-  /** Oldest first. `userId` keeps that person's own assignments and every group assignment. */
+  /**
+   * Oldest first. `userId` keeps that person's own assignments and every group assignment; `pathId`
+   * keeps the rows made by assigning that path.
+   */
   list(
     workspaceId: string,
-    filter?: { courseId?: string; userId?: string },
+    filter?: { courseId?: string; userId?: string; pathId?: string },
   ): Promise<AssignmentRow[]>;
-  /** False when the workspace has no such assignment. */
-  remove(workspaceId: string, id: string): Promise<boolean>;
+  /** The row removed, or null when the workspace has no such assignment. */
+  remove(workspaceId: string, id: string): Promise<AssignmentRow | null>;
   learners(assignmentIds: readonly string[]): Promise<LearnerRow[]>;
   /** Keeps the rows already there. */
   addLearners(rows: readonly LearnerRow[]): Promise<void>;
@@ -50,7 +54,7 @@ export function assignmentStore(db: Db | Tx): AssignmentStore {
         .returning();
     },
     async list(workspaceId, filter = {}) {
-      const { courseId, userId } = filter;
+      const { courseId, userId, pathId } = filter;
       return db
         .select()
         .from(assignments)
@@ -58,6 +62,7 @@ export function assignmentStore(db: Db | Tx): AssignmentStore {
           and(
             eq(assignments.workspaceId, workspaceId),
             courseId === undefined ? undefined : eq(assignments.courseId, courseId),
+            pathId === undefined ? undefined : eq(assignments.pathId, pathId),
             userId === undefined
               ? undefined
               : or(
@@ -69,11 +74,11 @@ export function assignmentStore(db: Db | Tx): AssignmentStore {
         .orderBy(asc(assignments.createdAt), asc(assignments.id));
     },
     async remove(workspaceId, id) {
-      const removed = await db
+      const [removed] = await db
         .delete(assignments)
         .where(and(eq(assignments.workspaceId, workspaceId), eq(assignments.id, id)))
-        .returning({ id: assignments.id });
-      return removed.length > 0;
+        .returning();
+      return removed ?? null;
     },
     async learners(assignmentIds) {
       if (assignmentIds.length === 0) return [];
