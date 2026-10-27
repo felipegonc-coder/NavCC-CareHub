@@ -2,6 +2,7 @@ import type { ImportView } from '@carehub/extras/import-export/import/index';
 import { useSyncExternalStore } from 'react';
 import { ApiError } from '../../../lib/api';
 import { importsApi } from './client';
+import type { StartRequest } from './start';
 
 // The imports this tab follows, for the progress panel (Import and export spec, section 2): the
 // ones started here and, after a reload, the person's imports that are still going. Each is
@@ -36,6 +37,8 @@ export function createTracker({
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   // Bumped on every change, so an answer that arrives after a newer one is dropped.
   const versions = new Map<string, number>();
+  // What started the imports started in this tab, so Try again needn't ask for the file again.
+  const requests = new Map<string, StartRequest>();
 
   const set = (next: Partial<FollowedImports>) => {
     state = { ...state, ...next };
@@ -90,6 +93,7 @@ export function createTracker({
   function dismiss(id: string) {
     unschedule(id);
     versions.delete(id);
+    requests.delete(id);
     const imports = state.imports.filter((item) => item.id !== id);
     set({ imports, open: state.open && imports.length > 0 });
   }
@@ -101,7 +105,12 @@ export function createTracker({
     },
     snapshot: () => state,
     /** Shows the import in the panel and checks on it until it ends. */
-    follow: (view: ImportView) => put(view, true),
+    follow(view: ImportView, request?: StartRequest) {
+      if (request) requests.set(view.id, request);
+      put(view, true);
+    },
+    /** What started the import, if this tab started it. */
+    request: (id: string) => requests.get(id),
     /** A newer view of a followed import, such as the answer to Cancel or Undo. */
     update(view: ImportView) {
       if (state.imports.some((item) => item.id === view.id)) put(view, false);

@@ -128,7 +128,7 @@ export function ImportScreen({ tracker = importTracker }: ImportScreenProps) {
       setPhase({ step: 'failed', message: result.message, request });
       return;
     }
-    tracker.follow(result.import);
+    tracker.follow(result.import, request);
     setFile(null);
     setPhase({ step: 'started', view: result.import });
     status.current?.focus();
