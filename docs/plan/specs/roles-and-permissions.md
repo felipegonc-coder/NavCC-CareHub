@@ -2,7 +2,7 @@
 
 _Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
-> 🔐 Phase 3, except sharing: core builds the sharing parts (share dialog, general access, guests, groups, share links, access requests, moving pages) in Phase 1 · Builds on the accounts and spaces from Phase 1 · The other specs use the words defined here
+> 🔐 Phase 3, except sharing: the sharing parts (share dialog, general access, guests, groups, share links, access requests, moving pages) are part of Phase 1 · Builds on the accounts and spaces from Phase 1 · The other specs use the words defined here
 >
 > 🆕 **v2 (Oct 28):** sharing now lives here in full (share dialog, general access, guests, groups, share links, access requests, moving pages), matching Notion. Related: Sidebar, spaces and nested pages; Settings and members. New parts are marked 🆕.
 
@@ -13,7 +13,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 ## 2. Screens and states
 
 - **Settings → Members:** name, email, role (a dropdown), joined, last active; search; filter by role. 🆕 Tabs for Guests and Groups (Settings and members spec).
-- 🆕 **Share dialog** (Share at the top right of every page, database and space, and in the page menu): described in section 3 under Sharing. Core builds it in Phase 1.
+- 🆕 **Share dialog** (Share at the top right of every page, database and space, and in the page menu): described in section 3 under Sharing. It's part of Phase 1.
 - 🆕 **Request access screen** for people who open a link to something they can't open (section 3).
 - 🆕 **Settings → Security → Share links** (Admins): every page with a live share link.
 - **Settings → Roles:** each role with its number of members. A role's page lists its permissions with a one-line explanation each, and its members. "New role" starts as a copy of any role.
