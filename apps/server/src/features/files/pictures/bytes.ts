@@ -26,7 +26,7 @@ export interface CleanedPicture {
 export interface CleanerResult {
   width: number;
   height: number;
-  /** The Exif orientation (JPEG and PNG); formats that rotate otherwise say only `sideways`. */
+  /** The Exif orientation, for formats that have one. */
   orientation?: number;
   sideways?: boolean;
   pieces: Piece[] | null;
@@ -84,10 +84,3 @@ export function pieceList(size: number) {
     },
   };
 }
-
-/** How long the new file is. */
-export const piecesLength = (pieces: readonly Piece[]): number =>
-  pieces.reduce(
-    (total, piece) => total + (Buffer.isBuffer(piece) ? piece.length : piece.end - piece.start),
-    0,
-  );

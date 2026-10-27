@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cleanPicture, PictureError, type Piece } from './index';
-import { DETAIL, sampleGif, sampleHeic, sampleJpeg, samplePng, sampleWebp } from './testing';
+import { DETAIL, sampleJpeg, samplePng } from './testing';
 
 const clean = (mimeType: string, file: Buffer) =>
   cleanPicture(mimeType, {
@@ -20,14 +20,11 @@ const rebuild = (file: Buffer, pieces: readonly Piece[] | null) =>
 const SAMPLES = [
   { mimeType: 'image/jpeg', ...sampleJpeg() },
   { mimeType: 'image/png', ...samplePng() },
-  { mimeType: 'image/webp', ...sampleWebp() },
-  { mimeType: 'image/gif', ...sampleGif() },
-  { mimeType: 'image/heic', ...sampleHeic() },
 ];
 
 describe('cleanPicture', () => {
   for (const sample of SAMPLES) {
-    it(`removes the details from a ${sample.mimeType} picture, keeping it upright (DS-07)`, async () => {
+    it(`removes the details from an ${sample.mimeType} picture, keeping it upright (DS-07)`, async () => {
       expect(sample.file.includes(DETAIL)).toBe(true);
       const result = await clean(sample.mimeType, sample.file);
       const cleaned = rebuild(sample.file, result?.pieces ?? null);

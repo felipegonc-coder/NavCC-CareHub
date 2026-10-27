@@ -1,7 +1,14 @@
-import { fileParamsSchema, fileUrl, type UploadedFile } from '@carehub/shared';
+import { Readable } from 'node:stream';
+import { fileParamsSchema, fileScopeSchema, fileUrl, type UploadedFile } from '@carehub/shared';
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
+import { getDefaultWorkspace } from '../workspaces';
+import { hasBlockedEnding } from './detect';
+import { checkFreeSpace, keepFile, NOT_THERE, PROGRAMS } from './keep';
+import { cleanFileName, tooLargeMessage } from './names';
 import { files } from './schema';
+import { hasFileScope, isAnonymousScope } from './scopes';
 import { readFilesSettings } from './settings';
 import { fileStore } from './storage';
 
@@ -25,6 +32,8 @@ export interface FileInfo {
 
 const isFileId = (id: string): boolean => fileParamsSchema.shape.id.safeParse(id).success;
 
+const MB = 1024 * 1024;
+
 const infoColumns = {
   id: files.id,
   name: files.name,
@@ -40,7 +49,6 @@ const toInfo = ({ scopeFeature, scopeId, ...file }: InfoRow): FileInfo => ({
   ...file,
   scope: `${scopeFeature}:${scopeId}`,
 });
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Postgres takes at most 65,535 parameters in one query. */
@@ -82,6 +90,47 @@ export async function getFiles(
 }
 
 /**
+ * Saves `bytes` as a file in `scope` (`<feature>:<id>`) as part of the caller's transaction, for example a
+ * file found in something being imported. It's checked as an upload is: at most FILES_MAX_MB, no
+ * programs, the type from the contents, and pictures without their details. Not in anonymous scopes. No
+ * access check: check that the person may add files there. Throws an HttpError saying why a file can't be
+ * saved (400 `invalid`, 413 `too_large`; 507 while the disk is almost full). If the transaction rolls
+ * back, the clean-up removes the bytes a day later (removeUnsavedBytes).
+ */
+export async function saveFile(
+  db: Db | Tx,
+  file: { scope: string; name: string; bytes: Uint8Array; uploadedBy: string | null },
+): Promise<UploadedFile> {
+  const feature = file.scope.slice(0, Math.max(0, file.scope.indexOf(':')));
+  const known = fileScopeSchema.safeParse(file.scope).success && hasFileScope(feature);
+  if (!known || isAnonymousScope(feature)) throw httpError(400, 'invalid', NOT_THERE);
+  const { FILES_DIR, FILES_MAX_MB } = readFilesSettings();
+  if (file.bytes.length > FILES_MAX_MB * MB) {
+    throw httpError(413, 'too_large', tooLargeMessage(file.bytes.length, FILES_MAX_MB));
+  }
+  const name = cleanFileName(file.name);
+  if (hasBlockedEnding(name)) throw httpError(400, 'invalid', PROGRAMS);
+  const workspace = await getDefaultWorkspace(db);
+  if (!workspace) throw new Error('There is no workspace to keep the file in.');
+  const store = fileStore(FILES_DIR);
+  await checkFreeSpace(store, file.bytes.length);
+  const tempPath = store.tempPath();
+  try {
+    const bytes = Buffer.from(file.bytes.buffer, file.bytes.byteOffset, file.bytes.length);
+    const received = await store.receive(Readable.from([bytes]), tempPath);
+    const to = {
+      workspaceId: workspace.id,
+      feature,
+      scopeId: file.scope.slice(feature.length + 1),
+      uploadedBy: file.uploadedBy,
+    };
+    return uploadedFileJson(await keepFile(db, store, tempPath, { ...received, name }, to));
+  } finally {
+    await store.remove(tempPath);
+  }
+}
+
+/**
  * Anonymous scopes (registered with `allowAnonymous: true`): attaches uploads to what they were added
  * for, in the caller's transaction, for example a form response as it's saved. Takes only files
  * uploaded to `scope` (`<feature>:<id>`) that are still waiting, so each upload is claimed once; returns
@@ -112,21 +161,6 @@ export async function claimFiles(
     for (const row of rows) claimed.set(row.id, toInfo(row));
   }
   return claimed;
-}
-
-/** Bytes uploaded to a scope over the last day, deleted files included: for the anonymous quota. */
-export async function bytesUploadedToday(db: Db | Tx, feature: string, scopeId: string) {
-  const [row] = await db
-    .select({ bytes: sql<string>`coalesce(sum(${files.size}), 0)` })
-    .from(files)
-    .where(
-      and(
-        eq(files.scopeFeature, feature),
-        eq(files.scopeId, scopeId),
-        gt(files.createdAt, sql`now() - interval '1 day'`),
-      ),
-    );
-  return Number(row?.bytes ?? 0);
 }
 
 /**
@@ -197,8 +231,8 @@ export async function removeDeletedFiles(
 
 /**
  * The hourly clean-up (routes.ts registers it): deletes uploads to anonymous scopes still unclaimed at
- * their deadline, and removes files deleted over a day ago, so the night's backup still has their bytes
- * (Data settings, DS-02).
+ * their deadline, removes files deleted over a day ago, so the night's backup still has their bytes
+ * (Data settings, DS-02), and bytes whose file was never saved.
  */
 export async function cleanUpFiles(
   db: Db,
@@ -207,7 +241,7 @@ export async function cleanUpFiles(
     root = readFilesSettings().FILES_DIR,
     signal,
   }: { now?: Date; root?: string; signal?: AbortSignal } = {},
-): Promise<{ unclaimed: number; removed: number }> {
+): Promise<{ unclaimed: number; removed: number; unsaved: number }> {
   const unclaimed = await db
     .update(files)
     .set({ deletedAt: now })
@@ -215,7 +249,45 @@ export async function cleanUpFiles(
     .returning({ id: files.id });
   const deletedBefore = new Date(now.getTime() - DAY_MS);
   const removed = await removeDeletedFiles(db, { deletedBefore, root, signal });
-  return { unclaimed: unclaimed.length, removed };
+  const unsaved = await removeUnsavedBytes(db, { now, root, signal });
+  return { unclaimed: unclaimed.length, removed, unsaved };
+}
+
+/**
+ * For the clean-up (cleanUpFiles): removes bytes moved into place over a day ago whose file was never
+ * recorded, left by saves that rolled back (saveFile) or stopped half-way. Returns how many it removed.
+ */
+export async function removeUnsavedBytes(
+  db: Db,
+  {
+    now = new Date(),
+    root = readFilesSettings().FILES_DIR,
+    signal,
+  }: { now?: Date; root?: string; signal?: AbortSignal } = {},
+): Promise<number> {
+  const store = fileStore(root);
+  let removed = 0;
+  for (const keys of batches(await store.pendingBefore(new Date(now.getTime() - DAY_MS)))) {
+    if (signal?.aborted) break;
+    const used = await db
+      .selectDistinct({ storageKey: files.storageKey })
+      .from(files)
+      .where(inArray(files.storageKey, keys));
+    const inUse = new Set(used.map((file) => file.storageKey));
+    for (const key of keys) {
+      const bytes = store.pathOf(key);
+      if (!inUse.has(key) && (await store.exists(bytes))) {
+        const gone = await store.remove(bytes).then(
+          () => true,
+          () => false,
+        );
+        if (!gone) continue; // tried again next time
+        removed += 1;
+      }
+      await store.settle(key);
+    }
+  }
+  return removed;
 }
 
 /** The answer of POST /api/files. */
