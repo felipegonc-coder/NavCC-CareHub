@@ -2,18 +2,18 @@
 import { decimalToNumber } from '../../decimal';
 import { parseNumberText } from '../../parse-text';
 import { isSafeWebLink } from '../../richtext';
-import { OPTION_COLORS, TEXT_MARKS } from '../../types';
+import { LIMITS, OPTION_COLORS, TEXT_MARKS } from '../../types';
 import type { RichText, RichTextSpan, TextColor, TextMark } from '../../types';
 import {
   EMPTY,
-  MAX_TEXT_LENGTH,
-  TOO_COMPLEX,
   bool,
   dateMillis,
   defineFunction,
   fail,
   formatText,
+  joinParts,
   num,
+  spendText,
   txt,
   type Call,
   type FunctionDef,
@@ -34,6 +34,16 @@ const define = (def: Omit<FunctionDef, 'kind'> & { kind?: FunctionDef['kind'] })
 
 /** Characters, counting an emoji as one. */
 const chars = (s: string): string[] => Array.from(s);
+
+/**
+ * A text a function just made that is at most a few times as long as its inputs, counted toward
+ * the row's text budget. Texts that can grow without bound (repeat, padStart, join) are counted
+ * before they're built instead.
+ */
+const made = (s: string) => {
+  spendText(s.length);
+  return txt(s);
+};
 
 define({
   name: 'length',
@@ -65,7 +75,7 @@ define({
     const all = chars(t);
     const start = Math.trunc(c.number(1) ?? 0);
     const end = c.count > 2 ? Math.trunc(c.number(2) ?? all.length) : all.length;
-    return txt(all.slice(Math.max(0, start), Math.max(0, end)).join(''));
+    return made(all.slice(Math.max(0, start), Math.max(0, end)).join(''));
   },
 });
 
@@ -100,8 +110,13 @@ define({
   signatures: [{ params: [TEXT_IN, p('pattern', 'text')], result: { list: 'text' } }],
   description: 'Every part of the text that matches the pattern.',
   example: 'match(prop("Notes"), "QA-\\\\d+")',
-  evaluate: (c) =>
-    c.makeList(unwrap(patterns(c).match(c.text(0) ?? '', c.text(1) ?? '')).map((s) => txt(s))),
+  evaluate: (c) => {
+    const found = unwrap(patterns(c).match(c.text(0) ?? '', c.text(1) ?? ''));
+    let length = 0;
+    for (const s of found) length += s.length;
+    spendText(length);
+    return c.makeList(found.map((s) => txt(s)));
+  },
 });
 
 for (const [name, all] of [
@@ -119,7 +134,7 @@ for (const [name, all] of [
     example: `${name}(prop("Phone"), "-", " ")`,
     evaluate: (c) => {
       const engine = patterns(c);
-      return txt(unwrap(engine.replace(c.text(0) ?? '', c.text(1) ?? '', c.text(2) ?? '', all)));
+      return made(unwrap(engine.replace(c.text(0) ?? '', c.text(1) ?? '', c.text(2) ?? '', all)));
     },
   });
 }
@@ -132,7 +147,7 @@ const textMap = (name: string, description: string, f: (s: string) => string) =>
     example: `${name}(prop("Name"))`,
     evaluate: (c) => {
       const t = c.text(0);
-      return t === null ? EMPTY : txt(f(t));
+      return t === null ? EMPTY : made(f(t));
     },
   });
 
@@ -149,7 +164,7 @@ define({
     const t = c.text(0);
     const times = Math.max(0, Math.trunc(c.number(1) ?? 0));
     if (t === null) return EMPTY;
-    if (t.length * times > MAX_TEXT_LENGTH) fail(TOO_COMPLEX);
+    spendText(t.length * times);
     return txt(t.repeat(times));
   },
 });
@@ -171,8 +186,9 @@ for (const [name, start] of [
     evaluate: (c) => {
       const t = c.text(0) ?? '';
       const length = Math.trunc(c.number(1) ?? 0);
-      if (length > MAX_TEXT_LENGTH) fail(TOO_COMPLEX);
       const pad = c.count > 2 ? (c.text(2) ?? '') : ' ';
+      if (!pad || length <= t.length) return txt(t);
+      spendText(length);
       return txt(start ? t.padStart(length, pad) : t.padEnd(length, pad));
     },
   });
@@ -191,7 +207,10 @@ define({
     const t = c.text(0);
     if (t === null) return EMPTY;
     const sep = c.count > 1 ? (c.text(1) ?? '') : ' ';
-    return c.makeList((sep === '' ? chars(t) : t.split(sep)).map((s) => txt(s)));
+    const most = LIMITS.formulaListItems + 1;
+    const parts = sep === '' ? chars(t).slice(0, most) : t.split(sep, most);
+    c.step(parts.length);
+    return c.makeList(parts.map((s) => txt(s)));
   },
 });
 
@@ -203,8 +222,7 @@ define({
   example: 'join(prop("Tags"), ", ")',
   evaluate: (c) => {
     const items = c.list(0) ?? [];
-    c.step(items.length);
-    return txt(items.map((v) => formatText(v, c.ctx)).join(c.text(1) ?? ''));
+    return txt(joinParts(items, c.text(1) ?? '', (v) => formatText(v, c.ctx)));
   },
 });
 
@@ -214,7 +232,13 @@ define({
   description:
     'Any value as text: numbers like 1234.5, dates like Oct 26, 2026, lists with commas.',
   example: 'format(prop("Score")) + " points"',
-  evaluate: (c) => txt(formatText(c.value(0), c.ctx)),
+  evaluate: (c) => {
+    const v = c.value(0);
+    const s = formatText(v, c.ctx);
+    // Lists are counted as they're joined; texts, names and titles already exist.
+    if (v.kind === 'number' || v.kind === 'date') spendText(s.length);
+    return txt(s);
+  },
 });
 
 define({

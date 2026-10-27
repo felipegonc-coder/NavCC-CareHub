@@ -24,6 +24,7 @@ import {
   defineFunction,
   fail,
   num,
+  spendText,
   txt,
   type Call,
   type FunctionDef,
@@ -380,7 +381,11 @@ define({
   example: 'formatDate(prop("Due"), "MMM D")',
   evaluate: (c) => {
     const d = c.date(0);
-    return d ? txt(formatWall(wall(d, zoneOf(c)), c.text(1) ?? '')) : EMPTY;
+    if (!d) return EMPTY;
+    // At most a few characters per format character, so it's counted once it's made.
+    const s = formatWall(wall(d, zoneOf(c)), c.text(1) ?? '');
+    spendText(s.length);
+    return txt(s);
   },
 });
 

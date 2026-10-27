@@ -4,12 +4,15 @@ import { CASE_PROPERTIES, CASE_ROW, CASES_SCHEMA, fixtureContext } from './fixtu
 import {
   FORMULA_BROKE,
   TOO_COMPLEX,
+  TOO_MUCH_TEXT,
   TOO_SLOW,
   compileFormula,
   defineFunction,
+  formulaBudget,
   listFunctions,
   toStoredFormula,
   typeName,
+  type FormulaBudget,
   type FormulaContext,
 } from './index';
 
@@ -67,7 +70,8 @@ describe('limits', () => {
 
   it('stops lists past 10,000 items and very long texts', () => {
     expect(run('split(repeat("a", 10001), "")')).toEqual({ kind: 'error', message: TOO_COMPLEX });
-    expect(run('repeat("a", 100001)')).toEqual({ kind: 'error', message: TOO_COMPLEX });
+    expect(run('repeat("a", 100001)')).toEqual({ kind: 'error', message: TOO_MUCH_TEXT });
+    expect(run('padStart("a", 100001, "x")')).toEqual({ kind: 'error', message: TOO_MUCH_TEXT });
     expect(run('split(repeat("a", 10000), "").length()')).toEqual({
       kind: 'number',
       value: 10_000,
@@ -95,6 +99,108 @@ describe('limits', () => {
       },
     });
     expect(run('name(prop("Created by"))', ctx)).toEqual({ kind: 'error', message: FORMULA_BROKE });
+  });
+});
+
+describe('request time budget', () => {
+  const error = (message: string) => ({ kind: 'error', message });
+
+  it('gives "⚠ Too slow" without running once the deadline has passed', () => {
+    let now = 0;
+    const clock = vi.fn(() => now);
+    const userName = vi.fn(() => 'Jordan Park');
+    const budget: FormulaBudget = formulaBudget({ clock }, 200);
+    const ctx = fixtureContext(CASE_PROPERTIES, { clock, userName, budget });
+    const named = compile('name(prop("Created by"))');
+    expect(named.run(CASE_ROW, ctx)).toEqual({ kind: 'text', value: 'Jordan Park' });
+    now = 200;
+    expect(named.run(CASE_ROW, ctx)).toEqual({ kind: 'text', value: 'Jordan Park' });
+    now = 201;
+    expect(named.preview(CASE_ROW, ctx)).toMatchObject({
+      value: error(TOO_SLOW),
+      error: { message: TOO_SLOW, start: 0 },
+    });
+    expect(budget.spent).toBe(true);
+    clock.mockClear();
+    userName.mockClear();
+    now = 0; // spent stays spent
+    for (let i = 0; i < 1000; i++) expect(named.run(CASE_ROW, ctx)).toEqual(error(TOO_SLOW));
+    expect(clock).not.toHaveBeenCalled();
+    expect(userName).not.toHaveBeenCalled();
+  });
+
+  it('keeps a query over many rows short', () => {
+    let now = 0;
+    const clock = vi.fn(() => (now += 1)); // each look at the clock: 1 ms later
+    const ctx = fixtureContext(CASE_PROPERTIES, { clock, budget: { deadline: 100 } });
+    const double = compile('prop("Score") * 2');
+    const results = Array.from({ length: 10_000 }, () => double.run(CASE_ROW, ctx));
+    expect(results.filter((v) => v.kind === 'number')).toHaveLength(100);
+    expect(results.slice(100).every((v) => v.kind === 'error' && v.message === TOO_SLOW)).toBe(
+      true,
+    );
+    expect(clock).toHaveBeenCalledTimes(101);
+  });
+
+  it('cuts a row short at the request deadline, before its own 50 ms', () => {
+    let now = 0;
+    const budget: FormulaBudget = { deadline: 10 };
+    const ctx = fixtureContext(CASE_PROPERTIES, { clock: () => (now += 1), budget });
+    expect(run('split(repeat("a", 2000), "").map(current + "b").length()', ctx)).toEqual(
+      error(TOO_SLOW),
+    );
+    expect(budget.spent).toBe(true);
+    expect(now).toBeLessThan(20);
+  });
+
+  it('makes budgets on the context clock', () => {
+    expect(formulaBudget({ clock: () => 500 }, 250)).toEqual({ deadline: 750 });
+    const before = Date.now();
+    expect(formulaBudget({}).deadline).toBeGreaterThanOrEqual(before + 1000);
+  });
+});
+
+describe('text budget', () => {
+  const tooMuch = { kind: 'error', message: TOO_MUCH_TEXT };
+
+  it('stops a row that builds more than 1,000,000 characters in all', () => {
+    const nine = compile('split(repeat("a", 9), "").map(repeat("x", 99999)).length()');
+    expect(nine.run(CASE_ROW, fixtureContext())).toEqual({ kind: 'number', value: 9 });
+    expect(nine.run(CASE_ROW, fixtureContext())).toEqual({ kind: 'number', value: 9 });
+    expect(run('split(repeat("a", 11), "").map(repeat("x", 99999)).length()')).toEqual(tooMuch);
+    expect(run('split(repeat("a", 11), "").map(padEnd("x", 99999, "y")).length()')).toEqual(
+      tooMuch,
+    );
+    expect(run('split(repeat("a", 11), "").map(repeat("x", 50000) + repeat("y", 49999))')).toEqual(
+      tooMuch,
+    );
+  });
+
+  it('checks join while it builds, not after', () => {
+    const userName = vi.fn(() => 'Jordan Park');
+    const ctx = fixtureContext(CASE_PROPERTIES, { userName });
+    const people = 'split(repeat("a", 1000), "").map(prop("Created by"))';
+    expect(run(`join(${people}, repeat("-", 99990))`, ctx)).toEqual(tooMuch);
+    expect(userName).toHaveBeenCalledTimes(2);
+    expect(run(`join(${people}, ", ").length()`, ctx)).toEqual({ kind: 'number', value: 12_998 });
+  });
+
+  it('counts what lists hold, even when items share one text or list', () => {
+    const big = 'let(big, repeat("x", 99999), split(repeat("a", 11), "").map(big))';
+    expect(run(`${big}.length()`)).toEqual(tooMuch);
+    expect(run(`format(${big})`)).toEqual(tooMuch);
+    const many = 'let(many, split(repeat("a", 10000), ""), many.map(many))';
+    expect(run(`${many}.length()`)).toEqual({ kind: 'error', message: TOO_COMPLEX });
+  });
+
+  it('checks concat and flat before building', () => {
+    const l = (n: number) => `split(repeat("a", ${n}), "")`;
+    expect(run(`concat(${l(5000)}, ${l(5000)}).length()`)).toEqual({
+      kind: 'number',
+      value: 10_000,
+    });
+    expect(run(`concat(${l(6000)}, ${l(5000)})`)).toEqual({ kind: 'error', message: TOO_COMPLEX });
+    expect(run(`flat([${l(6000)}, ${l(5000)}])`)).toEqual({ kind: 'error', message: TOO_COMPLEX });
   });
 });
 
