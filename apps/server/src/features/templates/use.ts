@@ -95,7 +95,7 @@ export async function useTemplate(
           ids.set(0, await make(page, target.parentId, title));
           continue;
         }
-        await core().saveVersionNow(tx, applyTo.id, by);
+        await core().saveVersionNow(tx, applyTo.id, { reason: 'template', by });
         if (applyTo.title.trim()) titles.set(0, applyTo.title);
         else await core().setTitle(tx, applyTo.id, title, by);
         ids.set(0, applyTo.id);
