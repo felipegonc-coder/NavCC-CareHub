@@ -35,8 +35,8 @@ describe('createPageSchema', () => {
   });
 
   it('reads stored pages and adds extra blocks', () => {
-    const Database = Node.create({ name: 'database', group: 'block', atom: true });
-    const schema = createPageSchema([Database]);
+    const TestAtom = Node.create({ name: 'testAtom', group: 'block', atom: true });
+    const schema = createPageSchema([TestAtom]);
     const page = schema.nodeFromJSON({
       type: 'doc',
       content: [
@@ -47,7 +47,7 @@ describe('createPageSchema', () => {
             { type: 'taskItem', attrs: { checked: true }, content: [{ type: 'paragraph' }] },
           ],
         },
-        { type: 'database' },
+        { type: 'testAtom' },
       ],
     });
     expect(() => page.check()).not.toThrow();
