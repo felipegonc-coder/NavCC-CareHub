@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Fence, Job, JobProgress, JobStore, JsonValue, SqlRunner } from './types';
@@ -21,7 +22,24 @@ export interface PeriodicTaskContext extends JobContext {
   now: Date;
 }
 
-export type PeriodicTask = (ctx: PeriodicTaskContext) => Promise<void>;
+/** A task may return counts, such as `{ sent: 2 }`, for the test hook to report. */
+export type PeriodicTask = (ctx: PeriodicTaskContext) => Promise<Record<string, number> | void>;
+
+/** What a test-hook run of a periodic task did. */
+export type TestRun =
+  | { status: 'ran' | 'failed'; counts?: Record<string, number>; ms: number }
+  | { status: 'busy' }
+  | { status: 'unknown' };
+
+const testHookRun = new AsyncLocalStorage<true>();
+
+/**
+ * True inside a test-hook run of a periodic task and the work it starts, and nowhere else. Code
+ * that sends anything outside the server checks it and skips the send.
+ */
+export function isTestHookRun(): boolean {
+  return testHookRun.getStore() === true;
+}
 
 /** Why a job failed for good: its last attempt failed, timed out or stopped responding. */
 export interface JobFailure {
@@ -141,6 +159,18 @@ function cleanProgress({ done, total, label }: JobProgress): JobProgress {
   if (total !== undefined) progress.total = total;
   if (label !== undefined) progress.label = String(label).slice(0, 200);
   return progress;
+}
+
+/** The counts a task returned, if any: up to 20 whole numbers of 0 or more, with short names. */
+function cleanCounts(value: unknown): Record<string, number> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const counts: Record<string, number> = {};
+  for (const [name, count] of Object.entries(value).slice(0, 20)) {
+    if (/^[a-z][a-zA-Z0-9]{0,39}$/.test(name) && Number.isSafeInteger(count) && count >= 0) {
+      counts[name] = count;
+    }
+  }
+  return Object.keys(counts).length > 0 ? counts : undefined;
 }
 
 /** Settles like `work`, but rejects with the abort reason as soon as `signal` aborts. */
@@ -418,10 +448,13 @@ export function createJobRunner(options: JobRunnerOptions) {
 
   function poke(): void {
     if (starts === 0 || stopping || poked) return;
-    poked = setTimeout(() => {
-      poked = undefined;
-      tick().catch((error: unknown) => warn({ err: error }, 'jobs: tick failed'));
-    }, 0);
+    // Outside any test-hook run: the jobs this pass runs aren't part of it.
+    poked = testHookRun.exit(() =>
+      setTimeout(() => {
+        poked = undefined;
+        tick().catch((error: unknown) => warn({ err: error }, 'jobs: tick failed'));
+      }, 0),
+    );
   }
 
   function registerKind<P>(
@@ -478,22 +511,79 @@ export function createJobRunner(options: JobRunnerOptions) {
     registerPeriodicTask,
 
     /**
-     * Runs a periodic task once, here and at once, off its grid: for test hooks. `now` (default
-     * the current time) is the run's `ctx.now`; it gets the task's usual 5 minutes. False when
-     * there's no task with this name.
+     * Runs a periodic task once, here, at once and off its grid: for the test hook. It takes the
+     * scheduler's lock (the task's one unfinished job) without waiting: `busy` while a run is
+     * going anywhere. `now` (default the current time) is only the run's `ctx.now`; the queue
+     * keeps the real clock, and the next scheduled run stays on its slot.
      */
-    async runPeriodicTask(name: string, input: { now?: Date } = {}): Promise<boolean> {
+    async runPeriodicTask(name: string, input: { now?: Date } = {}): Promise<TestRun> {
       const task = tasks.get(name);
-      if (!task) return false;
-      await task.run({
-        jobId: randomUUID(),
-        attempt: 1,
-        lateByMs: 0,
-        signal: AbortSignal.timeout(PERIODIC_TIMEOUT_MS),
-        setProgress: () => {},
-        now: input.now ?? new Date(now()),
+      if (!task) return { status: 'unknown' };
+      const at = now();
+      // The insert ensureTasks makes: it returns the task's unfinished job if there is one.
+      const { job } = await store.insert({
+        id: randomUUID(),
+        kind: PERIODIC_KIND,
+        key: name,
+        payload: { task: name },
+        workspaceId: null,
+        ownerUserId: null,
+        runAt: new Date(nextSlot(at, task.everyMs)),
+        now: new Date(at),
       });
-      return true;
+      const [held] =
+        job.status === 'queued'
+          ? await store.claim({
+              kind: PERIODIC_KIND,
+              limit: 1,
+              workerId,
+              now: new Date(at),
+              lockedUntil: new Date(at + PERIODIC_TIMEOUT_MS + LOCK_GRACE_MS),
+              id: job.id,
+            })
+          : [];
+      if (!held) return { status: 'busy' };
+      const started = now();
+      let outcome: TestRun;
+      try {
+        const signal = AbortSignal.timeout(PERIODIC_TIMEOUT_MS);
+        const ctx: PeriodicTaskContext = {
+          jobId: held.id,
+          attempt: 1,
+          lateByMs: 0,
+          signal,
+          setProgress: () => {},
+          now: input.now ?? new Date(started),
+        };
+        const counts = cleanCounts(
+          await testHookRun.run(true, () =>
+            untilAborted(
+              Promise.resolve().then(() => task.run(ctx)),
+              signal,
+            ),
+          ),
+        );
+        outcome = { status: 'ran', ...(counts && { counts }), ms: now() - started };
+      } catch (error) {
+        warn({ err: error, task: name }, 'jobs: test run failed');
+        outcome = { status: 'failed', ms: now() - started };
+      }
+      // Back in the queue on its slot, the attempt given back: the scheduled run still happens.
+      const fence: Fence = { workerId, attempt: held.attempts };
+      const back = await store
+        .requeue(held.id, fence, {
+          runAt: held.runAt,
+          error: held.error,
+          now: new Date(now()),
+          countAttempt: false,
+        })
+        .catch((error: unknown) => {
+          warn({ err: error, jobId: held.id }, 'jobs: requeueing a periodic task failed');
+          return null;
+        });
+      if (!back) task.checkAt = 0;
+      poke();
+      return outcome;
     },
 
     async schedule<P>(
