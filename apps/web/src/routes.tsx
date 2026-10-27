@@ -16,7 +16,7 @@ export const routes: RouteObject[] = [
 
   // feature: settings
 
-  // feature: learning
+  ...(await import('./features/learning/routes')).routes,
 
   // feature: databases
 
