@@ -39,7 +39,8 @@ CREATE TABLE kb_pages (
     (status = 'published') = (published_at IS NOT NULL)
     AND (published_by IS NULL OR published_at IS NOT NULL)
   ),
-  CONSTRAINT kb_pages_verification_check CHECK (
+  -- Not kb_pages_verification_check: Postgres already gives that name to the column's own CHECK.
+  CONSTRAINT kb_pages_verification_state_check CHECK (
     (verification IS NULL AND verified_until IS NULL AND expired_at IS NULL)
     OR (verification = 'verified' AND expired_at IS NULL)
     OR (verification = 'expired' AND verified_until IS NOT NULL AND expired_at IS NOT NULL)
