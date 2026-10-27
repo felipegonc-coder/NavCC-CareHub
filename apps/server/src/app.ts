@@ -86,7 +86,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: reminders
 
-  // feature: home
+  await app.register(import('./features/home/routes'), { prefix: '/api/home' });
 
   // feature: calendar
 
