@@ -1,6 +1,7 @@
 import {
   ArrowUpRight,
   AtSign,
+  BadgeCheck,
   Calendar,
   Check,
   ChevronDown,
@@ -48,4 +49,5 @@ export const PROPERTY_ICONS: Record<PropertyType, LucideIcon> = {
   rollup: Search,
   unique_id: Key,
   button: MousePointerClick,
+  verification: BadgeCheck,
 };
