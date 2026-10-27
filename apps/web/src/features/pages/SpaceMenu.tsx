@@ -1,5 +1,5 @@
-// A space's "…" in the sidebar (Sidebar spec, section 3.3): Move up and down in the person's order,
-// then Leave, Archive and Delete, each after a confirm; and "Create space".
+// A space's "…" in the sidebar (Sidebar spec, section 3.3): Space settings, Move up and down in the
+// person's order, then Leave, Archive and Delete, each after a confirm; and "Create space".
 import {
   Button,
   DropdownMenu,
@@ -11,8 +11,18 @@ import {
   useToast,
 } from '@carehub/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowDown, ArrowUp, LogOut, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import {
+  Archive,
+  ArrowDown,
+  ArrowUp,
+  LogOut,
+  MoreHorizontal,
+  Plus,
+  Settings,
+  Trash2,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { ApiError } from '../../lib/api';
 import { refreshPageData } from './actions';
 import {
@@ -28,7 +38,8 @@ import { reasonOf } from './change';
 import { ConfirmSpaceDialog, CreateSpaceDialog } from './SpaceDialogs';
 import type { Space } from './types';
 
-type Asking = 'leave' | 'archive' | 'delete';
+/** What the person is asked to confirm. */
+export type SpaceAsk = 'leave' | 'archive' | 'delete';
 
 const pages = (count: number) => (count === 1 ? '1 page' : `${count} pages`);
 
@@ -43,42 +54,19 @@ interface SpaceMenuProps {
   moves?: SpaceMoves | undefined;
 }
 
-/** Members may leave Open and Closed spaces; owners and Admins may archive or delete them. */
+/**
+ * Members may leave Open and Closed spaces; owners and Admins may change, archive or delete them.
+ */
 export function SpaceMenu({ space, moves = {} }: SpaceMenuProps) {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [asking, setAsking] = useState<Asking | null>(null);
+  const navigate = useNavigate();
+  const [asking, setAsking] = useState<SpaceAsk | null>(null);
   // The confirm opens once the menu has closed, so focus comes back to "…" afterwards.
-  const next = useRef<Asking | null>(null);
+  const next = useRef<SpaceAsk | null>(null);
   const canLeave = space.kind === 'open' || space.kind === 'closed';
   const canManage = space.canManage === true;
   const canMove = moves.up !== undefined || moves.down !== undefined;
   if (!canLeave && !canManage && !canMove) return null;
-
-  const leave = () => leaveSpace(space.id);
-  /** Sends the change; a refused Leave usually means the person is the last owner (409). */
-  const run = (request: () => Promise<unknown>, done: string, failed: string) => {
-    setAsking(null);
-    request().then(
-      () => {
-        void refreshPageData(queryClient);
-        toast({ title: done, variant: 'success' });
-      },
-      (error: unknown) => {
-        const lastOwner = request === leave && error instanceof ApiError && error.status === 409;
-        toast(
-          lastOwner
-            ? {
-                title: `You're the last owner of “${space.name}”.`,
-                description: 'Make someone else an owner first, then leave.',
-                variant: 'danger',
-              }
-            : { title: failed, description: reasonOf(error), variant: 'danger' },
-        );
-      },
-    );
-  };
-  const ask = (what: Asking) => () => {
+  const ask = (what: SpaceAsk) => () => {
     next.current = what;
   };
 
@@ -97,6 +85,12 @@ export function SpaceMenu({ space, moves = {} }: SpaceMenuProps) {
             next.current = null;
           }}
         >
+          {canManage && (
+            <DropdownMenuItem onSelect={() => void navigate(spaceSettingsUrl(space.id))}>
+              <Settings aria-hidden />
+              Space settings
+            </DropdownMenuItem>
+          )}
           {moves.up && (
             <DropdownMenuItem onSelect={moves.up}>
               <ArrowUp aria-hidden />
@@ -109,7 +103,7 @@ export function SpaceMenu({ space, moves = {} }: SpaceMenuProps) {
               Move down
             </DropdownMenuItem>
           )}
-          {canMove && (canLeave || canManage) && <DropdownMenuSeparator />}
+          {(canManage || canMove) && (canLeave || canManage) && <DropdownMenuSeparator />}
           {canLeave && (
             <DropdownMenuItem onSelect={ask('leave')}>
               <LogOut aria-hidden />
@@ -130,61 +124,105 @@ export function SpaceMenu({ space, moves = {} }: SpaceMenuProps) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {asking === 'leave' && (
-        <ConfirmSpaceDialog
-          title={`Leave “${space.name}”?`}
-          action="Leave space"
-          danger
-          onDone={(ok) =>
-            ok
-              ? run(leave, `You left “${space.name}”.`, "Couldn't leave the space.")
-              : setAsking(null)
-          }
-        >
-          <p>You&apos;ll lose access to its pages, unless they&apos;re shared with you.</p>
-          <p>
-            {space.kind === 'closed'
-              ? "To come back, you'll need an owner's OK."
-              : 'You can join again from Browse spaces.'}
-          </p>
-        </ConfirmSpaceDialog>
-      )}
-      {asking === 'archive' && (
-        <ConfirmSpaceDialog
-          title={`Archive “${space.name}”?`}
-          action="Archive space"
-          onDone={(ok) =>
-            ok
-              ? run(
-                  () => archiveSpace(space.id),
-                  `Archived “${space.name}”.`,
-                  "Couldn't archive the space.",
-                )
-              : setAsking(null)
-          }
-        >
-          <p>
-            It leaves everyone&apos;s sidebar and Browse spaces. Its pages keep their links but turn
-            read-only.
-          </p>
-          <p>Admins can unarchive it in Settings → Spaces.</p>
-        </ConfirmSpaceDialog>
-      )}
-      {asking === 'delete' && (
-        <DeleteSpaceDialog
-          space={space}
-          onDone={(ok) =>
-            ok
-              ? run(
-                  () => deleteSpace(space.id),
-                  `Moved “${space.name}” to Trash.`,
-                  "Couldn't delete the space.",
-                )
-              : setAsking(null)
-          }
-        />
-      )}
+      {asking && <SpaceConfirm space={space} asking={asking} onClose={() => setAsking(null)} />}
     </>
+  );
+}
+
+export const spaceSettingsUrl = (id: string) => `/spaces/${id}/settings`;
+
+interface SpaceConfirmProps {
+  space: Space;
+  asking: SpaceAsk;
+  onClose(): void;
+  /** Once the server has done it, such as leaving the space's settings. */
+  onDone?: (() => void) | undefined;
+}
+
+/** The confirm before leaving, archiving or deleting the space, which then does it. */
+export function SpaceConfirm({ space, asking, onClose, onDone }: SpaceConfirmProps) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const leave = () => leaveSpace(space.id);
+  /** Sends the change; a refused Leave usually means the person is the last owner (409). */
+  const run = (request: () => Promise<unknown>, done: string, failed: string) => {
+    onClose();
+    request().then(
+      () => {
+        onDone?.();
+        void refreshPageData(queryClient);
+        toast({ title: done, variant: 'success' });
+      },
+      (error: unknown) => {
+        const lastOwner = request === leave && error instanceof ApiError && error.status === 409;
+        toast(
+          lastOwner
+            ? {
+                title: `You're the last owner of “${space.name}”.`,
+                description: 'Make someone else an owner first, then leave.',
+                variant: 'danger',
+              }
+            : { title: failed, description: reasonOf(error), variant: 'danger' },
+        );
+      },
+    );
+  };
+
+  if (asking === 'leave') {
+    return (
+      <ConfirmSpaceDialog
+        title={`Leave “${space.name}”?`}
+        action="Leave space"
+        danger
+        onDone={(ok) =>
+          ok ? run(leave, `You left “${space.name}”.`, "Couldn't leave the space.") : onClose()
+        }
+      >
+        <p>You&apos;ll lose access to its pages, unless they&apos;re shared with you.</p>
+        <p>
+          {space.kind === 'closed'
+            ? "To come back, you'll need an owner's OK."
+            : 'You can join again from Browse spaces.'}
+        </p>
+      </ConfirmSpaceDialog>
+    );
+  }
+  if (asking === 'archive') {
+    return (
+      <ConfirmSpaceDialog
+        title={`Archive “${space.name}”?`}
+        action="Archive space"
+        onDone={(ok) =>
+          ok
+            ? run(
+                () => archiveSpace(space.id),
+                `Archived “${space.name}”.`,
+                "Couldn't archive the space.",
+              )
+            : onClose()
+        }
+      >
+        <p>
+          It leaves everyone&apos;s sidebar and Browse spaces. Its pages keep their links but turn
+          read-only.
+        </p>
+        <p>Admins can unarchive it in Settings → Spaces.</p>
+      </ConfirmSpaceDialog>
+    );
+  }
+  return (
+    <DeleteSpaceDialog
+      space={space}
+      onDone={(ok) =>
+        ok
+          ? run(
+              () => deleteSpace(space.id),
+              `Moved “${space.name}” to Trash.`,
+              "Couldn't delete the space.",
+            )
+          : onClose()
+      }
+    />
   );
 }
 

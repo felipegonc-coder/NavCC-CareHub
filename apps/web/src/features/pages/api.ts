@@ -3,6 +3,7 @@
 import type { AccessLevel } from '@carehub/shared';
 import { api, ApiError } from '../../lib/api';
 import type { MoveTo } from './move';
+import { settingsOf, type SpaceChange, type SpaceSettings } from './space-settings';
 import type {
   BrowseSpace,
   PageIcon,
@@ -76,6 +77,13 @@ export const leaveSpace = (id: string) => api.post(`/api/spaces/${id}/leave`);
 export const archiveSpace = (id: string) => api.patch(`/api/spaces/${id}`, { archived: true });
 /** Moves the space and all its pages to Trash. */
 export const deleteSpace = (id: string) => api.delete(`/api/spaces/${id}`);
+
+/** A space's settings; null when the reply has no space. */
+export const fetchSpaceSettings = async (id: string): Promise<SpaceSettings | null> =>
+  settingsOf(await api.get(`/api/spaces/${id}`));
+/** Changes some of a space's settings; a name another space has is refused (409). */
+export const changeSpace = (id: string, change: SpaceChange) =>
+  api.patch(`/api/spaces/${id}`, change);
 
 /** Every Open and Closed space in the workspace, for Browse spaces. */
 export const fetchBrowseSpaces = () => getList<BrowseSpace>('/api/spaces/browse', 'spaces');
