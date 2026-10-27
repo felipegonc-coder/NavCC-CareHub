@@ -155,7 +155,7 @@ function TreeBody({ query, label, scope, ctx, empty }: TreeBodyProps) {
   if (query.isError) return <Retry onRetry={() => void query.refetch()} />;
   if (!query.data) return <Loading />;
   if (query.data.length === 0) {
-    return empty ?? <p className="py-1 pl-8 text-small text-faint">No pages inside</p>;
+    return empty ?? <p className="py-1 pl-8 text-small text-muted">No pages inside</p>;
   }
   return (
     <PageTree
@@ -170,10 +170,14 @@ function TreeBody({ query, label, scope, ctx, empty }: TreeBodyProps) {
   );
 }
 
-/** A space: its name opens and closes its tree; "+" adds a page at its top level. */
+/**
+ * A space: a group named by its heading. The name opens and closes its tree; "+" adds a page at
+ * its top level.
+ */
 function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
   const key = `space:${space.id}`;
   const open = !ctx.collapsed.has(key);
+  const nameId = useId();
   const tree = useQuery({
     queryKey: pagesKeys.tree(space.id),
     queryFn: () => fetchTree(space.id),
@@ -181,17 +185,21 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
   });
   const canAdd = (space.canAddPages ?? true) && ctx.actions.canCreate;
   return (
-    <div className="flex flex-col">
+    <div role="group" aria-labelledby={nameId} className="flex flex-col">
       <div className={cn(sidebarRowClasses(), 'group gap-1 pr-1')}>
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => ctx.onCollapse([key], open)}
-          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
-        >
-          <EntryIcon icon={space.icon} kind="space" />
-          <span className="truncate">{space.name}</span>
-        </button>
+        <h3 className="flex min-w-0 flex-1 self-stretch">
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => ctx.onCollapse([key], open)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <EntryIcon icon={space.icon} kind="space" />
+            <span id={nameId} className="truncate">
+              {space.name}
+            </span>
+          </button>
+        </h3>
         {canAdd && (
           <span className="md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
             <AddButton
@@ -222,7 +230,7 @@ function Private({ space, ctx }: { space: Space; ctx: Ctx }) {
       id="private"
       title="Private"
       ctx={ctx}
-      add={canAdd && <AddButton label="Add a private page" onClick={add} />}
+      add={canAdd && <AddButton label="Add a page to Private" onClick={add} />}
     >
       <TreeBody
         query={tree}
@@ -303,7 +311,7 @@ function Favorites({ ctx, spaces }: { ctx: Ctx; spaces: readonly Space[] }) {
   return (
     <Section id="favorites" title="Favorites" ctx={ctx}>
       {roots.length === 0 ? (
-        <p className="px-2 py-1 text-small text-faint">Star pages to keep them here.</p>
+        <p className="px-2 py-1 text-small text-muted">Star pages to keep them here.</p>
       ) : (
         <PageTree
           label="Favorites"

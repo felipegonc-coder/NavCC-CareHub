@@ -42,6 +42,7 @@ import {
   isFocusable,
   keyAction,
   MORE_STEP,
+  nestRows,
   pathTo,
   rootedRows,
   rowKey,
@@ -56,6 +57,13 @@ const LONG_PRESS_MS = 500;
 const indent = (level: number) => ({ paddingLeft: 4 + (level - 1) * 12 });
 /** Ignores events that bubbled through React from a menu rendered elsewhere in the page. */
 const fromInside = (event: SyntheticEvent) => event.currentTarget.contains(event.target as Node);
+/** Whether the event is the entry's own, not one from a sub-page inside it or from a menu. */
+const own = (event: SyntheticEvent) =>
+  event.target instanceof Element &&
+  event.target.closest('[role="treeitem"]') === event.currentTarget;
+/** An entry holds its sub-pages, so the keyboard focus is drawn on the entry's own row. */
+const ROW_FOCUS =
+  'outline-none [&:focus-visible>div]:outline [&:focus-visible>div]:outline-2 [&:focus-visible>div]:outline-offset-[-2px] [&:focus-visible>div]:outline-[rgb(var(--ch-ring))]';
 
 export function EntryIcon({ icon, kind }: { icon: PageIcon | null; kind: string }) {
   if (icon?.type === 'emoji') {
@@ -66,7 +74,7 @@ export function EntryIcon({ icon, kind }: { icon: PageIcon | null; kind: string 
     );
   }
   const Icon = kind === 'database' ? Database : kind === 'space' ? Users : FileText;
-  return <Icon aria-hidden className="text-faint" />;
+  return <Icon aria-hidden className="text-muted" />;
 }
 
 export const titleOf = (page: { title: string }) => page.title.trim() || 'Untitled';
@@ -177,7 +185,7 @@ export function PageTree(props: PageTreeProps) {
       onKeyDown={onKeyDown}
       className="flex flex-col"
     >
-      {rows.map((row) => {
+      {nestRows(rows, (row, inside: ReactNode[]) => {
         const common = { 'data-key': row.key, style: indent(row.level) };
         if (row.kind === 'more') {
           return (
@@ -212,7 +220,7 @@ export function PageTree(props: PageTreeProps) {
               aria-level={row.level}
               aria-selected={false}
               aria-disabled
-              className="flex h-8 items-center pl-6 text-small text-faint max-md:h-11"
+              className="flex h-8 items-center pl-6 text-small text-muted max-md:h-11"
               {...common}
             >
               No pages inside
@@ -260,7 +268,13 @@ export function PageTree(props: PageTreeProps) {
               onExpand([row.key], true);
               actions.create({ parentId: row.node.id });
             }}
-          />
+          >
+            {inside.length > 0 && (
+              <ul role="group" className="flex flex-col">
+                {inside}
+              </ul>
+            )}
+          </TreeItem>
         );
       })}
     </ul>
@@ -283,6 +297,8 @@ interface TreeItemProps {
   onRename(): void;
   onRenamed(title: string | null, keyboard: boolean): void;
   onAddInside(): void;
+  /** Its sub-pages, when open. */
+  children?: ReactNode;
 }
 
 function TreeItem({
@@ -293,6 +309,7 @@ function TreeItem({
   menuOpen,
   renaming,
   actions,
+  children,
   ...on
 }: TreeItemProps) {
   const { node } = row;
@@ -324,12 +341,12 @@ function TreeItem({
       data-key={row.key}
       onFocus={(event) => event.target === event.currentTarget && on.onFocusRow()}
       onContextMenu={(event) => {
-        if (!fromInside(event)) return;
+        if (!own(event)) return;
         event.preventDefault();
         on.onMenu(true);
       }}
       onPointerDown={(event) => {
-        if (event.pointerType !== 'touch' || !fromInside(event)) return;
+        if (event.pointerType !== 'touch' || !own(event)) return;
         pressed.current = false;
         press.current = setTimeout(() => {
           pressed.current = true;
@@ -339,84 +356,90 @@ function TreeItem({
       onPointerUp={endPress}
       onPointerCancel={endPress}
       onPointerLeave={endPress}
-      className={cn(
-        sidebarRowClasses({ active: current }),
-        'group gap-1 pr-1',
-        hiddenParent && 'h-auto min-h-8 py-1',
-      )}
-      style={indent(row.level)}
+      className={ROW_FOCUS}
     >
-      {row.expandable ? (
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-hidden
-          onClick={on.onToggle}
-          className="flex size-5 shrink-0 items-center justify-center rounded text-faint hover:bg-fill-hover hover:text-fg"
-        >
-          <ChevronRight className={cn('transition-transform', row.expanded && 'rotate-90')} />
-        </button>
-      ) : (
-        <span aria-hidden className="size-5 shrink-0" />
-      )}
-      <EntryIcon icon={node.icon} kind={node.kind} />
-      {renaming ? (
-        <TitleInput initial={node.title} onDone={on.onRenamed} />
-      ) : (
-        <Link
-          to={pageUrl(node.id)}
-          tabIndex={-1}
-          draggable={false}
-          onClick={(event) => {
-            if (!pressed.current) return;
-            pressed.current = false; // the long-press opened the menu instead
-            event.preventDefault();
-          }}
-          className="flex min-w-0 flex-1 flex-col justify-center self-stretch"
-        >
-          <span id={titleId} className="truncate">
-            {title}
-          </span>
-          {hiddenParent && (
-            <span id={pathId} className="truncate text-label text-faint">
-              In a page you can&apos;t open
-            </span>
-          )}
-        </Link>
-      )}
-      <span
+      <div
         className={cn(
-          'flex shrink-0 items-center max-md:pointer-events-none max-md:w-0 max-md:overflow-hidden',
-          !menuOpen && 'md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100',
+          sidebarRowClasses({ active: current }),
+          'group gap-1 pr-1',
+          hiddenParent && 'h-auto min-h-8 py-1',
         )}
+        style={indent(row.level)}
       >
-        <DropdownMenu open={menuOpen} onOpenChange={on.onMenu}>
-          <DropdownMenuTrigger asChild>
-            <IconButton label={`More for ${title}`} size="sm" tabIndex={-1} className="size-6">
-              <MoreHorizontal aria-hidden />
-            </IconButton>
-          </DropdownMenuTrigger>
-          <EntryMenu
-            page={node}
-            actions={actions}
-            canAddInside={canAddInside}
-            onAddInside={on.onAddInside}
-            onRename={on.onRename}
-            onClosed={on.onMenuClosed}
-          />
-        </DropdownMenu>
-        {canAddInside && (
-          <IconButton
-            label={`Add a page inside ${title}`}
-            size="sm"
+        {row.expandable ? (
+          <button
+            type="button"
             tabIndex={-1}
-            className="size-6"
-            onClick={on.onAddInside}
+            aria-hidden
+            onClick={on.onToggle}
+            className="flex size-5 shrink-0 items-center justify-center rounded text-muted hover:bg-fill-hover hover:text-fg"
           >
-            <Plus aria-hidden />
-          </IconButton>
+            <ChevronRight className={cn('transition-transform', row.expanded && 'rotate-90')} />
+          </button>
+        ) : (
+          <span aria-hidden className="size-5 shrink-0" />
         )}
-      </span>
+        <EntryIcon icon={node.icon} kind={node.kind} />
+        {renaming ? (
+          <TitleInput initial={node.title} onDone={on.onRenamed} />
+        ) : (
+          <Link
+            to={pageUrl(node.id)}
+            tabIndex={-1}
+            draggable={false}
+            onClick={(event) => {
+              if (!pressed.current) return;
+              pressed.current = false; // the long-press opened the menu instead
+              event.preventDefault();
+            }}
+            className="flex min-w-0 flex-1 flex-col justify-center self-stretch"
+          >
+            <span id={titleId} className="truncate">
+              {title}
+            </span>
+            {hiddenParent && (
+              <span id={pathId} className="truncate text-label text-muted">
+                In a page you can&apos;t open
+              </span>
+            )}
+          </Link>
+        )}
+        <span
+          className={cn(
+            'flex shrink-0 items-center max-md:pointer-events-none max-md:w-0 max-md:overflow-hidden',
+            !menuOpen &&
+              'md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100 md:[li:focus>div>&]:opacity-100',
+          )}
+        >
+          <DropdownMenu open={menuOpen} onOpenChange={on.onMenu}>
+            <DropdownMenuTrigger asChild>
+              <IconButton label={`More for ${title}`} size="sm" tabIndex={-1} className="size-6">
+                <MoreHorizontal aria-hidden />
+              </IconButton>
+            </DropdownMenuTrigger>
+            <EntryMenu
+              page={node}
+              actions={actions}
+              canAddInside={canAddInside}
+              onAddInside={on.onAddInside}
+              onRename={on.onRename}
+              onClosed={on.onMenuClosed}
+            />
+          </DropdownMenu>
+          {canAddInside && (
+            <IconButton
+              label={`Add a page inside ${title}`}
+              size="sm"
+              tabIndex={-1}
+              className="size-6"
+              onClick={on.onAddInside}
+            >
+              <Plus aria-hidden />
+            </IconButton>
+          )}
+        </span>
+      </div>
+      {children}
     </li>
   );
 }
