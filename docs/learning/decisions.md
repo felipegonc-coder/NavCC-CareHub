@@ -72,8 +72,8 @@ agreed shape from PLAN.md, empty apart from its export; its owner then fills it.
 ## 0310 · Learner events carry no typed text
 - Events that can wait in the offline queue carry ids, choices and numbers only: `knowledge_check_answered` is
   `{ lessonId, blockId, correct }` (practice; only "answered" counts for continue blocks).
-- `quiz_attempt_submitted` is never queued: the quiz view posts it at once with `sendNow` (a quiz needs a
-  connection, 0302).
+- `quiz_attempt_submitted` is never queued: it is posted at once, after the events already waiting (a quiz needs
+  a connection, 0302).
 - The queue is cleared on sign-out, other people's queued events are dropped on start, and the person always
   comes from the signed-in session.
 - API paths are built with `apiPath(...)`, which encodes each segment and refuses `.`, `..` (also as `%2e`) and
@@ -155,3 +155,6 @@ Adds to 0302 and 0314.
   server and in the browser, so everyone sees the same status on the same day.
 - Web: `useProfileTimeZone()` and `LEARNING_DAY_ZONE` in `apps/web/src/features/learning/data/timeZone.ts` (query key
   `['auth', 'me']`, through core's api client). Learning screens format times through it.
+- Package and server: `LEARNING_DAY_ZONE`, `learningToday(now)` and `profileZone(timeZone)` in `@carehub/learning`
+  (`util/days.ts`). The server imports the first two from `features/learning/day.ts`. Jobs use the jobs runner's
+  `now`, so its test hook can run them at any time.
