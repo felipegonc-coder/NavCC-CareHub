@@ -80,8 +80,15 @@ export interface DatabaseWithVersion extends DatabaseMeta {
   /** 1 or more; each save adds 1, and a write that changes nothing keeps it. */
   version: number;
   wiki?: boolean;
-  /** Only for people who can restore them. */
-  deletedProperties?: Property[];
+  /** Only for people who can edit: properties they can see, deleted in the last 30 days. */
+  deletedProperties?: DeletedProperty[];
+}
+
+/** restoreProperty(databaseId, property.id) puts it back. */
+export interface DeletedProperty {
+  property: Property;
+  /** ISO time. */
+  deletedAt: string;
 }
 
 /**
