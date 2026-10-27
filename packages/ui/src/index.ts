@@ -1,5 +1,6 @@
 export { cssVariables, darkTokens, hexToChannels, lightTokens, tokenNames } from './tokens';
 export type { TokenName, TokenSet } from './tokens';
+export * from './palette';
 export { cn } from './lib/cn';
 export { useMediaQuery } from './lib/use-media-query';
 
