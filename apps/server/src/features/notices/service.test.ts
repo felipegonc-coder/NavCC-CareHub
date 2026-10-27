@@ -160,6 +160,9 @@ describe('grouping', () => {
     ['in another workspace', comment({ workspaceId: otherWorkspaceId })],
     ['with another key', comment({ groupKey: 'comments:qa-form' })],
     ['without a key', comment({ groupKey: undefined })],
+    ['of another kind', comment({ kind: 'suggestion' })],
+    // A comment that mentions the person is never folded into their comment notices (CM-08).
+    ['for a mention', comment({ kind: 'mention', title: 'Mentioned you in a comment' })],
   ];
   for (const [name, next] of apart) {
     it(`adds a new notice ${name}`, async () => {
@@ -169,6 +172,14 @@ describe('grouping', () => {
       expect(store.records).toHaveLength(2);
     });
   }
+
+  it('never groups mentions', async () => {
+    const { store, send } = setup();
+    const mention = comment({ kind: 'mention', title: 'Mentioned you in a comment' });
+    await send(mention);
+    await expect(send(mention)).resolves.toMatchObject({ grouped: false });
+    expect(store.records.map((notice) => notice.groupKey)).toEqual([null, null]);
+  });
 
   it('adds a new notice 5 minutes after the last one', async () => {
     const { store, send, wait } = setup();

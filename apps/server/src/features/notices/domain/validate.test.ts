@@ -52,11 +52,11 @@ describe('parseSendNoticeInput', () => {
   it('keeps every optional field', () => {
     const input: SendNoticeInput = {
       ...minimal,
-      kind: 'mention',
+      kind: 'comment',
       sender: 'Sam Ortiz',
       actorUserId: sam,
       icon: '💬',
-      title: 'Mentioned you in a comment',
+      title: 'Commented on a page you follow',
       text: 'Can you check the follow-up dates?',
       card: { type: 'page', pageId: coachingPlan },
       buttons: [
@@ -108,6 +108,15 @@ describe('parseSendNoticeInput', () => {
     expect(notice.text).toBeNull();
     expect(notice.groupKey).toBeNull();
     expect(notice.idempotencyKey).toBeNull();
+  });
+
+  it('never groups a mention: each one is its own notice', () => {
+    const notice = parseSendNoticeInput({
+      ...minimal,
+      kind: 'mention',
+      groupKey: `comments:${coachingPlan}`,
+    });
+    expect(notice.groupKey).toBeNull();
   });
 
   it('allows text up to the limits', () => {
