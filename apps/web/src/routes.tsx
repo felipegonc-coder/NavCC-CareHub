@@ -44,6 +44,7 @@ import { routes as learningRoutes } from './features/learning/routes';
 // feature: databases
 
 // feature: forms
+import { routes as formsRoutes } from './features/forms/routes';
 
 // feature: messages
 
@@ -68,6 +69,9 @@ export const publicRoutes: RouteObject[] = [
 
   // feature: design
   { path: 'design', lazy: () => import('./features/design/route') },
+
+  // feature: forms
+  ...formsRoutes,
 ];
 
 /** Signed in, inside the app shell. */
