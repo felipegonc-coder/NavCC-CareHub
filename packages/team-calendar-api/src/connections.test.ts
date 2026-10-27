@@ -1,0 +1,129 @@
+import { describe, expect, it } from 'vitest';
+import {
+  LINK_CREDENTIALS_MESSAGE,
+  LINK_SCHEME_MESSAGE,
+  connectProblemMessage,
+  connectionPatchSchema,
+  connectionsResponseSchema,
+  googleConnectResponseSchema,
+  linkConnectSchema,
+} from './index';
+
+/** The messages of a failed parse, or [] when it passed. */
+function problems(result: { success: boolean; error?: { issues: { message: string }[] } }) {
+  return result.success ? [] : (result.error?.issues.map((issue) => issue.message) ?? []);
+}
+
+const link = { url: 'webcal://calendar.example.com/school.ics', label: 'School', color: 'green' };
+
+describe('linkConnectSchema', () => {
+  it('takes https://, webcal:// and webcals:// links, trimmed', () => {
+    for (const url of [
+      'https://calendar.example.com/school.ics',
+      'webcal://calendar.example.com/school.ics',
+      'WEBCALS://calendar.example.com/school.ics',
+    ]) {
+      expect(linkConnectSchema.parse({ ...link, url: `  ${url} ` }).url).toBe(url);
+    }
+  });
+
+  it("turns down other links with the link reader's sentence", () => {
+    for (const url of [
+      'http://calendar.example.com/a.ics',
+      'ftp://calendar.example.com/a.ics',
+      'calendar.example.com',
+      'https://',
+    ]) {
+      expect(problems(linkConnectSchema.safeParse({ ...link, url }))).toEqual([
+        LINK_SCHEME_MESSAGE,
+      ]);
+    }
+  });
+
+  it('turns down a user name or password in the link, but not an @ further on', () => {
+    for (const url of [
+      'https://ann:secret@calendar.example.com/a.ics',
+      'webcal://ann@calendar.example.com/a.ics',
+      'https://:secret@calendar.example.com/a.ics',
+    ]) {
+      expect(problems(linkConnectSchema.safeParse({ ...link, url }))).toEqual([
+        LINK_CREDENTIALS_MESSAGE,
+      ]);
+    }
+    for (const url of [
+      'https://calendar.example.com/a.ics?owner=ann@example.com',
+      'webcal://calendar.example.com/ann@example.com.ics',
+    ]) {
+      expect(problems(linkConnectSchema.safeParse({ ...link, url }))).toEqual([]);
+    }
+  });
+
+  it('needs a name and a colour from the list, and nothing else', () => {
+    expect(problems(linkConnectSchema.safeParse({ ...link, label: '  ' }))).toEqual([
+      'Give it a name.',
+    ]);
+    expect(problems(linkConnectSchema.safeParse({ ...link, color: '#00ff00' }))).toEqual([
+      'Pick a colour from the list.',
+    ]);
+    expect(linkConnectSchema.safeParse({ ...link, password: 'x' }).success).toBe(false);
+  });
+});
+
+describe('connectionPatchSchema', () => {
+  it('takes a new name or calendar choices', () => {
+    expect(connectionPatchSchema.parse({ label: ' Avery at work ' })).toEqual({
+      label: 'Avery at work',
+    });
+    expect(connectionPatchSchema.parse({ calendars: [{ id: 'c1', shown: false }] })).toEqual({
+      calendars: [{ id: 'c1', shown: false }],
+    });
+  });
+
+  it('needs at least one change', () => {
+    expect(problems(connectionPatchSchema.safeParse({}))).toEqual(['Send at least one change.']);
+  });
+});
+
+describe('responses', () => {
+  it('reads a connection list without any secret in it', () => {
+    const answer = connectionsResponseSchema.parse({
+      connections: [
+        {
+          id: 'f3b0c2d4-1a2b-4c3d-8e9f-0a1b2c3d4e5f',
+          kind: 'google',
+          label: 'Avery Lin',
+          account: 'a…@example.com',
+          status: 'ok',
+          lastError: null,
+          lastSyncedAt: '2026-10-27T08:00:00.000Z',
+          calendars: [
+            { id: 'c1', name: 'Avery Lin', color: 'blue', shown: true, truncated: false },
+          ],
+        },
+      ],
+      unavailable: { google: null },
+    });
+    expect(answer.connections[0]?.account).toBe('a…@example.com');
+  });
+
+  it("only sends the person to Google's sign-in over https", () => {
+    expect(
+      googleConnectResponseSchema.safeParse({ url: 'http://accounts.example.com/' }).success,
+    ).toBe(false);
+  });
+});
+
+describe('connectProblemMessage', () => {
+  it('says what went wrong in plain words', () => {
+    expect(connectProblemMessage('cancelled')).toBe('Google sign-in was cancelled.');
+    expect(connectProblemMessage('limit')).toBe(
+      'You can connect up to 10 calendars. Remove one to add another.',
+    );
+  });
+
+  it('has a general sentence for codes it does not know', () => {
+    for (const code of ['something-new', 'toString', '__proto__']) {
+      expect(connectProblemMessage(code)).toBe("Connecting didn't work. Please try again.");
+    }
+  });
+});
