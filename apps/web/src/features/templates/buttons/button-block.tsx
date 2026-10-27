@@ -1,6 +1,6 @@
 // The "/button" block as people see it (spec 2 and 3.4): the button with its icon and label, a
 // spinner while it runs, ✓ when it's done and "Done · Undo" for 8 seconds if it changed
-// anything, and the failed step and why.
+// anything, the failed step and why, and ⚙ (Edit button) on hover for people who can edit it.
 import {
   BUTTON_MESSAGES,
   BUTTON_UNDO_MS,
@@ -11,19 +11,22 @@ import {
   buttonClasses,
   cn,
   colorClasses,
+  IconButton,
   Skeleton,
   Spinner,
   Tooltip,
   useToast,
   VisuallyHidden,
 } from '@carehub/ui';
-import { Check, Undo2 } from 'lucide-react';
+import { Check, Settings, Undo2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../../../lib/api';
 import { failureMessage } from '../template-fields';
 import { useButton, useButtonsClient } from './api';
 import { ConfirmDialog } from './confirm-dialog';
 import { doPageSteps, type PageStepDeps, type UndoStep } from './page-steps';
+import { ButtonSettingsDialog } from './settings';
+import { settingsOpened, useSettingsWanted } from './store';
 
 /** How long ✓ shows after a run. */
 export const DONE_MS = 2000;
@@ -31,7 +34,7 @@ export const DONE_MS = 2000;
 export interface ButtonBlockProps {
   buttonId: string;
   pageId: string;
-  /** The page is open for editing. */
+  /** The page is open for editing: people who can edit the button see ⚙. */
   editable: boolean;
   /** The page has its own copy of the button now (a duplicated page): the block keeps its ID. */
   onCopied(buttonId: string): void;
@@ -66,14 +69,22 @@ export function ButtonBlock({ buttonId, pageId, editable, onCopied, steps }: But
   const [undoable, setUndoable] = useState<Undoable | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [said, setSaid] = useState('');
   const run = useRef<Run | null>(null);
   const busy = useRef(false);
+  const wanted = useSettingsWanted(buttonId);
   const data = button.data;
 
   useEffect(() => {
     if (data && data.id !== buttonId) onCopied(data.id);
   }, [data, buttonId, onCopied]);
+
+  useEffect(() => {
+    if (!wanted || !data?.canEdit) return;
+    setSettingsOpen(true);
+    settingsOpened(buttonId);
+  }, [wanted, data?.canEdit, buttonId]);
 
   useEffect(() => {
     if (!done) return undefined;
@@ -204,7 +215,10 @@ export function ButtonBlock({ buttonId, pageId, editable, onCopied, steps }: But
 
   const onClick = () => {
     if (running) return;
-    if (!canPress) return;
+    if (!canPress) {
+      if (noActions && canEdit && editable) setSettingsOpen(true);
+      return;
+    }
     void press();
   };
 
@@ -237,6 +251,16 @@ export function ButtonBlock({ buttonId, pageId, editable, onCopied, steps }: But
     <div className="group/button flex flex-col items-start gap-1 py-1">
       <div className="flex flex-wrap items-center gap-1">
         {reason ? <Tooltip content={reason}>{main}</Tooltip> : main}
+        {canEdit && editable && (
+          <IconButton
+            label="Edit button"
+            size="sm"
+            className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/button:opacity-100 max-md:opacity-100"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings aria-hidden />
+          </IconButton>
+        )}
         {undoable && (
           <span className="flex items-center gap-1 text-small text-muted">
             {BUTTON_MESSAGES.done}
@@ -271,6 +295,9 @@ export function ButtonBlock({ buttonId, pageId, editable, onCopied, steps }: But
             if (current) void press({ runId: current.runId, from: confirm.from });
           }}
         />
+      )}
+      {settingsOpen && (
+        <ButtonSettingsDialog button={data} onClose={() => setSettingsOpen(false)} />
       )}
     </div>
   );

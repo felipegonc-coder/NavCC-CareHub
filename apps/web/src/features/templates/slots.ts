@@ -2,6 +2,7 @@ import { LayoutTemplate } from 'lucide-react';
 import type { FeatureSlots } from '../../slots';
 import { ButtonBlockView } from './buttons/block-view';
 import { ButtonProblems } from './buttons/problems';
+import { buttonSlashItem } from './buttons/slash';
 import { VariableChipView } from './buttons/variable-chip';
 import { TemplatesOverlay } from './overlay';
 import { openSaveAsTemplate, saveAllowed } from './save-store';
@@ -27,5 +28,6 @@ export const slots: FeatureSlots = {
   editor: {
     // The "/button" block and template variables ({{date}}, {{me}}) in pages and templates.
     nodeViews: { actionButton: ButtonBlockView, templateVariable: VariableChipView },
+    slashItems: [buttonSlashItem],
   },
 };

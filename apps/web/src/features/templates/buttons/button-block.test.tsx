@@ -6,6 +6,9 @@ import { ButtonBlock } from './button-block';
 import { BUTTON_ID, buttonResponse, COPY_ID, PAGE_ID, RUN_ID } from './fixtures';
 import { fakeButtons, fakeSteps, pressAnswer, renderButtons, undoWindow } from './test-utils';
 
+// The blocks editor in the settings isn't part of these tests.
+vi.mock('./blocks-field', () => ({ BlocksField: () => null, inEditorMenu: () => false }));
+
 const notes = { type: 'paragraph', content: [{ type: 'text', text: 'Call notes' }] };
 
 function renderBlock({
@@ -132,6 +135,13 @@ describe('the button block', () => {
     fireEvent.click(button);
     expect(client.press).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Edit button' })).not.toBeInTheDocument();
+  });
+
+  it('opens its settings from Edit button', async () => {
+    renderBlock();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit button' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit button' });
+    expect(within(dialog).getByLabelText('Label')).toHaveValue('Start intake');
   });
 
   it('keeps the page’s own copy of the button', async () => {
