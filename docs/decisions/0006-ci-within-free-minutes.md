@@ -27,6 +27,19 @@ Felipe is adding a free self-hosted runner on his Mac (labels `self-hosted`, `ma
 - **Screenshots** from the Mac and from Linux render fonts differently: they are never compared with each other. Each screenshot comment says which runner made it.
 - Node comes from `actions/setup-node`; Playwright's Chromium has a mac-arm64 build.
 
+## Update 2026-10-27: saving minutes
+
+About 170 pull requests in the first 10 hours used most of October's 2,000 minutes. The root coordinator approved these savings; Felipe decides whether to add a paid Actions budget.
+
+- Draft pull requests get no quick checks. Marking one ready for review starts its first run.
+- `main` is checked every 3 hours and by hand instead of after every merge, since each pull request was checked against `main` when it last changed. A failed run opens the issue "Main checks failing" with the end of each failed step's log; the next passing run closes it. On `main` the secret scan covers the whole history, so nothing merged between two runs is missed.
+- A pull request that changes only lane folders runs only those lanes' unit tests (`scripts/ci-test-scope.mjs`). Anything else, including any `package.json`, migration or lane registration file, runs all of them. Type check, lint, license check, audit and secret scan always run in full.
+- The `snapshot` branch is written every 30 minutes (when `main` has changed) instead of after every merge.
+- One push per pull request when it's ready, `main` merged in only for a conflict, and at most one `e2e` or `image` label run per pull request.
+- Every job has a timeout of 15 minutes or less and runs on GitHub-hosted Linux.
+
+If the minutes still run out, the last point of the decision applies: the lead reviews by hand and merges, smallest and safest pull requests first.
+
 ## Consequences
 
 A broken build or a broken screen can reach `main` and is then caught by the nightly run instead of the pull request. The review helper adds `e2e` to every pull request that changes screens before it is merged, which keeps that rare.
