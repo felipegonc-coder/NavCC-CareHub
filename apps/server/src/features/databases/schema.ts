@@ -31,6 +31,7 @@ export const dbDatabases = pgTable('db_databases', {
   accessRules: jsonb('access_rules').$type<RowAccessRule[]>().notNull().default([]),
   defaultTemplateId: text('default_template_id'),
   locked: boolean('locked').notNull().default(false),
+  wiki: boolean('wiki').notNull().default(false),
   rowPageLayout: jsonb('row_page_layout').$type<RowPageLayout>(),
   subItems: jsonb('sub_items').$type<SubItemSettings>(),
   dependencies: jsonb('dependencies').$type<DependencySettings>(),

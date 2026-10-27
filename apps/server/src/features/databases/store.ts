@@ -46,6 +46,7 @@ type DatabaseRow = {
   access_rules: DatabaseSettings['accessRules'] | null;
   default_template_id: string | null;
   locked: boolean;
+  wiki: boolean;
   row_page_layout: DatabaseSettings['rowPageLayout'];
   sub_items: DatabaseSettings['subItems'];
   dependencies: DatabaseSettings['dependencies'];
@@ -72,6 +73,7 @@ const toRecord = (r: DatabaseRow): DatabaseRecord => ({
   accessRules: r.access_rules ?? [],
   defaultTemplateId: r.default_template_id,
   locked: r.locked,
+  wiki: r.wiki === true,
   rowPageLayout: r.row_page_layout ?? null,
   subItems: r.sub_items ?? null,
   dependencies: r.dependencies ?? null,
@@ -87,7 +89,7 @@ async function selectDatabase(db: Executor, id: string, lock: boolean) {
   const { rows } = await db.execute<DatabaseRow>(sql`
     SELECT d.page_id AS id, d.workspace_id, p.space_id, p.parent_id, p.title, p.icon, p.is_inline,
       p.deleted_at IS NOT NULL AS in_trash, d.description, d.properties, d.views, d.templates,
-      d.access_rules, d.default_template_id, d.locked, d.row_page_layout, d.sub_items,
+      d.access_rules, d.default_template_id, d.locked, d.wiki, d.row_page_layout, d.sub_items,
       d.dependencies, d.deleted_properties, d.next_unique_number, d.version, d.created_at,
       d.updated_at
     FROM db_databases d JOIN pages p ON p.id = d.page_id

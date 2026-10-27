@@ -34,6 +34,8 @@ export type DeletedPropertyInfo = { property: Property; deletedAt: string };
  */
 export type DatabaseAnswer = DatabaseMeta & {
   version: number;
+  /** A Knowledge base wiki (until the package's DatabaseMeta has it). */
+  wiki: boolean;
   deletedProperties?: DeletedPropertyInfo[];
 };
 
@@ -233,6 +235,7 @@ export function databaseMeta(input: MetaInput): DatabaseAnswer {
     description: hideMentionTitles(record.description, openable),
     inline: record.inline,
     locked: record.locked,
+    wiki: record.wiki === true,
     properties: record.properties.filter((p) => visible.has(p.id)),
     views: record.views.map((view) => viewForViewer(view, hidden, canEdit)),
     accessRules: atLeast(level, 'full') ? record.accessRules : [],

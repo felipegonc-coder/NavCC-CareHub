@@ -37,6 +37,11 @@ export interface DatabaseSettings {
   accessRules: RowAccessRule[];
   defaultTemplateId: Id | null;
   locked: boolean;
+  /**
+   * A Knowledge base wiki: the row resolver applies its Draft rule to the rows. Absent is false
+   * (store.ts always sets it).
+   */
+  wiki?: boolean;
   rowPageLayout: RowPageLayout | null;
   subItems: SubItemSettings | null;
   dependencies: DependencySettings | null;
