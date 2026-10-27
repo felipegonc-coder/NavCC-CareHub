@@ -19,11 +19,9 @@ import type {
   Viewer,
 } from '@carehub/databases';
 import { can } from '@carehub/databases/access';
-import type {
-  ViewQueryBlocked,
-  ViewQueryData as EngineQueryData,
-} from '@carehub/databases/engine';
+import type { ViewQueryBlocked, ViewQueryData as EngineQueryData } from '@carehub/databases/engine';
 import { pageUrl } from '@carehub/shared';
+import type { ViewChange } from './api';
 import type { CellContext, PersonChoice } from './cells/types';
 
 export type { QueryGroup, QueryLane, QueryRow, ViewQueryBlocked } from '@carehub/databases/engine';
@@ -133,10 +131,11 @@ export interface ViewActions {
    */
   moveRow(rowId: Id, place: RowPlace): Promise<void>;
   /**
-   * View settings. With edit_views they're saved for everyone; for anyone else the filter, sorts
-   * and grouping become "Changed for you only" (as setOverride) and the rest is left out.
+   * View settings (not its id, dashboard or row order). With edit_views they're saved for everyone;
+   * for anyone else the filter, sorts and grouping become "Changed for you only" (as setOverride)
+   * and the rest is left out.
    */
-  updateView(patch: Partial<View>): Promise<void>;
+  updateView(patch: ViewChange): Promise<void>;
   /** "Changed for you only": filter, sorts or grouping on top of the saved view. Never saved. */
   setOverride(override: ViewOverride | null): void;
   /** The next page of the view, of a group or of a board sub-group. */

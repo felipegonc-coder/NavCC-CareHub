@@ -250,7 +250,8 @@ export function savedOptionIds(
   typed: readonly SelectOption[],
 ): Record<Id, Id> {
   const config = property?.config;
-  const options = config?.type === 'select' || config?.type === 'multi_select' ? config.options : [];
+  const options =
+    config?.type === 'select' || config?.type === 'multi_select' ? config.options : [];
   const ids: Record<Id, Id> = {};
   for (const option of typed) {
     const known = options.some((o) => o.id === option.id);

@@ -21,7 +21,7 @@ import {
   type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query';
-import type { Id, Row, SelectOption, View, ViewOverride } from '@carehub/databases';
+import type { Id, Row, SelectOption, ViewOverride } from '@carehub/databases';
 import {
   createDatabaseClient,
   isApiError,
@@ -33,6 +33,7 @@ import {
   type RowDetail,
   type RowValues,
   type SettingsAnswer,
+  type ViewChange,
 } from './api';
 import {
   mapQueryRows,
@@ -432,16 +433,16 @@ export function useMoveRow(databaseId: Id, viewId: Id) {
 
 /**
  * A settings write (decision 0200): the database's own settings, properties, views, view order,
- * templates and access rules. Each sends the database's version, and the server refuses a stale
- * one (409, "This database changed. Reload to see the latest."). So one database's writes go one
- * at a time, each with the version the write before it got back.
+ * templates and access rules. Each sends the database's version (the client adds the newest it has
+ * seen), and the server refuses a stale one (409, "This database changed. Reload to see the
+ * latest."). So one database's writes go one at a time, each after the answer of the one before.
  */
 export interface SettingsWrite<TInput> {
   /**
    * Sends the change. `meta` is the database as cached: the last answer, with the changes still
    * waiting to be sent shown on top.
    */
-  send(client: DatabaseClient, meta: DatabaseWithVersion, input: TInput): Promise<SettingsAnswer>;
+  send(client: DatabaseClient, input: TInput, meta: DatabaseWithVersion): Promise<SettingsAnswer>;
   /** The database with the change, shown until the server answers. */
   show?(meta: DatabaseWithVersion, input: TInput): DatabaseWithVersion;
   /** The change only adds things: after a 409 the database reloads and it's sent once more. */
@@ -467,7 +468,7 @@ export function useSettingsWrite<TInput>(databaseId: Id, write: SettingsWrite<TI
     mutationFn: async (input: TInput) => {
       const meta = await queryClient.ensureQueryData({ queryKey: metaKey, queryFn: loadMeta });
       try {
-        return await write.send(client, meta, input);
+        return await write.send(client, input, meta);
       } catch (error) {
         if (!write.retryOnConflict || !isApiError(error) || error.status !== 409) throw error;
         const fresh = await queryClient.fetchQuery({
@@ -475,7 +476,7 @@ export function useSettingsWrite<TInput>(databaseId: Id, write: SettingsWrite<TI
           queryFn: loadMeta,
           staleTime: 0,
         });
-        return write.send(client, fresh, input);
+        return write.send(client, input, fresh);
       }
     },
     onMutate: async (input) => {
@@ -512,29 +513,32 @@ export function useSettingsWrite<TInput>(databaseId: Id, write: SettingsWrite<TI
 }
 
 /**
- * Any other settings write, given the client and the version to send:
- * `change.mutate((client, version) => client.deleteView(databaseId, version, viewId))`.
+ * Any other settings write, through the client:
+ * `change.mutate((client) => client.deleteView(databaseId, viewId))`.
  */
 export function useSettingsChange(databaseId: Id) {
-  return useSettingsWrite<(client: DatabaseClient, version: number) => Promise<SettingsAnswer>>(
-    databaseId,
-    { send: (client, meta, write) => write(client, meta.version) },
-  );
+  return useSettingsWrite<(client: DatabaseClient) => Promise<SettingsAnswer>>(databaseId, {
+    send: (client, write) => write(client),
+  });
 }
 
 /** PATCH /:id: Lock structure, the default template, the row page layout, sub-items, dependencies. */
 export function useUpdateDatabase(databaseId: Id) {
   return useSettingsWrite<DatabaseSettings>(databaseId, {
-    send: (client, meta, settings) => client.updateDatabase(databaseId, meta.version, settings),
-    show: (meta, settings) => ({ ...meta, ...definedOnly(settings) }),
+    send: (client, settings) => client.updateDatabase(databaseId, settings),
+    // Sub-items and dependencies add properties on the server, so they show with its answer.
+    show: (meta, { locked, defaultTemplateId, rowPageLayout, description, wiki }) => ({
+      ...meta,
+      ...definedOnly({ locked, defaultTemplateId, description, wiki }),
+      ...(rowPageLayout !== undefined && { rowPageLayout: rowPageLayout ?? undefined }),
+    }),
   });
 }
 
 /** A view change for everyone, shown at once in the tabs, toolbar and layout. */
 export function useUpdateView(databaseId: Id) {
-  return useSettingsWrite<{ viewId: Id; change: Partial<View> }>(databaseId, {
-    send: (client, meta, { viewId, change }) =>
-      client.updateView(databaseId, meta.version, viewId, change),
+  return useSettingsWrite<{ viewId: Id; change: ViewChange }>(databaseId, {
+    send: (client, { viewId, change }) => client.updateView(databaseId, viewId, change),
     show: (meta, { viewId, change }) => ({
       ...meta,
       views: meta.views.map((v) => (v.id === viewId ? { ...v, ...change, id: v.id } : v)),
@@ -554,7 +558,7 @@ export interface TypedOptions {
  */
 export function useAddOptions(databaseId: Id) {
   return useSettingsWrite<TypedOptions>(databaseId, {
-    send: async (client, meta, { propertyId, options }) => {
+    send: async (client, { propertyId, options }, meta) => {
       const property = withTypedOptions(meta, propertyId, options).properties.find(
         (p) => p.id === propertyId,
       );
@@ -564,7 +568,7 @@ export function useAddOptions(databaseId: Id) {
         (config?.type === 'select' || config?.type === 'multi_select') &&
         config.options.some((o) => typed.has(o.id));
       if (!config || !adds) return meta;
-      return client.updateProperty(databaseId, meta.version, propertyId, { config });
+      return client.updateProperty(databaseId, propertyId, { config });
     },
     show: (meta, { propertyId, options }) => withTypedOptions(meta, propertyId, options),
     retryOnConflict: true,
