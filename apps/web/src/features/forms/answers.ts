@@ -250,10 +250,20 @@ export function isBlankAnswers(answers: Answers): boolean {
   return Object.values(answers).every(isEmptyAnswer);
 }
 
+/**
+ * Where unsent answers are kept: `local` (this browser) for someone signed in; `session` (this tab,
+ * gone once it closes) with nobody signed in, so on a shared computer the next person doesn't open
+ * the last one's answers.
+ */
+export type DraftPlace = 'local' | 'session';
+
+const draftStorage = (place: DraftPlace): Storage =>
+  place === 'session' ? window.sessionStorage : window.localStorage;
+
 /** The unsent answers kept under this key (see draftKey), if any. */
-export function loadDraft(key: string): Answers | null {
+export function loadDraft(key: string, place: DraftPlace): Answers | null {
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = draftStorage(place).getItem(key);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     return isRecord(parsed) && isRecord(parsed.answers) ? parsed.answers : null;
@@ -263,18 +273,19 @@ export function loadDraft(key: string): Answers | null {
 }
 
 /** Keeps the answers until they're sent; nothing answered removes the draft. */
-export function saveDraft(key: string, answers: Answers): void {
+export function saveDraft(key: string, answers: Answers, place: DraftPlace): void {
   try {
-    if (isBlankAnswers(answers)) window.localStorage.removeItem(key);
-    else window.localStorage.setItem(key, JSON.stringify({ answers }));
+    const storage = draftStorage(place);
+    if (isBlankAnswers(answers)) storage.removeItem(key);
+    else storage.setItem(key, JSON.stringify({ answers }));
   } catch {
     // Storage is full or turned off: the answers stay on screen.
   }
 }
 
-export function clearDraft(key: string): void {
+export function clearDraft(key: string, place: DraftPlace): void {
   try {
-    window.localStorage.removeItem(key);
+    draftStorage(place).removeItem(key);
   } catch {
     // Storage is turned off: there is no draft to remove.
   }

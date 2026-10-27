@@ -137,6 +137,19 @@ describe('pushToUser', () => {
     expect(warnings).toHaveLength(1);
   });
 
+  it('sends nothing while the person paused notifications, except the test', async () => {
+    const { store, runtime, requests, addBrowser } = await setup();
+    await addBrowser('laptop');
+    const until = new Date(now.getTime() + 60 * 60 * 1000);
+    await store.updatePreferences(avery, { pause: { until } }, now);
+    expect(await pushToUser(runtime, avery, notice)).toEqual({ sent: 0, removed: 0, failed: 0 });
+    expect(requests).toHaveLength(0);
+    const test = await pushToUser(runtime, avery, notice, { evenIfPaused: true });
+    expect(test).toEqual({ sent: 1, removed: 0, failed: 0 });
+    runtime.now = () => until;
+    expect(await pushToUser(runtime, avery, notice)).toEqual({ sent: 1, removed: 0, failed: 0 });
+  });
+
   it('sends nothing while push is off or the person has no browsers', async () => {
     const { runtime, requests, addBrowser } = await setup();
     expect(await pushToUser(runtime, avery, notice)).toEqual({ sent: 0, removed: 0, failed: 0 });
