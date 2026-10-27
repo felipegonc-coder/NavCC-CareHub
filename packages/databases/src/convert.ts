@@ -44,15 +44,18 @@ const FROM_TEXT: ReadonlySet<PropertyType> = new Set<PropertyType>([
   'person',
 ]);
 
+/** Computed or automatic types: any property but Name can change into one, carrying no values. */
+const NO_VALUES: ReadonlySet<PropertyType> = new Set(['formula', 'rollup', 'unique_id', 'button']);
+
 /**
- * Whether a property can change from one type to another, exactly as the spec offers: anything to
- * Text; Text to Number, Date, Checkbox, Link, Email, Phone, Select, Multi-select, Status or Person;
- * between Select, Multi-select and Status; ID to Number. Name never changes type, and nothing turns
- * into Formula, Rollup, ID or Button (those are added as new properties). Same type: false.
+ * Whether a property can change from one type to another: anything to Text; Text to Number, Date,
+ * Checkbox, Link, Email, Phone, Select, Multi-select, Status or Person; between Select,
+ * Multi-select and Status; ID to Number; anything into Formula, Rollup, ID or Button (no values
+ * carry over; the screen warns with the cleared count). Name never changes type. Same type: false.
  */
 export function canConvert(from: PropertyType, to: PropertyType): boolean {
   if (from === to || from === 'title' || to === 'title') return false;
-  if (to === 'text') return true;
+  if (to === 'text' || NO_VALUES.has(to)) return true;
   if (from === 'text') return FROM_TEXT.has(to);
   if (OPTION_TYPES.has(from)) return OPTION_TYPES.has(to);
   return from === 'unique_id' && to === 'number';
@@ -111,6 +114,8 @@ function clip(s: string, max: number): string {
  *   Status options in To-do); multi to single keeps the first value.
  * - Text to Person: an exact name or email through `opts.findUser`, split on commas.
  * - ID to Number: the numbers.
+ * - into Formula, Rollup, ID or Button: no values; every row that had one counts as cleared (for
+ *   ID the server then numbers the rows, oldest first).
  */
 export function planConversion(
   prop: Property,
@@ -120,10 +125,16 @@ export function planConversion(
   opts: ConversionOptions = {},
 ): ConversionPlan {
   const from = prop.config.type;
-  if (!canConvert(from, toConfig.type)) {
-    throw new RangeError(`A ${from} property can't change to ${toConfig.type}.`);
+  const to = toConfig.type;
+  if (!canConvert(from, to)) {
+    throw new RangeError(`A ${from} property can't change to ${to}.`);
   }
-  const converter = converterFor(prop, toConfig, ctx, opts);
+  const converter: Converter = NO_VALUES.has(to)
+    ? {
+        row: (row) => (isEmptyValue(readValue(row, prop, ctx)) ? EMPTY : LOST),
+        config: () => toConfig,
+      }
+    : converterFor(prop, toConfig, ctx, opts);
   const values = new Map<Id, unknown>();
   let cleared = 0;
   for (const row of rows) {

@@ -1,0 +1,16 @@
+{
+  "name": "@carehub/scripts-tests",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "Unit tests for the repository scripts in scripts/.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "vitest": "^3.2"
+  }
+}
