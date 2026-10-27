@@ -306,16 +306,16 @@ The schema (what every saved draft must pass) adds these rules to the comments a
 
 | Function | Does |
 |---|---|
-| `parseCourse(raw: unknown)` | Migrates older `formatVersion`s, then validates. Returns `{ ok: true, course, migratedFrom? }` or `{ ok: false, issues: { path, message }[] }`. Never throws. |
+| `parseCourse(raw: unknown, options?)` | Migrates older `formatVersion`s, then validates. Returns `{ ok: true, course, migratedFrom? }` or `{ ok: false, issues: { path, message }[] }` (at most 100 issues). Never throws. `options.migrations` swaps in other migrations (tests). |
 | `parseCourseFile(raw)` / `toCourseFile(course, exportedAt?)` | Same for the import/export envelope. |
 | `parseLearningPath(raw)` | Same for paths. |
 | `checkPublishable(course)` | Plain-language publish problems: `{ path, lessonId?, blockId?, questionId?, message }[]`. |
 | `createCourse({ type, title, id? })` | A new course with the preset settings for its type (microlearning starts with one lesson). |
-| `presetFor(type)` | `{ settings: CourseSettings, quiz: QuizSettings }` defaults for the 5 course types. |
+| `presetFor(type, { hasQuiz? })` | `{ settings: CourseSettings, quiz: QuizSettings }` defaults for the 5 course types (standard asks for a quiz pass only with `hasQuiz`). |
 | `newId()` | Random id (crypto.getRandomValues), matches the id pattern. |
 | `richText(…)`, `plainText(rt)` | Builders for fixtures and tests; plain text for search and CSV. |
 | `allQuestions(course)` | Every question with where it lives (quiz lesson, bank draw copy or knowledge-check block). |
-| JSON Schema export | `docs/learning/course.schema.json` generated with `z.toJSONSchema`, for importers. |
+| `courseFileJsonSchema()` | The JSON Schema for course files, generated with `z.toJSONSchema` and committed as `docs/learning/course.schema.json` for importers (a test fails when it's out of date). |
 
 ## Preset defaults
 
