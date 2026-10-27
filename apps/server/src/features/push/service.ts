@@ -1,5 +1,6 @@
 // Sends one notification to every browser where a person turned notifications on, and tidies up
 // after: subscriptions that expired or were turned off are deleted, the rest marked as used.
+import { activePause } from './domain/preferences';
 import { buildPushPayload, type PushNotice } from './payload';
 import { sendPush, topicFor, type PushUrgency } from './sender';
 import type { PushConfig } from './settings';
@@ -27,11 +28,14 @@ export interface PushSummary {
 export interface PushToUserOptions {
   /** "high" suits reminders. Default "normal". */
   urgency?: PushUrgency;
+  /** Sends even while the person paused notifications: only for the test they asked for. */
+  evenIfPaused?: boolean;
 }
 
 /**
  * Builds the notification with the person's "Show message text" setting and sends it to each of
  * their browsers at once. A newer notification with the same tag replaces one not yet delivered.
+ * While the person paused notifications, it sends nothing.
  */
 export async function pushToUser(
   runtime: PushRuntime,
@@ -46,7 +50,8 @@ export async function pushToUser(
   if (subscriptions.length === 0) return summary;
 
   const now = runtime.now?.() ?? new Date();
-  const { showText } = await store.getPreferences(userId);
+  const { showText, pause } = await store.getPreferences(userId);
+  if (!options.evenIfPaused && activePause(pause, now)) return summary;
   const payload = buildPushPayload(notice, { showText });
   const sender = { fetch: runtime.fetch, vapid: config.vapid };
   const sendOptions = { urgency: options.urgency, topic: topicFor(notice.tag), now };

@@ -35,6 +35,13 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 - **Did you mean** (SR-11): when the search box's first page has fewer than 3 results, the answer adds `didYouMean`, the text with each word no title has swapped for a title word one or two letters off (one for words of 3 or 4 letters). Only titles the person can open count, Trash left out and archived pages only with `includeArchived`. Page pickers (`limit`), later pages and `match: 'any'` don't get it.
 - **Results:** title with the matching words as ranges, icon, path, a snippet of up to 160 characters from the block with the most matching words, created and edited (with the editor's name), "Row in" the database, ✓ Verified and Archived.
 
+## The search window (`apps/web/src/features/search`)
+
+- **Opening it:** Ctrl+K or Ctrl+P (⌘ on a Mac) on any screen, through the shell's `overlays` slot, or **Search** at the top of the sidebar (`sidebarSections`). When the editor has already used Ctrl+K (a link, with text selected), the window stays shut. `openSearch()` in `open.ts` opens it too.
+- **Results:** `POST /api/search/query` 80 ms after typing stops, 20 at a time as you scroll or move down. The previous results stay while new ones load, and grey rows show after 150 ms if there were none. The first result is selected.
+- **Keys:** it's a combobox. ↑ and ↓ move through every list, Enter opens the page, Ctrl+Enter opens it in a new tab, and Esc closes the window and puts the focus back where it was. Commands from the `commands` slot that match the text come first, under "Actions".
+- **Not yet:** Recent and Recent searches before typing, the filter chips and sort, Did you mean and Search in Trash, and Shift+Enter for the side panel (once the page view has one).
+
 ## For other features (`apps/server/src/features/search/index.ts`)
 
 - `registerSearchText(kind, (db, pageId) => Promise<string>)`: text for every page of that kind, one block per line. Databases registers `'row'` with the values the toolbar search uses, leaving out properties with access rules (hidden properties are never matched or shown).

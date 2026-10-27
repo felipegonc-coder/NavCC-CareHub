@@ -60,8 +60,8 @@ export function errorBody(code: string, message: string, details?: unknown): Err
 
 /**
  * The app's error handler. HttpErrors as thrown; zod errors become 400 `invalid` with the issues (never the
- * values sent); other 4xx errors get the code and message for their status; anything else is logged and
- * answered with a plain 500.
+ * values sent); other 4xx errors get the code and message for their status; anything else is logged (see
+ * loggableError) and answered with a plain 500.
  */
 export function errorHandler(error: FastifyError, request: FastifyRequest, reply: FastifyReply) {
   if (error instanceof HttpError) {
@@ -77,8 +77,44 @@ export function errorHandler(error: FastifyError, request: FastifyRequest, reply
     const code = CODE_FOR_STATUS[status] ?? 'invalid';
     return reply.code(status).send(errorBody(code, DEFAULT_ERROR_MESSAGES[code]));
   }
-  request.log.error({ err: error }, 'request failed');
+  request.log.error({ error: loggableError(error) }, 'request failed');
   return reply
     .code(500)
     .send(errorBody('server_error', 'Something went wrong on our side. Try again in a moment.'));
+}
+
+const DATABASE_ERROR_FIELDS = [
+  'code',
+  'severity',
+  'constraint',
+  'table',
+  'column',
+  'routine',
+] as const;
+
+/**
+ * An unexpected error as it may be logged: its type, stack frames and causes, but never query parameters
+ * or database messages, which can quote the values (emails, password hashes, page text). For Drizzle
+ * errors that's the SQL text; for PostgreSQL errors the SQLSTATE code and constraint, table and column.
+ */
+export function loggableError(error: unknown, depth = 0): Record<string, unknown> {
+  if (!(error instanceof Error)) return { type: typeof error };
+  const fields = error as Error & Record<string, unknown>;
+  const logged: Record<string, unknown> = { type: error.name };
+  if (typeof fields.query === 'string' && Array.isArray(fields.params)) {
+    logged.query = fields.query;
+  } else if (typeof fields.code === 'string' && typeof fields.severity === 'string') {
+    for (const key of DATABASE_ERROR_FIELDS) {
+      if (fields[key] !== undefined) logged[key] = fields[key];
+    }
+  } else {
+    logged.message = error.message;
+  }
+  // Only the "at …" lines: the first lines repeat the message.
+  logged.stack = error.stack
+    ?.split('\n')
+    .filter((line) => /^\s+at /.test(line))
+    .join('\n');
+  if (error.cause !== undefined && depth < 3) logged.cause = loggableError(error.cause, depth + 1);
+  return logged;
 }
