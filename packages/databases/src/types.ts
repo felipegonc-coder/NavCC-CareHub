@@ -909,9 +909,9 @@ export interface RepeatSchedule {
   /** Ending on a date: the last day it makes a row. null: no end date. */
   end: CalendarDate | null;
   /**
-   * Ending after a number of times: how many more rows it makes (1 to LIMITS.repeatTimes when
-   * saved). The server counts it down after each row it makes; at 0 the repeat has ended. Not set
-   * together with an end date. Absent or null: no such limit.
+   * Ending after a number of times: how many more rows it makes, up to LIMITS.repeatTimes. The
+   * server counts it down after each row it makes; at 0 the repeat has ended (saving it as it is
+   * still works). Not set together with an end date. Absent or null: no such limit.
    */
   timesLeft?: number | null;
   paused: boolean;

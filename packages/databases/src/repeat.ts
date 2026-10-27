@@ -212,9 +212,9 @@ export function shouldPause(owner: {
 /**
  * Checks a schedule before it's saved; the first problem, or null. Every N is 1 to 365; weekly
  * needs at least one day, each once; monthly days are 1 to 28 or the last day; months 1 to 12; the
- * time is on the quarter hour; the time zone is known; the end isn't before the start; a number of
- * times is 1 to 1,000 (LIMITS.repeatTimes) and isn't set with an end date. With the database's
- * `templates` and the `templateId` it's for, an 11th repeating template is refused.
+ * time is on the quarter hour; the time zone is known; the end isn't before the start; the times
+ * left are 0 (ended) to 1,000 (LIMITS.repeatTimes) and aren't set with an end date. With the
+ * database's `templates` and the `templateId` it's for, an 11th repeating template is refused.
  */
 export function validateSchedule(
   schedule: RepeatSchedule,
@@ -239,7 +239,7 @@ export function validateSchedule(
   if (!isCalendarDate(s.start) || (s.end !== null && !isCalendarDate(s.end))) return M.date;
   if (s.end !== null && s.end < s.start) return M.endBeforeStart;
   const left = s.timesLeft ?? null;
-  if (left !== null && !whole(left, 1, LIMITS.repeatTimes)) return M.times;
+  if (left !== null && !whole(left, 0, LIMITS.repeatTimes)) return M.times;
   if (left !== null && s.end !== null) return M.oneEnd;
   const others = (opts.templates ?? []).filter((t) => t.repeat && t.id !== opts.templateId);
   return others.length >= LIMITS.repeatingTemplates ? M.tooMany : null;
