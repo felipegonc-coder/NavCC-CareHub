@@ -14,7 +14,10 @@
  * like indexOf and has neither limit. Each pattern is checked and compiled once and kept in a small
  * cache, refusals included. match stops past its most matches and replace past its longest text
  * while they're being made, and the row's time is checked after compiling and after every match,
- * so at most one search, kept short by MAX_PATTERN_WORK, runs over it.
+ * so at most one search, kept short by MAX_PATTERN_WORK, runs over it. Each search is short, but
+ * a match or replace makes one per match and together they can grow with the square of the text
+ * ((?:a.*c|a) reads the rest of the text for each of 10,000 a's), so after every match the call's
+ * own PATTERN_CALL_MS is checked too, which holds it where the row has no clock.
  */
 import { RE2JS } from 're2js';
 import { LIMITS } from '../types';
@@ -45,6 +48,8 @@ export const MAX_PATTERN_PROGRAM = 2_000;
  * up to 4,444; longer texts give "⚠ Pattern too slow".
  */
 export const MAX_PATTERN_WORK = 320_000;
+/** Milliseconds one match or replace may take, clock or no clock (LIMITS.formulaTimeMs). */
+export const PATTERN_CALL_MS: number = LIMITS.formulaTimeMs;
 /** Patterns an engine keeps compiled; the least recently used goes first. */
 export const PATTERN_CACHE_SIZE = 128;
 
@@ -93,8 +98,14 @@ type Entry = Compiled | { error: string };
 const SLOW: PatternResult<never> = { ok: false, error: PATTERN_MESSAGES.tooSlow };
 const failed = (error: string): PatternResult<never> => ({ ok: false, error });
 
-/** An engine with its own cache of up to `cacheSize` patterns. */
-export function createPatternEngine(cacheSize: number = PATTERN_CACHE_SIZE): CachedPatternEngine {
+/**
+ * An engine with its own cache of up to `cacheSize` patterns, which times each match and replace
+ * on `now` (milliseconds from any fixed point, Date.now unless the caller brings its own clock).
+ */
+export function createPatternEngine(
+  cacheSize: number = PATTERN_CACHE_SIZE,
+  now: () => number = Date.now,
+): CachedPatternEngine {
   const cache = new Map<string, Entry>();
   let compiled = 0;
   const compile = (source: string): RE2JS => {
@@ -118,6 +129,9 @@ export function createPatternEngine(cacheSize: number = PATTERN_CACHE_SIZE): Cac
     if ('error' in e) return failed(e.error);
     return limits?.overTime?.() ? SLOW : e;
   };
+  /** After a match: the row's time is up, or the call, begun at `started`, is past its own. */
+  const late = (limits: PatternLimits | undefined, started: number): boolean =>
+    limits?.overTime?.() === true || now() - started > PATTERN_CALL_MS;
   return {
     get compiled() {
       return compiled;
@@ -135,6 +149,7 @@ export function createPatternEngine(cacheSize: number = PATTERN_CACHE_SIZE): Cac
       return limits?.overTime?.() ? SLOW : { ok: true, value: found };
     },
     match(text, pattern, limits) {
+      const started = now();
       const c = ready(pattern, limits);
       if (!('re' in c)) return c;
       const cut = readLength(text);
@@ -146,11 +161,12 @@ export function createPatternEngine(cacheSize: number = PATTERN_CACHE_SIZE): Cac
       while (m.find()) {
         if (found.length >= most) return failed(TOO_COMPLEX);
         found.push(head.slice(m.start(), m.end()));
-        if (limits?.overTime?.()) return SLOW;
+        if (late(limits, started)) return SLOW;
       }
       return { ok: true, value: found };
     },
     replace(text, pattern, replacement, all, limits) {
+      const started = now();
       const c = ready(pattern, limits);
       if (!('re' in c)) return c;
       const cut = readLength(text);
@@ -177,7 +193,7 @@ export function createPatternEngine(cacheSize: number = PATTERN_CACHE_SIZE): Cac
           if (!out.add(s)) return failed(TOO_MUCH_TEXT);
         }
         pos = end;
-        if (limits?.overTime?.()) return SLOW;
+        if (late(limits, started)) return SLOW;
         if (!all) break;
       }
       if (!out.add(head.slice(pos)) || !out.add(text.slice(cut))) return failed(TOO_MUCH_TEXT);
