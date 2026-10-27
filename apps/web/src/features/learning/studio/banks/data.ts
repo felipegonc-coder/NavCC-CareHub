@@ -1,4 +1,9 @@
-import { BankListSchema, BankReplySchema, SaveBankReplySchema } from '@carehub/learning';
+import {
+  BankListSchema,
+  BankReplySchema,
+  ImportQuestionsReplySchema,
+  SaveBankReplySchema,
+} from '@carehub/learning';
 import type { CreateBankRequest, Id, QuestionBank } from '@carehub/learning';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, LearningApiError, noContent } from '../../data';
@@ -89,5 +94,18 @@ export function useDeleteBank() {
   return useMutation({
     mutationFn: (bankId: Id) => call(api('DELETE', apiPath(bankId), noContent)),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: bankKeys.list }),
+  });
+}
+
+/**
+ * Adds the questions in spreadsheet text (CSV) to a bank on the server; the reply says how many were added and
+ * which rows were left out. Settles once the bank is loaded again, so use `mutateAsync` and show the reply then.
+ */
+export function useImportQuestions(bankId: Id) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (csv: string) =>
+      call(api('POST', `${apiPath(bankId)}/import`, { csv }, ImportQuestionsReplySchema)),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: bankKeys.all }),
   });
 }
