@@ -115,7 +115,8 @@ function isSafeMark(key: string, value: unknown, info: SchemaInfo): boolean {
   return isRecord(value) && Object.entries(value).every(([k, v]) => isSafeValue(k, v, info, 1));
 }
 
-function isSafeValue(key: string, value: unknown, info: SchemaInfo, depth: number): boolean {
+/** An attribute value: plain JSON, with only safe addresses under `href`, `src` and `url`. */
+export function isSafeValue(key: string, value: unknown, info: SchemaInfo, depth: number): boolean {
   if (typeof value === 'string') return !URL_KEYS.has(key) || info.isSafeUrl(value);
   if (value === null || value === undefined) return true;
   if (typeof value === 'number' || typeof value === 'boolean') return true;
