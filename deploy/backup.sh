@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Care Hub backups. Runs in the "backup" service of docker-compose.yml (postgres:17
-# image), which sets PGHOST, PGUSER, PGPASSWORD, PGDATABASE, TZ and BACKUP_*.
+# image), which sets PGHOST, PGUSER (the superuser), PGPASSWORD, PGDATABASE, CAREHUB_DB_USER
+# (the app's role, which owns the database), TZ and BACKUP_*.
 #   backup.sh schedule                   back up daily at BACKUP_AT (local time) and on request
 #   backup.sh now                        back up the database and the uploaded files now
 #   backup.sh restore STAMP --confirmed  replace both with a backup (use restore.sh)
@@ -20,6 +21,7 @@ FILES=${FILES:-/data/files}
 KEEP_DAYS=${BACKUP_KEEP_DAYS:-30}
 BACKUP_AT=${BACKUP_AT:-02:00}
 DB=${PGDATABASE:?PGDATABASE is not set}
+OWNER=${CAREHUB_DB_USER:?CAREHUB_DB_USER is not set} # restored databases belong to it again
 REQUEST_GAP=60 # minutes; requests sooner than this after the last run are ignored
 STAMP="" STARTED="" BASE="" ERROR="" LOCKED=0 CHANGED=0 PROVING=0
 DB_BYTES="" FILE_BYTES="" TEST_OK=false CHECKED_AT="" DETAILS=""
@@ -145,8 +147,8 @@ prove() {
   toc=$(pg_restore --list "$BASE.db.dump" | awk '$4 == "TABLE" && $5 != "DATA" && $5 != "ATTACH" {n++} END {print n+0}') \
     || die "the dump cannot be read"
   dropdb --if-exists "$check"
-  createdb -T template0 "$check"
-  pg_restore --exit-on-error -d "$check" "$BASE.db.dump" || die "the dump does not restore"
+  createdb -T template0 -O "$OWNER" "$check"
+  pg_restore --exit-on-error --no-owner --role="$OWNER" -d "$check" "$BASE.db.dump" || die "the dump does not restore"
   out=$(psql -X -A -t -F ' ' -v ON_ERROR_STOP=1 -d "$check" -c "$TABLES_SQL") || die "could not count the restored rows"
   read -r tables rows <<<"$out"
   [[ $tables == "$toc" ]] || die "the scratch database has $tables tables, the dump lists $toc"
@@ -192,8 +194,8 @@ restore() { # STAMP --confirmed
   archive "$BACKUPS/pre-restore-$now.files.tar.gz" || die "could not save the current files"
   log "restoring the database from $stamp"
   dropdb --if-exists "$tmp"
-  createdb -T template0 "$tmp"
-  pg_restore --exit-on-error -d "$tmp" "$BASE.db.dump" || die "the backup does not restore"
+  createdb -T template0 -O "$OWNER" "$tmp"
+  pg_restore --exit-on-error --no-owner --role="$OWNER" -d "$tmp" "$BASE.db.dump" || die "the backup does not restore"
   psql -X -q -o /dev/null -v ON_ERROR_STOP=1 -d postgres <<SQL || die "could not swap in the restored database"
 DROP DATABASE IF EXISTS "$old";
 SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname = '$DB' AND pid <> pg_backend_pid();

@@ -3,7 +3,7 @@
 # server from a checkout (deploy/up.sh) and in CI. See docs/decisions/0003-image-and-deploy.md.
 # The base images are pinned by digest and bumped by hand ("Base images" in deploy/README.md).
 
-# Only the package manifests, so the npm install layers stay cached until they change.
+# Only the package manifests, so the npm ci layers stay cached until they change.
 FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS manifests
 WORKDIR /src
 COPY . .
@@ -15,7 +15,13 @@ FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4
 WORKDIR /src
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY --from=manifests /out/ ./
-RUN npm install
+# Exactly the lockfile, without install scripts (decision 0011), as in ci.yml. npm install
+# (also without scripts) only when the lockfile is out of sync with a package.json, which can
+# happen on a pull request or just after a merge, before the repo bot updates it.
+RUN if npm ci --ignore-scripts > /tmp/npm.log 2>&1; then cat /tmp/npm.log; \
+    else cat /tmp/npm.log; grep -q 'can only install' /tmp/npm.log || exit 1; \
+      echo 'package-lock.json is out of sync: npm install --ignore-scripts instead'; \
+      npm install --ignore-scripts; fi
 COPY . .
 RUN npm run build
 RUN test -f apps/server/dist/index.js && test -f apps/web/dist/index.html \
@@ -34,7 +40,10 @@ FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4
 WORKDIR /src
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY --from=manifests /out/ ./
-RUN npm install --omit=dev --workspace=apps/server \
+RUN if npm ci --ignore-scripts --omit=dev --workspace=apps/server > /tmp/npm.log 2>&1; then cat /tmp/npm.log; \
+    else cat /tmp/npm.log; grep -q 'can only install' /tmp/npm.log || exit 1; \
+      echo 'package-lock.json is out of sync: npm install --ignore-scripts instead'; \
+      npm install --ignore-scripts --omit=dev --workspace=apps/server; fi \
  && mkdir -p node_modules /app/apps/server \
  && rm -rf node_modules/@carehub node_modules/.package-lock.json \
  && mv node_modules /app/node_modules \
