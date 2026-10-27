@@ -27,6 +27,8 @@ import { BlockEditor } from '@carehub/editor';
 | `onReady`     |                    | Gets the Tiptap `Editor` once it exists.                       |
 | `nodeViews`   | `{}`               | React views of lane blocks by node name (read on creation).    |
 | `slashItems`  | `[]`               | More "/" menu entries (`SlashItem`); can change at any time.   |
+| `linkPickers` | `[]`               | More link targets in the link panel (`LinkPicker`).            |
+| `bubbleItems` | `[]`               | More selection toolbar buttons (`BubbleItem`).                 |
 | `extensions`  | `[]`               | Shortcuts and plugins, not nodes or marks (read on creation).  |
 
 ## Block groups
@@ -69,6 +71,25 @@ const shiftNote: SlashItem = {
 `run` gets the editor once the typed "/query" is gone. `hint` shows a Markdown shortcut on the
 right, like `#` or `---`.
 
+## The selection toolbar
+
+Selecting text (outside code) shows a toolbar above it: Bold, Italic, Underline, Strikethrough,
+Inline code and Link, then any `bubbleItems`. It's a `toolbar` with arrow-key movement; Alt+F10
+moves focus into it and Escape goes back to the text. The link panel takes a web or email address
+(`example.com` becomes `https://example.com`, `robin@example.com` becomes `mailto:`), shows a
+message for anything else, and lists the `linkPickers`:
+
+```tsx
+const lessonPicker: LinkPicker = {
+  label: 'Link to a lesson',
+  pick: () => openLessonDialog(), // resolves to '/learning/lessons/<id>', or null
+};
+<BlockEditor ydoc={ydoc} linkPickers={[lessonPicker]} />;
+```
+
+Links without a scheme (inside Care Hub, like `/p/<pageId>`) open in the same tab; others open in
+a new tab. Unsafe hrefs from a picker are ignored.
+
 ## Lane blocks and extension points (shared contract, see docs/decisions/0007)
 
 - **Lane nodes** go in `src/lanes/<lane>.ts` (`export const nodes: AnyExtension[]`). Each lane owns
@@ -82,8 +103,8 @@ right, like `#` or `---`.
   a console warning: when y-prosemirror meets a node it doesn't know, it removes it from the shared
   `Y.Doc`, so a block that only some clients know would be deleted for everyone.
 - **`slashItems`** (`SlashItem`): more "/" menu entries, see above.
-- **`linkPickers`** (`LinkPicker`) and **`bubbleItems`** (`BubbleItem`): the types are exported
-  now; the selection toolbar that shows them comes in the next pull request.
+- **`linkPickers`** (`LinkPicker`) and **`bubbleItems`** (`BubbleItem`): more link targets and
+  toolbar buttons, see below.
 
 ```tsx
 // packages/editor/src/lanes/databases.ts: schema only
@@ -124,3 +145,6 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
   `` `code` ``. The rest of the spec's shortcuts come with their block groups.
 - Ctrl/Cmd + B, I, U, Shift+S (strike), E (code). Ctrl/Cmd + Z undoes only your own changes
   (Yjs undo); Shift+Z or Y redoes. Tab and Shift+Tab indent and outdent list items.
+- Ctrl/Cmd + K edits the link of the selected text (or of the link the cursor is in). Anywhere
+  else it's left to the app's command menu, which should skip key events already
+  `defaultPrevented`. Alt+F10 moves focus into the selection toolbar.

@@ -8,6 +8,7 @@ import { blockNodeViews } from './blocks/ui';
 import { laneFeature } from './lanes';
 import { PAGE_FIELD, pageExtensions } from './schema';
 import { SlashCommand, type SlashMenuStore } from './slash';
+import { ToolbarKeys } from './toolbar-keys';
 import type { CollabProvider, EditorUser, NodeViews } from './types';
 
 export const DEFAULT_PLACEHOLDER = "Type '/' for commands";
@@ -124,6 +125,7 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
         ]
       : []),
     ...(slashMenu ? [SlashCommand.configure({ store: slashMenu })] : []),
+    ToolbarKeys,
     ...extensions.filter(isBehavior),
   ];
 }
