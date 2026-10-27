@@ -3,7 +3,6 @@
 // hold the code and the person's network address). Their failures are logged by this plugin's
 // onError hook instead, without the URL.
 import { atLeast, can } from '@carehub/databases/access';
-import type { FormGate } from '@carehub/databases/forms';
 import { parseRequest } from '@carehub/databases/schemas';
 import type { FastifyError, FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -12,7 +11,7 @@ import { forbidden, invalidRequest, notFound } from '../databases/errors';
 import { loadDatabase, lockDatabase } from '../databases/store';
 import { publishTopic } from '../live';
 import { getAccessForPages, pageAccessOf } from '../pages';
-import { fillForm, formMentions, type FillForm } from './fill';
+import { fillScreen, formMentions, type FillScreen } from './fill';
 import { changeLink, findLink, formViewOf, lockForm, type FormLink } from './links';
 import { gateOf, replacedCodeGate, visitFor } from './visit';
 
@@ -72,7 +71,7 @@ export default async function formRoutes(app: FastifyInstance) {
     app.log.error(failure(request, error), 'forms: a request failed');
   });
 
-  /** A code Change link replaced: 410 with the package's words while its form is there, else 404. */
+  /** A code Change link replaced: 410 with the package's words if its form is there, else 404. */
   async function replaced(link: FormLink): Promise<never> {
     const record = await loadDatabase(app.db, link.databaseId);
     const view = record && !record.inTrash ? formViewOf(record, link.viewId) : null;
@@ -81,9 +80,9 @@ export default async function formRoutes(app: FastifyInstance) {
     throw httpError(410, 'not_found', gate.message);
   }
 
-  // The fill screen for a signed-in member or guest: the gate, and the form when it's open. An
+  // The fill screen for someone signed in: the gate, and the form's questions when it's open. An
   // unknown code answers 404 at once, and a revoked one 410 while its form is there.
-  app.get('/:code', quiet, async (request): Promise<{ gate: FormGate; form: FillForm | null }> => {
+  app.get('/:code', quiet, async (request): Promise<FillScreen> => {
     const user = signedIn(request);
     const link = await findLink(app.db, param(request, 'code'));
     if (!link) throw notFound();
@@ -98,13 +97,14 @@ export default async function formRoutes(app: FastifyInstance) {
       linkCode: link.code,
       user,
     });
-    const gate = gateOf(visit);
-    if (gate.state !== 'open') return { gate, form: null };
     const mentioned = formMentions(view.form);
     const levels =
       mentioned.length > 0 ? await getAccessForPages(app.db, user.id, mentioned) : null;
-    const openable = new Set(mentioned.filter((id) => atLeast(levels?.get(id), 'view')));
-    return { gate, form: fillForm(record, view, openable) };
+    return fillScreen(record, view, {
+      gate: gateOf(visit),
+      respondent: { userId: user.id, timeZone: user.timeZone },
+      openable: new Set(mentioned.filter((id) => atLeast(levels?.get(id), 'view'))),
+    });
   });
 
   // "Change link" needs Full access (Forms spec, section 5); the old code stops working at once.

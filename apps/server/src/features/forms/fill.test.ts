@@ -13,10 +13,11 @@ import {
 } from '@carehub/databases';
 import { describe, expect, it } from 'vitest';
 import type { DatabaseRecord } from '../databases/record';
+import type { FormGate } from '@carehub/databases/forms';
 import {
   askedQuestions,
   FILES_UNAVAILABLE,
-  fillForm,
+  fillScreen,
   formMentions,
   withoutFileUploads,
 } from './fill';
@@ -84,6 +85,10 @@ function formView(changes: Partial<FormDefinition> = {}): FormView {
   return { ...view, form: { ...view.form!, ...changes } } as FormView;
 }
 
+const OPEN: FormGate = { state: 'open', message: null };
+const avery = { userId: newId(), timeZone: 'America/Denver' };
+const none: ReadonlySet<string> = new Set();
+
 describe('the fill screen form', () => {
   it('asks only questions whose property exists and can be asked, once each, in order', () => {
     const form = formView({
@@ -103,6 +108,7 @@ describe('the fill screen form', () => {
   });
 
   it('gives the words, the questions and only their properties', () => {
+    const notified = newId();
     const view = formView({
       title: '  ',
       description: [{ text: 'Tell us about the job.' }],
@@ -111,53 +117,71 @@ describe('the fill screen form', () => {
         question(details, { logicChanged: true }),
         question(secret),
       ],
+      notifyUserIds: [notified],
+      closeAt: '2030-01-01T00:00:00.000Z',
+      maxResponses: 40,
     });
-    const form = fillForm(record({ views: [view] }), view, new Set());
-    expect(form).toMatchObject({
-      id: view.id,
+    const database = record({ views: [view] });
+    const shown = fillScreen(database, view, { gate: OPEN, respondent: avery, openable: none });
+    expect(shown).toMatchObject({
+      formId: view.id,
+      databaseId: database.id,
+      gate: OPEN,
+      respondent: avery,
+      uploads: { available: false, message: FILES_UNAVAILABLE },
+    });
+    // No link, closing settings or who gets notified.
+    expect(shown.form).toEqual({
       title: 'Service requests',
       description: [{ text: 'Tell us about the job.' }],
+      questions: [
+        question(name, { text: 'Address', required: true }),
+        question(details),
+        question(secret),
+      ],
       submitLabel: 'Submit',
       confirmation: [{ text: 'Thanks! Your response was sent.' }],
       allowMultiple: true,
       anonymous: false,
-      anonymousLine: null,
       audience: 'members',
       cover: null,
       icon: null,
-      uploads: { available: false, message: FILES_UNAVAILABLE },
     });
-    expect(form.questions).toEqual([
-      { ...question(name, { text: 'Address', required: true }) },
-      { ...question(details, { text: 'Details' }) },
-      { ...question(secret, { text: 'Gate code' }) },
+    // Only the questions' properties, with their names and settings: no access lists.
+    expect(shown.properties).toEqual([
+      { id: name.id, name: 'Name', config: name.config },
+      { id: details.id, name: 'Details', config: details.config },
+      { id: secret.id, name: 'Gate code', config: secret.config },
     ]);
-    // A form shows its own questions; property access lists never go out.
-    expect(form.properties).toEqual([
-      { id: name.id, name: 'Name', description: '', config: name.config, rowPage: name.rowPage },
-      {
-        id: details.id,
-        name: 'Details',
-        description: 'What happened',
-        config: details.config,
-        rowPage: details.rowPage,
-      },
-      {
-        id: secret.id,
-        name: 'Gate code',
-        description: '',
-        config: secret.config,
-        rowPage: secret.rowPage,
-      },
-    ]);
+    const sent = JSON.stringify(shown);
+    for (const hidden of [
+      view.form.linkCode,
+      notified,
+      secret.access!.see![0]!.id,
+      'What happened',
+    ]) {
+      expect(sent).not.toContain(hidden);
+    }
+  });
+
+  it('sends only the form’s words while the gate is closed', () => {
+    const view = formView({ questions: [question(category, { required: true })] });
+    const gate: FormGate = { state: 'closed', message: "This form isn't taking more responses." };
+    const shown = fillScreen(record(), view, { gate, respondent: avery, openable: none });
+    expect(shown.gate).toEqual(gate);
+    expect(shown.form).toMatchObject({ title: 'Service requests', questions: [] });
+    expect(shown.properties).toEqual([]);
   });
 
   it('says when answers are anonymous', () => {
-    const view = formView({ anonymous: true, allowMultiple: false });
-    const form = fillForm(record(), view, new Set());
-    expect(form.anonymous).toBe(true);
-    expect(form.anonymousLine).toBe("Your name isn't recorded with this form.");
-    expect(fillForm(record(), formView({ audience: 'anyone' }), new Set()).anonymous).toBe(true);
+    const open = (view: FormView) =>
+      fillScreen(record(), view, { gate: OPEN, respondent: avery, openable: none });
+    expect(open(formView({ anonymous: true, allowMultiple: false })).form.anonymous).toBe(true);
+    expect(open(formView({ audience: 'anyone' })).form).toMatchObject({
+      anonymous: true,
+      audience: 'anyone',
+    });
+    expect(open(formView()).form.anonymous).toBe(false);
   });
 
   it('keeps file questions while uploads are off, but never required', () => {
@@ -170,7 +194,8 @@ describe('the fill screen form', () => {
     const plain = formView({ questions: [question(photos)] }).form;
     expect(withoutFileUploads(plain, properties)).toBe(plain);
     const view = formView({ questions: asked });
-    expect(fillForm(record(), view, new Set()).questions[0]).toMatchObject({ required: false });
+    const shown = fillScreen(record(), view, { gate: OPEN, respondent: avery, openable: none });
+    expect(shown.form.questions[0]).toMatchObject({ required: false });
   });
 
   it('leaves out the titles of mentioned pages the person can’t open', () => {
@@ -185,7 +210,8 @@ describe('the fill screen form', () => {
       questions: [question(details, { description: [mention(closed, 'Payroll')] })],
     });
     expect(formMentions(view.form)).toEqual([open, closed]);
-    const form = fillForm(record(), view, new Set([open]));
+    const openable = new Set([open]);
+    const { form } = fillScreen(record(), view, { gate: OPEN, respondent: null, openable });
     expect(form.description).toEqual([{ text: 'See ' }, mention(open, 'Price list')]);
     expect(form.confirmation).toEqual([mention(closed, '')]);
     expect(form.questions[0]!.description).toEqual([mention(closed, '')]);

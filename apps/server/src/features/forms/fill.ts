@@ -1,15 +1,23 @@
-// What the fill screen gets (Forms spec, sections 2 and 3): the form's words and settings, the
-// questions it can ask (their property exists and can be a question for who can respond) in
-// order, and those questions' properties. Nothing else about the database: no other properties,
-// no rows, no link or closing settings, nobody's ids. Pure; routes.ts reads the database.
-import type { FileRef, FormDefinition, FormQuestion, Property, RichText } from '@carehub/databases';
+// What the fill screen gets (Forms spec, sections 2 and 3), in the shape the web's fill screen
+// reads: the form's words and settings, the questions it can ask (their property exists and can be
+// a question for who can respond) in order, and those questions' properties. Nothing else about
+// the database: no other properties, no rows, no access lists, no link or closing settings, and
+// not who gets notified. Pure; routes.ts reads the database.
+import type {
+  FileRef,
+  FormDefinition,
+  FormQuestion,
+  Id,
+  Property,
+  RichText,
+} from '@carehub/databases';
 import {
-  anonymousLine,
   formAudience,
   isAnonymousForm,
-  questionLabel,
   walkQuestions,
   type FormAudience,
+  type FormGate,
+  type Respondent,
 } from '@carehub/databases/forms';
 import { hideMentionTitles, mentionedPageIds } from '../databases/meta';
 import type { DatabaseRecord } from '../databases/record';
@@ -18,26 +26,31 @@ import type { FormView } from './links';
 /** Until core files is on main, file questions take no uploads (a later forms PR adds them). */
 export const FILES_UNAVAILABLE = "File uploads aren't available yet.";
 
-export interface FillForm {
-  /** The form's view id. */
-  id: string;
-  databaseId: string;
-  /** The form's title, or the database's name. */
-  title: string;
-  description: RichText;
-  /** `text` is the question's label (its text, or its property's name). */
+/** The form as its fill screen shows it: no link, closing settings or who gets notified. */
+export type FillDefinition = Pick<
+  FormDefinition,
+  'title' | 'description' | 'submitLabel' | 'confirmation' | 'allowMultiple' | 'anonymous'
+> & {
   questions: Omit<FormQuestion, 'logicChanged'>[];
-  properties: Omit<Property, 'access'>[];
-  submitLabel: string;
-  confirmation: RichText;
-  allowMultiple: boolean;
-  /** The response won't record who sent it. */
-  anonymous: boolean;
-  /** "Your name isn't recorded with this form.", or null. */
-  anonymousLine: string | null;
   audience: FormAudience;
   cover: FileRef | null;
   icon: string | null;
+};
+
+/** A question's property: its name and settings (options, number format), not its access lists. */
+export type FillProperty = Pick<Property, 'id' | 'name' | 'config'>;
+
+/** What opening a form link answers. */
+export interface FillScreen {
+  /** The form's view id. */
+  formId: Id;
+  databaseId: Id;
+  form: FillDefinition;
+  /** The questions' properties. Unless the gate is open, there are no questions and none. */
+  properties: FillProperty[];
+  gate: FormGate;
+  /** The person signed in, for "Me" in logic and dates in their time zone. */
+  respondent: Respondent | null;
   /** Whether file questions take uploads, and what shows under them when they don't. */
   uploads: { available: boolean; message: string | null };
 }
@@ -78,43 +91,43 @@ export function formMentions(form: FormDefinition): string[] {
   ];
 }
 
-/** The fill screen's form; `openable` holds the mentioned pages whose titles the person may see. */
-export function fillForm(
+/**
+ * The fill screen for this gate. `openable` holds the mentioned pages whose titles the person may
+ * see. While the gate is closed, only the form's words go out: no questions, no properties.
+ */
+export function fillScreen(
   record: DatabaseRecord,
   view: FormView,
-  openable: ReadonlySet<string>,
-): FillForm {
+  visit: { gate: FormGate; respondent: Respondent | null; openable: ReadonlySet<string> },
+): FillScreen {
   const form = withoutFileUploads(view.form, record.properties);
-  const asked = askedQuestions(form, record.properties);
-  const words = (text: RichText) => hideMentionTitles(text, openable);
+  const asked = visit.gate.state === 'open' ? askedQuestions(form, record.properties) : [];
+  const words = (text: RichText) => hideMentionTitles(text, visit.openable);
   return {
-    id: view.id,
+    formId: view.id,
     databaseId: record.id,
-    title: form.title.trim() || record.title.trim() || 'Untitled',
-    description: words(form.description),
-    questions: asked.map(({ question, prop }) => ({
-      propertyId: question.propertyId,
-      text: questionLabel(question, prop),
-      description: words(question.description),
-      required: question.required,
-      display: question.display,
-      logic: question.logic,
-    })),
-    properties: asked.map(({ prop: { id, name, description, config, rowPage } }) => ({
-      id,
-      name,
-      description,
-      config,
-      rowPage,
-    })),
-    submitLabel: form.submitLabel,
-    confirmation: words(form.confirmation),
-    allowMultiple: form.allowMultiple,
-    anonymous: isAnonymousForm(form),
-    anonymousLine: anonymousLine(form),
-    audience: formAudience(form),
-    cover: form.cover ?? null,
-    icon: form.icon ?? null,
+    form: {
+      title: form.title.trim() || record.title.trim() || 'Untitled',
+      description: words(form.description),
+      questions: asked.map(({ question }) => ({
+        propertyId: question.propertyId,
+        text: question.text,
+        description: words(question.description),
+        required: question.required,
+        display: question.display,
+        logic: question.logic,
+      })),
+      submitLabel: form.submitLabel,
+      confirmation: words(form.confirmation),
+      allowMultiple: form.allowMultiple,
+      anonymous: isAnonymousForm(form),
+      audience: formAudience(form),
+      cover: form.cover ?? null,
+      icon: form.icon ?? null,
+    },
+    properties: asked.map(({ prop: { id, name, config } }) => ({ id, name, config })),
+    gate: visit.gate,
+    respondent: visit.respondent,
     uploads: { available: false, message: FILES_UNAVAILABLE },
   };
 }

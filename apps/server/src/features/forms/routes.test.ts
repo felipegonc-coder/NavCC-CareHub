@@ -1,8 +1,8 @@
 // Form routes on a real database (decision 0200, Forms spec v2): the fill screen by link code for
 // members with and without access to the database, guests and people outside the workspace; every
-// gate with its words; codes that aren't live; mention titles; Change link; and logs that never
-// hold a code. Responses are made directly here (the submit route comes in the next forms pull
-// request). Fictional people only.
+// gate with its words; codes that aren't live or are taken; mention titles; Change link; and logs
+// that never hold a code. Responses are made directly here (the submit route comes in the next
+// forms pull request). Fictional people only.
 import {
   defaultConfig,
   defaultView,
@@ -65,7 +65,8 @@ describe.skipIf(!hasDatabase)('form routes', () => {
   async function member(role: keyof typeof PERMISSIONS, who: string, inSpace: boolean) {
     const { rows: made } = await db.execute<{ id: string }>(sql`
       INSERT INTO roles (workspace_id, name, permissions)
-      VALUES (${workspaceId}, ${`${role} for ${who}`}, ${`{${PERMISSIONS[role].join(',')}}`}::text[])
+      VALUES (${workspaceId}, ${`${role} for ${who}`},
+        ${`{${PERMISSIONS[role].join(',')}}`}::text[])
       RETURNING id`);
     const user = await createUser(db, { name: who });
     await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
@@ -120,7 +121,8 @@ describe.skipIf(!hasDatabase)('form routes', () => {
     const id = page.rows[0]!.id;
     await db.execute(sql`
       INSERT INTO db_rows (page_id, database_id, workspace_id, created_by, created_at, form_view_id)
-      VALUES (${id}, ${databaseId}, ${workspaceId}, ${who?.id ?? null}, ${at}::timestamptz, ${viewId})`);
+      VALUES (${id}, ${databaseId}, ${workspaceId}, ${who?.id ?? null}, ${at}::timestamptz,
+        ${viewId})`);
     return id;
   }
 
@@ -142,7 +144,8 @@ describe.skipIf(!hasDatabase)('form routes', () => {
     await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
     await db.execute(sql`CREATE TABLE IF NOT EXISTS roles (id uuid PRIMARY KEY DEFAULT
-      gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL, permissions text[] NOT NULL)`);
+      gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL,
+      permissions text[] NOT NULL)`);
     await db.execute(sql`CREATE TABLE IF NOT EXISTS workspace_members (workspace_id uuid NOT NULL,
       user_id uuid NOT NULL, role_id uuid, kind text NOT NULL DEFAULT 'member',
       PRIMARY KEY (workspace_id, user_id))`);
@@ -203,30 +206,39 @@ describe.skipIf(!hasDatabase)('form routes', () => {
     const res = await open(people.jordan, code);
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.gate).toEqual(OPEN);
-    expect(body.form).toMatchObject({
-      id: viewId,
+    expect(body).toMatchObject({
+      formId: viewId,
       databaseId,
+      gate: OPEN,
+      respondent: { userId: people.jordan.id },
+      uploads: { available: false, message: "File uploads aren't available yet." },
+    });
+    expect(body.form).toMatchObject({
       title: 'Service requests',
       description: [{ text: 'Tell us about the job.' }],
       submitLabel: 'Submit',
       anonymous: false,
-      anonymousLine: null,
-      uploads: { available: false, message: "File uploads aren't available yet." },
     });
-    expect(body.form.questions.map((q: FormQuestion) => [q.text, q.required])).toEqual([
-      ['Address', true],
-      ['Category', true],
-      ['Details', false],
-      ['Photos', false],
+    // No link, closing settings or who gets notified.
+    for (const key of ['linkCode', 'linkChangedAt', 'notifyUserIds', 'closeAt', 'maxResponses']) {
+      expect(body.form).not.toHaveProperty(key);
+    }
+    expect(JSON.stringify(body)).not.toContain(code);
+    expect(body.form.questions.map((q: FormQuestion) => [q.propertyId, q.required])).toEqual([
+      [name.id, true],
+      [category.id, true],
+      [details.id, false],
+      [photos.id, false],
     ]);
+    expect(body.form.questions[0].text).toBe('Address');
     expect(body.form.questions[2].logic.conditions[0].value).toEqual([leak]);
-    expect(body.form.properties.map((p: Property) => p.name)).toEqual([
+    expect(body.properties.map((p: Property) => p.name)).toEqual([
       'Name',
       'Category',
       'Details',
       'Photos',
     ]);
+    expect(Object.keys(body.properties[1]).sort()).toEqual(['config', 'id', 'name']);
     expect((await open(people.avery, code)).json().gate).toEqual(OPEN);
   });
 
@@ -241,10 +253,13 @@ describe.skipIf(!hasDatabase)('form routes', () => {
   });
 
   it('is for members only unless the form says guests too', async () => {
-    const { code } = await addForm();
+    const { code } = await addForm({ questions: [question(category)] });
     expect(await gateOf(people.casey, code)).toEqual(MEMBERS_ONLY);
     expect(await gateOf(people.sam, code)).toEqual(MEMBERS_ONLY);
-    expect((await open(people.casey, code)).json().form).toBeNull();
+    // Turned away: the form's words, but no questions and no properties.
+    const away = (await open(people.casey, code)).json();
+    expect(away.form).toMatchObject({ title: 'Service requests', questions: [] });
+    expect(away.properties).toEqual([]);
     const guests = await addForm({ audience: 'members_and_guests' });
     expect(await gateOf(people.casey, guests.code)).toEqual(OPEN);
     expect(await gateOf(people.sam, guests.code)).toEqual(MEMBERS_ONLY);
@@ -291,10 +306,7 @@ describe.skipIf(!hasDatabase)('form routes', () => {
     await respond(viewId, null);
     const body = (await open(people.jordan, code)).json();
     expect(body.gate).toEqual(OPEN);
-    expect(body.form).toMatchObject({
-      anonymous: true,
-      anonymousLine: "Your name isn't recorded with this form.",
-    });
+    expect(body.form).toMatchObject({ anonymous: true });
   });
 
   it('isn’t accepting responses while the database is in Trash', async () => {
@@ -362,7 +374,25 @@ describe.skipIf(!hasDatabase)('form routes', () => {
     expect(links.rows.filter((l) => l.live)).toHaveLength(1);
   });
 
-  it('answers 404 for a replaced code once its database is in Trash or its form is deleted', async () => {
+  it('never reuses a code: revoked ones stay taken', async () => {
+    const { viewId, code } = await addForm();
+    const changed = (await changeLink(people.morgan, viewId)).json();
+    expect(changed.linkCode).not.toBe(code);
+    // forms_links keeps revoked codes, so keeping one again fails, for this form or another.
+    const other = await addForm({}, false);
+    for (const view of [viewId, other.viewId]) {
+      const failure = await db
+        .execute(
+          sql`INSERT INTO forms_links (code, database_id, view_id)
+          VALUES (${code}, ${databaseId}, ${view})`,
+        )
+        .catch((e: { code?: string; cause?: { code?: string } }) => e.cause?.code ?? e.code);
+      expect(failure).toBe('23505');
+    }
+    expect((await open(people.jordan, code)).statusCode).toBe(410);
+  });
+
+  it('answers 404 for a replaced code once its form is deleted or in Trash', async () => {
     const { viewId, code } = await addForm();
     expect((await changeLink(people.morgan, viewId)).statusCode).toBe(200);
     expect((await open(people.jordan, code)).statusCode).toBe(410);
