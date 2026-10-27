@@ -194,6 +194,27 @@ describe.skipIf(!hasDatabase)('calendar events', () => {
     expect((await injectAs(test.app, ada, { method: 'GET', url })).statusCode).toBe(400);
   });
 
+  it('keeps event times between 1900 and 2100', async () => {
+    const timed = {
+      allDay: false,
+      start: '2026-10-29T16:00:00.000Z',
+      end: '2026-10-29T17:00:00.000Z',
+    };
+    for (const payload of [
+      { ...timed, start: '2101-03-02T16:00:00.000Z', end: '2101-03-02T17:00:00.000Z' },
+      { allDay: true, start: '1899-12-30', end: '1899-12-31' },
+      { ...timed, repeat: { freq: 'weekly', interval: 1, until: '2101-01-05T09:00' } },
+    ]) {
+      const response = await create(ada, payload);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        error: { code: 'invalid', message: 'Pick a date between 1900 and 2100.' },
+      });
+    }
+    const lastDay = await create(ada, { allDay: true, start: '2100-12-31', end: '2101-01-01' });
+    expect(lastDay.statusCode, lastDay.body).toBe(201);
+  });
+
   it('is only for signed-in members of the workspace', async () => {
     const url = '/api/calendar/items?from=2026-10-25&to=2026-11-01';
     expect((await test.app.inject({ method: 'GET', url })).statusCode).toBe(401);
