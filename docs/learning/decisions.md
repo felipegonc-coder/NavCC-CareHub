@@ -80,3 +80,24 @@ agreed shape from PLAN.md, empty apart from its export; its owner then fills it.
 - API paths are built with `apiPath(...)`, which encodes each segment and refuses `.`, `..` (also as `%2e`) and
   `\`; screens check route params with `IdSchema` first and show "not found" otherwise.
 - Calendar and Home call `public.ts` with the signed-in person's id, and every `href` is an in-app `/learning/` path.
+
+## 0311 · Learners keep the version they started
+- Each learner's run is pinned to the course version it started on and reduced against that version, so editing
+  a published course never breaks anyone mid-course. Finished runs keep their result.
+- Publish options: **none**: nobody moves. **tell**: runs in progress move to the new version with their events
+  replayed, and those learners get the alert; finished runs stay. **retake**: everyone who started, finished or
+  not, begins a new run on the new version and gets the reminder.
+- `GET /courses/:id` (B1) returns the learner view of the version of the learner's latest run, else the live
+  version, with `version`. B3 provides `runVersion(db, { workspaceId, userId, courseId })` in the progress
+  server; B1 provides `getCourseVersion(db, workspaceId, courseId, version)`. `GET /courses/:id/progress` and the
+  quiz attempts route use the same version. There is no `?version=` parameter.
+
+## 0312 · Reset and mark complete need `learning.assign`
+People with only `learning.analytics` see reports but get no Reset or Mark complete; those need `learning.assign`.
+
+## 0313 · Learning notices have one button
+Every Learning notice has one in-app button: "Open course" (`/learning/courses/:courseId`) for learners,
+"Open in Studio" (`/learning/studio/courses/:courseId`) for authors, "Open certificate"
+(`/learning/certificates/:certificateId`) for certificate expiry. Course titles only go to people who can see the
+course.
+

@@ -15,6 +15,7 @@
 
 - Build a working basic version of every feature first; polish comes later.
 - Every colour, font, size, spacing and corner radius comes from the design kit (`@carehub/ui`: the Tailwind preset's classes, or the `--ch-*` CSS variables in plain CSS). No one-off values: Felipe restyles Care Hub from the design kit later.
+- Each builder pushes its work in progress to its `feat/*` branch at least every 3 hours, without opening a PR, so nothing is lost if a session stops.
 
 ## Anonymous forms (2026-10-27, security reviewer)
 
