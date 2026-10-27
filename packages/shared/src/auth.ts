@@ -1,9 +1,6 @@
 import { z } from 'zod';
 import { permissionKeySchema } from './permissions';
 
-// The shared index has one line for accounts, so the permission keys come along from here.
-export * from './permissions';
-
 /**
  * Readable cookie with the CSRF token: `__Host-carehub_csrf` over HTTPS, `carehub_csrf` on a plain-HTTP
  * development server. Send `readCsrfToken(document.cookie)` in the X-CSRF-Token header on every POST, PUT,

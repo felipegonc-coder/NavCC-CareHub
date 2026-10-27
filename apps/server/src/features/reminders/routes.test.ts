@@ -62,7 +62,7 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
     expect((await list(avery)).pending.map((r) => r.id)).toEqual([reminder.id]);
     await runJobsAt(reminder.dueAt);
     expect(noticeFor(reminder.id)).toMatchObject({
-      workspaceId: STAND_IN_WORKSPACE_ID,
+      workspaceId: avery.workspaceId,
       userId: avery.id,
       title: 'Reminder',
       text: note,
