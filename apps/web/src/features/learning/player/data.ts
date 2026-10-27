@@ -1,6 +1,8 @@
 import {
   CourseSchema,
   LearnerCourseSchema,
+  LearnerCourseStateSchema,
+  ProgressEventsResponseSchema,
   learnerCourse,
   type Id,
   type LearnerCourse,
@@ -10,8 +12,11 @@ import {
 } from '@carehub/learning';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { z } from 'zod';
+import { ApiError, api as coreApi } from '../../../lib/api';
 import {
   api,
+  apiPath,
   createEventQueue,
   flushWhenOnline,
   isRetryable,
@@ -30,9 +35,7 @@ export type LiveCourse = { course: LearnerCourse; version: number };
 
 export const courseKey = (courseId: Id) => ['learning', 'course', courseId] as const;
 export const progressKey = (courseId: Id) => ['learning', 'progress', courseId] as const;
-
-// Route params are checked with IdSchema first, so each id is one safe path segment (0310).
-const coursePath = (courseId: Id) => `/courses/${encodeURIComponent(courseId)}`;
+export const signedInKey = ['learning', 'signed-in'] as const;
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -48,39 +51,15 @@ const LiveCourseReply: ReplySchema<LiveCourse> = {
   },
 };
 
-// Light checks of the progress replies, until the player reads them with B3's
-// LearnerCourseStateSchema.
-
-const STATE_LISTS = ['lessons', 'quizzes', 'knowledgeChecks', 'scenarios', 'rejected'];
-
-const StateReply: ReplySchema<LearnerCourseState> = {
-  parse(data) {
-    if (
-      !isObject(data) ||
-      typeof data.courseId !== 'string' ||
-      typeof data.status !== 'string' ||
-      !STATE_LISTS.every((key) => Array.isArray(data[key]))
-    )
-      throw new TypeError('Not a learner state');
-    return data as LearnerCourseState;
-  },
-};
-
-const EventsReply: ReplySchema<{ state: LearnerCourseState }> = {
-  parse(data) {
-    if (!isObject(data) || !Array.isArray(data.rejected))
-      throw new TypeError('Not an events reply');
-    return { state: StateReply.parse(data.state) };
-  },
-};
-
 /** Tries once more after a dropped connection or a server error; never after a refusal. */
 export const retryOnce = (failures: number, error: unknown) => failures < 1 && isRetryable(error);
+
+// Route params are checked with IdSchema first, and apiPath encodes each part (0310).
 
 export function useLiveCourse(courseId: Id) {
   return useQuery({
     queryKey: courseKey(courseId),
-    queryFn: ({ signal }) => api('GET', coursePath(courseId), LiveCourseReply, { signal }),
+    queryFn: ({ signal }) => api('GET', apiPath('courses', courseId), LiveCourseReply, { signal }),
     retry: retryOnce,
   });
 }
@@ -88,31 +67,63 @@ export function useLiveCourse(courseId: Id) {
 export function useLearnerState(courseId: Id) {
   return useQuery({
     queryKey: progressKey(courseId),
-    queryFn: ({ signal }) => api('GET', `${coursePath(courseId)}/progress`, StateReply, { signal }),
+    queryFn: ({ signal }) =>
+      api('GET', apiPath('courses', courseId, 'progress'), LearnerCourseStateSchema, { signal }),
     retry: retryOnce,
   });
 }
 
-const queues = new WeakMap<QueryClient, EventQueue<ProgressEvent>>();
+/** What the player reads from core's GET /api/auth/me: the signed-in person's id. */
+const SignedInReply = z.object({ user: z.object({ id: z.string().min(1) }) });
+const signedInId = (reply: z.infer<typeof SignedInReply>) => reply.user.id;
+
+/** As `retryOnce`, for core's API errors. */
+const retryCore = (failures: number, error: unknown) =>
+  failures < 1 && (!(error instanceof ApiError) || error.status === 0 || error.status >= 500);
 
 /**
- * The progress event queue. Each reply's state goes straight into the cache. It stays in memory
- * until the web app knows who is signed in; then it keeps each person's events apart (0310).
+ * The signed-in person's id, from the session (never from a link), so their waiting events are
+ * kept apart from anyone else's (0310). It is read again when the window gets focus, which notices
+ * someone else signing in from another tab. A stand-in until core's `useMe()` is on main (0007
+ * section 5.2); then this reads the id from it.
  */
-export function progressQueue(client: QueryClient): EventQueue<ProgressEvent> {
-  let queue = queues.get(client);
-  if (!queue) {
-    queue = createEventQueue<ProgressEvent>({
-      userId: 'signed-in',
-      storage: null,
-      async send(courseId, events) {
-        const reply = await api('POST', `${coursePath(courseId)}/events`, { events }, EventsReply);
-        await client.cancelQueries({ queryKey: progressKey(courseId) });
-        client.setQueryData<LearnerCourseState>(progressKey(courseId), reply.state);
-      },
-    });
-    queues.set(client, queue);
-  }
+export function useSignedInId() {
+  const me = useQuery({
+    queryKey: signedInKey,
+    queryFn: ({ signal }) => coreApi.get('/api/auth/me', { schema: SignedInReply, signal }),
+    select: signedInId,
+    retry: retryCore,
+    refetchOnWindowFocus: true,
+  });
+  return { userId: me.data, error: me.error, refetch: me.refetch };
+}
+
+type PersonQueue = { userId: string; queue: EventQueue<ProgressEvent> };
+const queues = new WeakMap<QueryClient, PersonQueue>();
+
+/**
+ * The signed-in person's progress event queue. Their events wait in this browser's storage, under
+ * their id, until the server has them, so a reload or a lost connection keeps them; starting it
+ * drops anyone else's (0310). One person at a time: when someone else signs in, theirs replaces
+ * it. Each reply's state goes straight into the cache.
+ */
+export function progressQueue(client: QueryClient, userId: string): EventQueue<ProgressEvent> {
+  const current = queues.get(client);
+  if (current?.userId === userId) return current.queue;
+  const queue = createEventQueue<ProgressEvent>({
+    userId,
+    async send(courseId, events) {
+      const reply = await api(
+        'POST',
+        apiPath('courses', courseId, 'events'),
+        { events },
+        ProgressEventsResponseSchema,
+      );
+      await client.cancelQueries({ queryKey: progressKey(courseId) });
+      client.setQueryData<LearnerCourseState>(progressKey(courseId), reply.state);
+    },
+  });
+  queues.set(client, { userId, queue });
   return queue;
 }
 
@@ -130,46 +141,104 @@ export function stampEvent(event: NewProgressEvent, at = new Date()): ProgressEv
   return { ...event, id: newEventId(), at: at.toISOString() } as ProgressEvent;
 }
 
-/** One course's events still waiting to be sent, and `emit`, which records one. */
-export function useProgressEvents(courseId: Id) {
-  const queue = progressQueue(useQueryClient());
-  const [pending, setPending] = useState(() => queue.pending(courseId));
+/** While events wait (Care Hub can't be reached, say), how often they are tried again. */
+export const RETRY_WAITING_MS = 20_000;
+
+const NOTHING_WAITING: ProgressEvent[] = [];
+
+/**
+ * One course's events still waiting to be sent, `emit`, which records one, and `sendNow`. Both
+ * wait for the signed-in person's id (`useLearnerCourse` holds the course back until then).
+ * Waiting events go with the next step, when the browser is back online, and every 20 seconds.
+ */
+export function useProgressEvents(courseId: Id, userId: string | undefined) {
+  const client = useQueryClient();
+  const queue = userId === undefined ? null : progressQueue(client, userId);
+  const [pending, setPending] = useState(() => queue?.pending(courseId) ?? NOTHING_WAITING);
   useEffect(() => {
+    if (!queue) return;
     setPending(queue.pending(courseId));
     return queue.subscribe(() => setPending(queue.pending(courseId)));
   }, [queue, courseId]);
-  useEffect(() => flushWhenOnline(queue), [queue]);
+  // Events left from an earlier visit go now.
+  useEffect(() => {
+    if (!queue) return;
+    void queue.flush();
+    return flushWhenOnline(queue);
+  }, [queue]);
+  const waiting = queue !== null && pending.length > 0;
+  useEffect(() => {
+    if (!queue || !waiting) return;
+    const timer = setInterval(() => void queue.flush(), RETRY_WAITING_MS);
+    return () => clearInterval(timer);
+  }, [queue, waiting]);
   // Times only go forward, so the server (which sorts by time) reads events in the order they came.
   const last = useRef(0);
+  const stamp = useCallback((event: NewProgressEvent) => {
+    last.current = Math.max(Date.now(), last.current + 1);
+    return stampEvent(event, new Date(last.current));
+  }, []);
+  /**
+   * Sends one event at once, never queued: a quiz submission needs a connection (0302, 0310).
+   * Resolves with the event once the server has it and its reply's state is in the cache; rejects
+   * when it can't be sent, so the quiz view can say so.
+   */
+  const sendNow = useCallback(
+    async (event: NewProgressEvent): Promise<ProgressEvent> => {
+      if (!queue) throw new Error('Not signed in yet.');
+      const stamped = stamp(event);
+      await queue.sendNow(courseId, [stamped]);
+      return stamped;
+    },
+    [queue, courseId, stamp],
+  );
+  /** Records a step. A quiz submission goes with `sendNow` instead, so it never waits. */
   const emit = useCallback(
     (event: NewProgressEvent) => {
-      last.current = Math.max(Date.now(), last.current + 1);
-      void queue.add(courseId, [stampEvent(event, new Date(last.current))]);
+      if (!queue) return;
+      if (event.type === 'quiz_attempt_submitted') {
+        void sendNow(event).catch(() => undefined);
+        return;
+      }
+      void queue.add(courseId, [stamp(event)]);
     },
-    [queue, courseId],
+    [queue, courseId, stamp, sendNow],
   );
-  return { pending, emit };
+  return { pending: queue ? pending : NOTHING_WAITING, emit, sendNow };
 }
 
 /**
  * A learner's course: the live version, their progress with the events not sent yet counted in,
- * and `emit`. `course` and `state` come together; until then there is `error` or it is loading.
+ * those events, `emit` and `sendNow`. `course` and `state` come together, once the signed-in
+ * person is known too; until then there is `error` or it is loading.
  */
 export function useLearnerCourse(courseId: Id) {
+  const me = useSignedInId();
   const live = useLiveCourse(courseId);
   const progress = useLearnerState(courseId);
-  const { pending, emit } = useProgressEvents(courseId);
-  const course = live.data?.course;
-  const saved = progress.data;
+  const { pending, emit, sendNow } = useProgressEvents(courseId, me.userId);
+  const known = me.userId !== undefined;
+  const course = known ? live.data?.course : undefined;
+  const saved = known ? progress.data : undefined;
   const state = useMemo(
     () => (course && saved ? withPending(course, saved, pending) : undefined),
     [course, saved, pending],
   );
+  const { refetch: refetchMe } = me;
   const { refetch: refetchCourse } = live;
   const { refetch: refetchProgress } = progress;
   const retry = useCallback(() => {
+    void refetchMe();
     void refetchCourse();
     void refetchProgress();
-  }, [refetchCourse, refetchProgress]);
-  return { course, state, emit, error: live.error ?? progress.error, retry };
+  }, [refetchMe, refetchCourse, refetchProgress]);
+  return {
+    course: state ? course : undefined,
+    state,
+    pending,
+    emit,
+    sendNow,
+    error: live.error ?? progress.error ?? me.error,
+    retry,
+  };
 }

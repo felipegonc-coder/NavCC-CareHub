@@ -4,7 +4,7 @@ import { useId, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { CourseCard } from '../catalog/CourseCard';
 import { useCatalog } from '../catalog/data';
-import { courseFacts } from '../course/start';
+import { courseFacts, RESUME_STATE } from '../course/start';
 import { ProgressBar } from '../player/ProgressBar';
 import { dueLine, entryStatus } from './entry';
 
@@ -71,13 +71,17 @@ function Section({ title, children, after }: SectionProps) {
   );
 }
 
-/** One of the learner's courses: where they are, whether it's required, and when it's due. */
+/**
+ * One of the learner's courses: where they are, whether it's required, and when it's due. A course
+ * in progress opens where they stopped.
+ */
 function EntryCard({ entry }: { entry: MyLearningEntry }) {
   const due = dueLine(entry);
   return (
     <CourseCard
       title={entry.title}
       href={entry.href}
+      linkState={entry.status === 'in_progress' ? RESUME_STATE : undefined}
       summary={entry.summary}
       facts={entry.required ? 'Required' : undefined}
     >
