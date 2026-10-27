@@ -66,6 +66,9 @@ export const onMain = {
   /** Settings and members: profile, members, roles. */
   settings: false,
 
+  /** Settings → Site → Accounts (site admins): a person's workspaces and Make Admin. */
+  siteAccounts: false,
+
   /** Groups: in Settings → Members, in the share dialog and for assigning courses. */
   groups: false,
 
