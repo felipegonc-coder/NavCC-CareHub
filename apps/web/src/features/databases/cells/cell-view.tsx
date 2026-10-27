@@ -13,6 +13,7 @@ import {
   type RichTextSpan,
 } from '@carehub/databases';
 import { formatComputed, formatValue } from '@carehub/databases/values';
+import { verificationState } from '@carehub/databases/verification';
 import { buttonClasses, Checkbox, cn, colorClasses, Spinner } from '@carehub/ui';
 import { Bell, Check } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -25,6 +26,7 @@ import {
   PersonChip,
   RowChip,
   textColorClass,
+  VerificationBadge,
 } from './chips';
 import { evalContext, numberFill, numberLabel, telHref } from './logic';
 import { CELL_TEXT } from './messages';
@@ -165,6 +167,12 @@ export function CellView({
     }
     case 'unique_id':
       return text ? <span className={textCls}>{text}</span> : null;
+    case 'verification':
+      return (
+        <span className={chips}>
+          <VerificationBadge state={verificationState(value)} text={text} wrap={wrap} />
+        </span>
+      );
     case 'button':
       return (
         <ButtonCell
