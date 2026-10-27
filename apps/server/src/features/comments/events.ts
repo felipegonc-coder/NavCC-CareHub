@@ -11,8 +11,12 @@ export type CommentCreatedEvent = {
   newThread: boolean;
 };
 
+/** Its author changed the text, maybe mentioning someone new. */
+export type CommentEditedEvent = Omit<CommentCreatedEvent, 'newThread'>;
+
 declare module '../../core/events' {
   interface CareHubEvents {
     'comment.created': CommentCreatedEvent;
+    'comment.edited': CommentEditedEvent;
   }
 }

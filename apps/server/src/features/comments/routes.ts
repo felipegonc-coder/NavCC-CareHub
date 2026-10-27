@@ -12,7 +12,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { httpError } from '../../core/errors';
 import { publishTopic, registerTopic } from '../live';
-import type { CommentCreatedEvent } from './events';
+import type { CommentCreatedEvent, CommentEditedEvent } from './events';
 import { pageAccess } from './pages';
 import {
   addComment,
@@ -68,7 +68,11 @@ const commentsRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:id', async (request) => {
     const { id } = idParams.parse(request.params);
     const { text } = editCommentSchema.parse(request.body);
-    const edited = await editComment(app.db, userIdOf(request), id, text);
+    const by = userIdOf(request);
+    const edited = await editComment(app.db, by, id, text);
+    const { threadId, pageId, workspaceId } = edited;
+    const event: CommentEditedEvent = { commentId: id, threadId, pageId, workspaceId, by };
+    app.events.emit('comment.edited', event);
     changed(edited);
     return { id, editedAt: edited.editedAt };
   });
