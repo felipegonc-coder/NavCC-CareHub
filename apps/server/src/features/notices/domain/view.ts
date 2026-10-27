@@ -22,7 +22,10 @@ export interface NoticeRecord {
   icon: string | null;
   title: string;
   text: string | null;
+  /** The first card. */
   card: NoticeCard | null;
+  /** The second and third cards, in order. */
+  extraCards: NoticeCard[];
   buttons: NoticeButton[];
   groupKey: string | null;
   count: number;
@@ -70,16 +73,29 @@ export function eventCardKey(card: { eventId: string; occurrenceStart?: string |
   return `${card.eventId}|${card.occurrenceStart ?? ''}`;
 }
 
+type PageCard = Extract<NoticeCard, { type: 'page' }>;
+
+/** Where a notice keeps its cards: the first one, then the rest. */
+interface NoticeCards {
+  card: NoticeCard | null;
+  extraCards?: readonly NoticeCard[];
+}
+
+/** A notice's cards, in order. */
+function noticeCards({ card, extraCards = [] }: NoticeCards): NoticeCard[] {
+  return card ? [card, ...extraCards] : [...extraCards];
+}
+
 /** The pages and events these notices' cards point at, each once. */
-export function collectCardRefs(records: readonly { card: NoticeCard | null }[]): {
+export function collectCardRefs(records: readonly NoticeCards[]): {
   pageIds: string[];
   events: EventCardRef[];
 } {
   const pageIds = new Set<string>();
   const events = new Map<string, EventCardRef>();
-  for (const { card } of records) {
-    if (card?.type === 'page') pageIds.add(card.pageId);
-    if (card?.type === 'event') {
+  for (const card of records.flatMap(noticeCards)) {
+    if (card.type === 'page') pageIds.add(card.pageId);
+    else {
       events.set(eventCardKey(card), {
         eventId: card.eventId,
         occurrenceStart: card.occurrenceStart ?? null,
@@ -137,6 +153,7 @@ export function viewButtons(buttons: readonly NoticeButton[]): NoticeButtonView[
 }
 
 export function toNoticeView(record: NoticeRecord, lookups: CardLookups): NoticeView {
+  const cards = noticeCards(record).flatMap((card) => viewCard(card, lookups) ?? []);
   return {
     id: record.id,
     position: record.position,
@@ -146,7 +163,8 @@ export function toNoticeView(record: NoticeRecord, lookups: CardLookups): Notice
     icon: record.icon,
     title: record.title,
     text: record.text,
-    card: viewCard(record.card, lookups),
+    card: cards[0] ?? null,
+    cards,
     buttons: viewButtons(record.buttons),
     count: record.count,
     createdAt: record.createdAt.toISOString(),
@@ -169,15 +187,15 @@ export function isNoticeOwner(
 /** The 🔔 Care Hub chat in the web app (Messages). */
 export const NOTICES_CHAT_PATH = '/messages/care-hub';
 
-/** Where opening a notice goes: its first link button, else its page card's page, else the chat. */
-export function noticeLink(notice: {
-  buttons: readonly NoticeButton[];
-  card: NoticeCard | null;
-}): string {
+/**
+ * Where opening a notice goes: its first link button, else its first page card's page, else the
+ * chat.
+ */
+export function noticeLink(notice: NoticeCards & { buttons: readonly NoticeButton[] }): string {
   const link = notice.buttons.find((button): button is NoticeLinkButton => 'href' in button);
   if (link) return link.href;
-  if (notice.card?.type === 'page') return pageHref(notice.card.pageId);
-  return NOTICES_CHAT_PATH;
+  const page = noticeCards(notice).find((card): card is PageCard => card.type === 'page');
+  return page ? pageHref(page.pageId) : NOTICES_CHAT_PATH;
 }
 
 /** What `getNotice` returns: never a card's title, and no action names. */
