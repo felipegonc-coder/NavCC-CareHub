@@ -25,3 +25,11 @@ export {
 export type { CertificateFinish, CertificateRecord } from './issue';
 export { certificateNotice, certificateNoticeDue, recertificationDueDate } from './renewal';
 export type { CertificateNotice, CertificateNoticeKind, SentCertificateNotice } from './renewal';
+export {
+  PersonTranscriptResponseSchema,
+  TranscriptCertificateSchema,
+  TranscriptRowSchema,
+  transcriptCsv,
+  transcriptRows,
+} from './transcript';
+export type { PersonTranscriptResponse, TranscriptCertificate, TranscriptRow } from './transcript';
