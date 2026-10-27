@@ -28,7 +28,7 @@ jobs:
     name: image
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'image'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:

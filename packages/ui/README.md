@@ -51,8 +51,9 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
     `small`, `label` (`text-small` is `--ch-text-small`); `--ch-weight-<style>` for `title` and
     `h1` to `h3`; `--ch-tracking-title`. Weights `--ch-weight-normal`, `-medium`, `-semibold`,
     `-bold`; fonts `--ch-font-sans`, `--ch-font-mono`.
-  - Also `--ch-shadow-menu`, `--ch-shadow-dialog`, and widths `--ch-page-width` (48rem),
-    `--ch-sidebar-width` (16rem), `--ch-dialog-width` (32rem), `--ch-toast-width` (24rem). Scrims
+  - Also `--ch-shadow-menu`, `--ch-shadow-dialog`, widths `--ch-page-width` (48rem),
+    `--ch-sidebar-width` (16rem), `--ch-dialog-width` (32rem), `--ch-toast-width` (24rem), and
+    `--ch-sheet-height` (85dvh, `max-h-sheet`: how tall a phone's bottom sheet grows). Scrims
     use `bg-overlay/50`; the logo uses `brand` and `brand-fg`; `grid-cols-control` puts a checkbox
     or switch before its label.
 - **Checked by lint:** the ESLint rule `carehub/no-one-off-styles` (`lint/no-one-off-styles.js`)
@@ -70,7 +71,9 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
   `apps/web/public/theme-init.js` applies the saved theme before the first paint; it is a file, not
   an inline script, because the Content Security Policy allows only `script-src 'self'`.
 - **Phones:** under 768 px every control is at least 44 px tall (`max-md:` classes), as 0007 asks;
-  keep that when you override a size.
+  keep that when you override a size. Menus, popovers, select lists and dialogs open as bottom
+  sheets there: along the bottom edge, as wide as the screen, over a dimmed page, scrolling once
+  they reach `max-h-sheet`. `SheetContent` covers the whole screen.
 - **Bigger text:** set `data-text-size="large"` on `<html>`; all sizes are in rem.
 - **Fields:** wrap a control in `<Field label hint error required>` and it gets its label, description
   and invalid state for screen readers.

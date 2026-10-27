@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Reminder } from '../types';
-import { lateNote, reminderHref, reminderNotice, snoozeLabel } from './notice';
+import {
+  isSnooze,
+  lateNote,
+  reminderHref,
+  reminderNotice,
+  snoozedMessage,
+  snoozeLabel,
+  snoozeUntil,
+} from './notice';
 
 const PAGE_ID = '0b9a4c1e-5d3f-4a7b-9c2e-1f0a2b3c4d5e';
 const denver = { timeZone: 'America/Denver', use24h: false };
@@ -84,5 +92,31 @@ describe('reminderNotice', () => {
     expect(late.text).toBe('Late: was due at 9:00 AM\nCall Bluebird Bakery');
     const plain = reminderNotice({ ...reminder, note: '' }, reminder.dueAt);
     expect(plain.text).toBeUndefined();
+  });
+});
+
+describe('snoozing', () => {
+  const now = new Date('2026-10-27T15:10:00Z'); // 9:10 AM in Denver, 11:10 AM in New York
+
+  it('comes back in 15 minutes, 1 hour, or tomorrow at 9:00 AM in the person’s zone', () => {
+    expect(snoozeUntil('15m', now, 'America/Denver')).toEqual(new Date('2026-10-27T15:25:00Z'));
+    expect(snoozeUntil('1h', now, 'America/Denver')).toEqual(new Date('2026-10-27T16:10:00Z'));
+    expect(snoozeUntil('tomorrow', now, 'America/New_York')).toEqual(
+      new Date('2026-10-28T13:00:00Z'),
+    );
+    const lateEvening = new Date('2026-10-28T05:30:00Z'); // 11:30 PM on Oct 27 in Denver
+    expect(snoozeUntil('tomorrow', lateEvening, 'America/Denver')).toEqual(
+      new Date('2026-10-28T15:00:00Z'),
+    );
+  });
+
+  it('confirms in the person’s time format', () => {
+    expect(snoozedMessage('15m', denver)).toBe('Snoozed for 15 minutes');
+    expect(snoozedMessage('1h', denver)).toBe('Snoozed for 1 hour');
+    expect(snoozedMessage('tomorrow', denver)).toBe('Snoozed until tomorrow at 9:00 AM');
+    expect(snoozedMessage('tomorrow', { ...denver, use24h: true })).toBe(
+      'Snoozed until tomorrow at 09:00',
+    );
+    expect([isSnooze('1h'), isSnooze('2h')]).toEqual([true, false]);
   });
 });
