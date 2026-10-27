@@ -1,6 +1,6 @@
 # Settings and members
 
-_Copied from the Notion spec (https://app.notion.com/p/185eb386efca44cab8a084e816736eae) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > ⚙️ Phase 1 · Notion parity · Depends on: accounts and sign-in, Roles and permissions · Used by: every spec with a setting · Related: Sidebar, spaces and nested pages; Data settings; Messages (notifications)
 
@@ -108,7 +108,7 @@ One place for each person's account and preferences, and for Admins to run the w
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **SM-01** Change your name and photo in My account, then try a 6 MB picture. → The change shows everywhere within 2 seconds; the big picture is refused with the limit.
 2. ⭐ **SM-06** Make an invite link with 2 uses and the Editor role, and have two people join with it. → Both join as Editors; a third person is told the link isn't active.
@@ -136,7 +136,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **SM-13** A non-Admin can't open Admin sections, and their direct requests are refused (403); secrets never appear in any response.
 - **SM-14** Settings works by keyboard and screen reader, axe finds no serious problems, and the phone layout works.
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **SM-D1** 2-step verification with an authenticator app (Notion has it). **Default:** yes, optional for each person; Admins can require it for everyone.
 - 🟨 **SM-D2** What happens to a removed member's private pages. **Default:** kept hidden for 90 days (they come back if the person rejoins), then deleted. Nobody else can open them (RP-D1).

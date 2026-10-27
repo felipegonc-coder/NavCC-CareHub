@@ -1,9 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { errorHandler } from '../../core/errors';
+import { createTestApp, createUser, hasDatabase, injectAs } from '../../testing';
 import { createTestSubscription, type TestSubscription } from './protocol/testing';
 import { generateVapidKeys } from './protocol/vapid';
-import pushRoutes from './routes';
+import pushRoutes, { TEST_COOLDOWN_MS } from './routes';
 import { PUSH_OFF_MESSAGE, resolvePushConfig, type PushConfig } from './settings';
 import { createMemoryPushStore, type MemoryPushStore } from './testing';
 
@@ -15,7 +16,8 @@ const endpoint = 'https://fcm.googleapis.com/fcm/send/fictional-laptop';
 
 let app: FastifyInstance | undefined;
 let store: MemoryPushStore;
-const clock = Date.UTC(2026, 9, 27, 15, 0);
+let clock = Date.UTC(2026, 9, 27, 15, 0);
+const sent: { endpoint: string; body: Uint8Array }[] = [];
 
 function on(): PushConfig {
   const keys = generateVapidKeys();
@@ -28,6 +30,7 @@ function on(): PushConfig {
 
 async function build(config: PushConfig = on()): Promise<FastifyInstance> {
   store = createMemoryPushStore();
+  sent.length = 0;
   app = Fastify();
   app.setErrorHandler(errorHandler);
   await app.register(pushRoutes, {
@@ -35,6 +38,10 @@ async function build(config: PushConfig = on()): Promise<FastifyInstance> {
     store,
     config,
     now: () => new Date(clock),
+    fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+      sent.push({ endpoint: String(input), body: init?.body as Uint8Array });
+      return new Response(null, { status: 201 });
+    }) as typeof fetch,
     getUserId: (request) => {
       const user = request.headers['x-test-user'];
       return typeof user === 'string' ? user : null;
@@ -81,6 +88,7 @@ describe('push routes', () => {
       ['GET', '/key'],
       ['GET', '/subscriptions'],
       ['DELETE', '/subscriptions'],
+      ['POST', '/test'],
       ['GET', '/preferences'],
     ] as const) {
       const response = await call(method, url);
@@ -148,6 +156,9 @@ describe('/api/push/subscriptions', () => {
     expect(response.json()).toMatchObject({
       error: { code: 'conflict', message: PUSH_OFF_MESSAGE },
     });
+    const test = await call('POST', '/test', avery);
+    expect(test.statusCode).toBe(409);
+    expect(test.json()).toMatchObject({ error: { message: PUSH_OFF_MESSAGE } });
   });
 
   it('deletes this browser by endpoint, and another device by id', async () => {
@@ -161,6 +172,31 @@ describe('/api/push/subscriptions', () => {
     expect((await call('DELETE', '/subscriptions/not-an-id', avery)).statusCode).toBe(404);
     expect((await call('DELETE', `/subscriptions/${phone.id}`, avery)).statusCode).toBe(204);
     expect(store.subscriptions).toEqual([]);
+  });
+});
+
+describe('POST /api/push/test', () => {
+  it("sends a test notification to the person's browsers, then waits before another", async () => {
+    await build();
+    const browser = createTestSubscription();
+    await subscribe(avery, browser);
+    const response = await call('POST', '/test', avery);
+    expect(response.json()).toEqual({ sent: 1, removed: 0, failed: 0 });
+    expect(sent.map((request) => request.endpoint)).toEqual([endpoint]);
+    expect(
+      JSON.parse(new TextDecoder().decode(browser.decrypt(sent[0]?.body ?? new Uint8Array()))),
+    ).toEqual({
+      title: 'Care Hub',
+      body: 'Test notification · Notifications work on this device.',
+      url: '/settings/notifications',
+      tag: 'push-test',
+    });
+    const again = await call('POST', '/test', avery);
+    expect(again.statusCode).toBe(429);
+    expect(again.json()).toMatchObject({ error: { code: 'rate_limited' } });
+    expect((await call('POST', '/test', sam)).json()).toEqual({ sent: 0, removed: 0, failed: 0 });
+    clock += TEST_COOLDOWN_MS;
+    expect((await call('POST', '/test', avery)).statusCode).toBe(200);
   });
 });
 
@@ -178,5 +214,26 @@ describe('/api/push/preferences', () => {
     });
     const unknown = await call('PATCH', '/preferences', avery, { notifyAbout: 'everything' });
     expect(unknown.statusCode).toBe(400);
+  });
+});
+
+describe.skipIf(!hasDatabase)('/api/push in the app', () => {
+  it('is registered behind sign-in, with push off until the keys are set', async () => {
+    const testApp = await createTestApp();
+    try {
+      const riley = await createUser(testApp.db, { name: 'Riley Chen' });
+      const signedOut = await testApp.app.inject({ method: 'GET', url: '/api/push/key' });
+      expect(signedOut.statusCode).toBe(401);
+      const key = await injectAs(testApp.app, riley, { method: 'GET', url: '/api/push/key' });
+      expect(key.json()).toEqual({ publicKey: null });
+      const saved = await injectAs(testApp.app, riley, {
+        method: 'PATCH',
+        url: '/api/push/preferences',
+        payload: { notifyAbout: 'mentions' },
+      });
+      expect(saved.json()).toEqual({ preferences: { notifyAbout: 'mentions', showText: true } });
+    } finally {
+      await testApp.close();
+    }
   });
 });

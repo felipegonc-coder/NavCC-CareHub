@@ -94,6 +94,27 @@ export class TemplateGallery {
     await expect(new PageScreen(this.page).title).toBeVisible();
     return pageIdOf(this.page);
   }
+
+  /**
+   * A workspace template's card menu → Edit template (section 2). Assumed: the menu is a button
+   * named for the card, such as "More for Weekly huddle", that may only show while the pointer is
+   * on the card. The template page opens with its banner; type in it with PageScreen.
+   */
+  async editTemplate(name: string) {
+    const card = literally(name).source;
+    const menuButton = new RegExp(
+      `(…|more|options|actions|menu).*${card}|${card}.*(options|actions|menu)$`,
+      'i',
+    );
+    await this.card(name).hover();
+    await this.dialog.getByRole('button', { name: menuButton }).click();
+    await choice(this.page, /^edit template$/i).click();
+    const banner = new RegExp(
+      `You[’']re editing the template ${card}\\. Changes only affect new pages\\.`,
+    );
+    await expect(this.page.getByText(banner)).toBeVisible();
+    await expect(new PageScreen(this.page).content).toBeVisible();
+  }
 }
 
 /**
@@ -121,6 +142,21 @@ export class SaveAsTemplate {
     await expect(this.dialog).toBeVisible();
   }
 
+  /**
+   * Who can use it: "Everyone in the workspace" or "Members of <space>". Assumed: one picker named
+   * "Who can use it" (a list box or a select) with a choice for each.
+   */
+  async whoCanUse(who: string) {
+    const picker = this.dialog.getByRole('combobox', { name: /who can use/i });
+    if (await picker.evaluate((element) => element instanceof HTMLSelectElement)) {
+      await picker.selectOption({ label: who });
+    } else {
+      await picker.click();
+      await choice(this.page, who).click();
+      await expect(picker).toContainText(who);
+    }
+  }
+
   async save() {
     await this.dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(this.dialog).toBeHidden();
@@ -129,6 +165,16 @@ export class SaveAsTemplate {
 
 /** A database template as the API returns it (RowTemplate in packages/databases/src/types.ts). */
 export type RowTemplate = { id: string; name: string };
+
+/**
+ * Template variables in a template's preset values (section 3.3), in stored form: a date as Today
+ * or Now with an offset in days (DynamicDate), a person list with Me in it (ME, "me").
+ */
+export const variable = {
+  today: (offsetDays = 0) => ({ dynamic: 'today', offsetDays }),
+  now: () => ({ dynamic: 'now' }),
+  me: () => ['me'],
+};
 
 type Settings = { version?: number; templates?: RowTemplate[] };
 
@@ -214,6 +260,59 @@ export class NewRowMenu {
       name: typeof name === 'string' ? literally(name) : name,
     });
   }
+
+  /**
+   * A template's "…" → Edit: the template opens as a row page with "You're editing a template in
+   * Tickets." Assumed: "…" is a button inside the template's entry, or one named for it. Returns
+   * the row page (a side panel or the page itself) with the banner.
+   */
+  async edit(name: string, database: string): Promise<Locator> {
+    const page = this.screen.page;
+    await this.open();
+    const item = this.item(name);
+    await item.hover();
+    const forIt = new RegExp(`(…|more|options|actions).*${literally(name).source}`, 'i');
+    await item
+      .getByRole('button')
+      .or(this.menu.getByRole('button', { name: forIt }))
+      .first()
+      .click();
+    await choice(page, /^edit$/i).click();
+    const banner = page.getByText(
+      new RegExp(`You[’']re editing a template in ${literally(database).source}\\.`),
+    );
+    await expect(banner).toBeVisible();
+    return page
+      .getByRole('dialog')
+      .filter({ has: banner })
+      .or(page.getByRole('main').filter({ has: banner }))
+      .first();
+  }
+}
+
+/**
+ * Page menu → Apply template on a row page (section 3.2), with "Replace values" ticked or not.
+ * Assumed: a dialog named "Apply template" with the Replace values checkbox and the templates by
+ * name (radios, options or buttons), and Apply if picking one doesn't apply it at once.
+ */
+export async function applyTemplate(page: Page, name: string, replaceValues = false) {
+  const menu = await new PageScreen(page).openPageMenu();
+  await menu.getByRole('menuitem', { name: /^apply template/i }).click();
+  const dialog = page.getByRole('dialog', { name: /apply template/i });
+  await expect(dialog).toBeVisible();
+  const replace = dialog.getByRole('checkbox', { name: /replace values/i });
+  if (replaceValues) await replace.check();
+  else await expect(replace).not.toBeChecked();
+  const named = { name: literally(name) };
+  await dialog
+    .getByRole('radio', named)
+    .or(dialog.getByRole('option', named))
+    .or(dialog.getByRole('button', named))
+    .first()
+    .click();
+  const apply = dialog.getByRole('button', { name: 'Apply', exact: true });
+  if (await apply.isVisible()) await apply.click();
+  await expect(dialog).toBeHidden();
 }
 
 /**
@@ -233,7 +332,7 @@ export async function addRowBy(screen: DatabaseScreen, adding: () => Promise<voi
 }
 
 /** The actions a button block can run (section 3.4), by their names in Add action. */
-export type ButtonAction = 'Insert blocks' | 'Add a row' | 'Open a page';
+export type ButtonAction = 'Insert blocks' | 'Add a row' | 'Open a page' | 'Show a confirmation';
 
 /**
  * The settings of a button block (section 2): label, the actions in order and the plain sentence
