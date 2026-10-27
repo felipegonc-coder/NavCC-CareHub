@@ -180,6 +180,16 @@ describe('push delivery for new notices', () => {
     expect(read(0)).toMatchObject({ title: 'Sam Ortiz', body: 'Commented on a page you follow' });
   });
 
+  it('sends nothing while notifications are paused, and again once the pause ends', async () => {
+    const { store, requests, addBrowser, send } = setup();
+    await addBrowser(avery, 'laptop');
+    await store.updatePreferences(avery, { pause: { until: null } }, now);
+    expect(await send(notice())).toEqual({ skipped: 'paused' });
+    await store.updatePreferences(avery, { pause: { until: now } }, now);
+    expect(await send(notice())).toEqual(pushedTo(1));
+    expect(requests).toHaveLength(1);
+  });
+
   it('sends nothing while a Care Hub tab is open, push is off or there is no browser', async () => {
     const tab = setup({ tabOpen: true });
     await tab.addBrowser(avery, 'laptop');

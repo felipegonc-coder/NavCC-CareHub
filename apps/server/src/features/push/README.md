@@ -3,8 +3,8 @@
 Sends web push notifications, so people hear about messages and reminders when Care Hub isn't
 open (Messages: "Unread and notifications"; Home and reminders: reminders). Built from RFC 8030,
 8291, 8292 and 8188 with `node:crypto` only. It keeps each person's browsers and notification
-settings and sends to all of a person's browsers; sending on new messages and notices comes in a
-later part.
+settings, sends to all of a person's browsers and pushes new notices (below). Pushing new messages
+comes in a later part.
 
 ## Settings
 
@@ -61,6 +61,28 @@ person's own note, and the page, row or event title.
 A message with only files says "New message", never file names. Texts are one line of at most 100
 characters, without control or text-direction characters. Clicking opens `url`, a Care Hub path
 such as `/messages/<chatId>`.
+
+## New notices
+
+The routes plugin follows `notices.notice.created` on `app.events` and pushes each new notice to
+its person (`delivery.ts`). Nothing is pushed when:
+
+- push is off, or the person has no browser with notifications on;
+- a Care Hub tab is open for them (live's `hasOpenTabs`): the tab tells them instead;
+- `notifyDecision` from `@carehub/team-chat` says no: Settings → Notifications is set to nothing,
+  or the person paused notifications (the notice still arrives in the 🔔 chat).
+  "Only direct messages, @mentions and notices" still gets every notice.
+
+The notice is read with notices' `getNotice` and goes only to the person whose 🔔 chat it's in.
+It's worded by its kind, as in the table above: a reminder as `reminder`, a mention as `mention`
+and every other kind as `notice`, with its generic title (never a page or event title). Clicking
+opens its `link`, or the 🔔 chat when that isn't a Care Hub path. The tag is `notice:<noticeId>`,
+so the newest part of a grouped notice replaces its notification. Reminders and alerts go with
+`{ urgency: 'high' }`. A failure is logged without the notice's content and never reaches notices.
+The 🔔 chat counts as not muted: its Mute isn't kept anywhere yet.
+
+`sources.ts` connects delivery to notices, live and team-chat. Tests give fakes with the `sources`
+route option.
 
 ## Routes
 

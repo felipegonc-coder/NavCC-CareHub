@@ -3,6 +3,7 @@
 // (Settings → Notifications, mute, @mentions) are team-chat's notifyDecision.
 import type { NotifyDecision, NotifyInput, QuietReason } from '@carehub/team-chat';
 import type { NoticeCreatedEvent, NoticeSummary } from '../notices';
+import { activePause } from './domain/preferences';
 import { isCareHubPath, type PushNotice } from './payload';
 import { pushToUser, type PushRuntime, type PushSummary } from './service';
 
@@ -42,11 +43,12 @@ export function createPushDelivery(runtime: PushRuntime, sources: DeliverySource
     const notice = await sources.getNotice(noticeId);
     // Only the person whose 🔔 chat it's in may see it.
     if (!notice || notice.userId !== userId) return { skipped: 'not-found' };
+    const now = runtime.now?.() ?? new Date();
     const decision = sources.decide({
       settings: {
         notifyAbout: preferences.notifyAbout,
         showText: preferences.showText,
-        paused: false,
+        paused: activePause(preferences.pause, now) !== null,
       },
       // Everyone is in their own 🔔 chat.
       membership: { muted: false },

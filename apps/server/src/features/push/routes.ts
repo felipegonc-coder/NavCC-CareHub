@@ -1,10 +1,12 @@
 // /api/push: the server's public key, the person's browsers, a test notification, the
 // notification settings and pausing notifications. Every route needs a signed-in person; the auth
-// plugin checks CSRF and Origin on changes.
+// plugin checks CSRF and Origin on changes. The plugin also pushes new notices (delivery.ts).
 import { DEFAULT_TIME_ZONE } from '@carehub/shared';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
 import { readSettings } from '../../core/settings';
+import { NOTICE_CREATED_EVENT } from '../notices';
+import { createPushDelivery, type DeliverySources } from './delivery';
 import {
   activePause,
   changedPreferences,
@@ -28,6 +30,7 @@ import {
 } from './settings';
 import type { PushNotice } from './payload';
 import { pushToUser } from './service';
+import { deliverySources } from './sources';
 import { createPostgresPushStore } from './store';
 import type { PushStore, PushSubscriptionRecord } from './types';
 
@@ -42,6 +45,8 @@ export interface PushRoutesOptions {
   config?: PushConfig;
   fetch?: typeof fetch;
   now?: () => Date;
+  /** What delivery reads: notices, open tabs and the rules. Defaults to the app's (sources.ts). */
+  sources?: DeliverySources;
 }
 
 /** A browser in Settings → Notifications. Never the endpoint or keys. */
@@ -83,6 +88,19 @@ const pushRoutes: FastifyPluginAsync<PushRoutesOptions> = async (app, options) =
   const getTimeZone = options.getTimeZone ?? ((request: FastifyRequest) => request.user?.timeZone);
   const now = options.now ?? (() => new Date());
   const lastTests = new Map<string, number>();
+
+  // A notification for each new notice, sent while Care Hub isn't open.
+  const sources = options.sources ?? (app.hasDecorator('db') ? deliverySources(app.db) : null);
+  if (sources && app.hasDecorator('events')) {
+    const delivery = createPushDelivery(
+      { store, config, fetch: options.fetch ?? fetch, now, log: app.log },
+      sources,
+    );
+    const stop = app.events.on(NOTICE_CREATED_EVENT, async (event) => {
+      await delivery.noticeCreated(event);
+    });
+    app.addHook('onClose', async () => stop());
+  }
 
   function userOf(request: FastifyRequest): string {
     const userId = getUserId(request);
