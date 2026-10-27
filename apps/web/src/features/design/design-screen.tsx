@@ -219,6 +219,17 @@ export function DesignScreen() {
           >
             Show toast
           </Button>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              toast({
+                title: 'Ticket archived',
+                action: { label: 'Undo', onClick: () => toast({ title: 'Ticket restored' }) },
+              })
+            }
+          >
+            Archive ticket
+          </Button>
         </div>
       </Section>
 
