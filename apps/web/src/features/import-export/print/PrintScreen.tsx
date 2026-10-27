@@ -116,6 +116,23 @@ function useAutoPrint(ready: boolean, root: HTMLElement | null) {
   }, [ready, root]);
 }
 
+/**
+ * Ctrl+P (⌘P on a Mac) prints the view. Elsewhere it opens search (Search spec section 6), so
+ * this listens in the capture phase and marks the key handled, which the search skips.
+ */
+function usePrintKey(ready: boolean) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const command = event.ctrlKey || event.metaKey;
+      if (!command || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'p') return;
+      event.preventDefault();
+      if (ready) window.print();
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  }, [ready]);
+}
+
 function titleOf(view: PrintView): string {
   return view.page.title.replace(/\s+/g, ' ').trim() || 'Untitled';
 }
@@ -165,6 +182,7 @@ export function PrintScreen() {
   useCover(root);
   usePaper(view ? titleOf(view) : null);
   useAutoPrint((pdf || search.get('dialog') === '1') && view !== undefined, root);
+  usePrintKey(view !== undefined);
   useEffect(() => main.current?.focus({ preventScroll: true }), []);
 
   return createPortal(

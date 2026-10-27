@@ -68,6 +68,26 @@ describe('PrintScreen', () => {
     expect(print).toHaveBeenCalledTimes(1);
   });
 
+  it('prints with Ctrl+P, before the search can take it', async () => {
+    const seen: boolean[] = [];
+    const search = (event: KeyboardEvent) => seen.push(event.defaultPrevented);
+    document.addEventListener('keydown', search);
+    try {
+      show();
+      await screen.findByRole('heading', { level: 1, name: 'Support guide' });
+      fireEvent.keyDown(document.body, { key: 'p', ctrlKey: true });
+      expect(print).toHaveBeenCalledTimes(1);
+      expect(seen).toEqual([true]);
+      fireEvent.keyDown(document.body, { key: 'p', metaKey: true });
+      expect(print).toHaveBeenCalledTimes(2);
+      fireEvent.keyDown(document.body, { key: 'p' });
+      expect(print).toHaveBeenCalledTimes(2);
+      expect(seen).toEqual([true, true, false]);
+    } finally {
+      document.removeEventListener('keydown', search);
+    }
+  });
+
   it('opens the print dialog for a PDF and says how to save it (IE-13)', async () => {
     show('?pdf=1');
     expect(await screen.findByText(/choose Save as PDF in the print dialog/)).toBeVisible();
