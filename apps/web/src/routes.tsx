@@ -47,6 +47,7 @@ import { routes as learningRoutes } from './features/learning/routes';
 import { routes as formsRoutes } from './features/forms/routes';
 
 // feature: messages
+import { routes as messagesRoutes } from './features/messages/routes';
 
 // feature: calendar
 
@@ -108,6 +109,7 @@ export const appRoutes: RouteObject[] = [
   // feature: forms
 
   // feature: messages
+  ...messagesRoutes,
 
   // feature: calendar
 

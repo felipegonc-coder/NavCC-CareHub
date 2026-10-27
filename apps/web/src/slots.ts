@@ -193,7 +193,7 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
   () => import('./features/databases/slots'),
   // feature: forms
 
-  // feature: messages
+  () => import('./features/messages/slots'), // feature: messages
 
   // feature: calendar
 
