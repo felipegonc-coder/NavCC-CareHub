@@ -154,6 +154,27 @@ export interface ChecklistItem {
 }
 
 /**
+ * A wiki page's verification (Verification property, wiki databases only; Knowledge base spec),
+ * exactly as the knowledge base stores it (@carehub/extras/knowledge, verificationSchema). No value
+ * means Not verified. Verify sets it and Remove verification clears it, never typing in a cell; at
+ * 9:00 AM on `until`, in the owner's time zone, the knowledge base changes `state` to expired.
+ */
+export interface VerificationValue {
+  /** Expired always has an until date. */
+  state: 'verified' | 'expired';
+  /** Who verified it (an owner, or someone with Full access). */
+  verifiedBy: Id;
+  /** When they did. */
+  verifiedAt: Instant;
+  /** The day it expires, shown as "until Jan 20, 2027"; null: no end date. */
+  until: CalendarDate | null;
+}
+
+/** What a Verification property shows: its badge, filters and sorts. None: Not verified. */
+export const VERIFICATION_STATES = ['verified', 'expired', 'none'] as const;
+export type VerificationState = (typeof VERIFICATION_STATES)[number];
+
+/**
  * The stored value for each property type that stores one.
  * Empty is always "absent" (no key, or null): never "", [] or a blank date.
  * created_*, edited_*, unique_id, formula, rollup and button store nothing in Row.values.
@@ -183,6 +204,8 @@ export interface StoredValueMap {
   relation: Id[];
   /** Up to 100 items. */
   checklist: ChecklistItem[];
+  /** Absent: Not verified. */
+  verification: VerificationValue;
 }
 export type StoredType = keyof StoredValueMap;
 
@@ -407,7 +430,9 @@ export type PropertyConfig =
       color?: OptionColor;
       /** Who can press it: people who can edit the row (default), or everyone who can view it. */
       whoCanPress?: 'editors' | 'viewers';
-    };
+    }
+  /** Wiki databases only (DatabaseMeta.wiki). Always added new; nothing turns into it. */
+  | { type: 'verification' };
 
 export type PropertyType = PropertyConfig['type'];
 export type ConfigOf<T extends PropertyType> = Extract<PropertyConfig, { type: T }>;
@@ -436,6 +461,7 @@ export const PROPERTY_TYPES = [
   'rollup',
   'unique_id',
   'button',
+  'verification',
 ] as const satisfies readonly PropertyType[];
 
 export interface Property<C extends PropertyConfig = PropertyConfig> {
@@ -511,6 +537,9 @@ export const FILTER_OPS = [
   'not_all_done',
   'is_empty',
   'is_not_empty',
+  'is_verified',
+  'is_expired',
+  'is_not_verified',
 ] as const;
 export type FilterOp = (typeof FILTER_OPS)[number];
 
@@ -546,7 +575,7 @@ export type DateWindow =
  * - select and status is/is_not: Id[] ("is any of" / "is none of"); status group_is: StatusGroup[]
  * - contains_any/contains_all/does_not_contain on multi-select, person, relation: Id[] (person may use "me")
  * - date is/before/after/on_or_before/on_or_after: DateRef; between: { start: DateRef; end: DateRef }; within: DateWindow
- * - checkbox, checklist, is_empty, is_not_empty: no value
+ * - checkbox, checklist, verification, is_empty, is_not_empty: no value
  */
 export type FilterValue =
   string | Id[] | StatusGroup[] | DateRef | { start: DateRef; end: DateRef } | DateWindow;
@@ -955,6 +984,12 @@ export interface DatabaseMeta {
   inline: boolean;
   /** Lock structure: nobody changes properties, views or forms while on. Rows stay editable. */
   locked: boolean;
+  /**
+   * A wiki database: a knowledge base (Knowledge base spec 3.1). Only these can have Verification
+   * properties. Set when a page is turned into a knowledge base and cleared when it's turned back.
+   * Absent: false.
+   */
+  wiki?: boolean;
   properties: Property[];
   views: View[];
   /** Row-level access rules (DB-D2). Only people with Full access see and change them. */
