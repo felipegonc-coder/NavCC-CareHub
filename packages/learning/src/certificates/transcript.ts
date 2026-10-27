@@ -1,14 +1,4 @@
-import { z } from 'zod';
-import {
-  CourseStatusSchema,
-  IdSchema,
-  IsoDateSchema,
-  IsoDateTimeSchema,
-  LIMITS,
-  type CourseStatus,
-  type IsoDate,
-  type IsoDateTime,
-} from '../format/index';
+import type { CourseStatus, IsoDate, IsoDateTime } from '../format/index';
 import {
   personTranscript,
   toCsv,
@@ -17,47 +7,12 @@ import {
   type ReportOptions,
 } from '../reports/index';
 import { daysBetween, isoDateInTimeZone } from '../util/index';
-import { CertificateCodeSchema, CertificateStatusSchema } from './api';
+import type { TranscriptCertificate } from './api';
 import { certificateStatus } from './expiry';
 import { currentCertificates, type CertificateRecord } from './issue';
 
-/** A transcript line's certificate: the learner's current one for that course, as of `today`. */
-export const TranscriptCertificateSchema = z.strictObject({
-  id: IdSchema,
-  code: CertificateCodeSchema,
-  issuedOn: IsoDateSchema,
-  expiresOn: IsoDateSchema.nullable(),
-  status: CertificateStatusSchema,
-});
-export type TranscriptCertificate = z.infer<typeof TranscriptCertificateSchema>;
-
 /** One course in a person's transcript: their enrollment row and current certificate, if any. */
-export const TranscriptRowSchema = z.strictObject({
-  learnerId: IdSchema,
-  learnerName: z.string().max(LIMITS.title),
-  groupIds: z.array(IdSchema).readonly(),
-  courseId: IdSchema,
-  courseTitle: z.string().max(LIMITS.title),
-  status: CourseStatusSchema,
-  score: z.number().min(0).max(100).nullable(),
-  activeSeconds: z.number().min(0),
-  attempts: z.number().int().min(0),
-  startedAt: IsoDateTimeSchema.optional(),
-  completedAt: IsoDateTimeSchema.optional(),
-  lastActivityAt: IsoDateTimeSchema.optional(),
-  dueDate: IsoDateSchema.optional(),
-  lastLessonId: IdSchema.optional(),
-  required: z.boolean(),
-  certificate: TranscriptCertificateSchema.nullable(),
-});
 export type TranscriptRow = EnrollmentRow & { certificate: TranscriptCertificate | null };
-
-/** GET /reports/people/:personId: whose transcript it is, and their courses (`transcriptRows`). */
-export const PersonTranscriptResponseSchema = z.strictObject({
-  person: z.strictObject({ id: IdSchema, name: z.string().max(LIMITS.title) }),
-  rows: z.array(TranscriptRowSchema),
-});
-export type PersonTranscriptResponse = z.infer<typeof PersonTranscriptResponseSchema>;
 
 const key = (learnerId: string, courseId: string) => JSON.stringify([learnerId, courseId]);
 

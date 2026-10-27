@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import type { EnrollmentRow } from '../reports/index';
 import {
   PersonTranscriptResponseSchema,
+  TranscriptQuerySchema,
   TranscriptRowSchema,
   createCertificateCode,
   transcriptCsv,
@@ -105,6 +106,8 @@ describe('transcriptRows', () => {
     expect(PersonTranscriptResponseSchema.parse(body)).toEqual(body);
     const tampered = { ...body, rows: [{ ...body.rows[0], certificate: { code: 'nope' } }] };
     expect(PersonTranscriptResponseSchema.safeParse(tampered).success).toBe(false);
+    expect(TranscriptQuerySchema.parse({ format: 'csv' })).toEqual({ format: 'csv' });
+    expect(TranscriptQuerySchema.safeParse({ format: 'pdf' }).success).toBe(false);
   });
 });
 
