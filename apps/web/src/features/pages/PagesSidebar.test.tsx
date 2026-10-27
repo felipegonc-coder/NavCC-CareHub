@@ -127,7 +127,9 @@ describe('PagesSidebar', () => {
   it('shows each space, then Private; Shared stays hidden while empty', async () => {
     renderSidebar();
     const spacesSection = await screen.findByRole('group', { name: 'Spaces' });
-    expect(within(spacesSection).getByRole('button', { name: 'General' })).toHaveAttribute(
+    const general = within(spacesSection).getByRole('group', { name: 'General' });
+    expect(within(general).getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    expect(within(general).getByRole('button', { name: 'General' })).toHaveAttribute(
       'aria-expanded',
       'true',
     );
@@ -238,7 +240,7 @@ describe('PagesSidebar', () => {
     renderSidebar({ '/api/auth/me': { member: { permissions: [] } } });
     expect(await screen.findByRole('tree', { name: 'General' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add a page to General' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Add a private page' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add a page to Private' })).toBeNull();
   });
 
   it('moves a page dropped on a space, asking first when its access would change', async () => {
@@ -257,16 +259,35 @@ describe('PagesSidebar', () => {
     const care = await screen.findByRole('button', { name: 'Care team' });
     fireEvent.dragOver(care, { dataTransfer });
     fireEvent.drop(care, { dataTransfer });
-    const confirm = await screen.findByRole('dialog', {
+    const confirm = await screen.findByRole('alertdialog', {
       name: 'Change who can open “Onboarding”?',
     });
-    expect(confirm).toHaveTextContent('Will lose accessAna Silva');
+    expect(confirm).toHaveTextContent('1 person will lose accessAna Silva');
     fireEvent.click(within(confirm).getByRole('button', { name: 'Move' }));
     await waitFor(() =>
       expect(api.post).toHaveBeenLastCalledWith('/api/pages/a1/move', {
         spaceId: 'care',
         parentId: null,
         confirmAccessChange: true,
+      }),
+    );
+  });
+
+  it('moves a page dropped on Private to its top level', async () => {
+    renderSidebar({
+      '/api/spaces/general/tree': { nodes: [node('a1', null, 'Onboarding', { access: 'full' })] },
+    });
+    const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(await screen.findByRole('treeitem', { name: 'Onboarding' }), {
+      dataTransfer,
+    });
+    const heading = within(section('Private')).getByRole('heading', { name: 'Private' });
+    fireEvent.dragOver(heading, { dataTransfer });
+    fireEvent.drop(heading, { dataTransfer });
+    await waitFor(() =>
+      expect(api.post).toHaveBeenLastCalledWith('/api/pages/a1/move', {
+        spaceId: 'mine',
+        parentId: null,
       }),
     );
   });

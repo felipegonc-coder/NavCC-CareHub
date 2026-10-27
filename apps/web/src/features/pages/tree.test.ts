@@ -3,6 +3,7 @@ import {
   FIRST_STEP,
   groupChildren,
   keyAction,
+  nestRows,
   parentRow,
   pathTo,
   rootedRows,
@@ -182,6 +183,23 @@ describe('keyboard', () => {
     expect(keyAction(rows, 1, 'ArrowDown', { ctrl: true, shift: true })).toMatchObject({ step: 1 });
     expect(keyAction(rows, 1, 'ArrowDown', { ctrl: true })).toBeNull();
     expect(keyAction(rows, 1, 'Home', { ctrl: true, shift: true })).toBeNull();
+  });
+});
+
+describe('nesting rows', () => {
+  it('puts the deeper rows that follow a row inside it', () => {
+    const rows = [
+      { id: 'a', level: 1 },
+      { id: 'b', level: 2 },
+      { id: 'c', level: 3 },
+      { id: 'd', level: 2 },
+      { id: 'e', level: 1 },
+    ];
+    const shape = nestRows(rows, (row, inside: string[]): string =>
+      inside.length > 0 ? `${row.id}(${inside.join(' ')})` : row.id,
+    );
+    expect(shape).toEqual(['a(b(c) d)', 'e']);
+    expect(nestRows([], (row, inside) => inside)).toEqual([]);
   });
 });
 
