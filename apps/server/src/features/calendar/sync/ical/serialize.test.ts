@@ -154,7 +154,7 @@ describe('serializeCalendar', () => {
     expect(read?.attendees).toBeUndefined();
   });
 
-  it('writes one VTIMEZONE per zone, covering the years in use', () => {
+  it('writes one VTIMEZONE per zone, for a fixed window around now', () => {
     const text = serializeCalendar(
       [
         SERIES,
@@ -164,6 +164,13 @@ describe('serializeCalendar', () => {
           uid: 'london@example.com',
           start: zoned('2030-01-10T09:00', 'Europe/London'),
           end: zoned('2030-01-10T10:00', 'Europe/London'),
+        },
+        {
+          ...MOVED,
+          recurrenceId: undefined,
+          uid: 'long-ago@example.com',
+          start: zoned('1000-01-10T09:00'),
+          end: zoned('1000-01-10T10:00'),
         },
       ],
       { now: NOW },
@@ -176,6 +183,33 @@ describe('serializeCalendar', () => {
       'America/Denver',
       'Europe/London',
     ]);
+    // Year 1000 or 2030, the rules start in 2024 and run to 2029 (NOW is in 2026).
+    const years = zones.flatMap((zone) =>
+      zone.children.map((rule) =>
+        Number(rule.props.find((p) => p.name === 'DTSTART')?.value.slice(0, 4)),
+      ),
+    );
+    expect(Math.min(...years)).toBe(2024);
+    expect(Math.max(...years)).toBeLessThanOrEqual(2029);
+  });
+
+  it('groups many RDATEs and EXDATEs by kind and zone, in order', () => {
+    const days = Array.from(
+      { length: 5000 },
+      (_, i) => new Date(Date.UTC(2026, 10, 4) + i * 86_400_000),
+    );
+    const exdates = days.flatMap((day, i): ExternalTime[] => {
+      const date = day.toISOString().slice(0, 10);
+      return i % 2 ? [{ kind: 'date', date }] : [zoned(`${date}T09:00`)];
+    });
+    const lines = [
+      ...logicalLines(serializeCalendar([{ ...SERIES, rdates: [], exdates }], { now: NOW })),
+    ];
+    const written = lines.map((l) => l.text).filter((t) => t.startsWith('EXDATE'));
+    expect(written).toHaveLength(2);
+    expect(written[0]!.split(',')).toHaveLength(2500);
+    expect(written[0]).toMatch(/^EXDATE;TZID=America\/Denver:20261104T090000,20261106T090000,/);
+    expect(written[1]).toMatch(/^EXDATE;VALUE=DATE:20261105,20261107,/);
   });
 
   it('refuses malformed times instead of writing them', () => {
