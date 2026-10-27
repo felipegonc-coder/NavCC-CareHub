@@ -21,6 +21,12 @@ type Option = { id: string; name: string; color: string };
 
 type Space = { id: string; kind?: string; type?: string };
 
+/**
+ * Where a new database goes: the seeded team space, where every member can open it, or the
+ * signed-in person's private space, where no one else can.
+ */
+export type Place = 'team' | 'private';
+
 /** A reply that is the thing itself or wraps it, such as { database: { … } }. */
 function unwrap<T>(reply: unknown, key: string): T {
   if (typeof reply === 'object' && reply !== null && key in reply) {
@@ -29,13 +35,14 @@ function unwrap<T>(reply: unknown, key: string): T {
   return reply as T;
 }
 
-/** A new fictional page in the seeded team space, so every member can open what it holds. */
-async function makeParentPage(page: Page): Promise<string> {
+/** A new fictional page in the team space or in the signed-in person's private space. */
+async function makeParentPage(page: Page, place: Place): Promise<string> {
   const api = await apiFor(page);
   const reply = await api.get('/api/spaces');
   const spaces = (Array.isArray(reply) ? reply : unwrap(reply, 'spaces')) as Space[];
-  const space = spaces.find((s) => s.kind === 'team' || s.type === 'team') ?? spaces[0];
-  if (!space) throw new Error('GET /api/spaces listed no space.');
+  const found = spaces.find((s) => s.kind === place || s.type === place);
+  const space = place === 'team' ? (found ?? spaces[0]) : found;
+  if (!space) throw new Error(`GET /api/spaces listed no ${place} space.`);
   const made = await api.post('/api/pages', {
     kind: 'page',
     title: uniqueName('Fictional QA page'),
@@ -48,8 +55,9 @@ async function makeParentPage(page: Page): Promise<string> {
 export async function makeDatabase(
   page: Page,
   title = uniqueName('Fictional QA database'),
+  place: Place = 'team',
 ): Promise<Database> {
-  const parentId = await makeParentPage(page);
+  const parentId = await makeParentPage(page, place);
   const api = await apiFor(page);
   const reply = await api.post('/api/databases', { parentId, inline: false, title });
   return unwrap<Database>(reply, 'database');
