@@ -61,6 +61,7 @@ export function ContinueView({
         disabled={waiting.length > 0}
         aria-describedby={waiting.length > 0 ? hintId : undefined}
         onClick={() => emit({ type: 'block_completed', lessonId: lesson.id, blockId: block.id })}
+        className="max-md:h-11"
       >
         {continueBlockLabel(block, playerLabels(course))}
       </Button>
