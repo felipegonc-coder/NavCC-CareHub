@@ -80,7 +80,7 @@ test.describe('Comments and mentions', () => {
 | `onlyIn(...projects)`                | Runs the block only in those projects                         |
 | `needs(...features)`, `onMain`       | "Not built yet" until the features are on `main`              |
 | `people`, `signInAs(page, who)`      | The seeded fictional people; signs in through the core helper |
-| `people.trainer`                     | Tara Trainer from the Learning seed; signs in by email        |
+| `lanePeople`                         | People from a lane's seed (Tara Trainer); sign in by email    |
 | `apiFor(page)`                       | API calls as the signed-in person, with the CSRF header       |
 | `uniqueName(label)`                  | A unique fictional name for this run                          |
 | `shownDate(date)`, `shownTime(date)` | Dates and times as the app shows them                         |
