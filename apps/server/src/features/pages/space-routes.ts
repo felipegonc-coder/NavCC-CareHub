@@ -9,7 +9,7 @@ import {
 } from '@carehub/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { viewerFor } from './access';
-import { conflict, forbidden } from './http';
+import { conflict, forbidden, spaceArchived } from './http';
 import {
   addSpaceMembers,
   countSpacePages,
@@ -34,8 +34,6 @@ async function asker(request: FastifyRequest): Promise<SpaceViewer> {
 }
 
 const params = (request: FastifyRequest) => request.params as { id?: unknown; memberId?: unknown };
-const archived = () =>
-  conflict('This space is archived. An Admin can unarchive it in Settings → Spaces.');
 
 export function spaceRoutes(app: FastifyInstance): void {
   const { db } = app;
@@ -46,7 +44,7 @@ export function spaceRoutes(app: FastifyInstance): void {
     const who = await asker(request);
     const space = await findSpace(db, who, params(request).id);
     if (!space.canManage) throw forbidden();
-    if (space.archivedAt !== null) throw archived();
+    if (space.archivedAt !== null) throw spaceArchived();
     return { who, space };
   }
 
@@ -85,7 +83,7 @@ export function spaceRoutes(app: FastifyInstance): void {
     if (!space.canManage) throw forbidden();
     const { archived: archive, ...changes } = patch;
     const isArchived = space.archivedAt !== null;
-    if (isArchived && (archive !== false || Object.keys(changes).length > 0)) throw archived();
+    if (isArchived && (archive !== false || Object.keys(changes).length > 0)) throw spaceArchived();
     // Default spaces are an Admin setting (Settings and members), and so is unarchiving (SB-09).
     if ((patch.isDefault !== undefined || isArchived) && !who.isAdmin) throw forbidden();
     await db.transaction((tx) => updateSpace(tx, space.id, patch, who.viewer.userId));
@@ -128,7 +126,7 @@ export function spaceRoutes(app: FastifyInstance): void {
     const space = await findSpace(db, who, params(request).id);
     const memberId = params(request).memberId;
     if (!space.canManage && memberId !== who.viewer.userId) throw forbidden();
-    if (space.archivedAt !== null) throw archived();
+    if (space.archivedAt !== null) throw spaceArchived();
     // Members leave Open and Closed spaces by themselves; owners remove people from Private ones.
     if (!space.canManage && space.kind === 'private') {
       throw conflict('Ask an owner of this space to remove you.');

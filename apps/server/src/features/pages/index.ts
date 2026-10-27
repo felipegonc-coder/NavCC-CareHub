@@ -14,3 +14,6 @@ export {
   joinDefaultSpaces,
   setUpWorkspaceSpaces,
 } from './spaces';
+export { getPageCards } from './cards';
+export { createPage, setPageTitle } from './pages';
+export type { NewPage, PageRow } from './pages';
