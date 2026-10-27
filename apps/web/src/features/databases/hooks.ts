@@ -93,6 +93,8 @@ export const databaseKeys = {
   pick: (databaseId: Id, q: string) => ['databases', databaseId, 'pick', q] as const,
   /** The mutation key of a database's settings writes (they go one at a time). */
   settings: (databaseId: Id) => ['databases', databaseId, 'settings'] as const,
+  /** The mutation key of row writes: live refetches wait for them (shell/live.ts). */
+  rowWrites: (databaseId: Id) => ['databases', databaseId, 'row-writes'] as const,
   /** The workspace's people matching `q`: not one database's, so no database refresh drops them. */
   members: (q: string) => ['databases', 'members', q] as const,
 };
@@ -281,6 +283,7 @@ export function useCreateRow(databaseId: Id) {
   const client = useDatabaseClient();
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: databaseKeys.rowWrites(databaseId),
     mutationFn: (request: CreateRowRequest) => client.createRow(databaseId, request),
     onSettled: () => refreshQueries(queryClient, databaseId),
   });
@@ -302,6 +305,7 @@ export function useUpdateValues(databaseId: Id) {
   const queryClient = useQueryClient();
   const addOptions = useAddOptions(databaseId);
   return useMutation({
+    mutationKey: databaseKeys.rowWrites(databaseId),
     mutationFn: async ({ rowId, values, newOptions }: UpdateValuesInput) => {
       let saved = values;
       for (const [propertyId, typed] of Object.entries(newOptions ?? {})) {
@@ -341,6 +345,7 @@ export function useTrashRows(databaseId: Id) {
   const client = useDatabaseClient();
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: databaseKeys.rowWrites(databaseId),
     mutationFn: (rowIds: readonly Id[]) => client.trashRows(databaseId, rowIds),
     onMutate: async (rowIds) => {
       const snapshot = await holdQueries(queryClient, databaseId);
@@ -360,6 +365,7 @@ export function useDuplicateRows(databaseId: Id) {
   const client = useDatabaseClient();
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: databaseKeys.rowWrites(databaseId),
     mutationFn: async (rowIds: readonly Id[]) => {
       const copies: Row[] = [];
       for (const rowId of rowIds) copies.push(await client.duplicateRow(databaseId, rowId));
@@ -373,6 +379,7 @@ export function useRestoreRows(databaseId: Id) {
   const client = useDatabaseClient();
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: databaseKeys.rowWrites(databaseId),
     mutationFn: (rowIds: readonly Id[]) => client.restoreRows(databaseId, rowIds),
     onSettled: () => refreshQueries(queryClient, databaseId),
   });
@@ -395,6 +402,7 @@ export function useMoveRow(databaseId: Id, viewId: Id) {
   const client = useDatabaseClient();
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: databaseKeys.rowWrites(databaseId),
     mutationFn: async ({ rowId, place, values, keepOrder = true }: MoveRowInput) => {
       if (values && Object.keys(values).length > 0) {
         await client.updateRow(databaseId, rowId, values);
