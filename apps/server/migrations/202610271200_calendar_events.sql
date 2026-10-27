@@ -2,7 +2,8 @@
 
 CREATE TABLE cal_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id uuid NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
+  -- Its foreign key to workspaces is added in 202610271300.
+  workspace_id uuid NOT NULL,
   organizer_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   title text NOT NULL DEFAULT '',
   description text NOT NULL DEFAULT '',

@@ -7,6 +7,7 @@ import {
   layerPatchSchema,
   replyBodySchema,
   settingsPatchSchema,
+  upcomingQuerySchema,
 } from '@carehub/team-calendar-api';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
@@ -17,6 +18,7 @@ import {
   editEvent,
   getEvent,
   listItems,
+  listUpcoming,
   replyToEvent,
   type Viewer,
 } from './events/service';
@@ -34,12 +36,16 @@ function viewerOf(request: FastifyRequest): Viewer {
 type EventParams = { Params: { eventId: string } };
 type LayerParams = { Params: { layerId: string } };
 
-/** Calendar routes under /api/calendar. Every role can use Calendar (Calendar spec, section 5). */
-export default async function calendarRoutes(app: FastifyInstance) {
+/** Care Hub's own calendars. Every role can use Calendar (Calendar spec, section 5), not guests. */
+async function careHubCalendar(app: FastifyInstance) {
   app.addHook('preHandler', app.requireMember);
 
   app.get('/items', async (request) =>
     listItems(app.db, viewerOf(request), itemsQuerySchema.parse(request.query)),
+  );
+
+  app.get('/upcoming', async (request) =>
+    listUpcoming(app.db, viewerOf(request), upcomingQuerySchema.parse(request.query)),
   );
 
   app.post('/events', async (request, reply) => {
@@ -107,4 +113,12 @@ export default async function calendarRoutes(app: FastifyInstance) {
       settingsPatchSchema.parse(request.body),
     ),
   }));
+}
+
+/** Calendar routes under /api/calendar. */
+export default async function calendarRoutes(app: FastifyInstance) {
+  // A plugin of its own, so its guard doesn't apply to the routes registered after it.
+  await app.register(careHubCalendar);
+
+  // calendar: connections
 }

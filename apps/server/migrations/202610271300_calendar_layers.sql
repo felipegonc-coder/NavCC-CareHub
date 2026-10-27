@@ -18,7 +18,13 @@ CREATE TABLE cal_layers (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, user_id, id),
-  CONSTRAINT cal_layers_kind_check CHECK (kind IN ('my-events', 'meetings', 'learning', 'database')),
+  CONSTRAINT cal_layers_kind_check
+    CHECK (kind IN ('my-events', 'meetings', 'learning', 'database')),
   CONSTRAINT cal_layers_database_check
     CHECK ((kind = 'database') = (database_id IS NOT NULL AND property_id IS NOT NULL))
 );
+
+-- Events belong to a workspace (added here: 202610271200 landed before the workspaces table).
+ALTER TABLE cal_events
+  ADD CONSTRAINT cal_events_workspace_id_fkey
+  FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE;

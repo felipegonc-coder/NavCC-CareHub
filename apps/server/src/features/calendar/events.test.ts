@@ -1,4 +1,8 @@
-import { eventResponseSchema, itemsResponseSchema } from '@carehub/team-calendar-api';
+import {
+  eventResponseSchema,
+  itemsResponseSchema,
+  upcomingResponseSchema,
+} from '@carehub/team-calendar-api';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createTestApp,
@@ -155,6 +159,28 @@ describe.skipIf(!hasDatabase)('calendar events', () => {
         timeZone: null,
       });
     }
+  });
+
+  it('lists what is next for Upcoming, soonest first', async () => {
+    const dee = await createUser(test.db, { name: 'Dee Example' });
+    const at = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+    const timed = (title: string, from: number, videoUrl: string | null = null) =>
+      created(dee, { title, allDay: false, start: at(from), end: at(from + 30), videoUrl });
+    const visit = await timed('Video visit', 60, 'https://zoom.us/j/123456789');
+    await timed('Huddle', 5);
+    await timed('Shift notes', 90);
+    await timed('Next week', 7 * 24 * 60);
+    const url = '/api/calendar/upcoming?limit=2';
+    const response = await injectAs(test.app, dee, { method: 'GET', url });
+    expect(response.statusCode, response.body).toBe(200);
+    const { items } = upcomingResponseSchema.parse(response.json());
+    expect(items.map((item) => item.title)).toEqual(['Huddle', 'Video visit']);
+    expect(items[1]).toMatchObject({
+      href: `/calendar?event=${visit.id}`,
+      videoLink: { provider: 'zoom' },
+    });
+    const tooMany = { method: 'GET' as const, url: '/api/calendar/upcoming?limit=11' };
+    expect((await injectAs(test.app, dee, tooMany)).statusCode).toBe(400);
   });
 
   it('refuses events that end before they start, and ranges over 42 days', async () => {

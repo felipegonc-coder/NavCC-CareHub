@@ -10,11 +10,15 @@ import {
   type ItemsQuery,
   type ItemsResponse,
   type ReplyBody,
+  type UpcomingQuery,
+  type UpcomingResponse,
 } from '@carehub/team-calendar-api';
 import { checkSeries } from '@carehub/team-repeat';
+import { addDays, todayIn } from '@carehub/team-time';
 import { httpError } from '../../../core/errors';
 import type { Db, Tx } from '../../../db';
 import { publishToUsers } from '../../live';
+import { listLayers } from '../layers/service';
 import { planDelete, planDuplicate, planEdit, planReply } from './edit';
 import { eventItems, eventJson } from './items';
 import { civilOf, seriesOf, windowOf, type Schedule, type Window } from './model';
@@ -30,6 +34,7 @@ import {
   updateEvent,
   type EventRecord,
 } from './store';
+import { upcomingOf } from './upcoming';
 
 /** The signed-in member, as Calendar needs them. */
 export type Viewer = { id: string; workspaceId: string; timeZone: string };
@@ -72,6 +77,22 @@ export async function listItems(db: Db, viewer: Viewer, query: ItemsQuery): Prom
     truncated = true;
   }
   return { from: query.from, to: query.to, timeZone: viewer.timeZone, items, truncated };
+}
+
+/** Upcoming: today and tomorrow in the viewer's zone, from the layers they have on. */
+export async function listUpcoming(
+  db: Db,
+  viewer: Viewer,
+  query: UpcomingQuery,
+  now: Date = new Date(),
+): Promise<UpcomingResponse> {
+  const from = todayIn(viewer.timeZone, now);
+  const [{ items }, { layers }] = await Promise.all([
+    listItems(db, viewer, { from, to: addDays(from, 2) }),
+    listLayers(db, viewer),
+  ]);
+  const on = new Set(layers.filter((layer) => layer.on).map((layer) => layer.id));
+  return { items: upcomingOf(items, on, now, viewer.timeZone, query.limit) };
 }
 
 /** The event if the viewer may see it: 404 when there's none, 403 when it isn't theirs (CA-05). */
