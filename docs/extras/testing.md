@@ -31,7 +31,7 @@ How search works and what's still a stand-in: [search.md](search.md).
   - on phones, a tap on an option shows the preview, and the button "Versions" goes back.
 - **Restore:** "Restore this version", or Enter in "Versions", opens the dialog "Restore this version?" with the buttons "Cancel" and "Restore". After Restore, Version history closes and the notification "Avery Lin restored a version from Oct 20, 3:00 PM." shows (also for others editing the page). A refusal shows "Couldn't restore this version." and the reason.
 - **Names:** "Name this version" opens the dialog "Name this version" ("Rename this version" for a named one) with the field "Name" and the buttons "Save", "Cancel" and, for a named one, "Remove name". Notifications: "Version named", "Name removed".
-- **Endpoints:** `GET /api/history/pages/:pageId/versions?before=`, `GET /api/history/pages/:pageId/versions/:versionId`, `PATCH …/versions/:versionId { name }`, `POST …/versions/:versionId/restore` and `POST /api/history/pages/:pageId/versions { reason }` (before Replace all or Accept all). Live topic `history:<pageId>`: `history.versions`, `history.restored`.
+- **Endpoints:** `GET /api/history/pages/:pageId/versions?before=`, `GET /api/history/pages/:pageId/versions/:versionId`, `PATCH …/versions/:versionId { name }`, `POST …/versions/:versionId/restore`, `POST /api/history/pages/:pageId/versions { reason }` (before Replace all or Accept all) and `GET /api/history/pages/:pageId/updates?before=` (Updates, Can view). Live topic `history:<pageId>`: `history.versions`, `history.restored`.
 - **Screens:** none in `tests/e2e/extras/screens.ts` yet; Version history opens from a page, so its screens come once the page view (#49) and seeded versions are on main.
 
 ## Templates and buttons

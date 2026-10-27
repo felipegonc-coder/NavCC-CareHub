@@ -34,7 +34,10 @@ const summaryColumns = {
   restoredFrom: historyVersions.restoredFrom,
 };
 
-async function peopleFor(db: Db | Tx, ids: readonly string[]): Promise<Map<string, HistoryPerson>> {
+export async function peopleFor(
+  db: Db | Tx,
+  ids: readonly string[],
+): Promise<Map<string, HistoryPerson>> {
   const wanted = [...new Set(ids)];
   if (wanted.length === 0) return new Map();
   const rows = await db
@@ -84,11 +87,11 @@ function olderThan(at: Date, id: string): SQL | undefined {
 
 const newestFirst = [desc(historyVersions.createdAt), desc(historyVersions.id)];
 
-function encodeCursor(row: { createdAt: Date; id: string }): string {
+export function encodeCursor(row: { createdAt: Date; id: string }): string {
   return `${row.createdAt.toISOString()}~${row.id}`;
 }
 
-function decodeCursor(cursor: string): { at: Date; id: string } {
+export function decodeCursor(cursor: string): { at: Date; id: string } {
   const [at = '', id = ''] = cursor.split('~');
   return { at: new Date(at), id };
 }

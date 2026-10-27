@@ -41,13 +41,21 @@ export interface HistoryPages {
   getPageAccess(db: Db | Tx, userId: string, pageId: string): Promise<AccessLevel>;
   /** Puts back a version's title, icon, cover and page style (restoring it). */
   setPageLook(tx: Tx, pageId: string, look: PageLook, by: string): Promise<void>;
+  /** Titles of those pages the person can open, for moves in Updates (`getPageCards`). */
+  getPageTitles(
+    db: Db | Tx,
+    userId: string,
+    pageIds: readonly string[],
+  ): Promise<Map<string, string>>;
 }
 
-// stand-in: features/pages/index.ts (the page model, getPageAccess and setPageTitle, #49)
+// stand-in: features/pages/index.ts (the page model, getPageAccess, setPageTitle and
+// getPageCards, #49)
 const nothing: HistoryPages = {
   getPage: async () => null,
   getPageAccess: async () => 'none',
   setPageLook: async () => {},
+  getPageTitles: async () => new Map(),
 };
 let pages = nothing;
 
