@@ -5,6 +5,7 @@ import type { APIResponse } from '@playwright/test';
 import { apiFor, expect, needs, onlyIn, signInAs, test } from '../_support/index.js';
 import {
   assign,
+  assignBody,
   courseUrl,
   day,
   dueWords,
@@ -15,9 +16,12 @@ import {
   whoIs,
 } from './assign-data.js';
 import { TARA, content, liveCourse, pageFor } from './course-data.js';
-import { LearnerPage, NO_ACCESS } from './learner-page.js';
+import { LearnerPage } from './learner-page.js';
 
 const lesson = () => [content('l1', 'Fictional QA greeting')];
+/** A whole course card on My learning: its title, due date and status. */
+const cardOf = (learner: LearnerPage, title: string) =>
+  learner.main.getByRole('article').filter({ has: learner.card(title) });
 const messageOf = async (response: APIResponse) =>
   ((await response.json()) as { error: { message: string } }).error.message;
 
@@ -52,42 +56,18 @@ test.describe('Learning: assign courses', () => {
       });
       await test.step('My learning shows it with its due date', async () => {
         await learner.page.goto('/learning');
-        const card = learner.card(course.title);
+        const card = cardOf(learner, course.title);
         await expect(card).toBeVisible();
         await expect(card).toContainText(shownDay(due));
+        await expect(card).toContainText('Required');
       });
     }
   });
+});
 
-  test('LN-29 an overdue course shows first in My learning, as overdue', async ({
-    browser,
-    page,
-  }) => {
-    const eli = new LearnerPage(await pageFor(browser, 'editor'));
-    const { late, later } =
-      await test.step('Tara assigns Eli one course due yesterday and one due Friday', async () => {
-        await signInAs(page, TARA);
-        const eliId = (await whoIs(eli.page)).id;
-        const late = await liveCourse(page, lesson());
-        const later = await liveCourse(page, lesson());
-        await assign(page, late.id, { people: [eliId], dueDate: day(-1) });
-        await assign(page, later.id, { people: [eliId], dueDate: nextFriday() });
-        return { late, later };
-      });
-    await test.step('My learning lists the overdue one first, marked overdue', async () => {
-      await eli.page.goto('/learning');
-      await expect(eli.card(later.title)).toBeVisible();
-      await expect(eli.card(late.title)).toContainText(/overdue/i);
-      const titles = await eli.main.getByRole('link').allTextContents();
-      const at = (title: string) => titles.findIndex((text) => text.includes(title));
-      expect(at(late.title)).toBeLessThan(at(later.title));
-    });
-    await test.step('its notice says when it was due', async () => {
-      const chat = await openCareHubChat(eli.page);
-      const text = `You've been assigned “${late.title}”, ${dueWords(day(-1))}.`;
-      await expect(chat.getByText(text)).toBeVisible();
-    });
-  });
+test.describe('Learning: who may assign', () => {
+  onlyIn('desktop-light');
+  needs('signIn', 'learning', 'learningAssign');
 
   test('LN-30 only people who may assign can assign: Eli is refused on screen and by the server', async ({
     browser,
@@ -98,19 +78,21 @@ test.describe('Learning: assign courses', () => {
       return liveCourse(page, lesson());
     });
     const eliPage = await pageFor(browser, 'editor');
-    await test.step('the assign screen says he has no access', async () => {
+    await test.step('the Assign screen says he has no access, with no form', async () => {
       await eliPage.goto('/learning/assign');
-      await expect(eliPage.getByText(NO_ACCESS)).toBeVisible();
-      await expect(eliPage.getByRole('button', { name: /^assign/i })).toHaveCount(0);
+      await expect(eliPage.getByRole('heading', { level: 1, name: 'Assign' })).toBeVisible();
+      const alert = eliPage
+        .getByRole('alert')
+        .filter({ hasText: "You don't have access to this." });
+      await expect(alert).toBeVisible();
+      await expect(eliPage.getByLabel('Course or path')).toHaveCount(0);
+      await expect(eliPage.getByRole('button', { name: 'Assign', exact: true })).toHaveCount(0);
     });
     await test.step('the server refuses his assignment with 403 and a plain message', async () => {
       const api = await apiFor(eliPage);
       const me = await whoIs(eliPage);
-      const response = await api.send('POST', '/api/learning/assignments', {
-        target: { kind: 'course', courseId: course.id },
-        people: [me.id],
-        groups: [],
-      });
+      const body = assignBody(course.id, { people: [me.id] });
+      const response = await api.send('POST', '/api/learning/assignments', body);
       expect(response.status()).toBe(403);
       expect(await messageOf(response)).toBe("You don't have access to this.");
       expect((await api.send('GET', '/api/learning/assignments')).status()).toBe(403);

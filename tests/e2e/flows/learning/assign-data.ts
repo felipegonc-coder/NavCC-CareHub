@@ -2,8 +2,8 @@ import type { Locator, Page } from '@playwright/test';
 import { DEFAULT_TIME_ZONE, apiFor, shownDate } from '../_support/index.js';
 
 /**
- * Assignments and due dates for the Learning flows (docs/learning/api.md, assignments). The
- * request shape is the one api.md sketches; it lives only here, in `assign()`.
+ * Assignments and due dates for the Learning flows (docs/learning/api.md, assignments; request
+ * shape from packages/learning/src/delivery/api.ts). It lives only here, in `assign()`.
  */
 
 /** The signed-in person (GET /api/auth/me, decision 0007 section 3.1). */
@@ -30,14 +30,13 @@ export function nextFriday(): string {
   return day((5 - weekday + 7) % 7 || 7);
 }
 
-/** Whole days from today to a calendar day, negative once it has passed. */
+/** Whole days from today to a calendar day. */
 export const daysUntil = (isoDay: string) =>
   Math.round((Date.parse(`${isoDay}T12:00:00Z`) - Date.parse(`${day()}T12:00:00Z`)) / 86_400_000);
 
 /** How the "New course assigned" notice words a due date (learning/src/delivery/notices.ts). */
 export function dueWords(isoDay: string): string {
   const days = daysUntil(isoDay);
-  if (days === -1) return 'which was due yesterday';
   if (days === 0) return 'due today';
   return days === 1 ? 'due tomorrow' : `due in ${days} days`;
 }
@@ -50,19 +49,21 @@ export const courseUrl = (courseId: string) => new RegExp(`/learning/courses/${c
 export const linkToCourse = (scope: Page | Locator, courseId: string) =>
   scope.locator(`a[href$="/learning/courses/${courseId}"]`);
 
-/** Assigns a course to people and groups, as the signed-in builder. */
-export async function assign(
-  page: Page,
+/** POST /api/learning/assignments for one course; a due date can't be before today. */
+export const assignBody = (
   courseId: string,
   to: { people?: string[]; groups?: string[]; dueDate?: string },
-) {
+) => ({
+  target: { type: 'course', id: courseId },
+  people: to.people ?? [],
+  groups: to.groups ?? [],
+  ...(to.dueDate === undefined ? {} : { dueDate: to.dueDate }),
+});
+
+/** Assigns a course to people and groups, as the signed-in builder. */
+export async function assign(page: Page, courseId: string, to: Parameters<typeof assignBody>[1]) {
   const api = await apiFor(page);
-  return api.post('/api/learning/assignments', {
-    target: { kind: 'course', courseId },
-    people: to.people ?? [],
-    groups: to.groups ?? [],
-    ...(to.dueDate === undefined ? {} : { dueDate: to.dueDate }),
-  });
+  return api.post('/api/learning/assignments', assignBody(courseId, to));
 }
 
 /** Opens the person's 🔔 Care Hub chat in Messages, where notices arrive (decision 0007, 4.4). */
