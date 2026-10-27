@@ -90,7 +90,7 @@ export async function seedFeatures(ctx: SeedContext): Promise<void> {
 
   // feature: analytics
 
-  // feature: status
+  await (await import('./features/status/seed')).seed(ctx);
 
   // feature: claude
 }

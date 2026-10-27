@@ -17,11 +17,14 @@ export const UPTIME_DAYS = 30;
 export interface UptimeWindow {
   /** Where the window starts: 30 days ago or installation, whichever is later. */
   from: Date;
-  /** Where the window ends, exclusive: the current minute, whose heartbeat may still be coming. */
+  /**
+   * Where the window ends, exclusive: the current minute, whose heartbeat may still be coming. In
+   * the first minute after installation, the end of that minute once its heartbeat is in.
+   */
   to: Date;
   upMinutes: number;
   totalMinutes: number;
-  /** Null when no whole minute has passed since installation. */
+  /** Null until the first heartbeat is in. */
   percent: number | null;
 }
 
@@ -82,20 +85,26 @@ export function uptimePercent(up: number, total: number): number | null {
   return Math.min(hundredths, 9_999) / 100;
 }
 
-/** Uptime over the last 30 days, or since installation, up to the start of the current minute. */
+/**
+ * Uptime over the last 30 days, or since installation, up to the start of the current minute.
+ * Until a whole minute has passed since installation, the current minute counts once its
+ * heartbeat is in, so a new server shows 100% from its first heartbeat.
+ */
 export function uptimeOverWindow(
   spans: readonly MinuteSpan[],
   options: UptimeOptions,
 ): UptimeWindow {
+  const merged = normalizeSpans(spans);
   const { first, to } = bounds(options);
-  const from = Math.min(to, Math.max(to - UPTIME_DAYS * DAY_MINUTES, first));
-  const up = minutesUp(normalizeSpans(spans), from, to);
+  const end = to === first && minutesUp(merged, to, to + 1) > 0 ? to + 1 : to;
+  const from = Math.min(end, Math.max(end - UPTIME_DAYS * DAY_MINUTES, first));
+  const up = minutesUp(merged, from, end);
   return {
     from: new Date(from * MINUTE_MS),
-    to: new Date(to * MINUTE_MS),
+    to: new Date(end * MINUTE_MS),
     upMinutes: up,
-    totalMinutes: to - from,
-    percent: uptimePercent(up, to - from),
+    totalMinutes: end - from,
+    percent: uptimePercent(up, end - from),
   };
 }
 
