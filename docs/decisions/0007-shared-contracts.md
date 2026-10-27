@@ -188,7 +188,7 @@ Each web feature may export `slots` (a partial `Slots` object) from `features/<f
 | `pageKindViews` | `{ database?: Component<{ page }> }` | the page view shows the Databases lane's `<DatabasePage>` for `kind = 'database'` |
 | `pageHeaderExtras` | `{ row?: Component<{ page }> }` | a row's properties above the editor |
 | `treeItemChildren` | `{ database?: Component<{ page }> }` | a database's views under it in the sidebar tree when expanded |
-| `appStart` | `{ id, run(ctx: { api, navigate, user }) }` | run once per person after sign-in (and again after a reload), from `RequireAuth`; items run side by side and nothing waits for them (Team tools re-sends the push subscription, opens a chat from a notification); A's sign-in PR (#352) |
+| `appStart` | `{ id, run(ctx: { api, navigate, user }) }` | run once per person after sign-in (and again after a reload), from `RequireAuth`; items run side by side and nothing waits for them (Team tools re-sends the push subscription, opens a chat from a notification); the sign-in PR (#352) |
 | `beforeSignOut` | `{ id, run(ctx: { api, user }) }` | run first when someone signs out, while the session still works, for anything that has to tell the server (Team tools removes this device's push subscription); best effort |
 | `signOut` | `{ id, run(ctx: { user }) }` | run after the server has ended the session and before the query cache is cleared, for local clean-up only (Learning's `clearQueuedEvents`) |
 | `editor` | `{ nodeViews?, slashItems?, linkPickers?, bubbleItems?, extensions? }` | React views for lane blocks by node name (`nodeViews`, e.g. `database`, meeting notes), "/database", writing help; `extensions` only for things that aren't nodes or marks |
