@@ -1,22 +1,27 @@
-// What sidebar entries do: add, rename, star, copy link and move to Trash. Edits show at once;
-// if the server refuses one, it's undone and a message says so.
+// What sidebar entries do: add, rename, star, copy link, move and move to Trash. Edits show at
+// once; if the server refuses one, it's undone and a message says so.
 import { pageUrl } from '@carehub/shared';
 import { useToast } from '@carehub/ui';
 import { useQuery, useQueryClient, type Query, type QueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { ApiError } from '../../lib/api';
 import {
+  accessChangeOf,
   addFavorite,
   createPage,
   fetchFavorites,
+  movePage,
   pagesKeys,
   removeFavorite,
   renamePage,
+  restoreFromTrash,
   trashPage,
+  type AccessChange,
   type NewPagePlace,
 } from './api';
 import { usePermission } from './me';
+import { movedTrees, type MoveTo } from './move';
 import { useFlagPref } from './prefs';
 import { subtreeIds } from './tree';
 import type { PageLink, TreeNode } from './types';
@@ -31,6 +36,16 @@ export interface EntryActions {
   trash(page: TreeNode): void;
   /** Adds an untitled page and opens it with the cursor in the title. */
   create(place: NewPagePlace): void;
+  move(page: TreeNode, to: MoveTo): void;
+  /** Opens "Move to" for the page. */
+  chooseMove(page: TreeNode): void;
+}
+
+/** What the screen using the actions shows for moves (see `useMoveDialogs`). */
+export interface MoveHost {
+  chooseMove(page: TreeNode): void;
+  /** Asks whether to go ahead with a move that changes who can open the page. */
+  confirmMove(page: TreeNode, change: AccessChange): Promise<boolean>;
 }
 
 type Change = (data: unknown, key: readonly unknown[]) => unknown;
@@ -67,10 +82,11 @@ async function optimistic(
   }
 }
 
-export function useEntryActions(): EntryActions {
+export function useEntryActions(host: MoveHost): EntryActions {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const moveToTrash = useMoveToTrash();
   const canCreate = usePermission('pages.create');
   const [, setStarred] = useFlagPref('sidebar.starred', false);
   const favorites = useQuery({ queryKey: pagesKeys.favorites, queryFn: fetchFavorites }).data;
@@ -127,23 +143,7 @@ export function useEntryActions(): EntryActions {
         });
       },
 
-      trash(page) {
-        // The page goes with everything under it, from every list it's in.
-        const gone = new Set([page.id]);
-        for (const [, data] of queryClient.getQueriesData<TreeNode[]>({
-          queryKey: pagesKeys.all,
-        })) {
-          if (Array.isArray(data) && data.some((item) => hasId(item) && 'parentId' in item)) {
-            for (const id of subtreeIds(data, page.id)) gone.add(id);
-          }
-        }
-        const change: Change = (data) =>
-          Array.isArray(data) ? data.filter((item) => !hasId(item) || !gone.has(item.id)) : data;
-        void optimistic(queryClient, change, () => trashPage(page.id)).then((error) => {
-          if (error) failed("Couldn't move the page to Trash.", error);
-          else toast({ title: 'Moved to Trash' });
-        });
-      },
+      trash: moveToTrash,
 
       create(place) {
         createPage(place).then(
@@ -154,6 +154,81 @@ export function useEntryActions(): EntryActions {
           (error: unknown) => failed("Couldn't add the page.", error),
         );
       },
+
+      move(page, to) {
+        const trees = new Map<string, TreeNode[]>();
+        for (const [key, data] of queryClient.getQueriesData<TreeNode[]>({
+          queryKey: pagesKeys.trees,
+        })) {
+          if (typeof key[2] === 'string' && Array.isArray(data)) trees.set(key[2], data);
+        }
+        const moved = movedTrees(trees, page.id, to);
+        const change: Change = (data, key) =>
+          key[1] === 'tree' && typeof key[2] === 'string' ? (moved.get(key[2]) ?? data) : data;
+        const run = (confirmed: boolean): Promise<void> =>
+          optimistic(queryClient, change, () => movePage(page.id, to, confirmed)).then(
+            async (error) => {
+              if (!error) return;
+              const access = confirmed ? null : accessChangeOf(error);
+              if (!access) failed("Couldn't move the page.", error);
+              else if (await host.confirmMove(page, access)) await run(true);
+            },
+          );
+        void run(false);
+      },
+
+      chooseMove: (page) => host.chooseMove(page),
     } satisfies EntryActions;
-  }, [canCreate, favorites, navigate, queryClient, setStarred, toast]);
+  }, [canCreate, favorites, host, moveToTrash, navigate, queryClient, setStarred, toast]);
+}
+
+/**
+ * Moves a page, with everything under it, to Trash: it leaves every list at once, and "Moved to
+ * Trash · Undo" shows for 8 seconds (Page history and Trash, section 3.4).
+ */
+export function useMoveToTrash(): (page: TreeNode) => void {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useCallback(
+    (page: TreeNode) => {
+      const gone = new Set([page.id]);
+      for (const [, data] of queryClient.getQueriesData<TreeNode[]>({
+        queryKey: pagesKeys.all,
+      })) {
+        if (Array.isArray(data) && data.some((item) => hasId(item) && 'parentId' in item)) {
+          for (const id of subtreeIds(data, page.id)) gone.add(id);
+        }
+      }
+      const change: Change = (data) =>
+        Array.isArray(data) ? data.filter((item) => !hasId(item) || !gone.has(item.id)) : data;
+      const undo = () =>
+        void restoreFromTrash(page.id).then(
+          () => queryClient.invalidateQueries({ queryKey: pagesKeys.all, predicate: isPageData }),
+          (error: unknown) =>
+            toast({
+              title: `Couldn't restore ${page.title.trim() || 'Untitled'}. Try again.`,
+              description: reason(error),
+              variant: 'danger',
+            }),
+        );
+      void optimistic(queryClient, change, () => trashPage(page.id)).then((error) => {
+        if (error) {
+          toast({
+            title: "Couldn't move the page to Trash.",
+            description: reason(error),
+            variant: 'danger',
+          });
+          return;
+        }
+        // `action` is the Undo button asked of the design kit's toast, which has no buttons yet.
+        const moved = {
+          title: 'Moved to Trash',
+          duration: 8000,
+          action: { label: 'Undo', onClick: undo },
+        };
+        toast(moved);
+      });
+    },
+    [queryClient, toast],
+  );
 }
