@@ -5,15 +5,14 @@ import {
   type CourseStatus,
   type IsoDateTime,
   type LearnerCourseState,
-  type LiveCourse,
   type ProgressEvent,
   type ProgressEventsResponse,
 } from '@carehub/learning';
 import { and, eq, inArray } from 'drizzle-orm';
+import type { Db, Tx } from '../../../db';
 import { canSeeCourse } from '../courses/access';
-import type { Db, Tx } from '../db';
-import { httpError } from '../errors';
-import { courseVersions } from './courses';
+import { httpError, LearningError } from '../errors';
+import { courseVersions, type PublishedCourse } from './courses';
 import { learningProgressEvents as events, learningProgress as progress } from './schema';
 import {
   completionOf,
@@ -33,14 +32,18 @@ import {
 export type Actor = { userId: string; workspaceId: string };
 
 /** The course's live version for a learner who can see it; 404 otherwise. */
-async function visibleCourse(db: Db | Tx, actor: Actor, courseId: string): Promise<LiveCourse> {
+async function visibleCourse(
+  db: Db | Tx,
+  actor: Actor,
+  courseId: string,
+): Promise<PublishedCourse> {
   const live = await courseVersions().live(db, actor.workspaceId, courseId);
   if (!live || !(await canSeeCourse(actor.userId, courseId))) throw httpError(404);
   return live;
 }
 
 /** The course version the row's run is measured against (`live` when it is that one). */
-async function runCourse(db: Db | Tx, row: ProgressRow, live: LiveCourse): Promise<Course> {
+async function runCourse(db: Db | Tx, row: ProgressRow, live: PublishedCourse): Promise<Course> {
   if (row.version === live.version) return live.course;
   const { workspaceId, courseId, version } = row;
   const pinned = await courseVersions().version(db, workspaceId, courseId, version);
@@ -137,7 +140,7 @@ export async function recordEvents(
     const runStartedAt = row.runStartedAt?.toISOString() ?? null;
     const stored = await runEvents(tx, row);
     const intake = progressIntake(course, stored, batch, now.toISOString(), runStartedAt);
-    if (intake.kind === 'too_many') throw httpError(422, intake.message);
+    if (intake.kind === 'too_many') throw new LearningError(422, 'too_many_events', intake.message);
     await storeEvents(tx, row, intake.events);
     const state = withManualCompletion(intake.reply.state, completionOf(row));
     if (intake.events.length > 0) {

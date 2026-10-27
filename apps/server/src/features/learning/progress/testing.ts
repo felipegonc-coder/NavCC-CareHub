@@ -1,5 +1,5 @@
-import type { Course, LiveCourse } from '@carehub/learning';
-import { bindCourseVersions, type CourseVersions } from './courses';
+import type { Course } from '@carehub/learning';
+import { bindCourseVersions, type CourseVersions, type PublishedCourse } from './courses';
 
 /** Course versions kept in memory, standing in for the courses server in tests. */
 export type MemoryCourseVersions = CourseVersions & {
@@ -15,7 +15,7 @@ export function bindMemoryCourseVersions(): {
   const published = new Map<string, Course[]>();
   const versionsOf = (workspaceId: string, courseId: string) =>
     published.get(`${workspaceId} ${courseId}`) ?? [];
-  const found = (list: readonly Course[], version: number): LiveCourse | null => {
+  const found = (list: readonly Course[], version: number): PublishedCourse | null => {
     const course = list[version - 1];
     return course ? { course: structuredClone(course), version } : null;
   };

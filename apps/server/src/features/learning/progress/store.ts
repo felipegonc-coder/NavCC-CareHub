@@ -7,7 +7,7 @@ import {
   type ProgressEvent,
 } from '@carehub/learning';
 import { and, eq } from 'drizzle-orm';
-import type { Db, Tx } from '../db';
+import type { Db, Tx } from '../../../db';
 import { learningProgressEvents as events, learningProgress as progress } from './schema';
 
 // Reading and saving progress rows, for the progress service.
