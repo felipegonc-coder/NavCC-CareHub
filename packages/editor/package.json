@@ -25,6 +25,8 @@
     "@tiptap/pm": "^3",
     "@tiptap/react": "^3",
     "@tiptap/starter-kit": "^3",
+    "@tiptap/suggestion": "^3",
+    "lucide-react": ">=0.460.0 <1.0.0",
     "react": "^19",
     "react-dom": "^19",
     "y-protocols": "^1",
