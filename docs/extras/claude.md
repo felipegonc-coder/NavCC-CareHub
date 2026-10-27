@@ -19,7 +19,7 @@ Switch and approval changes go to the Security log (`logSecurityEvent`; for now 
 ## Server API (`apps/server/src/features/claude/index.ts`)
 
 - `isClaudeFeatureOn(db, workspaceId, feature): Promise<boolean>` checks the key, the approval and the switch. `claudeFeaturesOn(db, workspaceId)` does it for every feature at once.
-- `askClaude(db, { workspaceId, userId, feature, system, instruction, documents?, selection?, maxTokens? }): Promise<{ text }>`
+- `askClaude(db, { workspaceId, userId, feature, system, instruction, documents?, selection?, maxTokens?, background? }): Promise<{ text }>`. `background: true` is for a fill nobody is waiting for (Claude fields' queue): it counts toward the monthly cap, not the person's limit.
 - `askClaudeJson(db, { ...the same, schema }): Promise<{ data }>` asks for JSON and checks it with the caller's zod schema. If it doesn't match, it throws `bad_output`.
 - `ClaudeError` has `reason` (`ClaudeErrorReason`) and plain-words `message`. Routes answer `CLAUDE_ERRORS[reason]` with `details: { reason }`.
 - `summarizeMeeting(db, { userId, workspaceId, notesPageId, agenda, notes, actionItems, attendees, transcript? }): Promise<MeetingSummary>` is for Meetings.
@@ -36,7 +36,7 @@ The `documents` are `{ title, text }` pairs the **server** loaded by ID after th
 The numbers (core PR 1):
 
 - `MAX_TOKENS` is 2,048, and a request holds at most `MAX_REQUEST_CHARS` (60,000) characters.
-- Each person can send 30 requests in any 10 minutes.
+- Each person can send 30 requests in any 10 minutes. Background fills don't count (`claude_usage.background`).
 - The monthly cap counts the calendar month in America/Denver.
 - Every request sent is a row in `claude_usage`, failures included. Refusals before sending aren't.
 
@@ -73,7 +73,7 @@ Databases owns the property type and its cell (phase 5). The shapes are in `@car
   - Databases checks this when the setup is saved; every fill checks it again.
 - **Who:** Fill needs `claude.use`, the switch, and Can edit on the row with permission to change the field. Anyone who can see the row sees the value.
 - **What's sent:** the used properties' text as the person sees it and, if ticked, the row page's own text (never synced blocks or linked databases), cut to fit one request. A row with nothing to read fills empty without a request.
-- **The value** (`claudeFieldValueSchema`): plain text up to 10,000 characters, `filledAt`, `filledFor` (null when it filled automatically) and `status`. When a request sent fails, the old text stays and `status` is `failed` ("Couldn't fill. Try again.").
+- **The value** (`claudeFieldValueSchema`): plain text up to 10,000 characters, `filledAt`, `filledFor` (null when it filled automatically), `status` and `reason`. When a fill fails, the old text stays, `status` is `failed` and `reason` says why: `claudeFieldFailureMessage(reason)` has the words for the cell.
 - **`POST /plan`** `{ databaseId, propertyId, rowIds }` answers `{ rows, monthlyRequests }` for the confirm: "Fill 240 rows? This uses 240 of this month's 3,000 requests." `rowIds` is up to 1,000 row IDs, `all` or `empty`. Rows the person can't edit are left out.
 - **`POST /fill`** takes the same, plus `confirmedRows`:
   - One row ID fills now and answers `{ status: 'filled', rowId, value }`.
@@ -81,9 +81,10 @@ Databases owns the property type and its cell (phase 5). The shapes are in `@car
   - Refusals answer `CLAUDE_ERRORS` or `CLAUDE_FIELD_ERRORS` with `details: { reason }`.
 - **`GET /progress`** `?databaseId=…&propertyId=…` answers `{ waiting }`: how many of the person's own rows are still waiting, for the progress in the header.
 - **Automatically** (`fill: 'auto'`): 2 minutes after the last change to a used property or the page content, the row refills as the field's owner (who last saved the setup) and shows "Filled by Claude automatically". Each change moves the fill back, so a row being edited fills once. A By-hand fill already waiting goes first; one filling during the change runs, then the row refills automatically. With the switch off, nothing fills automatically. Imports and duplicates never fill.
-- **Limits:** each database's Claude fields send at most 300 requests an hour (`claude_field_fills`, `database_hour`), on top of the monthly cap and each person's limit. Usage rows have the feature `fields`. A background row that meets the hourly cap or the person's limit waits a minute and tries again. Any other refusal drops it, and the old value stays.
+- **Limits:** each database's Claude fields send at most 300 requests an hour (`claude_field_fills`, `database_hour`), on top of the monthly cap. A one-row Fill counts toward the person's limit too; background fills don't. Usage rows have the feature `fields`. A background row that meets the hourly cap waits a minute and tries again.
+- **When a background row can't fill:** a refusal (such as the switch turned off) or a failed request marks the cell `failed` with the `reason`, and the old text stays. A row the person can no longer edit is left as it is. After 3 unexpected errors, a row counts as `unavailable`. Once the rest of its batch is done, one 🔔 notice ("Claude couldn't fill 3 rows you asked for") goes to whoever asked, with the database's page as its card. A By-hand batch is one Fill. A field's automatic fills are one batch until none is waiting, and their notice goes to the field's owner; those a few minutes apart become one notice.
 - **Next PR:** the web part (the property's setup, the cell, Fill and the confirm).
-- **Stand-in:** until Databases calls `bindClaudeFieldHost(host)` (`field`, `autoFields`, `fillableRows`, `readRowText`, `saveFill`) and its row events call `claudeFieldRowChanged`, no property is a Claude field, so nothing fills.
+- **Stand-in:** until Databases calls `bindClaudeFieldHost(host)` (`field` with the database's `pageId`, `autoFields`, `fillableRows`, `readRowText`, `saveFill`) and its row events call `claudeFieldRowChanged`, no property is a Claude field, so nothing fills.
 
 ## Security rules (security reviewer, Oct 27)
 
