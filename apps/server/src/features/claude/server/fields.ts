@@ -6,13 +6,15 @@ import {
   type ClaudeFieldErrorReason,
   type ClaudeFieldFillResult,
   type ClaudeFieldKind,
+  type ClaudeFieldPlan,
+  type ClaudeFieldRows,
   type ClaudeFieldSetup,
   type ClaudeFieldValue,
 } from '@carehub/extras/claude/fields';
-import { and, count, eq, gte } from 'drizzle-orm';
+import { and, count, eq, gte, sql } from 'drizzle-orm';
 import { HttpError, httpError } from '../../../core/errors';
 import type { Db } from '../../../db';
-import { claudeFieldFills } from '../schema';
+import { claudeFieldFills, claudeFieldQueue } from '../schema';
 import { askClaude, featureRefusal } from './ask';
 import { ClaudeError, claudeErrorReason } from './errors';
 import { claudeFieldHost, type ClaudeField, type ClaudeRowText } from './fields-host';
@@ -52,29 +54,88 @@ export interface FillClaudeFieldsInput {
   userId: string;
   databaseId: string;
   propertyId: string;
-  /** One row for now. stand-in: background fills of more rows come in the next Claude fields PR. */
-  rowIds: readonly string[];
+  rowIds: ClaudeFieldRows;
+  /** With more than one row: the count the person said yes to ("Fill 240 rows?"). */
+  confirmedRows?: number | undefined;
 }
 
-/** Fills a Claude field By hand, now, for one row the person can edit, and returns the value. */
+type FillTarget = Omit<FillClaudeFieldsInput, 'confirmedRows'>;
+
+/**
+ * Fills a Claude field By hand. One row fills now and comes back. More rows need `confirmedRows`,
+ * the count planClaudeFieldFill gave, and fill in the background, 5 at a time.
+ */
 export async function fillClaudeFields(
   db: Db,
   input: FillClaudeFieldsInput,
 ): Promise<ClaudeFieldFillResult> {
+  const { userId } = input;
+  const { field, rowIds } = await fillableRows(db, input);
+  if (typeof input.rowIds !== 'string' && input.rowIds.length === 1) {
+    const [rowId] = rowIds;
+    if (!rowId || rowId !== input.rowIds[0]) throw new ClaudeError('no_permission');
+    const value = await fillRow(db, field, rowId, { userId, auto: false });
+    return { status: 'filled', rowId, value };
+  }
+  if (input.confirmedRows !== rowIds.length) {
+    throw fieldError('rows_changed', { rows: rowIds.length });
+  }
+  if (rowIds.length > 0) {
+    const { workspaceId, databaseId, propertyId } = field;
+    const dueAt = claudeRuntime().now();
+    const q = claudeFieldQueue;
+    await db
+      .insert(q)
+      .values(
+        rowIds.map((rowId) => ({
+          workspaceId,
+          databaseId,
+          propertyId,
+          rowId,
+          auto: false,
+          requestedBy: userId,
+          dueAt,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [q.databaseId, q.propertyId, q.rowId],
+        // A By-hand fill takes over from an automatic one waiting for the same row.
+        set: {
+          auto: false,
+          requestedBy: userId,
+          dueAt,
+          attempts: 0,
+          version: sql`${q.version} + 1`,
+        },
+      });
+  }
+  return { status: 'queued', rows: rowIds.length };
+}
+
+/** The count for the confirm before a Fill of more than one row, and this month's cap. */
+export async function planClaudeFieldFill(db: Db, input: FillTarget): Promise<ClaudeFieldPlan> {
+  const { rowIds } = await fillableRows(db, input);
+  return { rows: rowIds.length, monthlyRequests: claudeRuntime().settings().monthlyRequests };
+}
+
+/** The field, checked for the person, and the rows of the request they may fill now. */
+async function fillableRows(db: Db, input: FillTarget) {
   const { userId, databaseId, propertyId } = input;
-  if (input.rowIds.length !== 1) throw httpError(400, 'invalid');
   const field = await claudeFieldHost().field(db, databaseId, propertyId);
   if (!field) throw new ClaudeError('no_permission');
   await checkField(db, field, userId);
-  const [rowId] = await claudeFieldHost().fillableRows(db, {
+  const rowIds = await claudeFieldHost().fillableRows(db, {
     userId,
     databaseId,
     propertyId,
     rowIds: input.rowIds,
+    limit: CLAUDE_FIELD_LIMITS.rows,
   });
-  if (!rowId || rowId !== input.rowIds[0]) throw new ClaudeError('no_permission');
-  const value = await fillRow(db, field, rowId, { userId, auto: false });
-  return { status: 'filled', rowId, value };
+  // Rows the person can't edit are left out; asking only for those is refused.
+  if (rowIds.length === 0 && typeof input.rowIds !== 'string') {
+    throw new ClaudeError('no_permission');
+  }
+  return { field, rowIds: rowIds.slice(0, CLAUDE_FIELD_LIMITS.rows) };
 }
 
 /**

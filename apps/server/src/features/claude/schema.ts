@@ -8,12 +8,14 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { users } from '../auth/schema';
 
-// Mirrors migrations/202610271330_claude_usage.sql, 202610271400_claude_settings.sql and
-// 202610271600_claude_fields.sql, which are the source of truth (the tests in server/ compare them).
+// Mirrors migrations/202610271330_claude_usage.sql, 202610271400_claude_settings.sql,
+// 202610271600_claude_fields.sql and 202610271630_claude_field_queue.sql, which are the source of
+// truth (the tests in server/ compare them).
 
 /** 'ok', or why a request that was sent failed. */
 export const CLAUDE_USAGE_STATUSES = ['ok', ...CLAUDE_ERROR_REASONS] as const;
@@ -61,4 +63,26 @@ export const claudeFieldFills = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('claude_field_fills_database_idx').on(table.databaseId, table.createdAt)],
+);
+
+/** Rows waiting to fill: By hand for `requestedBy`, or automatically (`auto`) as the field's owner. */
+export const claudeFieldQueue = pgTable(
+  'claude_field_queue',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id').notNull(),
+    databaseId: uuid('database_id').notNull(),
+    propertyId: text('property_id').notNull(),
+    rowId: uuid('row_id').notNull(),
+    auto: boolean('auto').notNull(),
+    requestedBy: uuid('requested_by').references(() => users.id, { onDelete: 'cascade' }),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    uniqueIndex('claude_field_queue_row_idx').on(table.databaseId, table.propertyId, table.rowId),
+    index('claude_field_queue_due_idx').on(table.dueAt),
+    index('claude_field_queue_requested_idx').on(table.requestedBy),
+  ],
 );

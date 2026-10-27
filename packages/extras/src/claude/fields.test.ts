@@ -3,6 +3,8 @@ import {
   CLAUDE_FIELD_ERRORS,
   claudeFieldFillRequestSchema,
   claudeFieldInputProblem,
+  claudeFieldPlanRequestSchema,
+  claudeFieldProgressQuerySchema,
   claudeFieldSetupSchema,
   type ClaudeFieldAudience,
   type ClaudeFieldInput,
@@ -81,12 +83,24 @@ describe('claudeFieldFillRequestSchema', () => {
   };
   const row = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
 
-  it('takes one row and nothing else', () => {
+  it('takes up to 1,000 row IDs, or all or empty', () => {
     expect(claudeFieldFillRequestSchema.safeParse({ ...target, rowIds: [row] }).success).toBe(true);
-    for (const rowIds of [[], [row, row], ['not-a-row'], 'all']) {
+    for (const rowIds of ['all', 'empty']) {
+      const fill = { ...target, rowIds, confirmedRows: 240 };
+      expect(claudeFieldFillRequestSchema.safeParse(fill).success).toBe(true);
+    }
+    for (const rowIds of [[], Array(1_001).fill(row), ['not-a-row'], 'some']) {
       expect(claudeFieldFillRequestSchema.safeParse({ ...target, rowIds }).success).toBe(false);
     }
+  });
+
+  it('takes nothing else', () => {
     const typed = { ...target, rowIds: [row], text: 'Typed by someone.' };
     expect(claudeFieldFillRequestSchema.safeParse(typed).success).toBe(false);
+    const plan = { ...target, rowIds: 'all', confirmedRows: 240 };
+    expect(claudeFieldPlanRequestSchema.safeParse(plan).success).toBe(false);
+    expect(claudeFieldProgressQuerySchema.safeParse(target).success).toBe(true);
+    const progress = { ...target, rowIds: 'all' };
+    expect(claudeFieldProgressQuerySchema.safeParse(progress).success).toBe(false);
   });
 });

@@ -11,13 +11,14 @@ export {
 } from './server/ask';
 export { ClaudeError, claudeErrorReason, claudeHttpError } from './server/errors';
 export { summarizeMeeting, type MeetingInput } from './server/meeting';
-export { fillClaudeFields, type FillClaudeFieldsInput } from './server/fields';
+export { fillClaudeFields, planClaudeFieldFill, type FillClaudeFieldsInput } from './server/fields';
 export {
   bindClaudeFieldHost,
   type ClaudeField,
   type ClaudeFieldHost,
   type ClaudeRowText,
 } from './server/fields-host';
+export { claudeFieldRowChanged, type ClaudeFieldRowChange } from './server/fields-queue';
 export { bindClaudeMembers, type ClaudeMember, type ClaudeMemberLookup } from './server/members';
 export { MAX_REQUEST_CHARS, type ClaudeDocument } from './server/prompt';
 export {
