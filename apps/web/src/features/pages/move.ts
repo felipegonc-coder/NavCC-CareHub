@@ -1,8 +1,8 @@
-/** Moving entries: where a drop lands, keyboard reordering, and showing a move before the server
- *  answers. */
+/** Moving entries: where a drop lands, keyboard reordering, "Move to" places, and showing a move
+ *  before the server answers. */
 import { atLeast } from './access';
 import { groupChildren, pathTo, subtreeIds, type TreeEntry } from './tree';
-import type { TreeNode } from './types';
+import type { PageIcon, Space, TreeNode } from './types';
 
 /**
  * Where a page goes: the top of a space or inside a page, at `index` among the siblings the
@@ -132,4 +132,47 @@ export function movedTrees(
     out.set(spaceId, spaceId === target ? applyMove([...rest, ...carried], id, to) : rest);
   }
   return out;
+}
+
+/** A place "Move to" offers: a space's top level or a page the person can edit. */
+export interface Place {
+  key: string;
+  to: MoveTo;
+  title: string;
+  icon: PageIcon | null;
+  kind: 'space' | 'page';
+  /** Where it is, such as "General / Onboarding". */
+  path: string;
+}
+
+/** Every place `page` can move to, in sidebar order, leaving out the page and what's under it. */
+export function movePlaces(
+  page: TreeNode,
+  spaces: readonly Space[],
+  trees: ReadonlyMap<string, readonly TreeNode[]>,
+): Place[] {
+  const places: Place[] = [];
+  for (const space of spaces) {
+    const name = space.kind === 'personal' ? 'Private' : space.name;
+    if (space.canAddPages !== false) {
+      const to = { spaceId: space.id, parentId: null };
+      places.push({ key: space.id, to, title: name, icon: space.icon, kind: 'space', path: '' });
+    }
+    const nodes = trees.get(space.id) ?? [];
+    const byParent = groupChildren(nodes);
+    const skip = subtreeIds(nodes, page.id);
+    const walk = (parentId: string | null, path: string) => {
+      for (const node of byParent.get(parentId) ?? []) {
+        if (skip.has(node.id) || node.kind !== 'page') continue;
+        if (atLeast(node.access, 'edit')) {
+          const to = { spaceId: space.id, parentId: node.id };
+          const title = node.title.trim() || 'Untitled';
+          places.push({ key: node.id, to, title, icon: node.icon, kind: 'page', path });
+        }
+        walk(node.id, `${path} / ${node.title.trim() || 'Untitled'}`);
+      }
+    };
+    walk(null, name);
+  }
+  return places;
 }

@@ -75,7 +75,7 @@ export default function PagesSidebar() {
       <Shared ctx={ctx} />
       {personal && <Private space={personal} ctx={ctx} />}
       {showRecent && <Recent ctx={ctx} />}
-      {moves.dialogs}
+      {moves.dialogs(actions.move)}
     </div>
   );
 }

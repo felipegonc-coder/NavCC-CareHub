@@ -11,6 +11,7 @@ import {
 } from '@carehub/ui';
 import {
   ChevronRight,
+  CornerUpRight,
   Database,
   ExternalLink,
   FileText,
@@ -556,6 +557,12 @@ function EntryMenu({
           <Pencil aria-hidden />
           Rename
           <Kbd className="ml-auto">F2</Kbd>
+        </DropdownMenuItem>
+      )}
+      {atLeast(page.access, 'full') && (
+        <DropdownMenuItem onSelect={() => actions.chooseMove(page)}>
+          <CornerUpRight aria-hidden />
+          Move to
         </DropdownMenuItem>
       )}
       <DropdownMenuItem onSelect={() => window.open(pageUrl(page.id), '_blank', 'noopener')}>
