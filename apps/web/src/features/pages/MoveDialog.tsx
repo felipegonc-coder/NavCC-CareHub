@@ -55,15 +55,15 @@ interface AccessChangeDialogProps {
 function AccessChangeDialog({ page, change, onDone }: AccessChangeDialogProps) {
   return (
     <Dialog open onOpenChange={(open) => !open && onDone(false)}>
-      <DialogContent className="max-w-md">
+      <DialogContent role="alertdialog" className="max-w-md">
         <DialogHeader>
           <DialogTitle>Change who can open “{titleOf(page)}”?</DialogTitle>
           <DialogDescription>
             In its new place, the page and its sub-pages take that place’s access.
           </DialogDescription>
         </DialogHeader>
-        <People label="Will lose access" names={change.losing} />
-        <People label="Will get access" names={change.gaining} />
+        <People label={`${people(change.losing.length)} will lose access`} names={change.losing} />
+        <People label={`${people(change.gaining.length)} will get access`} names={change.gaining} />
         <DialogFooter>
           <button
             type="button"
@@ -80,6 +80,8 @@ function AccessChangeDialog({ page, change, onDone }: AccessChangeDialogProps) {
     </Dialog>
   );
 }
+
+const people = (count: number) => (count === 1 ? '1 person' : `${count} people`);
 
 function People({ label, names }: { label: string; names: readonly string[] }) {
   if (names.length === 0) return null;

@@ -168,7 +168,7 @@ function TreeBody({ query, label, scope, ctx, empty, moves }: TreeBodyProps) {
   if (query.isError) return <Retry onRetry={() => void query.refetch()} />;
   if (!query.data) return <Loading />;
   if (query.data.length === 0) {
-    return empty ?? <p className="py-1 pl-8 text-small text-faint">No pages inside</p>;
+    return empty ?? <p className="py-1 pl-8 text-small text-muted">No pages inside</p>;
   }
   return (
     <PageTree
@@ -188,12 +188,13 @@ function TreeBody({ query, label, scope, ctx, empty, moves }: TreeBodyProps) {
 const canMove = (page: TreeNode) => atLeast(page.access, 'full');
 
 /**
- * A space: its name opens and closes its tree and takes dropped entries at its top level; "+"
- * adds a page there.
+ * A space: a group named by its heading. Its name opens and closes its tree and takes dropped
+ * entries at its top level; "+" adds a page there.
  */
 function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
   const key = `space:${space.id}`;
   const open = !ctx.collapsed.has(key);
+  const nameId = useId();
   const tree = useQuery({
     queryKey: pagesKeys.tree(space.id),
     queryFn: () => fetchTree(space.id),
@@ -206,7 +207,7 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
     (page) => ctx.actions.move(page, { spaceId: space.id, parentId: null }),
   );
   return (
-    <div className="flex flex-col">
+    <div role="group" aria-labelledby={nameId} className="flex flex-col">
       <div
         className={cn(
           sidebarRowClasses(),
@@ -215,15 +216,19 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
         )}
         {...drop.zone}
       >
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => ctx.onCollapse([key], open)}
-          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
-        >
-          <EntryIcon icon={space.icon} kind="space" />
-          <span className="truncate">{space.name}</span>
-        </button>
+        <h3 className="flex min-w-0 flex-1 self-stretch">
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => ctx.onCollapse([key], open)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <EntryIcon icon={space.icon} kind="space" />
+            <span id={nameId} className="truncate">
+              {space.name}
+            </span>
+          </button>
+        </h3>
         {canAdd && (
           <span className="md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
             <AddButton
@@ -249,10 +254,16 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
   );
 }
 
-/** The person's own pages. Empty, it offers "Add a page". */
+/**
+ * The person's own pages; entries dropped on it go to its top level. Empty, it offers "Add a
+ * page".
+ */
 function Private({ space, ctx }: { space: Space; ctx: Ctx }) {
   const tree = useQuery({ queryKey: pagesKeys.tree(space.id), queryFn: () => fetchTree(space.id) });
   const canAdd = ctx.actions.canCreate;
+  const drop = useDropZone(canMove, (page) =>
+    ctx.actions.move(page, { spaceId: space.id, parentId: null }),
+  );
   const add = () => {
     if (ctx.collapsed.has('private')) ctx.onCollapse(['private'], false);
     ctx.actions.create({ spaceId: space.id });
@@ -262,7 +273,8 @@ function Private({ space, ctx }: { space: Space; ctx: Ctx }) {
       id="private"
       title="Private"
       ctx={ctx}
-      add={canAdd && <AddButton label="Add a private page" onClick={add} />}
+      drop={drop}
+      add={canAdd && <AddButton label="Add a page to Private" onClick={add} />}
     >
       <TreeBody
         query={tree}
@@ -348,7 +360,7 @@ function Favorites({ ctx, spaces }: { ctx: Ctx; spaces: readonly Space[] }) {
   return (
     <Section id="favorites" title="Favorites" ctx={ctx} drop={drop}>
       {roots.length === 0 ? (
-        <p className="px-2 py-1 text-small text-faint">Star pages to keep them here.</p>
+        <p className="px-2 py-1 text-small text-muted">Star pages to keep them here.</p>
       ) : (
         <PageTree
           label="Favorites"

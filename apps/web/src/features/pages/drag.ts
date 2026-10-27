@@ -30,10 +30,12 @@ export function useDropZone(
   const [over, setOver] = useState(false);
   const zone = {
     onDragOver(event: DragEvent) {
-      if (!dragged || !accepts(dragged)) return;
+      // An entry inside the zone, such as a page in Private, takes the drop first.
+      const takes = !event.defaultPrevented && dragged !== null && accepts(dragged);
+      setOver(takes);
+      if (!takes) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
-      setOver(true);
     },
     onDragLeave(event: DragEvent) {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(false);
@@ -41,7 +43,7 @@ export function useDropZone(
     onDrop(event: DragEvent) {
       const page = dragged;
       setOver(false);
-      if (!page || !accepts(page)) return;
+      if (event.defaultPrevented || !page || !accepts(page)) return;
       event.preventDefault();
       endDrag();
       onDrop(page);
