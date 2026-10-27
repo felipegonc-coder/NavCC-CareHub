@@ -22,12 +22,12 @@ export interface PageHeaderProps {
   /** Whether the person may change the title, icon and cover now. */
   editable: boolean;
   /** Puts the cursor in the title as the page opens, as for a page just made. */
-  autoFocus: boolean;
+  focusTitle: boolean;
   /** Enter in the title: on to the first block. */
   onEnter(): void;
 }
 
-export function PageHeader({ page, editable, autoFocus, onEnter }: PageHeaderProps) {
+export function PageHeader({ page, editable, focusTitle, onEnter }: PageHeaderProps) {
   const change = useChangePage(page.id);
   const setIcon = (icon: PageIcon | null) =>
     void change(
@@ -84,7 +84,7 @@ export function PageHeader({ page, editable, autoFocus, onEnter }: PageHeaderPro
             )}
           </div>
         )}
-        <PageTitle page={page} editable={editable} autoFocus={autoFocus} onEnter={onEnter} />
+        <PageTitle page={page} editable={editable} focusTitle={focusTitle} onEnter={onEnter} />
       </div>
     </div>
   );
@@ -94,7 +94,7 @@ export function PageHeader({ page, editable, autoFocus, onEnter }: PageHeaderPro
  * The title: plain text that saves as it's typed and shows at once in the sidebar, breadcrumbs and
  * browser tab. If the server refuses it, the last saved title comes back and a toast says why.
  */
-function PageTitle({ page, editable, autoFocus, onEnter }: PageHeaderProps) {
+function PageTitle({ page, editable, focusTitle, onEnter }: PageHeaderProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const field = useRef<HTMLTextAreaElement>(null);
@@ -141,8 +141,8 @@ function PageTitle({ page, editable, autoFocus, onEnter }: PageHeaderProps) {
   useEffect(() => send, [send]);
 
   useEffect(() => {
-    if (autoFocus) field.current?.focus();
-  }, [autoFocus]);
+    if (focusTitle) field.current?.focus();
+  }, [focusTitle]);
 
   useLayoutEffect(() => {
     const element = field.current;

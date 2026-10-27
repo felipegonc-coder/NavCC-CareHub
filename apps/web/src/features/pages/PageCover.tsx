@@ -166,7 +166,7 @@ function Repositioning({ value, onChange, onSave, onCancel }: RepositioningProps
         aria-valuemax={100}
         aria-valuenow={percent}
         aria-valuetext={`${percent}% from the top`}
-        className="absolute inset-0 flex cursor-grab touch-none items-center justify-center focus:outline-none active:cursor-grabbing"
+        className="absolute inset-0 flex cursor-grab touch-none items-center justify-center focus-visible:outline-offset-inset active:cursor-grabbing"
         onPointerDown={(event) => {
           drag.current = { y: event.clientY, from: value };
           event.currentTarget.setPointerCapture?.(event.pointerId);
