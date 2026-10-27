@@ -20,7 +20,7 @@ type DbOrTx = Db | Tx;
 export const CONNECTED_LAYER_PREFIX = 'connected:';
 export const connectedLayerId = (calendarId: string) => `${CONNECTED_LAYER_PREFIX}${calendarId}`;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The calendar id in a connected layer's id, or undefined for any other id. */
 export function calendarIdOfLayer(layerId: string): string | undefined {
