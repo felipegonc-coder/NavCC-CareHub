@@ -1,0 +1,18 @@
+{
+  "name": "@carehub/team-time",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "Time zones, wall-clock dates and times, date and time formats, automation schedules and reminder times for the Team tools lane.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^3.2"
+  }
+}
