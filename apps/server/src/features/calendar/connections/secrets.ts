@@ -11,6 +11,10 @@ const TAG_BYTES = 16;
 
 export const CONNECTIONS_OFF_MESSAGE = "Calendar connections aren't set up yet.";
 
+/** What a connection's secret is sealed for: only that connection's row opens it. */
+export const connectionSecretContext = (connectionId: string) =>
+  `calendar-connection:${connectionId}`;
+
 /** For `readSettings` (core/settings.ts). Empty counts as not set. */
 export const calendarSecretSettingsSchema = z.object({
   CALENDAR_SECRET_KEY: z
