@@ -1,6 +1,6 @@
 # Settings and members
 
-_Copied from the Notion spec (https://app.notion.com/p/185eb386efca44cab8a084e816736eae) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > ⚙️ Phase 1 · Notion parity · Depends on: accounts and sign-in, Roles and permissions · Used by: every spec with a setting · Related: Sidebar, spaces and nested pages; Data settings; Messages (notifications)
 
@@ -13,7 +13,7 @@ One place for each person's account and preferences, and for Admins to run the w
 - **Settings** opens over the current page (Ctrl+, or the workspace switcher → Settings), with a list of sections on the left. Each section has its own address (for example `/settings/members`) so links and Back work. Esc closes it and returns to the page.
 - **Sections:**
     - **Account** (everyone): My account · Preferences · Notifications · Connections (Calendar).
-    - **Workspace** (Admins, unless noted): General · Members (Members, Guests, Groups and Invite links tabs; everyone except guests can see the Members tab) · Roles (Roles and permissions) · Spaces · Security · Emoji (everyone can see it) · Embeds (Pages and blocks) · Automations · Analytics · Data (Data settings).
+    - **Workspace** (Admins, unless noted): General · Members (Members, Guests, Groups and Invite links tabs; everyone except guests can see the Members tab) · Roles (Roles and permissions) · Spaces · Security · Emoji (everyone can see it) · Embeds (Pages and blocks) · Automations · Analytics · Data (Data settings) · Claude (Claude features).
     - **Site** (site admins): Accounts · Server · Status (Status page) · Backups (Data settings).
 - Sections a person can't use aren't listed.
 - **Invite link page** and **password reset page:** the screens people see when they open those links (section 3).
@@ -68,7 +68,7 @@ One place for each person's account and preferences, and for Admins to run the w
     - Require 2-step verification for everyone (off). When turned on, people without it must set it up at their next sign-in.
     - Session length: sign out after 1, 7, 30 (default) or 90 days without use.
     - Failed sign-ins: after 10 wrong passwords in 15 minutes an account waits 15 minutes (fixed).
-    - **Security log:** sign-ins and failed sign-ins, password resets, 2-step changes, invite links made and used, guests added, share links made, exports, role changes and removals: who, what, when, from which device. Filter by person, kind and date. Kept as long as analytics (AN-D2).
+    - **Security log:** sign-ins and failed sign-ins, password resets, 2-step changes, invite links made and used, guests added, share links made, exports, role changes and removals, and Claude switch changes: who, what, when, from which device. Filter by person, kind and date. Kept as long as analytics (AN-D2).
 - **Emoji:** custom emoji with picture, name, added by and date. Add: PNG, GIF, JPEG or WebP up to 1 MB, cropped square; name of 2–32 lowercase letters, numbers, dashes or underscores, unique. Up to 500 per workspace. Deleting one leaves its name as text where it was used.
 
 ### 3.6 Site settings (site admins)
@@ -108,7 +108,7 @@ One place for each person's account and preferences, and for Admins to run the w
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **SM-01** Change your name and photo in My account, then try a 6 MB picture. → The change shows everywhere within 2 seconds; the big picture is refused with the limit.
 2. ⭐ **SM-06** Make an invite link with 2 uses and the Editor role, and have two people join with it. → Both join as Editors; a third person is told the link isn't active.
@@ -136,7 +136,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **SM-13** A non-Admin can't open Admin sections, and their direct requests are refused (403); secrets never appear in any response.
 - **SM-14** Settings works by keyboard and screen reader, axe finds no serious problems, and the phone layout works.
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **SM-D1** 2-step verification with an authenticator app (Notion has it). **Default:** yes, optional for each person; Admins can require it for everyone.
 - 🟨 **SM-D2** What happens to a removed member's private pages. **Default:** kept hidden for 90 days (they come back if the person rejoins), then deleted. Nobody else can open them (RP-D1).

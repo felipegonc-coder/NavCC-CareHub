@@ -1,8 +1,8 @@
 # Comments
 
 Threads and comments on pages (Comments and mentions spec, sections 3.1 and 5; decision 0007,
-section 4.3). Mentions and their notices, reactions, suggested edits and following come in the next
-pull requests.
+section 4.3). Mentions and their notices are in `features/mentions`; reactions, suggested edits and
+following come in the next pull requests.
 
 ## API
 
@@ -24,8 +24,8 @@ pull requests.
 - Live: tabs subscribed to `comments:<pageId>` (Can view) get `comments.changed { pageId, threadId }`
   after every change, then fetch the threads again.
 - Other features: `listComments(db, userId, pageId, { limit?, status? })` from `index.ts` (none
-  without Can view), and the event `comment.created { commentId, threadId, pageId, workspaceId, by,
-newThread }`, emitted after the commit.
+  without Can view), and the events `comment.created { commentId, threadId, pageId, workspaceId, by,
+newThread }` and `comment.edited` (the same without `newThread`), emitted after the commit.
 
 ## Stand-ins
 

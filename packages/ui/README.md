@@ -51,20 +51,39 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
     `small`, `label` (`text-small` is `--ch-text-small`); `--ch-weight-<style>` for `title` and
     `h1` to `h3`; `--ch-tracking-title`. Weights `--ch-weight-normal`, `-medium`, `-semibold`,
     `-bold`; fonts `--ch-font-sans`, `--ch-font-mono`.
-  - Also `--ch-shadow-menu`, `--ch-shadow-dialog`, and widths `--ch-page-width` (48rem),
-    `--ch-sidebar-width` (16rem), `--ch-dialog-width` (32rem), `--ch-toast-width` (24rem). Scrims
-    use `bg-overlay/50`; the logo uses `brand` and `brand-fg`.
+  - Also `--ch-shadow-menu`, `--ch-shadow-dialog`, widths `--ch-page-width` (48rem),
+    `--ch-sidebar-width` (16rem), `--ch-dialog-width` (32rem), `--ch-toast-width` (24rem), and
+    `--ch-sheet-height` (85dvh, `max-h-sheet`: how tall a phone's bottom sheet grows). Scrims
+    use `bg-overlay/50`; the logo uses `brand` and `brand-fg`; `grid-cols-control` puts a checkbox
+    or switch before its label.
+- **Checked by lint:** the ESLint rule `carehub/no-one-off-styles` (`lint/no-one-off-styles.js`)
+  reads every string, class list and `style={{ }}` object in `apps/web` and `packages`. It flags
+  arbitrary values (`rounded-[4px]`, `w-[85vw]`, `max-[900px]:`), Tailwind defaults the kit
+  doesn't have (`text-sm`, `font-light`, `bg-gray-100`, `bg-black/50`, `rounded-lg`, `shadow-md`,
+  `max-w-lg`), hex and `rgb(0 0 0)` colours, px, rem, em and pt sizes, and px numbers or colour
+  names in `style`. Allowed: state and selector variants (`data-[state=open]:`, `has-[:checked]:`,
+  `[&>svg]:`), Radix's measured sizes and kit variables in brackets
+  (`max-h-[var(--radix-select-content-available-height)]`, `w-[var(--ch-sidebar-width)]`) and
+  `transition-[...]` lists. The kit's value files, configs and tests are exempt. It is an error in
+  core folders and, until the lanes switch over (decision 0008), a warning in lane folders. If the
+  kit lacks a value you need, add it to `src/scale.ts` or `src/tokens.ts` rather than writing it
+  inline.
 - **Theme:** `ThemeProvider` + `ThemeSwitch` (light, dark, system), saved on the device.
   `apps/web/public/theme-init.js` applies the saved theme before the first paint; it is a file, not
   an inline script, because the Content Security Policy allows only `script-src 'self'`.
 - **Phones:** under 768 px every control is at least 44 px tall (`max-md:` classes), as 0007 asks;
-  keep that when you override a size.
+  keep that when you override a size. Menus, popovers, select lists and dialogs open as bottom
+  sheets there: along the bottom edge, as wide as the screen, over a dimmed page, scrolling once
+  they reach `max-h-sheet`. `SheetContent` covers the whole screen.
 - **Bigger text:** set `data-text-size="large"` on `<html>`; all sizes are in rem.
 - **Fields:** wrap a control in `<Field label hint error required>` and it gets its label, description
   and invalid state for screen readers.
 - **Overlays:** `DropdownMenu`, `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
   and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
-  focus back.
+  focus back. A toast can carry one button, `action: { label: 'Undo', onClick }`; it then stays
+  8 seconds instead of 5. Its timer stops while the pointer or keyboard focus is on it, so people
+  have time to reach Undo, and a press can come after the server's Undo window. The server then
+  answers 409 `conflict`; show a short "Too late to undo" toast.
 - **Shell parts:** `SheetContent` (a panel sliding in from the left, inside `Dialog`), and
   `SidebarGroup` and `sidebarRowClasses` for blocks and rows in the sidebar. Below
   `breakpoints.md` (768px, `md:`) the app shell shows the phone layout.

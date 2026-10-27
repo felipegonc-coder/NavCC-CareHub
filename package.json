@@ -14,7 +14,7 @@
   },
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "node scripts/lint.mjs",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "e2e": "npm run e2e --workspaces --if-present",

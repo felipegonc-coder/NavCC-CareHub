@@ -46,6 +46,7 @@ const progress = (courseId: string, status: CourseProgress['status'], percent: n
   startedAt: `${day(-20)}T16:00:00.000Z`,
   completedAt: status === 'in_progress' ? null : `${day(-2)}T16:00:00.000Z`,
   lastActivityAt: `${day(-2)}T16:00:00.000Z`,
+  previousFinishedAt: null,
 });
 
 /** Tara and Omar's assignments, all made ten days ago, bound as the running server would. */

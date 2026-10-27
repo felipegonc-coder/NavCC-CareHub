@@ -1,11 +1,13 @@
 // Test-only helpers for the player (the app never imports this file).
 import {
+  learnerCourse,
   sampleStandardCourse,
   type Course,
   type Id,
   type LearnerCourseState,
   type LessonProgress,
   type NewProgressEvent,
+  type PlayerCourse,
   type ProgressEvent,
 } from '@carehub/learning';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -24,7 +26,7 @@ export const inOrder: Course = {
 
 /** A learner's state: every lesson not started, apart from the changes in `lessons`. */
 export function learner(
-  course: Course,
+  course: PlayerCourse,
   lessons: Record<Id, Partial<LessonProgress>> = {},
 ): LearnerCourseState {
   return {
@@ -60,14 +62,14 @@ let counter = 0;
 const stamp = (event: NewProgressEvent): ProgressEvent =>
   ({ ...event, id: `event-${(counter += 1)}`, at: '2026-10-27T09:00:00.000Z' }) as ProgressEvent;
 
-export const lessonPath = (course: Course, lessonId: Id) =>
+export const lessonPath = (course: Pick<PlayerCourse, 'id'>, lessonId: Id) =>
   `/learning/courses/${course.id}/lessons/${lessonId}`;
 
 /**
  * Shows the player in a memory router at `lessonId`. Emitted events are recorded in `emit` and
  * applied to the state as the server would, so continue blocks open and lessons complete.
  */
-export function renderPlayer(course: Course, state: LearnerCourseState, lessonId: Id) {
+export function renderPlayer(course: PlayerCourse, state: LearnerCourseState, lessonId: Id) {
   const emit = vi.fn();
   function Harness() {
     const params = useParams();
@@ -110,16 +112,17 @@ export const errorReply = (status: number) => jsonReply(status, { error: ERRORS[
 type Call = { method: string; url: string; events: ProgressEvent[] };
 
 /**
- * A fake Learning API on `fetch` for one course: the live course, the learner's state and the
+ * A fake Learning API on `fetch` for one course: its learner view, the learner's state and the
  * events they send, applied as the server would. `server.course` is the status of the course call
- * (try 403, 404 or 400); `server.offline` makes sending events fail.
+ * (try 403, 404 or 400); `server.offline` makes sending events fail; `full` sends the whole
+ * course, as a server that doesn't send the learner view yet.
  */
 export function serveCourse(
   course: Course,
   state: LearnerCourseState,
-  options: { course?: number; offline?: boolean } = {},
+  options: { course?: number; offline?: boolean; full?: boolean } = {},
 ) {
-  const server = { course: 200, offline: false, ...options };
+  const server = { course: 200, offline: false, full: false, ...options };
   const api = `/api/learning/courses/${course.id}`;
   let current = state;
   const calls: Call[] = [];
@@ -130,7 +133,7 @@ export function serveCourse(
     calls.push({ method, url, events: body.events ?? [] });
     if (method === 'GET' && url === api) {
       if (server.course !== 200) return errorReply(server.course);
-      return jsonReply(200, { course, version: 3 });
+      return jsonReply(200, { course: server.full ? course : learnerCourse(course), version: 3 });
     }
     if (method === 'GET' && url === `${api}/progress`) return jsonReply(200, current);
     if (method === 'POST' && url === `${api}/events`) {

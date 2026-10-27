@@ -1,7 +1,13 @@
-import { courseOutline, lessonHref, type LearnerCourseState } from '@carehub/learning';
+import {
+  DEFAULT_ACKNOWLEDGEMENT,
+  courseOutline,
+  lessonHref,
+  sampleRequiredReadCourse,
+  type LearnerCourseState,
+} from '@carehub/learning';
 import { describe, expect, it } from 'vitest';
 import { inOrder, learner } from '../player/test-utils';
-import { courseFacts, hasStarted, startAction, statusLine, timeLeftLine } from './start';
+import { almostDoneLine, courseFacts, hasStarted, signOff, startAction, statusLine } from './start';
 
 const locked = { status: 'locked' } as const;
 const fresh: LearnerCourseState = {
@@ -40,6 +46,19 @@ describe('startAction', () => {
     }
   });
 
+  it('offers a look back once every lesson is done, while something else is left', () => {
+    const allDone = learner(inOrder, {
+      'calls-before': { status: 'completed' },
+      'calls-during': { status: 'completed' },
+      'calls-after': { status: 'completed' },
+      'calls-quiz': { status: 'completed' },
+    });
+    expect(action({ ...allDone, resume: { lessonId: 'calls-after' } })).toEqual({
+      label: 'Review the course',
+      href: lessonHref(inOrder.id, 'calls-before'),
+    });
+  });
+
   it('has no button for a course without lessons', () => {
     const empty = { ...inOrder, lessons: [] };
     expect(action(fresh, empty)).toBeNull();
@@ -60,16 +79,57 @@ describe('statusLine', () => {
   });
 });
 
-describe('timeLeftLine', () => {
+describe('signOff', () => {
+  const course = sampleRequiredReadCourse;
+  const quizLeft = learner(course, { 'privacy-rules': { status: 'completed' } });
+
+  it('is ready once every content lesson is completed, with the quiz still to do', () => {
+    expect(signOff(course, learner(course))).toEqual({
+      statement: 'I have read the privacy basics and will follow them.',
+      ready: false,
+      signedAt: null,
+    });
+    expect(signOff(course, quizLeft)?.ready).toBe(true);
+    const signed = { ...quizLeft, acknowledgedAt: '2026-10-27T09:00:00.000Z' };
+    expect(signOff(course, signed)?.signedAt).toBe('2026-10-27T09:00:00.000Z');
+  });
+
+  it("is missing when the course doesn't ask for one, and has words when it lacks them", () => {
+    expect(signOff(inOrder, learner(inOrder))).toBeNull();
+    const settings = { ...course.settings };
+    delete settings.acknowledgement;
+    expect(signOff({ ...course, settings }, quizLeft)?.statement).toBe(DEFAULT_ACKNOWLEDGEMENT);
+  });
+});
+
+describe('almostDoneLine', () => {
   const timed = { settings: { ...inOrder.settings, minimumCourseSeconds: 300 } };
+  const allDone = { completed: 4, total: 4 };
 
   it('says the minutes left, rounded up, only while the minimum time holds the course back', () => {
-    const blocked = { blockedBy: 'minimum_course_time', activeSeconds: 250 } as const;
-    expect(timeLeftLine(timed, blocked)).toBe(
+    const blocked = {
+      status: 'in_progress',
+      blockedBy: 'minimum_course_time',
+      activeSeconds: 250,
+    } as const;
+    expect(almostDoneLine(timed, blocked, allDone, null)).toBe(
       'Almost done: spend 1 more minute in the lessons to finish the course.',
     );
-    expect(timeLeftLine(timed, { ...blocked, activeSeconds: 0 })).toContain('5 more minutes');
-    expect(timeLeftLine(timed, { blockedBy: null, activeSeconds: 0 })).toBeNull();
+    expect(almostDoneLine(timed, { ...blocked, activeSeconds: 0 }, allDone, null)).toContain(
+      '5 more minutes',
+    );
+    expect(almostDoneLine(timed, { ...blocked, blockedBy: null }, allDone, null)).toBeNull();
+  });
+
+  it('asks for the sign-off once it is all that is left', () => {
+    const state = { status: 'in_progress', blockedBy: null, activeSeconds: 0 } as const;
+    const sign = { statement: 'I agree.', ready: true, signedAt: null };
+    expect(almostDoneLine(timed, state, allDone, sign)).toBe(
+      'Almost done: sign below to finish the course.',
+    );
+    expect(almostDoneLine(timed, state, { completed: 3, total: 4 }, sign)).toBeNull();
+    expect(almostDoneLine(timed, state, allDone, { ...sign, signedAt: '2026-10-27' })).toBeNull();
+    expect(almostDoneLine(timed, { ...state, status: 'failed' }, allDone, sign)).toBeNull();
   });
 });
 

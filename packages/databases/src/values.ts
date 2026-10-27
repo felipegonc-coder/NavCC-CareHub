@@ -30,6 +30,7 @@ import {
   sanitizeRichText,
 } from './richtext';
 import type { ReadValue } from './row';
+import { isVerificationValue, verificationText } from './verification';
 import {
   LIMITS,
   type ChecklistItem,
@@ -546,8 +547,10 @@ const isObject = (v: ReadValue): v is Exclude<ReadValue, unknown[]> & object =>
  * (bar and ring show the number text too); dates in its format and the viewer's time zone; option
  * names; several values joined with ", "; people's names; related rows' titles (hidden ones counted:
  * "2 rows you can't open"); file names; checklists "3/5" (export "[x] item; [ ] item"); checkboxes
- * "" (export "Yes" or "No"); IDs "QA-12"; formulas and rollups through formatComputed. An empty Name
- * shows "Untitled" in cells; no Created by or Edited by means an anonymous response ("Anonymous").
+ * "" (export "Yes" or "No"); IDs "QA-12"; formulas and rollups through formatComputed;
+ * verifications as their badge ("Verified by Riley Chen until Jan 20, 2027", "Not verified"). An
+ * empty Name shows "Untitled" in cells; no Created by or Edited by means an anonymous response
+ * ("Anonymous").
  */
 export function formatValue(
   prop: Property,
@@ -606,6 +609,10 @@ export function formatValue(
     }
     case 'button':
       return '';
+    case 'verification': {
+      const by = isVerificationValue(value) ? personName(value.verifiedBy, ctx, exp) : undefined;
+      return verificationText(value, by);
+    }
   }
 }
 

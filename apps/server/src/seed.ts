@@ -50,19 +50,21 @@ export async function seedFeatures(ctx: SeedContext): Promise<void> {
 
   // feature: files
 
-  // feature: search
+  await (await import('./features/search/seed')).seed(ctx);
 
-  // feature: history
+  await (await import('./features/history/seed')).seed(ctx);
 
-  // feature: templates
+  await (await import('./features/templates/seed')).seed(ctx);
 
-  // feature: import-export
+  await (await import('./features/import-export/seed')).seed(ctx);
+
+  await (await import('./features/knowledge/seed')).seed(ctx);
 
   // feature: sharing
 
   // feature: roles
 
-  // feature: learning
+  await (await import('./features/learning/seed')).seed(ctx);
 
   // feature: databases
 
@@ -70,7 +72,7 @@ export async function seedFeatures(ctx: SeedContext): Promise<void> {
 
   // feature: messages
 
-  // feature: notices
+  await (await import('./features/notices/seed')).seed(ctx);
 
   // feature: live
 
@@ -92,5 +94,5 @@ export async function seedFeatures(ctx: SeedContext): Promise<void> {
 
   // feature: status
 
-  // feature: claude
+  await (await import('./features/claude/seed')).seed(ctx);
 }

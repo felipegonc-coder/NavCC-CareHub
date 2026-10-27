@@ -55,3 +55,26 @@ export function opensNewTab(href: string): boolean {
   const value = compact(href);
   return isProtocolRelative(value) || /^https?:/i.test(value);
 }
+
+/**
+ * Turns what someone typed into a link address, or returns null if it can't be one. An address
+ * with a scheme, or starting with `/`, `#` or `?`, goes through `safeHref`, so `//host` becomes
+ * `https://host`.
+ */
+export function normalizeLinkInput(raw: string): string | null {
+  const value = raw.trim();
+  if (!value || /\s/.test(value)) return null;
+  if (/^(https?:\/\/|mailto:|tel:|[/#?])/i.test(value)) return safeHref(value);
+  if (/^[^@/:]+@[^@/:]+\.[a-z]{2,}$/i.test(value)) return `mailto:${value}`;
+  if (/^[a-z\d-]+(\.[a-z\d-]+)*\.[a-z]{2,}(:\d+)?([/?#]|$)/i.test(value)) return `https://${value}`;
+  return null;
+}
+
+/**
+ * The link mark's attributes for a safe `href`. `target` matches how the link is drawn: `_blank`
+ * for other sites, none for Care Hub, `mailto` and `tel` links.
+ */
+export const linkAttributes = (href: string) => ({
+  href,
+  target: opensNewTab(href) ? '_blank' : null,
+});

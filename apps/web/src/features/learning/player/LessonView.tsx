@@ -11,9 +11,10 @@ import {
   type Course,
   type Link as CourseLink,
   type LearnerCourseState,
-  type Lesson,
   type NewProgressEvent,
   type OutlineRow,
+  type PlayerCourse,
+  type PlayerLesson,
 } from '@carehub/learning';
 import { Button, buttonClasses } from '@carehub/ui';
 import { ArrowLeft, ArrowRight, Lock } from 'lucide-react';
@@ -24,8 +25,8 @@ import { withPending } from './pending';
 import { useActiveTime } from './useActiveTime';
 
 export type LessonViewProps = {
-  course: Course;
-  lesson: Lesson;
+  course: PlayerCourse;
+  lesson: PlayerLesson;
   /** The lesson's outline row: its number, state and, when locked, why. */
   row: OutlineRow;
   state: LearnerCourseState;
@@ -35,6 +36,13 @@ export type LessonViewProps = {
 };
 
 const noteClasses = 'rounded border border-border bg-fill px-4 py-3 text-small text-muted';
+
+/**
+ * B3's `canCompleteLesson` and `nextLesson` take the full course type, but read only lesson ids,
+ * kinds and content blocks, never quiz questions, so the learner view (decision 0314) goes in as
+ * it is.
+ */
+const forGating = (course: PlayerCourse) => course as Course;
 
 /**
  * One lesson: its title, the blocks up to the first continue block not passed yet, and the way on
@@ -78,6 +86,14 @@ export function LessonView({ course, lesson, row, state, mode, emit, go }: Lesso
   }, [blocks]);
 
   const ended = locked || lesson.kind !== 'content' || blocks.length === lesson.blocks.length;
+  // A link (or search result) to a block still behind a continue block lands on the lesson title.
+  const wanted = blockIdFromHash(hash);
+  const ahead =
+    wanted !== null &&
+    !locked &&
+    lesson.kind === 'content' &&
+    lesson.blocks.some((block) => block.id === wanted) &&
+    !blocks.some((block) => block.id === wanted);
   return (
     <article className="mx-auto flex w-full max-w-page flex-col gap-6">
       <header className="flex flex-col gap-1">
@@ -88,6 +104,11 @@ export function LessonView({ course, lesson, row, state, mode, emit, go }: Lesso
           {lesson.title}
         </h1>
       </header>
+      {ahead && (
+        <p className={noteClasses}>
+          What you&apos;re looking for comes further on in this lesson. Carry on to reach it.
+        </p>
+      )}
       {locked ? (
         <p className={`flex items-center gap-2 ${noteClasses}`}>
           <Lock aria-hidden className="size-4 shrink-0" />
@@ -159,17 +180,17 @@ function LessonEnd({ course, lesson, state, locked, emit, time }: LessonEndProps
           },
         ])
       : state;
-  const check = completing ? canCompleteLesson(course, counted, lesson.id) : null;
+  const check = completing ? canCompleteLesson(forGating(course), counted, lesson.id) : null;
   // Where Next goes once this lesson counts as completed (the next lesson may unlock).
   const after = completing
     ? withPending(course, state, [
         { type: 'lesson_completed', lessonId: lesson.id, id: 'next', at: '' },
       ])
     : state;
-  const next = locked ? null : nextLesson(course, after, lesson.id);
+  const next = locked ? null : nextLesson(forGating(course), after, lesson.id);
   const hint =
     check && !check.ok && check.reason === 'minimum_time'
-      ? `Stay with this lesson a little longer to finish it (${minutes(check.secondsLeft)} left).`
+      ? `Stay with this lesson a little longer to finish it (${timeLeft(check.secondsLeft)} left).`
       : null;
 
   const action = () => {
@@ -217,7 +238,15 @@ function LessonEnd({ course, lesson, state, locked, emit, time }: LessonEndProps
   );
 }
 
-const minutes = (seconds = 0) => {
-  const count = Math.max(1, Math.ceil(seconds / 60));
+/**
+ * A lesson's time left: whole minutes, rounded up, then seconds in the last minute, so the hint
+ * counts down as the active time is counted (every few seconds).
+ */
+function timeLeft(seconds = 0): string {
+  if (seconds < 60) {
+    const count = Math.max(1, Math.ceil(seconds));
+    return count === 1 ? '1 second' : `${count} seconds`;
+  }
+  const count = Math.ceil(seconds / 60);
   return count === 1 ? '1 minute' : `${count} minutes`;
-};
+}

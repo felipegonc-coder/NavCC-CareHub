@@ -1,7 +1,7 @@
-import { courseHref, type LearnerCourseState } from '@carehub/learning';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { courseHref, learnerCourse, type LearnerCourseState } from '@carehub/learning';
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { progressKey } from './data';
+import { courseKey, progressKey, type LiveCourse } from './data';
 import { PlayerScreen } from './index';
 import { inOrder, learner, lessonPath, renderRoute, serveCourse } from './test-utils';
 
@@ -15,7 +15,7 @@ const start = learner(inOrder, {
   'calls-quiz': locked,
 });
 
-const serve = (options?: { course?: number; offline?: boolean }) =>
+const serve = (options?: { course?: number; offline?: boolean; full?: boolean }) =>
   serveCourse(inOrder, start, options);
 
 const renderScreen = (path: string) =>
@@ -55,6 +55,22 @@ describe('PlayerScreen', () => {
     expect(sent()[0]).toEqual(
       expect.objectContaining({ id: expect.any(String), at: expect.any(String) }),
     );
+  });
+
+  it('keeps the learner view of the course, whose quiz lessons have no questions', async () => {
+    for (const full of [false, true]) {
+      // `full`: a server that sends the whole course; the player turns it into the learner view.
+      serve({ full });
+      const client = renderScreen(lessonPath(inOrder, 'calls-before'));
+      await screen.findByRole('heading', { level: 1, name: 'Before the call' });
+      const course = client.getQueryData<LiveCourse>(courseKey(inOrder.id))?.course;
+      expect(course).toEqual(learnerCourse(inOrder));
+      expect(course?.lessons.find((lesson) => lesson.kind === 'quiz')).not.toHaveProperty(
+        'questions',
+      );
+      cleanup();
+      vi.restoreAllMocks();
+    }
   });
 
   it('sends each step and keeps the state the server replies with', async () => {

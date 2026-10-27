@@ -34,7 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 15
+    # Up to 20 minutes of tests at night (E2E_GLOBAL_TIMEOUT_MINUTES below), plus install and build.
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash # bash -eo pipefail, so "| tee" keeps the exit code
@@ -43,8 +44,6 @@ jobs:
     env:
       # The throwaway database that tests/e2e/ci/postgres.mjs starts, only on 127.0.0.1.
       DATABASE_URL: postgres://carehub@127.0.0.1:55432/carehub
-      # Fictional and throwaway, like the database: the password of the seeded test accounts.
-      CAREHUB_SEED_PASSWORD: e2e-only-fictional-password
       E2E_BASE_URL: http://127.0.0.1:38080
     # Every step that can fail has an id and keeps its output in $RUNNER_TEMP/ci-logs/<id>.log, so
     # the report can show the end of the log.
@@ -61,16 +60,21 @@ jobs:
       # Skips the nightly run when main has no new commits. On a pull request that changes only
       # files in tests/e2e/flows/ or docs/testing/, only the changed tests run (--only-changed
       # against origin/<base branch>, which points to the merge commit's first parent). Also keeps
-      # npm, Playwright and temporary files in $RUNNER_TEMP, which the runner empties after each job.
+      # npm, Playwright and temporary files in $RUNNER_TEMP, which the runner empties after each job,
+      # and makes a new throwaway password for the seeded test accounts, so none is written in the
+      # repository: the seed command and the tests take it from the environment, with no default.
       - name: Decide what runs
         id: gate
         run: |
           mkdir -p "$RUNNER_TEMP/ci-logs" "$RUNNER_TEMP/home" "$RUNNER_TEMP/tmp"
+          password=$(openssl rand -hex 24)
+          echo "::add-mask::$password"
           {
             echo "HOME=$RUNNER_TEMP/home"
             echo "TMPDIR=$RUNNER_TEMP/tmp"
             echo "npm_config_cache=$RUNNER_TEMP/npm-cache"
             echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/ms-playwright"
+            echo "CAREHUB_SEED_PASSWORD=$password"
           } >> "$GITHUB_ENV"
           age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
           if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$age" -gt 86400 ]; then
@@ -141,11 +145,38 @@ jobs:
             echo 'apps/server/dist/cli.js does not exist yet, so there is nothing to seed.'
           fi
 
+      # A stand-in for Anthropic's API on 127.0.0.1 (docs/extras/testing.md#claude). The server
+      # sends every Claude request to it, and the tests read what it received. Its answers are
+      # canned and fictional, and it needs no key.
+      - name: Start the Claude stub
+        id: claude-stub
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          if [ ! -f tests/e2e/extras/claude-stub.ts ]; then
+            echo 'tests/e2e/extras/claude-stub.ts does not exist yet, so there is no Claude stub.'
+            exit 0
+          fi
+          CLAUDE_STUB_PORT=4599 nohup node tests/e2e/extras/claude-stub.ts > "$RUNNER_TEMP/claude-stub-output.log" 2>&1 &
+          pid=$!
+          echo "$pid" > "$RUNNER_TEMP/claude-stub.pid"
+          for _ in $(seq 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4599/__requests 2> /dev/null; then exit 0; fi
+            if ! kill -0 "$pid" 2> /dev/null; then break; fi
+            sleep 1
+          done
+          { echo 'The Claude stub did not answer http://127.0.0.1:4599/__requests:'; cat "$RUNNER_TEMP/claude-stub-output.log"; } \
+            | tee "$RUNNER_TEMP/ci-logs/claude-stub.log"
+          exit 1
+
+      # CAREHUB_TEST_HOOKS=1 turns on the test-only routes the browser tests use (such as Learning's
+      # due dates, #247); only browser-test runs set it. The Claude key is fictional, and every
+      # Claude request goes to the stub above.
       - name: Start the server
         id: server
         if: steps.gate.outputs.run == 'true'
         run: |
           NODE_ENV=production CAREHUB_PUBLIC_URL=$E2E_BASE_URL PORT=38080 HOST=127.0.0.1 \
+            CAREHUB_TEST_HOOKS=1 ANTHROPIC_API_KEY=test-key-not-real ANTHROPIC_BASE_URL=http://127.0.0.1:4599 \
             nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server-output.log" 2>&1 &
           pid=$!
           echo "$pid" > "$RUNNER_TEMP/server.pid"
@@ -183,6 +214,9 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         env:
           ONLY_CHANGED: ${{ steps.gate.outputs.only-changed }}
+          # How long all the tests may take (playwright.config.ts): 10 minutes on a pull request,
+          # 20 at night or by hand, when every check runs.
+          E2E_GLOBAL_TIMEOUT_MINUTES: ${{ github.event_name == 'pull_request' && '10' || '20' }}
         run: |
           # -w: npm run e2e at the root would take --only-changed as an npm setting.
           args=()
@@ -193,11 +227,12 @@ jobs:
           exit 1
 
       # Also after a failure or a cancel, so no process outlives the job.
-      - name: Stop the server and PostgreSQL
+      - name: Stop the server, the Claude stub and PostgreSQL
         id: stop
         if: always() && steps.gate.outputs.run == 'true'
         run: |
           if [ -f "$RUNNER_TEMP/server.pid" ]; then kill "$(cat "$RUNNER_TEMP/server.pid")" 2> /dev/null || true; fi
+          if [ -f "$RUNNER_TEMP/claude-stub.pid" ]; then kill "$(cat "$RUNNER_TEMP/claude-stub.pid")" 2> /dev/null || true; fi
           node tests/e2e/ci/postgres.mjs stop "$RUNNER_TEMP/postgres" || true
 
       - name: Upload the Playwright report
@@ -208,6 +243,7 @@ jobs:
           path: |
             tests/e2e/playwright-report/
             ${{ runner.temp }}/server-output.log
+            ${{ runner.temp }}/claude-stub-output.log
           retention-days: 7
           if-no-files-found: ignore
 
@@ -349,6 +385,9 @@ jobs:
           done
           exit 1
 
+      # The line after the marker comes from GitHub (needs.e2e.result). The report below it is
+      # written by the pull request's own code in the e2e job, so it can't be trusted to say
+      # whether the run passed; its HTML comments are disabled, so it can't add a marker either.
       - name: Post the report
         env:
           GH_TOKEN: ${{ github.token }}
@@ -363,13 +402,19 @@ jobs:
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           body="$RUNNER_TEMP/comment.md"
           report="$RESULTS/report.md"
-          # The report from the e2e job, up to 60 000 bytes, if it is one; GitHub takes 65 536.
+          case "$E2E_RESULT" in
+            success) result='✅ Browser tests passed' ;;
+            failure) result='❌ Browser tests failed' ;;
+            *) result="❌ Browser tests did not finish ($E2E_RESULT)" ;;
+          esac
+          printf '%s\n\n**%s on %s** ([run](%s)). This line is from GitHub; the report below is from the test job.\n\n' \
+            "$marker" "$result" "${HEAD_SHA:0:7}" "$run_url" > "$body"
+          # The report from the e2e job without its marker line, up to 60 000 bytes, if it is one;
+          # GitHub takes 65 536.
           if [ -f "$report" ] && [ ! -L "$report" ] && [ "$(head -n 1 "$report")" = "$marker" ]; then
-            head -c 60000 "$report" > "$body"
+            tail -n +2 "$report" | sed -e '/./,$!d' -e 's/<!--/\&lt;!--/g' | head -c 60000 >> "$body"
           else
-            if [ "$E2E_RESULT" = success ]; then result='✅ Browser tests passed'; else result='❌ Browser tests failed'; fi
-            printf '%s\n\n### %s on %s\n\n[Run](%s)\n\nThe test job left no report; see the run.\n' \
-              "$marker" "$result" "${HEAD_SHA:0:7}" "$run_url" > "$body"
+            echo 'The test job left no report; see the run.' >> "$body"
           fi
 
           # The screenshot table: a row per screen, a column per project, each image linked to

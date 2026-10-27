@@ -1,32 +1,48 @@
 /**
- * One worksheet as the table of cell text CSV parsing gives (spec 3.7), so the CSV import plan
- * does the rest (matching columns, types, preview, problems). Shared and inline strings, numbers,
- * TRUE and FALSE, errors as their text (#N/A), formulas as their saved results, dates as ISO
- * text, and "" for empty cells. Cells keep their columns (A and C give ["a", "", "c"]) and rows
- * keep their numbers, so problem rows match Excel's. Empty cells after a row's last value and
- * empty rows after the last one are left out, like the end of a CSV file.
+ * One worksheet as the table of cell text CSV parsing gives (spec 3.7), so the CSV import plan does
+ * the rest (matching columns, types, preview, problems). Shared and inline strings, numbers, TRUE
+ * and FALSE, errors as their text (#N/A), formulas as their saved results, dates as ISO text, and
+ * "" for empty cells. Cells keep their columns (A and C give ["a", "", "c"]). Up to 20,000 empty
+ * rows above the first row with a value are left out, so that row is the header; skippedRows counts
+ * them and withExcelRowNumbers adds them back to the import's row numbers, so problems name Excel's
+ * rows. Empty rows further down stay (as []); empty cells after a row's last value and empty rows
+ * after the last one are left out, like the end of a CSV file. Values are clipped and a sheet's
+ * text and cells are capped as they're read (XLSX_LIMITS), so a small file can't make an import
+ * read more than a 10 MB CSV file would.
  */
+import type { ImportResult } from '../csv/importer';
 import { checkCsvLimits } from '../csv/parse';
 import { LIMITS } from '../types';
 import { numberText, serialText, type DateStyle } from './numfmt';
 import {
+  appendRaw,
   cleanCellText,
+  clipCellText,
   failureMessage,
   listSheets,
   noSuchSheet,
   openXlsx,
   readPart,
   RichText,
+  XLSX_ERRORS,
+  XLSX_LIMITS,
+  XlsxFailure,
   type XlsxFile,
   type XlsxSheet,
 } from './workbook';
 import { xmlTokens } from './xml';
 import type { InflateRaw } from './zip';
 
-/** Rows kept: one more than a file with a header row may have, so checkCsvLimits sees too many either way. */
+/**
+ * Rows kept, from the first row with a value: one more than a file with a header row may have, so
+ * checkCsvLimits sees too many either way.
+ */
 const MAX_ROWS = LIMITS.csvRows + 2;
 /** Columns kept: one more than allowed, so checkCsvLimits sees too many. */
 const MAX_COLUMNS = LIMITS.csvColumns + 1;
+/** Empty rows allowed above the first row with a value; past them the sheet has too many rows. */
+const MAX_SKIPPED_ROWS = LIMITS.csvRows;
+/** Excel's last row; a sheet with rows past it (even empty ones) has too many rows. */
 const EXCEL_ROWS = 1_048_576;
 const EXCEL_COLUMNS = 16_384;
 
@@ -78,37 +94,60 @@ function cellText(cell: Cell, file: XlsxFile): string {
   }
 }
 
-function sheetTable(xml: string, file: XlsxFile): string[][] {
+/** A sheet's rows of cell text, from its first row with a value. */
+interface SheetRows {
+  table: string[][];
+  /** Empty rows above the first row with a value (left out of the table). */
+  skippedRows: number;
+}
+
+/**
+ * Reads the cells of <sheetData>. Throws XlsxFailure once the cells read, empty or not and above
+ * the first row with a value or not, pass XLSX_LIMITS.sheetCells, or their text (each value
+ * clipped, each use of a shared string counted) passes XLSX_LIMITS.sheetText.
+ */
+function sheetTable(xml: string, file: XlsxFile): SheetRows {
   const table: string[][] = [];
   let row: string[] = [];
   let rowIndex = -1;
+  /** The index of the first row with a value (not just spaces); -1 until there is one. */
+  let first = -1;
   let col = -1;
   let cell: Cell | null = null;
   let inValue = false;
   let inData = false;
-  /** Puts the finished row in place; false once a row is past MAX_ROWS (the table is then padded to it). */
+  let cells = 0;
+  let text = 0;
+  const done = (): SheetRows => ({ table, skippedRows: Math.max(first, 0) });
+  /** The table padded to MAX_ROWS, so checkCsvLimits gives the too-many-rows message. */
+  const tooManyRows = (): SheetRows => {
+    while (table.length < MAX_ROWS) table.push([]);
+    return done();
+  };
+  /** Puts the finished row in place; false once a row is past MAX_ROWS. */
   const endRow = (): boolean => {
-    if (row.length) {
-      if (rowIndex >= MAX_ROWS) {
-        while (table.length < MAX_ROWS) table.push([]);
-        return false;
-      }
-      while (table.length < rowIndex) table.push([]);
-      table[rowIndex] = row;
+    if (first < 0 && row.some((v) => v.trim())) first = rowIndex;
+    if (first >= 0 && row.length) {
+      const at = rowIndex - first;
+      if (at >= MAX_ROWS) return false;
+      while (table.length < at) table.push([]);
+      table[at] = row;
     }
     row = [];
     return true;
   };
   const endCell = (c: Cell): void => {
-    const text = cellText(c, file);
-    if (!text) return;
+    const value = clipCellText(cellText(c, file));
+    if (!value) return;
+    text += value.length;
+    if (text > XLSX_LIMITS.sheetText) throw new XlsxFailure(XLSX_ERRORS.tooMuchText);
     const at = Math.min(col, MAX_COLUMNS - 1);
     while (row.length < at) row.push('');
-    row[at] = text;
+    row[at] = value;
   };
   for (const tok of xmlTokens(xml)) {
     if (tok.kind === 'text') {
-      if (inValue && cell) cell.value = (cell.value ?? '') + tok.text;
+      if (inValue && cell) cell.value = appendRaw(cell.value ?? '', tok.text);
       else cell?.inline?.take(tok);
     } else if (!inData) {
       inData = tok.kind === 'open' && tok.name === 'sheetData' && !tok.selfClosing;
@@ -117,15 +156,20 @@ function sheetTable(xml: string, file: XlsxFile): string[][] {
       else if (tok.name === 'c' && cell) {
         endCell(cell);
         cell = null;
-      } else if (tok.name === 'row' && !endRow()) return table;
+      } else if (tok.name === 'row' && !endRow()) return tooManyRows();
       else if (tok.name === 'sheetData') break;
       else cell?.inline?.take(tok);
     } else if (tok.name === 'row') {
+      // A row without a number, or numbered out of order, goes right after the one before.
       const r = Number(tok.attrs.get('r'));
-      rowIndex = Number.isInteger(r) && r >= 1 && r <= EXCEL_ROWS ? r - 1 : rowIndex + 1;
+      rowIndex = Number.isInteger(r) && r > rowIndex + 1 && r <= EXCEL_ROWS ? r - 1 : rowIndex + 1;
       col = -1;
-      if (tok.selfClosing && !endRow()) return table;
+      if (rowIndex >= EXCEL_ROWS || (first < 0 && rowIndex > MAX_SKIPPED_ROWS)) {
+        return tooManyRows();
+      }
+      if (tok.selfClosing && !endRow()) return tooManyRows();
     } else if (tok.name === 'c') {
+      if (++cells > XLSX_LIMITS.sheetCells) throw new XlsxFailure(XLSX_ERRORS.tooManyCells);
       col = columnIndex(tok.attrs.get('r') ?? '') ?? col + 1;
       const style = file.styles[Number(tok.attrs.get('s') ?? 0)] ?? null;
       cell = { type: tok.attrs.get('t') ?? 'n', style, value: null, inline: null };
@@ -143,14 +187,26 @@ function sheetTable(xml: string, file: XlsxFile): string[][] {
     }
   }
   endRow();
-  return table;
+  return done();
 }
 
-export type XlsxTable = { ok: true; table: string[][] } | { ok: false; error: string };
+export type XlsxTable =
+  | {
+      ok: true;
+      /** From the sheet's first row with a value, which is the header row when there is one. */
+      table: string[][];
+      /**
+       * The empty rows above it, left out: table[0] is Excel's row skippedRows + 1. Give it to
+       * withExcelRowNumbers with the import's result.
+       */
+      skippedRows: number;
+    }
+  | { ok: false; error: string };
 
 /**
- * One worksheet of an opened workbook as rows of cell text, with the CSV limits and messages
- * (20,000 rows not counting the header row, 200 columns). The sheet is picked by its exact name.
+ * One worksheet of an opened workbook as rows of cell text, from its first row with a value, with
+ * the CSV limits and messages (20,000 rows not counting the header row, 200 columns). The sheet is
+ * picked by its exact name.
  */
 export function readSheet(
   file: XlsxFile,
@@ -160,9 +216,9 @@ export function readSheet(
   const entry = file.parts.get(sheetName);
   if (!entry) return { ok: false, error: noSuchSheet(sheetName) };
   try {
-    const table = sheetTable(readPart(file, entry), file);
+    const { table, skippedRows } = sheetTable(readPart(file, entry), file);
     const error = checkCsvLimits(table, file.byteLength, opts.firstRowIsHeaders ?? true);
-    return error ? { ok: false, error } : { ok: true, table };
+    return error ? { ok: false, error } : { ok: true, table, skippedRows };
   } catch (e) {
     return { ok: false, error: failureMessage(e) };
   }
@@ -183,7 +239,8 @@ export interface ReadXlsxOptions {
 }
 
 export type XlsxRead =
-  | { ok: true; sheets: XlsxSheet[]; sheet: string; table: string[][] }
+  /** `table` and `skippedRows` as readSheet gives them. */
+  | { ok: true; sheets: XlsxSheet[]; sheet: string; table: string[][]; skippedRows: number }
   /** `sheets` is there when the workbook itself opened, so another sheet can be picked. */
   | { ok: false; error: string; sheets?: XlsxSheet[] };
 
@@ -198,6 +255,20 @@ export function readXlsxFile(bytes: Uint8Array, opts: ReadXlsxOptions): XlsxRead
   const sheet = opts.sheet ?? firstVisibleSheet(sheets);
   const read = readSheet(opened.file, sheet, { firstRowIsHeaders: opts.firstRowIsHeaders });
   return read.ok
-    ? { ok: true, sheets, sheet, table: read.table }
+    ? { ok: true, sheets, sheet, table: read.table, skippedRows: read.skippedRows }
     : { ok: false, error: read.error, sheets };
+}
+
+/**
+ * buildImport's result with Excel's row numbers. It counts rows from the table, which starts at
+ * the sheet's first row with a value, so the `skippedRows` empty rows above it are added back to
+ * each row's number and each problem's row.
+ */
+export function withExcelRowNumbers(result: ImportResult, skippedRows: number): ImportResult {
+  if (!skippedRows) return result;
+  return {
+    ...result,
+    rows: result.rows.map((r) => ({ ...r, rowNumber: r.rowNumber + skippedRows })),
+    problems: result.problems.map((p) => ({ ...p, row: p.row + skippedRows })),
+  };
 }

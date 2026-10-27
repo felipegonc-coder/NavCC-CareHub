@@ -37,7 +37,7 @@ export const CertificateSchema = z.strictObject({
   courseVersion: z.number().int().min(1),
   /** When the learner passed or completed the course; each finish gets at most one certificate. */
   completedAt: IsoDateTimeSchema,
-  /** The calendar day of `completedAt` in the workspace's time zone. */
+  /** The calendar day of `completedAt` in the learner's time zone. */
   issuedOn: IsoDateSchema,
   /** Null when the course sets no expiry. */
   expiresOn: IsoDateSchema.nullable(),

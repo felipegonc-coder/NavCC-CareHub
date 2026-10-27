@@ -1,7 +1,7 @@
 // What other features may import from push. See README.md.
 export { DEFAULT_PREFERENCES, NOTIFY_ABOUT } from './domain/preferences';
 export type { NotificationPreferences, NotifyAbout } from './domain/preferences';
-export { buildPushPayload, HIDDEN_PREVIEW, PREVIEW_LENGTH } from './payload';
+export { buildPushPayload, PREVIEW_LENGTH } from './payload';
 export type { PayloadOptions, PushKind, PushNotice, PushPayload } from './payload';
 export { generateVapidKeys } from './protocol/vapid';
 export type { VapidKeyStrings } from './protocol/vapid';
@@ -14,6 +14,8 @@ export type {
   PushUrgency,
   SendPushOptions,
 } from './sender';
+export { pushToUser } from './service';
+export type { PushRuntime, PushSummary, PushToUserOptions } from './service';
 export { PUSH_OFF_MESSAGE, pushSettingsSchema, resolvePushConfig } from './settings';
 export type { PushConfig, PushSettings } from './settings';
 export { createPostgresPushStore } from './store';

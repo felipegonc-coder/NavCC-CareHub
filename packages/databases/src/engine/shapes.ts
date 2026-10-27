@@ -4,6 +4,7 @@
  * Access, property access, formulas and sub-items come in as functions, so this stays pure.
  */
 import type { ViewTotal } from '../aggregate';
+import type { RowColor } from '../color';
 import type {
   AccessLevel,
   ComputedValue,
@@ -121,6 +122,11 @@ export interface QueryRow {
   computed: Partial<Record<Id, ComputedValue>>;
   /** Relation property id → links left out because the viewer can't open them. */
   hiddenLinks: Partial<Record<Id, number>>;
+  /**
+   * Conditional color (the view's color rules): the row's and each cell's, as color names the
+   * screens map to the design kit. `{ row: null, cells: {} }` when nothing matches.
+   */
+  color: RowColor;
   /** null when every property that shows it is hidden from the viewer. */
   createdAt: Instant | null;
   createdBy: Id | null;

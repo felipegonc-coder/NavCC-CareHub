@@ -64,9 +64,7 @@ export function Field({
     <FieldContext value={value}>
       <div
         className={cn(
-          inline
-            ? 'grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1'
-            : 'flex flex-col gap-1.5',
+          inline ? 'grid grid-cols-control items-center gap-x-2 gap-y-1' : 'flex flex-col gap-1.5',
           className,
         )}
       >

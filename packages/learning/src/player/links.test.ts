@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { learnerCourse } from '../quiz/index';
 import { blockAnchorId, blockIdFromHash, courseHref, lessonHref, linkTarget } from './links';
 import { helpDesk } from './test-course';
 
@@ -68,6 +69,12 @@ describe('linkTarget', () => {
       linkTarget(helpDesk, { kind: 'lesson', lessonId: 'l-quiz', blockId: 'b-esc-p' }),
     ).toMatchObject({
       href: '/learning/courses/c-help-desk/lessons/l-quiz',
+    });
+    expect(
+      linkTarget(learnerCourse(helpDesk), { kind: 'lesson', lessonId: 'l-quiz' }),
+    ).toMatchObject({
+      href: '/learning/courses/c-help-desk/lessons/l-quiz',
+      lessonTitle: 'Check your knowledge',
     });
   });
 

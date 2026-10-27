@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ContentLesson } from '../format/index';
+import { learnerCourse } from '../quiz/index';
 import { missingBeforeContinue } from './gating';
 import { canCompleteLesson, nextLesson, ProgressEventSchema, visibleBlocks } from './index';
 import type { LearnerCourseState, LessonProgress, ScenarioProgress } from './index';
@@ -164,6 +165,26 @@ describe('nextLesson', () => {
   });
 });
 
+describe('gating on the learner view (decision 0314)', () => {
+  it('answers as for the full course: only lesson ids, kinds and content blocks are read', () => {
+    const view = learnerCourse(course);
+    const ready = stateWith({ l1: { activeSeconds: 61, completedBlockIds: ['c1', 'c2'] } });
+    expect(canCompleteLesson(view, ready, 'l1')).toEqual({ ok: true });
+    expect(canCompleteLesson(view, stateWith({ l1: { activeSeconds: 20 } }), 'l1')).toEqual({
+      ok: false,
+      reason: 'minimum_time',
+      secondsLeft: 40,
+    });
+    expect(canCompleteLesson(view, stateWith({}), 'q3')).toEqual({
+      ok: false,
+      reason: 'wrong_lesson_kind',
+    });
+    const state = stateWith({ l1: { status: 'completed' } });
+    expect(nextLesson(view, state, 'l2')).toBe('q3');
+    expect(nextLesson(view, state, 'q3')).toBe('l4');
+  });
+});
+
 describe('ProgressEventSchema', () => {
   const at = '2026-10-27T09:00:00Z';
   const plan = { attemptId: 'a1', seed: 7, questionIds: ['q1'], optionOrder: { q1: ['x', 'y'] } };
@@ -173,12 +194,7 @@ describe('ProgressEventSchema', () => {
       { type: 'lesson_opened', lessonId: 'l1' },
       { type: 'time_active', lessonId: 'l1', seconds: 12.5 },
       { type: 'block_completed', lessonId: 'l1', blockId: 'c1' },
-      {
-        type: 'knowledge_check_answered',
-        lessonId: 'l1',
-        blockId: 'kc1',
-        response: { type: 'single_choice', optionId: 'right' },
-      },
+      { type: 'knowledge_check_answered', lessonId: 'l1', blockId: 'kc1', correct: true },
       { type: 'scenario_finished', lessonId: 'l1', blockId: 'sc1', choiceIds: ['good'] },
       { type: 'lesson_completed', lessonId: 'l1' },
       { type: 'quiz_attempt_started', lessonId: 'q3', plan },

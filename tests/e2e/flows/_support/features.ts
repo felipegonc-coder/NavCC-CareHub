@@ -2,7 +2,7 @@ import { test } from './test.js';
 
 /**
  * What a person can reach on `main`, one feature per line. Set a line to true in the pull request
- * whose tests match that feature on `main` (the Testing lead runs its browser tests before merging).
+ * whose tests match that feature on `main`; that pull request's browser tests run before it merges.
  * Until then, tests that call `needs()` for it are reported as "Not built yet" (Playwright `fixme`).
  */
 export const onMain = {
@@ -10,10 +10,10 @@ export const onMain = {
   designKit: true,
 
   /** Menus, dialogs, popovers, tooltips, toasts and 44 px touch targets on phones (#27). */
-  overlays: false,
+  overlays: true,
 
   /** The app shell: sidebar from the slots, phone menu, top bar and Not found (#34). */
-  appShell: false,
+  appShell: true,
 
   /** The sign-in screens, the seeded people and signInAs in tests/e2e/helpers/auth.ts. */
   signIn: false,
@@ -30,14 +30,26 @@ export const onMain = {
   /** Live co-editing: two people in one page, names and cursors. */
   coEditing: false,
 
+  /** Live updates and jobs in app.ts (#288): others' changes show without a reload. */
+  liveUpdates: true,
+
   /** Sharing: the share dialog, access levels, guests and share links. */
   sharing: false,
 
   /** Comments, replies and @ mentions of people, pages and dates. */
   comments: false,
 
+  /** Suggested edits: Suggesting mode, the marks by their author, Accept and Reject (all). */
+  suggestedEdits: false,
+
+  /** Following a page (a notice for each new comment) and muting a thread. */
+  following: false,
+
   /** The 🔔 Care Hub chat where notices arrive. */
   notices: false,
+
+  /** Reply in a comment notice: the answer goes into the thread without leaving the 🔔 chat. */
+  noticeReply: false,
 
   /** Search from the search box and Ctrl/Cmd + K. */
   search: false,
@@ -105,14 +117,32 @@ export const onMain = {
   /** Data settings: Settings → Data (keeping data, storage, uploads) and Export my content. */
   dataSettings: false,
 
-  /** Learning: Studio, the course player and My learning. */
+  /** Learning for learners: My learning, the Catalog, start pages and the player (#250, #245). */
   learning: false,
+
+  /** Learning Studio: the course editor, Preview and Publish (after #250). */
+  learningStudio: false,
+
+  /** Learning quizzes in the player: questions, Submit, the score, Try again. */
+  learningQuizzes: false,
 
   /** Learning: assign courses, due dates and tracking. */
   learningAssign: false,
 
+  /** Learning reports: course reports, Download CSV, Reset and transcripts. */
+  learningReports: false,
+
+  /** Learning review links: the read-only screen for a shared draft (#231). */
+  learningReview: false,
+
+  /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */
+  learningTestHooks: false,
+
   /** Learning: certificates. */
   certificates: false,
+
+  /** Claude features: Settings → Claude, writing help, assistant, Claude fields, meeting summary. */
+  claude: false,
 } as const satisfies Record<string, boolean>;
 
 export type Feature = keyof typeof onMain;
