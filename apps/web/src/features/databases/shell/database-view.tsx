@@ -1,7 +1,7 @@
 /**
  * A database on its own page or as a block in a page: its title, view tabs, the toolbar with New,
- * and the chosen view drawn by its layout, with the states of spec section 2 inside the block. It
- * stays up to date while it shows (live.ts).
+ * the filter bar, and the chosen view drawn by its layout, with the states of spec section 2
+ * inside the block. It stays up to date while it shows (live.ts).
  */
 import { Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
@@ -15,12 +15,14 @@ import {
 import { can } from '@carehub/databases/access';
 import { applyOverride } from '@carehub/databases/engine';
 import { countConditions } from '@carehub/databases/filter';
-import { cn, Tabs, TabsContent, TabsList, TabsTrigger } from '@carehub/ui';
+import { cn, Tabs, TabsContent } from '@carehub/ui';
 import { isApiError, type DatabaseWithVersion } from '../api';
 import { DIALOG_PANELS, type LayoutProps, type OpenMode } from '../contract';
+import type { FilterNames } from '../filter-text';
 import { useDatabase, useViewData } from '../hooks';
 import { LAYOUTS } from '../layouts';
 import { ErrorBoundary } from './boundary';
+import { FilterBar } from './filter-bar';
 import { useDatabaseLive } from './live';
 import { PanelDialog, usePanels } from './panel-host';
 import { useSearch } from './search';
@@ -32,13 +34,13 @@ import {
   NoMatches,
   NoRows,
   OverrideBar,
-  TOUCH,
 } from './states';
 import { WithToasts } from './toasts';
 import { Toolbar } from './toolbar';
 import { useViewActions } from './use-view-actions';
 import { useOnline, useViewer } from './viewer';
 import { canEditViews, pickView, readLastView, rememberView, tabViews } from './view-state';
+import { useDeleteView, ViewTabs } from './view-tabs';
 
 /**
  * Layouts that show "No rows yet." and "No rows match." in place of themselves. The others draw
@@ -117,10 +119,7 @@ function LoadedDatabase({ meta, ...props }: DatabaseViewProps & { meta: Database
   useDatabaseLive(meta.id);
   const [lastUsed] = useState(() => readLastView(meta.id));
   const [choice, setChoice] = useState<Choice | null>(null);
-  const wanted = choice && choice.link === props.viewId ? choice.viewId : props.viewId;
-  const savedView = pickView(meta.views, wanted, lastUsed);
   const { onViewChange, viewId: link } = props;
-
   const pick = useCallback(
     (viewId: Id) => {
       setChoice({ viewId, link });
@@ -128,6 +127,12 @@ function LoadedDatabase({ meta, ...props }: DatabaseViewProps & { meta: Database
     },
     [link, onViewChange],
   );
+  // Views deleted a moment ago are hidden until their Undo is gone.
+  const deleted = useDeleteView(meta.id, pick);
+  const views = meta.views.filter((v) => !deleted.hidden.has(v.id));
+  const wanted = choice && choice.link === props.viewId ? choice.viewId : props.viewId;
+  const savedView = pickView(views, wanted, lastUsed);
+  const tabs = tabViews(views);
 
   const shownId = savedView?.id;
   useEffect(() => {
@@ -156,7 +161,14 @@ function LoadedDatabase({ meta, ...props }: DatabaseViewProps & { meta: Database
       )}
       {savedView && (
         <Tabs value={savedView.id} onValueChange={pick} className="flex flex-col gap-3">
-          <ViewBody {...props} meta={meta} savedView={savedView} />
+          <ViewBody
+            {...props}
+            meta={meta}
+            savedView={savedView}
+            tabs={tabs}
+            pick={pick}
+            deleteView={(viewId) => deleted.remove(viewId, tabs, savedView.id)}
+          />
         </Tabs>
       )}
     </>
@@ -166,6 +178,9 @@ function LoadedDatabase({ meta, ...props }: DatabaseViewProps & { meta: Database
 interface ViewBodyProps extends DatabaseViewProps {
   meta: DatabaseWithVersion;
   savedView: View;
+  tabs: readonly View[];
+  pick(viewId: Id): void;
+  deleteView(viewId: Id): void;
 }
 
 interface OverrideState {
@@ -173,7 +188,7 @@ interface OverrideState {
   override: ViewOverride;
 }
 
-function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
+function ViewBody({ meta, savedView, tabs, pick, deleteView, ...props }: ViewBodyProps) {
   const viewer = useViewer(props.viewer);
   const online = useOnline();
   // Search and the open panel belong to the view showing: another view starts without them.
@@ -206,8 +221,9 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
   const canAdd = online && can('add_rows', access, { locked, canAddRows: meta.viewerCanAddRows });
   const canImport = online && can('import', access, { locked });
 
-  const newRow = () => {
-    actions.createRow().then(
+  // New uses the view's default template; New ▾ picks one, or an empty row (null).
+  const newRow = (templateId?: Id | null) => {
+    actions.createRow(templateId === undefined ? undefined : { templateId }).then(
       (row) => actions.openRow(row.id),
       // The toast already says why.
       () => undefined,
@@ -224,6 +240,11 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
     canEditViews: online && canEditViews(meta),
   };
   const dialog = panels.open !== null && DIALOG_PANELS.has(panels.open) ? panels.open : null;
+  // What the filter bar's chips name.
+  const names: FilterNames = {
+    person: (id) => result.data?.people?.[id]?.name,
+    row: (id) => result.data?.rowTitles[id],
+  };
 
   const filtered = countConditions(view.filter) > 0;
   const searched = search.query !== '';
@@ -246,7 +267,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
         />
       ) : (
         <NoRows
-          onNew={canAdd ? newRow : undefined}
+          onNew={canAdd ? () => newRow() : undefined}
           onImportCsv={canImport ? () => panels.show('importCsv') : undefined}
         />
       );
@@ -258,17 +279,16 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
   return (
     <>
       <div className="flex items-end gap-2">
-        <TabsList
-          aria-label="Views"
-          // On a phone an open search box takes the tabs' place.
-          className={cn('min-w-0 flex-1 overflow-x-auto', search.open && 'max-md:hidden')}
-        >
-          {tabViews(meta.views).map((v) => (
-            <TabsTrigger key={v.id} value={v.id} className={cn('shrink-0', TOUCH)}>
-              {v.name || 'Untitled'}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <ViewTabs
+          meta={meta}
+          tabs={tabs}
+          view={savedView}
+          canEdit={shared.canEditViews}
+          dropdown={props.inline === true && savedView.tabsAs === 'dropdown'}
+          searching={search.open}
+          onPick={pick}
+          onDelete={deleteView}
+        />
         <Toolbar
           {...shared}
           online={online}
@@ -279,6 +299,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
           inline={props.inline}
         />
       </div>
+      <FilterBar {...shared} panels={panels} names={names} />
       {override && <OverrideBar onReset={() => setOverride(null)} />}
       <TabsContent value={savedView.id} className="min-w-0">
         {body}

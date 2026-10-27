@@ -1,11 +1,14 @@
 /**
  * The toolbar (spec section 2): Filter, Sort, Group, Search, Properties, "…" (Layout, Import CSV,
- * Export CSV, Lock structure, Row access, Property access, Copy link, Delete) and New. Panels open
- * one at a time under it; the dialog panels show from DatabaseView. On phones it becomes one
- * "View options" button (section 6).
+ * Export CSV, Lock structure, Row access, Property access, Copy link, Delete) and New with its
+ * templates. Panels open one at a time under it; the dialog panels show from DatabaseView, and the
+ * filter bar's chips open theirs under the chip. On phones it becomes one "View options" button
+ * (section 6).
  */
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Ellipsis } from 'lucide-react';
+import type { Id } from '@carehub/databases';
+import { can } from '@carehub/databases/access';
 import {
   Button,
   cn,
@@ -23,6 +26,7 @@ import {
 } from '@carehub/ui';
 import { DIALOG_PANELS, PANEL_LABELS, type PanelProps } from '../contract';
 import { useUpdateDatabase } from '../hooks';
+import { NewButton } from './new-button';
 import { PanelBody, type Panels } from './panel-host';
 import type { Search } from './search';
 import { errorText, TOUCH } from './states';
@@ -44,8 +48,11 @@ export interface ToolbarProps extends Omit<PanelProps, 'panel' | 'close'> {
   online: boolean;
   panels: Panels;
   search: Search;
-  /** New; absent when the person can't add rows here. */
-  onNew?: () => void;
+  /**
+   * New: with the view's default template, a template, or empty (null). Absent when the person
+   * can't add rows here.
+   */
+  onNew?: (templateId?: Id | null) => void;
   /** Delete in "…" (Full access): moves the database to Trash. */
   onDelete?: () => void;
   /** A block in a page: the toolbar shows on hover or focus. */
@@ -61,7 +68,7 @@ export function Toolbar({
   inline,
   ...shared
 }: ToolbarProps) {
-  const { meta, view, savedView, canEditViews } = shared;
+  const { meta, view, savedView, actions, canEditViews } = shared;
   const toasts = useToasts();
   const updateDatabase = useUpdateDatabase(meta.id);
   const box = useRef<HTMLDivElement | null>(null);
@@ -89,7 +96,8 @@ export function Toolbar({
     online,
     canDelete: onDelete !== undefined,
   });
-  const open = panels.open;
+  // A panel that a chip of the filter bar opened shows under the chip instead.
+  const open = panels.chip === null ? panels.open : null;
   const popover = open !== null && !DIALOG_PANELS.has(open) ? open : null;
 
   // View options on a phone lists the toolbar's buttons.
@@ -198,9 +206,16 @@ export function Toolbar({
             onCloseAutoFocus={menuFocus}
           />
           {onNew && (
-            <Button size="sm" className={TOUCH} onClick={onNew}>
-              New
-            </Button>
+            <NewButton
+              meta={meta}
+              savedView={savedView}
+              actions={actions}
+              canManage={
+                online && can('manage_templates', meta.viewerAccess, { locked: meta.locked })
+              }
+              onNew={onNew}
+              onOpenChange={setMenuOpen}
+            />
           )}
         </div>
       </PopoverAnchor>

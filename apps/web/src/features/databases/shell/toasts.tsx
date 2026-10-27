@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -18,6 +19,11 @@ export interface ToastInput {
   message: string;
   /** Adds Undo; the toast then stays for 8 seconds (LIMITS.undoToastMs). */
   onUndo?: () => void;
+  /**
+   * Runs once when the toast goes without Undo: its time is up, another toast takes its place or
+   * the screen closes. A change with no way back waits for it (a deleted view).
+   */
+  onDone?: () => void;
 }
 
 export interface Toasts {
@@ -38,18 +44,46 @@ let lastId = 0;
 
 export function ToastProvider({ children }: { children?: ReactNode }) {
   const [toast, setToast] = useState<Shown | null>(null);
-  const show = useCallback((input: ToastInput) => {
-    lastId += 1;
-    setToast({ ...input, id: lastId });
+  // The toast showing, for its timer, Undo and onDone (which runs outside React's updates).
+  const showing = useRef<Shown | null>(null);
+  const replace = useCallback((next: Shown | null, undone = false) => {
+    const before = showing.current;
+    showing.current = next;
+    setToast(next);
+    if (before && !undone) before.onDone?.();
   }, []);
+  const show = useCallback(
+    (input: ToastInput) => {
+      lastId += 1;
+      replace({ ...input, id: lastId });
+    },
+    [replace],
+  );
   const toasts = useMemo<Toasts>(() => ({ show }), [show]);
 
   useEffect(() => {
     if (!toast) return;
     const ms = toast.onUndo ? LIMITS.undoToastMs : TOAST_MS;
-    const timer = setTimeout(() => setToast((t) => (t?.id === toast.id ? null : t)), ms);
+    const timer = setTimeout(() => {
+      if (showing.current?.id === toast.id) replace(null);
+    }, ms);
     return () => clearTimeout(timer);
-  }, [toast]);
+  }, [toast, replace]);
+
+  useEffect(() => {
+    const shown = showing;
+    // Leaving the screen ends the chance to undo.
+    return () => {
+      const last = shown.current;
+      shown.current = null;
+      last?.onDone?.();
+    };
+  }, []);
+
+  const undo = (shown: Shown) => {
+    if (showing.current?.id === shown.id) replace(null, true);
+    shown.onUndo?.();
+  };
 
   return (
     <ToastContext.Provider value={toasts}>
@@ -67,10 +101,7 @@ export function ToastProvider({ children }: { children?: ReactNode }) {
                 variant="ghost"
                 size="sm"
                 className="max-md:min-h-11"
-                onClick={() => {
-                  toast.onUndo?.();
-                  setToast(null);
-                }}
+                onClick={() => undo(toast)}
               >
                 Undo
               </Button>
