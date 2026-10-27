@@ -1,8 +1,15 @@
 import cookie from '@fastify/cookie';
-import { CSRF_COOKIE, CSRF_HEADER, type CurrentUser } from '@carehub/shared';
+import {
+  CSRF_COOKIE,
+  CSRF_HEADER,
+  hasPermission,
+  type CurrentUser,
+  type PermissionKey,
+} from '@carehub/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { httpError } from '../../core/errors';
+import { getCurrentMember, syncDefaultWorkspace, type CurrentMember } from '../workspaces';
 import { rememberSession, sessionCookies, sessionOf, type SessionCookies } from './cookies';
 import { checkCsrf } from './csrf';
 import { SESSION_COOKIE, findSession, sessionNeedsTouch, touchSession } from './sessions';
@@ -16,10 +23,14 @@ declare module 'fastify' {
     public?: boolean;
     /** Works while the person must still replace a temporary password (me, password, sign-out). */
     allowTemporaryPassword?: boolean;
+    /** Guests may use it too (pages and comments shared with them). requireMember refuses guests otherwise. */
+    allowGuests?: boolean;
   }
   interface FastifyRequest {
     /** The signed-in person on /api routes, or null. */
     user: CurrentUser | null;
+    /** The signed-in person's membership of the current workspace (members and guests), or null. */
+    member: CurrentMember | null;
   }
   interface FastifyInstance {
     sessionCookies: SessionCookies;
@@ -27,6 +38,10 @@ declare module 'fastify' {
     requireUser: Guard;
     /** 401 unless signed in; 403 unless a site admin. */
     requireSiteAdmin: Guard;
+    /** 401 unless signed in; 403 unless in the workspace (guests only where the route has allowGuests). */
+    requireMember: Guard;
+    /** requireMember, then 403 unless the person's role includes `key` (always 403 for guests). */
+    requirePermission: (key: PermissionKey) => Guard;
   }
 }
 
@@ -44,14 +59,19 @@ const CSRF_MESSAGES = {
   token: 'The security check failed. Reload the page and try again.',
 };
 
-/** Sessions, CSRF checks, `request.user` and the guards. Register after the database. */
+/**
+ * Sessions, CSRF checks, `request.user`, `request.member` and the guards. Register after the database.
+ * At start-up it also makes sure the current workspace and its built-in roles are in place.
+ */
 export const authPlugin = fp<AuthPluginOptions>(
   async (app, options) => {
     const cookies = sessionCookies(options.cookieSecure);
     const publicOrigin = options.publicUrl ? new URL(options.publicUrl).origin : null;
+    await syncDefaultWorkspace(app.db);
     await app.register(cookie);
     app.decorate('sessionCookies', cookies);
     app.decorateRequest('user', null);
+    app.decorateRequest('member', null);
 
     app.addHook('onRequest', async (request, reply) => {
       const route = request.routeOptions.url;
@@ -89,6 +109,7 @@ export const authPlugin = fp<AuthPluginOptions>(
         sessionToken: sessionOf(request)?.token,
       });
       if (failure) throw httpError(403, 'forbidden', CSRF_MESSAGES[failure]);
+      if (request.user) request.member = await getCurrentMember(app.db, request.user.id);
     });
 
     const signedIn = (request: FastifyRequest): CurrentUser => {
@@ -98,6 +119,19 @@ export const authPlugin = fp<AuthPluginOptions>(
     app.decorate('requireUser', async (request: FastifyRequest) => void signedIn(request));
     app.decorate('requireSiteAdmin', async (request: FastifyRequest) => {
       if (!signedIn(request).isSiteAdmin) throw httpError(403, 'forbidden');
+    });
+    const inWorkspace = (request: FastifyRequest): CurrentMember => {
+      signedIn(request);
+      const { member } = request;
+      if (!member) throw httpError(403, 'forbidden');
+      if (member.kind === 'guest' && !request.routeOptions.config.allowGuests) {
+        throw httpError(403, 'forbidden');
+      }
+      return member;
+    };
+    app.decorate('requireMember', async (request: FastifyRequest) => void inWorkspace(request));
+    app.decorate('requirePermission', (key: PermissionKey): Guard => async (request) => {
+      if (!hasPermission(inWorkspace(request), key)) throw httpError(403, 'forbidden');
     });
   },
   { name: 'carehub-auth', fastify: '5.x', dependencies: ['carehub-database'] },
