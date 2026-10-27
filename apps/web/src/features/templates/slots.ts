@@ -1,12 +1,17 @@
 import { LayoutTemplate } from 'lucide-react';
 import type { FeatureSlots } from '../../slots';
+import { ButtonBlockView } from './buttons/block-view';
+import { ButtonProblems } from './buttons/problems';
 import { VariableChipView } from './buttons/variable-chip';
 import { TemplatesOverlay } from './overlay';
 import { openSaveAsTemplate, saveAllowed } from './save-store';
 
 /** What templates adds to the shell, page view and editor (decision 0007, section 5.3). */
 export const slots: FeatureSlots = {
-  overlays: [{ id: 'templates', Component: TemplatesOverlay }],
+  overlays: [
+    { id: 'templates', Component: TemplatesOverlay },
+    { id: 'templates.buttons', Component: ButtonProblems },
+  ],
   pageMenuItems: [
     {
       id: 'templates.save',
@@ -20,7 +25,7 @@ export const slots: FeatureSlots = {
     },
   ],
   editor: {
-    // Template variables ({{date}}, {{me}}) in pages and templates.
-    nodeViews: { templateVariable: VariableChipView },
+    // The "/button" block and template variables ({{date}}, {{me}}) in pages and templates.
+    nodeViews: { actionButton: ButtonBlockView, templateVariable: VariableChipView },
   },
 };
