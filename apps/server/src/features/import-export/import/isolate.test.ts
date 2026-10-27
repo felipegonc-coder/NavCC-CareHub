@@ -26,9 +26,17 @@ function workerScript(name: string, body: string): URL {
 }
 
 describe('readInWorker', () => {
-  it('reads here when there is no bundled worker', async () => {
-    const { plan } = await readInWorker(request, { workerFile: null });
+  it('reads here when there is no bundled worker, outside production', async () => {
+    const { plan } = await readInWorker(request, { workerFile: null, production: false });
     expect(plan.pages.map((page) => page.title)).toEqual(['Notes']);
+  });
+
+  it('refuses to read without the bundled worker in production', async () => {
+    const error = await readInWorker(request, { workerFile: null, production: true }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(ImportFileError);
+    expect((error as Error).message).toBe("the file can't be read right now");
   });
 
   it('reads in the bundled worker thread', async () => {
