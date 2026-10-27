@@ -18,10 +18,14 @@ export interface TotalsRowProps {
   totals: Partial<Record<Id, ViewTotal>>;
   placeOf(column: TableColumn): CSSProperties;
   cellClass(column: TableColumn): string | undefined;
+  /** Classes of an empty first cell, under the selection column (when rows can be ticked). */
+  leadClass?: string;
   /** The view's calculations, with a Calculate menu in each cell (only with edit_views). */
   calculations?: View['calculations'];
   onCalculate?: (property: Property, aggregate: Aggregate) => void;
   testId?: string;
+  /** The row's number for screen readers, when rows are left out (virtual rows). */
+  rowIndex?: number;
 }
 
 const isAggregate = (value: string): value is Aggregate =>
@@ -33,12 +37,20 @@ export function TotalsRow({
   totals,
   placeOf,
   cellClass,
+  leadClass,
   calculations,
   onCalculate,
   testId,
+  rowIndex,
 }: TotalsRowProps) {
   return (
-    <div role="row" data-testid={testId} className="group/totals flex border-b border-border">
+    <div
+      role="row"
+      aria-rowindex={rowIndex || undefined}
+      data-testid={testId}
+      className="group/totals flex border-b border-border"
+    >
+      {leadClass !== undefined && <div role="gridcell" className={leadClass} />}
       {columns.map((column) => {
         const property = column.property;
         const total = totals[property.id];
