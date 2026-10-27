@@ -1,0 +1,23 @@
+{
+  "name": "@carehub/team-calendar-api",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "Request and response shapes for the Care Hub Calendar API, shared by the web app and the server.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@carehub/team-repeat": "*",
+    "@carehub/team-time": "*",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "vitest": "^3.2"
+  }
+}
