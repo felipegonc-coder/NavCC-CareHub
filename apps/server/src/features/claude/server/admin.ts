@@ -3,7 +3,7 @@ import {
   CLAUDE_CHAT_RETENTION_KEY,
   CLAUDE_MONTHLY_LIMIT_KEY,
   chatRetentionSchema,
-  NAV_OK_REQUIRED,
+  CONFIRM_REQUIRED,
   turnsSwitchOn,
   type ClaudeSettingsUpdate,
   type ClaudeSettingsView,
@@ -90,7 +90,7 @@ export interface ClaudeSettingsChange {
  * change once it's saved. Answers with the settings as they are now.
  *
  * A switch turns on only when the server has the key (409 not_set_up otherwise, sending nothing)
- * and the Admin ticked "Nav has given the OK" in its confirm (`navOk`, 400 otherwise).
+ * and the Admin ticked the checkbox in its confirm (`confirmed`, 400 otherwise).
  */
 export async function updateClaudeSettings(
   db: Db,
@@ -99,7 +99,7 @@ export async function updateClaudeSettings(
   const { workspaceId, userId, update, log } = change;
   if (turnsSwitchOn(update)) {
     if (!claudeRuntime().settings().apiKey) throw claudeHttpError('not_set_up');
-    if (update.navOk !== true) throw httpError(400, 'invalid', NAV_OK_REQUIRED);
+    if (update.confirmed !== true) throw httpError(400, 'invalid', CONFIRM_REQUIRED);
   }
   const wanted = new Map<string, unknown>();
   for (const feature of CLAUDE_FEATURES) {
@@ -125,8 +125,8 @@ export async function updateClaudeSettings(
     return changes;
   });
   for (const { key, value } of changed) {
-    // A switch turned on records that its confirm had "Nav has given the OK" ticked.
-    const confirmed = SWITCH_KEYS.has(key) && value === true ? { navOk: true } : {};
+    // A switch turned on records that its confirm was ticked.
+    const ticked = SWITCH_KEYS.has(key) && value === true ? { confirmed: true } : {};
     // stand-in: the security log (S2) isn't on main yet; until then it's the app log, marked.
     log.info(
       {
@@ -136,7 +136,7 @@ export async function updateClaudeSettings(
           userId,
           key,
           value,
-          ...confirmed,
+          ...ticked,
         },
       },
       'Claude setting changed',

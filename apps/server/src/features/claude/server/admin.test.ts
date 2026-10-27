@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { claudeSettingsViewSchema, NAV_OK_REQUIRED } from '@carehub/extras/claude/settings';
+import { claudeSettingsViewSchema, CONFIRM_REQUIRED } from '@carehub/extras/claude/settings';
 import { and, eq, sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -128,7 +128,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     const workspaceId = setUp();
     const view = await change(workspaceId, {
       switches: { writing_help: true, assistant: false },
-      navOk: true,
+      confirmed: true,
       monthlyRequests: 500,
       chatRetentionDays: 90,
     });
@@ -147,14 +147,14 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
       userId: admin.id,
       key: 'claude.writing_help',
       value: true,
-      navOk: true,
+      confirmed: true,
     });
-    expect(lines[1]?.security).not.toHaveProperty('navOk');
+    expect(lines[1]?.security).not.toHaveProperty('confirmed');
 
     lines.length = 0;
     await change(workspaceId, {
       switches: { writing_help: true },
-      navOk: true,
+      confirmed: true,
       monthlyRequests: 500,
     });
     expect(lines).toEqual([]);
@@ -170,10 +170,10 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     expect(lines).toHaveLength(1);
   });
 
-  it('turns a switch on only with the key and "Nav has given the OK" ticked', async () => {
+  it('turns a switch on only with the key and a ticked confirm', async () => {
     const noKey = setUp({ apiKey: undefined });
     const missingKey = await refusal(
-      change(noKey, { switches: { writing_help: true }, navOk: true }),
+      change(noKey, { switches: { writing_help: true }, confirmed: true }),
     );
     expect(missingKey).toMatchObject({ statusCode: 409, details: { reason: 'not_set_up' } });
     expect(missingKey.message).toBe("Claude isn't set up on this server yet.");
@@ -181,13 +181,13 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     const workspaceId = setUp();
     const unticked = await refusal(change(workspaceId, { switches: { writing_help: true } }));
     expect(unticked).toMatchObject({ statusCode: 400, code: 'invalid' });
-    expect(unticked.message).toBe(NAV_OK_REQUIRED);
+    expect(unticked.message).toBe(CONFIRM_REQUIRED);
     expect(lines).toEqual([]);
     expect(await getWorkspaceSetting(t.db, noKey, 'claude.writing_help')).toBeUndefined();
     expect(await getWorkspaceSetting(t.db, workspaceId, 'claude.writing_help')).toBeUndefined();
 
     // Turning off needs neither, so a switch left on can go off once the key is gone.
-    await change(workspaceId, { switches: { writing_help: true }, navOk: true });
+    await change(workspaceId, { switches: { writing_help: true }, confirmed: true });
     while (restores.length > 0) restores.pop()?.();
     setUp({ workspaceId, apiKey: undefined });
     const off = await change(workspaceId, { switches: { writing_help: false } });
@@ -196,7 +196,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
 
   it('says who last turned each switch on or off, and when', async () => {
     const workspaceId = setUp();
-    await change(workspaceId, { switches: { assistant: true }, navOk: true });
+    await change(workspaceId, { switches: { assistant: true }, confirmed: true });
     const view = claudeSettingsViewSchema.parse(await claudeSettingsView(t.db, workspaceId));
     expect(view.lastChanged).toEqual({
       ...NEVER_CHANGED,
@@ -218,7 +218,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
 
   it('turns features on and off for askClaude through the saved switches', async () => {
     const workspaceId = setUp();
-    await change(workspaceId, { switches: { meeting_summary: true }, navOk: true });
+    await change(workspaceId, { switches: { meeting_summary: true }, confirmed: true });
     expect(await isClaudeFeatureOn(t.db, workspaceId, 'meeting_summary')).toBe(true);
     expect(await isClaudeFeatureOn(t.db, workspaceId, 'assistant')).toBe(false);
     await change(workspaceId, { switches: { meeting_summary: false } });
@@ -246,7 +246,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
 
   it('tells each person only what they can use now', async () => {
     const workspaceId = setUp();
-    await change(workspaceId, { switches: { writing_help: true, fields: true }, navOk: true });
+    await change(workspaceId, { switches: { writing_help: true, fields: true }, confirmed: true });
     expect((await claudeStatusFor(t.db, editor.id)).on).toEqual({
       ...ALL_OFF,
       writing_help: true,
@@ -280,7 +280,6 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     expect((await put(editor, { chatRetentionDays: 30 })).statusCode).toBe(403);
     for (const payload of [
       { switches: { telepathy: true } },
-      { navApproved: true },
       { monthlyRequests: -1 },
       { monthlyRequests: 2_000_000 },
     ]) {
@@ -288,11 +287,13 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     }
     const unticked = await put(admin, { switches: { writing_help: true } });
     expect(unticked.statusCode).toBe(400);
-    expect(unticked.json()).toMatchObject({ error: { code: 'invalid', message: NAV_OK_REQUIRED } });
+    expect(unticked.json()).toMatchObject({
+      error: { code: 'invalid', message: CONFIRM_REQUIRED },
+    });
 
     const saved = await put(admin, {
       switches: { writing_help: true },
-      navOk: true,
+      confirmed: true,
       monthlyRequests: 1200,
       chatRetentionDays: 30,
     });

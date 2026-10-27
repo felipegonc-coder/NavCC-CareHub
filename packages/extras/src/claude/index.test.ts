@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CLAUDE_CONFIRM_LABEL,
+  CLAUDE_CONFIRM_NOTE,
   CLAUDE_ERROR_REASONS,
   CLAUDE_ERRORS,
   CLAUDE_FEATURE_LABELS,
   CLAUDE_FEATURE_SENDS,
   CLAUDE_FEATURES,
-  CLAUDE_NAV_OK_LABEL,
-  CLAUDE_NAV_OK_NOTE,
   claudeSwitchKey,
   isClaudeFeature,
 } from './index';
@@ -22,17 +22,18 @@ describe('Claude names', () => {
     }
   });
 
-  it('uses the switch names and confirm words of the Claude features spec', () => {
+  it('uses the switch names and the Writing help line of the Claude features spec', () => {
     expect([
       CLAUDE_FEATURE_LABELS.writing_help,
       CLAUDE_FEATURE_LABELS.assistant,
       CLAUDE_FEATURE_LABELS.fields,
       CLAUDE_FEATURE_LABELS.meeting_summary,
     ]).toEqual(['Writing help', 'Assistant', 'Claude fields', 'Meeting summary']);
-    expect(`${CLAUDE_FEATURE_SENDS.writing_help} ${CLAUDE_NAV_OK_NOTE}`).toBe(
-      "Writing help sends the text people select, and the text around it, to Anthropic's Claude. Only turn this on with Nav's written OK.",
+    expect(CLAUDE_FEATURE_SENDS.writing_help).toBe(
+      "Writing help sends the text people select, and the text around it, to Anthropic's Claude.",
     );
-    expect(CLAUDE_NAV_OK_LABEL).toBe('Nav has given the OK');
+    expect(CLAUDE_CONFIRM_NOTE).toMatch(/\.$/);
+    expect(CLAUDE_CONFIRM_LABEL).toBeTruthy();
   });
 
   it('recognises feature names', () => {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CLAUDE_NAV_OK_LABEL, type ClaudeFeature } from './index';
+import { CLAUDE_CONFIRM_LABEL, type ClaudeFeature } from './index';
 
 // Settings → Claude and the on/off status, shared by the server's /api/claude routes and the web app
 // (docs/extras/claude.md, "Settings → Claude"). Import from '@carehub/extras/claude/settings'.
@@ -79,23 +79,23 @@ export const claudeSettingsViewSchema = z.object({
 export type ClaudeSettingsView = z.infer<typeof claudeSettingsViewSchema>;
 
 /** Why turning a switch on was refused: its confirm wasn't ticked. */
-export const NAV_OK_REQUIRED = `Tick "${CLAUDE_NAV_OK_LABEL}" to turn a feature on.`;
+export const CONFIRM_REQUIRED = `Tick "${CLAUDE_CONFIRM_LABEL}" to turn a feature on.`;
 
 /**
- * PUT /api/claude/settings: only what changes. Turning any switch on needs `navOk: true`, which the
- * web app sends only from that switch's confirm, once "Nav has given the OK" is ticked.
+ * PUT /api/claude/settings: only what changes. Turning any switch on needs `confirmed: true`, which
+ * the web app sends only from that switch's confirm, once its checkbox is ticked.
  */
 export const claudeSettingsUpdateSchema = z
   .object({
     switches: z.object(switches).partial().strict().optional(),
-    navOk: z.literal(true).optional(),
+    confirmed: z.literal(true).optional(),
     monthlyRequests: monthlyLimitSchema.optional(),
     chatRetentionDays: chatRetentionSchema.optional(),
   })
   .strict()
-  .refine((update) => update.navOk === true || !turnsSwitchOn(update), {
-    message: NAV_OK_REQUIRED,
-    path: ['navOk'],
+  .refine((update) => update.confirmed === true || !turnsSwitchOn(update), {
+    message: CONFIRM_REQUIRED,
+    path: ['confirmed'],
   });
 export type ClaudeSettingsUpdate = z.infer<typeof claudeSettingsUpdateSchema>;
 

@@ -1,31 +1,31 @@
 import { describe, expect, it } from 'vitest';
+import { CLAUDE_CONFIRM_LABEL } from './index';
 import {
   claudeSettingsUpdateSchema,
+  CONFIRM_REQUIRED,
   MAX_MONTHLY_REQUESTS,
   monthlyLimitSchema,
-  NAV_OK_REQUIRED,
   turnsSwitchOn,
 } from './settings';
 
 describe('Settings → Claude shapes', () => {
-  it('turns a switch on only with navOk, and off without it', () => {
+  it('turns a switch on only when its confirm was ticked, and off without it', () => {
     const on = claudeSettingsUpdateSchema.safeParse({ switches: { writing_help: true } });
     expect(on.success).toBe(false);
-    expect(on.error?.issues).toMatchObject([{ path: ['navOk'], message: NAV_OK_REQUIRED }]);
-    expect(NAV_OK_REQUIRED).toBe('Tick "Nav has given the OK" to turn a feature on.');
+    expect(on.error?.issues).toMatchObject([{ path: ['confirmed'], message: CONFIRM_REQUIRED }]);
+    expect(CONFIRM_REQUIRED).toBe(`Tick "${CLAUDE_CONFIRM_LABEL}" to turn a feature on.`);
 
-    const confirmed = { switches: { writing_help: true }, navOk: true };
-    expect(claudeSettingsUpdateSchema.parse(confirmed)).toEqual(confirmed);
+    const ticked = { switches: { writing_help: true }, confirmed: true };
+    expect(claudeSettingsUpdateSchema.parse(ticked)).toEqual(ticked);
     const off = { switches: { writing_help: false, assistant: false } };
     expect(claudeSettingsUpdateSchema.parse(off)).toEqual(off);
-    expect(claudeSettingsUpdateSchema.safeParse({ ...confirmed, navOk: false }).success).toBe(
+    expect(claudeSettingsUpdateSchema.safeParse({ ...ticked, confirmed: false }).success).toBe(
       false,
     );
   });
 
-  it('refuses anything it does not know, including the old navApproved', () => {
+  it('refuses anything it does not know', () => {
     for (const update of [
-      { navApproved: true },
       { switches: { telepathy: true } },
       { monthlyRequests: 3000, theme: 'dark' },
     ]) {

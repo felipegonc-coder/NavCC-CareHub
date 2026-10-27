@@ -4,7 +4,7 @@
 /**
  * Each feature has its own workspace switch, off by default. Nothing is sent to Claude unless the
  * server has a key and that feature's switch is on. An Admin turns a switch on only through its
- * confirm, with "Nav has given the OK" ticked (Claude features spec, section 3.1).
+ * confirm, with its checkbox ticked (Claude features spec, section 3.1).
  */
 export const CLAUDE_FEATURES = [
   'writing_help',
@@ -44,10 +44,10 @@ export const CLAUDE_FEATURE_SENDS: Readonly<Record<ClaudeFeature, string>> = {
 };
 
 /** The rest of every switch's confirm. */
-export const CLAUDE_NAV_OK_NOTE = "Only turn this on with Nav's written OK.";
+export const CLAUDE_CONFIRM_NOTE = "Only turn this on with Nav's written OK.";
 
-/** The tick in every switch's confirm. Turn on stays grey until it's ticked. */
-export const CLAUDE_NAV_OK_LABEL = 'Nav has given the OK';
+/** The checkbox in every switch's confirm. Turn on stays grey until it's ticked. */
+export const CLAUDE_CONFIRM_LABEL = 'Nav has given the OK';
 
 /** The workspace setting that holds a feature's switch, for example `claude.writing_help`. */
 export function claudeSwitchKey<F extends ClaudeFeature>(feature: F): `claude.${F}` {
