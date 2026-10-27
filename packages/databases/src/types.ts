@@ -883,7 +883,7 @@ export interface FormDefinition {
   /** Secret part of the form link. "Change link" replaces it. */
   linkCode: string;
   linkChangedAt: Instant | null;
-  /** Felipe approved anonymous responses (FM-D1): off by default, a setting per form. */
+  /** Anonymous responses (FM-D1, approved): off by default, a setting per form. */
   anonymous: boolean;
   /** People who asked to be notified about new responses. */
   notifyUserIds: Id[];
