@@ -25,7 +25,8 @@ gets type-checked: nobody's computer has network. Browser tests, axe and screens
 label (add it with issue_write once the screens are ready; at most 2 runs per PR without asking the main lead) and
 nightly on main; put the result and the screenshot-comment link in the PR body. PRs stay under about 600 lines of
 non-test code (tests, fixtures and docs don't count). One GitHub account is shared by every agent: push complete
-batches in few commits, never poll in a loop, back off on rate-limit errors. Tracker: Care Hub rebuild tracker, Learning lane rows.
+batches in few commits, never poll in a loop, back off on rate-limit errors. Push work in progress to a feat/* branch with no open PR at least every 3 hours (branch
+pushes run no CI), so no work lives only on one computer; never push half-done work to a branch with an open PR. Tracker: Care Hub rebuild tracker, Learning lane rows.
 
 ## `packages/learning` layout and ownership
 
@@ -86,7 +87,7 @@ type ProgressEvent = { id: Id; at: IsoDateTime } & (          // id = client uui
   | { type: "lesson_opened"; lessonId: Id }
   | { type: "time_active"; lessonId: Id; seconds: number }     // 1..60 per event
   | { type: "block_completed"; lessonId: Id; blockId: Id }     // continue, process, flashcards, sorting
-  | { type: "knowledge_check_answered"; lessonId: Id; blockId: Id; response: QuestionResponse }
+  | { type: "knowledge_check_answered"; lessonId: Id; blockId: Id; correct: boolean } // no typed text (0310)
   | { type: "scenario_finished"; lessonId: Id; blockId: Id; choiceIds: Id[] }
   | { type: "lesson_completed"; lessonId: Id }
   | { type: "quiz_attempt_started"; lessonId: Id; plan: AttemptPlan }
@@ -189,7 +190,7 @@ Routes (B1 creates them all in PR 3, each lazy-loading the owner's `index.tsx` s
 `/learning/studio`, `/learning/studio/courses/:courseId`, `.../preview` (B8); `/learning/studio/paths[/:pathId]` (B3);
 `/learning/studio/banks[/:bankId]` (B9); `/learning/assign` (B4); `/learning/reports`, `/learning/reports/courses/:courseId`,
 `/learning/reports/overdue` (B4); `/learning/reports/people/:personId`, `/learning/reports/team`,
-`/learning/reports/paths/:pathId` (B3); `/learning/review/:token` (B1).
+`/learning/reports/paths/:pathId` (B3); `/learning/review` with the token in the fragment (B1, 0309).
 
 ### Shared web contracts
 - Block views (B5 owns `blocks/registry.tsx`; creates empty family files that their owners fill):

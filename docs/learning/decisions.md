@@ -61,3 +61,43 @@ Search results include locked lessons; opening one explains in plain words what 
 ## 0308 · Shared family files
 Whoever reaches main first creates a shared family file (for example `studio/editors/questions/index.tsx`) in the
 agreed shape from PLAN.md, empty apart from its export; its owner then fills it. Nobody adds the same file twice.
+
+## 0309 · Review links
+- The link is `/learning/review#<token>`: the token sits in the fragment, which browsers never send, and the
+  browser passes it to the API in the `X-Review-Token` header, never in a path or query, so it stays out of logs.
+- Token: 32 random bytes (base64url), stored only as a SHA-256 hash and shown once, when the link is made.
+- A link expires after 7, 30 (default) or 90 days, and the author can stop sharing it at any time.
+- It opens one draft read-only, plus comments on its blocks, and nothing else. Signed-in people only (Felipe's
+  default), so there is no public route.
+
+## 0310 · Learner events carry no typed text
+- Events that can wait in the offline queue carry ids, choices and numbers only: `knowledge_check_answered` is
+  `{ lessonId, blockId, correct }` (practice; only "answered" counts for continue blocks).
+- `quiz_attempt_submitted` is never queued: the quiz view posts it at once with `sendNow` (a quiz needs a
+  connection, 0302).
+- The queue is cleared on sign-out, other people's queued events are dropped on start, and the person always
+  comes from the signed-in session.
+- API paths are built with `apiPath(...)`, which encodes each segment and refuses `.`, `..` (also as `%2e`) and
+  `\`; screens check route params with `IdSchema` first and show "not found" otherwise.
+- Calendar and Home call `public.ts` with the signed-in person's id, and every `href` is an in-app `/learning/` path.
+
+## 0311 · Learners keep the version they started
+- Each learner's run is pinned to the course version it started on and reduced against that version, so editing
+  a published course never breaks anyone mid-course. Finished runs keep their result.
+- Publish options: **none**: nobody moves. **tell**: runs in progress move to the new version with their events
+  replayed, and those learners get the alert; finished runs stay. **retake**: everyone who started, finished or
+  not, begins a new run on the new version and gets the reminder.
+- `GET /courses/:id` (B1) returns the learner view of the version of the learner's latest run, else the live
+  version, with `version`. B3 provides `runVersion(db, { workspaceId, userId, courseId })` in the progress
+  server; B1 provides `getCourseVersion(db, workspaceId, courseId, version)`. `GET /courses/:id/progress` and the
+  quiz attempts route use the same version. There is no `?version=` parameter.
+
+## 0312 · Reset and mark complete need `learning.assign`
+People with only `learning.analytics` see reports but get no Reset or Mark complete; those need `learning.assign`.
+
+## 0313 · Learning notices have one button
+Every Learning notice has one in-app button: "Open course" (`/learning/courses/:courseId`) for learners,
+"Open in Studio" (`/learning/studio/courses/:courseId`) for authors, "Open certificate"
+(`/learning/certificates/:certificateId`) for certificate expiry. Course titles only go to people who can see the
+course.
+
