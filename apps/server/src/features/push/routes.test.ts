@@ -204,16 +204,55 @@ describe('/api/push/preferences', () => {
   it('starts from the defaults and changes only what is sent', async () => {
     await build();
     expect((await call('GET', '/preferences', avery)).json()).toEqual({
-      preferences: { notifyAbout: 'all', showText: true },
+      preferences: { notifyAbout: 'all', showText: true, pause: null },
     });
     const changed = await call('PATCH', '/preferences', avery, { showText: false });
-    expect(changed.json()).toEqual({ preferences: { notifyAbout: 'all', showText: false } });
+    expect(changed.json()).toEqual({
+      preferences: { notifyAbout: 'all', showText: false, pause: null },
+    });
     expect((await call('GET', '/preferences', avery)).json()).toEqual(changed.json());
     expect((await call('GET', '/preferences', sam)).json()).toEqual({
-      preferences: { notifyAbout: 'all', showText: true },
+      preferences: { notifyAbout: 'all', showText: true, pause: null },
     });
     const unknown = await call('PATCH', '/preferences', avery, { notifyAbout: 'everything' });
     expect(unknown.statusCode).toBe(400);
+  });
+
+  it('pauses notifications until a time, which then reads as no pause', async () => {
+    await build();
+    const until = new Date(clock + 60 * 60 * 1000).toISOString();
+    const paused = await call('PATCH', '/preferences', avery, { pause: { until } });
+    expect(paused.json()).toEqual({
+      preferences: { notifyAbout: 'all', showText: true, pause: { until } },
+    });
+    expect((await call('GET', '/preferences', avery)).json().preferences.pause).toEqual({ until });
+    clock += 60 * 60 * 1000;
+    expect((await call('GET', '/preferences', avery)).json().preferences.pause).toBeNull();
+  });
+
+  it('pauses until turned back on, and turns back on', async () => {
+    await build();
+    const paused = await call('PATCH', '/preferences', avery, { pause: { until: null } });
+    expect(paused.json().preferences.pause).toEqual({ until: null });
+    clock += 30 * 24 * 60 * 60 * 1000;
+    expect((await call('GET', '/preferences', avery)).json().preferences.pause).toEqual({
+      until: null,
+    });
+    const resumed = await call('PATCH', '/preferences', avery, { pause: null });
+    expect(resumed.json().preferences.pause).toBeNull();
+  });
+
+  it('refuses a pause that has ended or ends more than 7 days away', async () => {
+    await build();
+    for (const offset of [0, -60_000, 7 * 24 * 60 * 60 * 1000 + 60_000]) {
+      const until = new Date(clock + offset).toISOString();
+      const refused = await call('PATCH', '/preferences', avery, { pause: { until } });
+      expect(refused.statusCode, until).toBe(400);
+      expect(refused.json()).toEqual({
+        error: { code: 'invalid', message: 'Choose a time in the next 7 days.' },
+      });
+    }
+    expect((await call('GET', '/preferences', avery)).json().preferences.pause).toBeNull();
   });
 });
 
@@ -231,7 +270,9 @@ describe.skipIf(!hasDatabase)('/api/push in the app', () => {
         url: '/api/push/preferences',
         payload: { notifyAbout: 'mentions' },
       });
-      expect(saved.json()).toEqual({ preferences: { notifyAbout: 'mentions', showText: true } });
+      expect(saved.json()).toEqual({
+        preferences: { notifyAbout: 'mentions', showText: true, pause: null },
+      });
     } finally {
       await testApp.close();
     }
