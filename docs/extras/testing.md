@@ -24,7 +24,13 @@ How search works and what's still a stand-in: [search.md](search.md).
 
 ## History (versions, Updates, Archive)
 
-_Filled in by the history PRs._
+- **Version history:** page menu → "Version history", Ctrl+Alt+H on a page, or open `/p/<pageId>?version=<versionId>`. It's a dialog named "Version history", described by the page title. Inside:
+  - the listbox "Versions", with one group per day (named "Today", "Yesterday", "Oct 20") and options such as "Today, 3:12 PM · Avery Lin, Sam Ortiz" (a named version starts with its name);
+  - the region "Version preview", with the switch "Show changes" (on) and the button "Copy link";
+  - the button "Show older versions" when there are more;
+  - on phones, a tap on an option shows the preview, and the button "Versions" goes back.
+- **Endpoints:** `GET /api/history/pages/:pageId/versions?before=` and `GET /api/history/pages/:pageId/versions/:versionId`. Live topic `history:<pageId>`: `history.versions`, `history.restored`.
+- **Screens:** none in `tests/e2e/extras/screens.ts` yet; Version history opens from a page, so its screens come once the page view (#49) and seeded versions are on main.
 
 ## Templates and buttons
 

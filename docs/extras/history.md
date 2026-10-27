@@ -23,6 +23,15 @@ Spec: [page-history-and-trash.md](../plan/specs/page-history-and-trash.md) (chec
   - screen readers hear "added" and "removed".
     Blocks it can't draw, such as a database, show their name.
 
+## The Version history window (web)
+
+- **Opens** from the page menu ("Version history", on pages and rows; a database has no versions of its own), with Ctrl+Alt+H on a page, and from `?version=<versionId>` links (Copy link), which start on that version. Other web features open it with `openVersionHistory({ id, title }, versionId?)` from `apps/web/src/features/history/store.ts`, for example Updates' Show changes. Going to another screen closes it.
+- **Layout:** the preview on the left, the versions on the right, newest first and grouped by day, named ones in bold, with a label for versions saved before a change ("Before a restore"). On phones the list shows first; a tap shows the preview, and "Versions" goes back.
+- **Keyboard:** the list takes focus once it loads; ↑ and ↓ move, Home and End jump, Esc closes. Tab reaches Show changes (on at first) and Copy link. More versions load near the end of the list, or with "Show older versions".
+- **States:** "Versions appear here after the first edits."; no access (403) and not found (404) without any page details; a version that's gone shows the server's message.
+- **Live:** the list refreshes on `history.versions`, `history.restored` and after a reconnect.
+- The menu item shows for everyone who can open the page, since the page menu doesn't know the person's access yet; without Can edit the window says "You don't have access to this." Default: hide it once `SlotPage` carries the access (page model, #49).
+
 ## For other features (`apps/server/src/features/history/index.ts`)
 
 - `saveVersionNow(tx, pageId, { reason, by })` saves a version right away. Call it in the transaction that replaces the content, before the change: a rollback drops the version too. `reason` is `'restore' | 'import' | 'template' | 'replace' | 'accept_all' | 'automation'`; `by` is the person, or null for automations. It returns `{ id, pageId, kind, createdAt }`, or null when the page has no versions (missing, in Trash, a database). Until the page model and the content API are on main it always returns null and runs no queries. In tests, mock `../history` and check the call.
