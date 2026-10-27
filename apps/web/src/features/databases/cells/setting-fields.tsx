@@ -1,4 +1,4 @@
-import { Field, Input, Textarea } from '@carehub/ui';
+import { Field, Input, Switch, Textarea } from '@carehub/ui';
 import type { ReactNode } from 'react';
 import { NativeSelect } from './controls';
 import type { Draft } from './draft';
@@ -81,6 +81,27 @@ export function ChoiceSetting<T extends string>({
           </option>
         ))}
       </NativeSelect>
+    </Field>
+  );
+}
+
+/** A setting that is on or off; it saves when switched. */
+export function SwitchSetting({
+  label,
+  hint,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <Field label={label} hint={hint} layout="inline">
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
     </Field>
   );
 }
