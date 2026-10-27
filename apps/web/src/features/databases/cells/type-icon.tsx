@@ -4,6 +4,7 @@ import {
   AlignLeft,
   ArrowUpRight,
   AtSign,
+  BadgeCheck,
   Calendar,
   CircleDot,
   Clock,
@@ -48,6 +49,7 @@ const ICONS: Record<PropertyType, LucideIcon> = {
   rollup: Search,
   unique_id: Fingerprint,
   button: MousePointerClick,
+  verification: BadgeCheck,
 };
 
 /** The icon for a property type, beside its name in headers and menus. Decorative only. */

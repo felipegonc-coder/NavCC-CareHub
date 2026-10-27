@@ -2,6 +2,7 @@
 import { isCanonicalDecimal } from './decimal';
 import { isValidDateValue } from './dates';
 import { isSafeWebLink } from './richtext';
+import { isVerificationValue } from './verification';
 import type {
   ChecklistItem,
   ComputedValue,
@@ -14,6 +15,7 @@ import type {
   PropertyType,
   RichText,
   Row,
+  VerificationValue,
 } from './types';
 
 export interface ReadValueMap {
@@ -43,6 +45,8 @@ export interface ReadValueMap {
   /** The number part as an exact decimal; the prefix is in the property config. */
   unique_id: string | null;
   button: null;
+  /** null: Not verified. */
+  verification: VerificationValue | null;
 }
 export type ReadValue = ReadValueMap[PropertyType];
 
@@ -114,6 +118,8 @@ export function readValue(
       return row.uniqueNumber === null ? null : String(row.uniqueNumber);
     case 'button':
       return null;
+    case 'verification':
+      return isVerificationValue(raw) ? raw : null;
   }
 }
 
