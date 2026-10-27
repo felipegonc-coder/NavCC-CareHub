@@ -197,3 +197,201 @@ span.ch-lane-block {
   font-size: 0.875rem;
   user-select: none;
 }
+
+/* The "/" menu (rendered in document.body, outside .ch-editor). Sizes come from @carehub/ui. */
+.ch-slash-menu {
+  position: fixed;
+  z-index: 50;
+  box-sizing: border-box;
+  width: var(--ch-space-72);
+  max-height: var(--ch-space-80);
+  overflow-y: auto;
+  padding: var(--ch-space-1);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+  color: rgb(var(--ch-fg));
+  box-shadow: var(--ch-shadow-menu);
+}
+
+.ch-slash-group {
+  padding: var(--ch-space-2) var(--ch-space-2) var(--ch-space-1);
+  color: rgb(var(--ch-muted));
+  font-size: var(--ch-text-label);
+  line-height: var(--ch-leading-label);
+}
+
+.ch-slash-option {
+  display: flex;
+  align-items: center;
+  gap: var(--ch-space-3);
+  padding: var(--ch-space-1_5) var(--ch-space-2);
+  border-radius: var(--ch-radius);
+  cursor: pointer;
+}
+
+.ch-slash-option[aria-selected='true'] {
+  background: rgb(var(--ch-fill));
+}
+
+.ch-slash-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ch-space-9);
+  height: var(--ch-space-9);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+}
+
+.ch-slash-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ch-slash-title {
+  display: block;
+  font-size: var(--ch-text-small);
+  font-weight: var(--ch-weight-medium);
+  line-height: var(--ch-leading-small);
+}
+
+.ch-slash-description {
+  display: block;
+  overflow: hidden;
+  color: rgb(var(--ch-muted));
+  font-size: var(--ch-text-label);
+  line-height: var(--ch-leading-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ch-slash-hint,
+.ch-slash-empty {
+  color: rgb(var(--ch-muted));
+  font-size: var(--ch-text-label);
+  line-height: var(--ch-leading-label);
+}
+
+.ch-slash-empty {
+  margin: 0;
+  padding: var(--ch-space-1_5) var(--ch-space-2);
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+}
+
+.ch-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The selection toolbar and its link panel. */
+.ch-bubble {
+  z-index: 50;
+}
+
+.ch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ch-space-0_5);
+  padding: var(--ch-space-1);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+  color: rgb(var(--ch-fg));
+  box-shadow: var(--ch-shadow-menu);
+}
+
+.ch-toolbar-button,
+.ch-link-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--ch-space-8);
+  height: var(--ch-space-8);
+  padding: 0 var(--ch-space-1_5);
+  border: none;
+  border-radius: var(--ch-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+  cursor: pointer;
+}
+
+.ch-toolbar-button:hover,
+.ch-link-picker:hover,
+.ch-toolbar-button[aria-pressed='true'] {
+  background: rgb(var(--ch-fill));
+}
+
+.ch-toolbar-button[aria-pressed='true'] {
+  color: rgb(var(--ch-primary));
+}
+
+.ch-toolbar :focus-visible {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: 1px;
+}
+
+.ch-link-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ch-space-1);
+}
+
+.ch-link-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ch-space-1);
+}
+
+.ch-link-input {
+  width: var(--ch-space-60);
+  height: var(--ch-space-8);
+  padding: 0 var(--ch-space-2);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+  color: rgb(var(--ch-fg));
+  font: inherit;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+}
+
+.ch-link-input::placeholder {
+  color: rgb(var(--ch-muted));
+}
+
+.ch-link-apply {
+  height: var(--ch-space-8);
+  padding: 0 var(--ch-space-3);
+  border: none;
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-primary));
+  color: rgb(var(--ch-primary-fg));
+  font: inherit;
+  font-size: var(--ch-text-small);
+  font-weight: var(--ch-weight-medium);
+  line-height: var(--ch-leading-small);
+  cursor: pointer;
+}
+
+.ch-link-picker {
+  justify-content: flex-start;
+}
+
+.ch-link-error {
+  margin: 0;
+  padding: 0 var(--ch-space-1);
+  color: rgb(var(--ch-danger));
+  font-size: var(--ch-text-label);
+  line-height: var(--ch-leading-label);
+}

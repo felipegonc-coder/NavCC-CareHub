@@ -40,7 +40,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 | Comment | Add comments and replies | ✓ | ✓ | ✓ | – |
 | Share | Change who has access, where they have Full access | ✓ | ✓ | – | – |
 | Templates | Save, change and delete workspace templates (everyone can use them) | ✓ | ✓ | – | – |
-| Use Claude | Use Claude features that are switched on (Phase 5) | ✓ | ✓ | – | – |
+| Use Claude | Use Claude features that are switched on (see Claude features) | ✓ | ✓ | – | – |
 | Build trainings | Use the Learning Studio (Phase 4) | ✓ | – | – | – |
 | Assign trainings | Assign courses and paths (Phase 4) | ✓ | – | – | – |
 | See training analytics | See Learning reports (Phase 4) | ✓ | – | – | – |
@@ -107,7 +107,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 
 **🆕 Moving pages changes access**
 
-- Moving a page somewhere with different access first shows what will change: "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." Move or Cancel. Pages with Stop inheriting keep their own access, and the confirm says so.
+- Moving a page somewhere with different access first shows what will change, in one sentence: "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." People who lose access are counted, each person once even if they had access several ways ("1 person loses access"). Each person, group or role that gains access or gets a different level is named with its new level, joined with "and". A part that doesn't apply is left out. Move to (Pages and blocks) and dragging in the sidebar use this same confirm. Move or Cancel. Pages with Stop inheriting keep their own access, and the confirm says so.
 - Moving into a private space removes everyone else's inherited access; moving out of one gives the new place's access.
 - Moving needs Full access on the page and Can edit where it's going.
 
@@ -179,7 +179,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - 🆕 **RP-22** Share links never show databases with row rules or property access, comments, or history.
 - 🆕 **RP-23** The Admins' share-link list shows every live link, and Turn off works from there.
 - 🆕 **RP-24** Access requests: no title is shown to the requester; the notice buttons work; the first answer wins; the requester is told; asking again within 24 hours of a decline is refused.
-- 🆕 **RP-25** Moving a page to a place with different access lists the exact changes, and afterwards access matches the list.
+- 🆕 **RP-25** Moving a page to a place with different access first shows the section 3 sentence, such as "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." Afterwards access matches it: the people counted can't open the page, and those named have the stated level.
 - 🆕 **RP-26** The permission test (RP-12) and leak tests (RP-13) also pass for guests, groups and share-link visitors.
 
 ## Decisions for Felipe

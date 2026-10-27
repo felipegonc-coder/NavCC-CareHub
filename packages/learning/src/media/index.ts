@@ -10,6 +10,6 @@ export * from './kinds';
 
 export * from './embed';
 
-// media: embed publish check
+export * from './embed-issues';
 
 export * from './interactive';
