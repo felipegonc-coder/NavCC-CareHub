@@ -11,7 +11,7 @@ import {
   uniqueName,
 } from '../_support/index.js';
 import { AutomationEditor } from '../automations/automation-editor.js';
-import { CareHubChat } from '../automations/care-hub-chat.js';
+import { CareHubChat } from '../comments/care-hub-chat.js';
 import { addProperty, config, makeDatabase, nameOf, value } from '../databases/database-api.js';
 import { containing, DatabaseScreen, signedInPage } from '../databases/database-page.js';
 import { makeForm, question, sendAnswers } from '../forms/form-data.js';
@@ -198,7 +198,9 @@ test.describe('Form response → automation → calendar', () => {
       await test.step('Within 10 seconds, one 🔔 message from the automation reaches Eli', async () => {
         // 10 seconds for the automation to act, plus 2 for the open chat's live update.
         await expect(chat.shown(note)).toHaveCount(1, { timeout: 12_000 });
-        await expect(chat.from(automation).first()).toBeVisible();
+        // It comes from "Automation:" and the automation's name (Automations spec, Message).
+        const sender = new RegExp(`Automation:\\s*${containing(automation).source}`);
+        await expect(chat.shown(note).filter({ hasText: sender })).toHaveCount(1);
       });
 
       await test.step('The database has one new row, the callback', async () => {

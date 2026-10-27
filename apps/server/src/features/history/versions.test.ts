@@ -262,7 +262,8 @@ describe.skipIf(!hasDatabase)('versions on Postgres', () => {
       .where(eq(historyEdits.pageId, pageId));
     expect(edits?.editorIds).toEqual([sam.id]);
     expect(edits?.firstAt).toEqual(edits?.lastAt);
-    expect(await savedFor(pageId, after(edits!.lastAt!, 2 * MINUTE))).toHaveLength(1);
+    // Postgres keeps microseconds and JavaScript dates don't, so check a second after the pause.
+    expect(await savedFor(pageId, after(edits!.lastAt!, 2 * MINUTE + SECOND))).toHaveLength(1);
     // The same save isn't read again once it's in a version.
     await recordSavedEdits(test.db);
     expect(await savedFor(pageId, after(edits!.lastAt!, 4 * MINUTE))).toEqual([]);
