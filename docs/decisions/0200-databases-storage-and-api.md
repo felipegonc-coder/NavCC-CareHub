@@ -62,12 +62,17 @@ Database routes are the default export of `apps/server/src/features/databases/ro
 
 Form routes are the default export of `apps/server/src/features/forms/routes.ts` at `/api/forms`:
 
-| Route                               | Does                                                                                                     |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `GET /:code`                        | The fill screen's form (questions, gate state, anonymous line) for a signed-in member or guest           |
-| `POST /:code/responses`             | `{ answers }` → `{ ok: true }`; checks with the form logic, writes only mapped questions that were shown |
-| `POST /:databaseId/views/:vid/link` | "Change link": revokes the old code                                                                      |
-| `/public/:code`                     | Forms anyone on the network can fill in: not built until the security reviewer's go-ahead                |
+| Route                                               | Does                                                                                                                                                       |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /:code`                                        | The fill screen's form (questions, gate state, anonymous line) for a signed-in member or guest                                                             |
+| `POST /:code/responses`                             | `{ answers }` → `{ ok: true }`; checks with the form logic, writes only mapped questions that were shown                                                   |
+| `POST /:databaseId/views/:vid/link`                 | "Change link": revokes the old code                                                                                                                        |
+| `GET /public/:code`, `POST /public/:code/responses` | Forms anyone on the network can fill in (FM-D2, off by default per form): `config: { public: true }`, 30 responses a minute per form, the conditions below |
+
+Security reviewer's conditions (OK given Oct 27):
+
+- Forms anyone can fill in: link codes from `crypto.randomBytes(16)` as base64url, kept out of the Caddy and Fastify logs; each response checked against the form definition (show-if included) and only mapped, shown questions written (#46); atomic `closeAt` and `maxResponses` checks; batched notices; no CORS headers, and #29's CSRF double-submit still applies; a signed-in person arriving on the public route is ignored, so the response stays anonymous. Optional: a signed timestamp from the GET for a minimum fill time.
+- Anonymous uploads (files scope `forms:<formId>`, `registerFileScope` with `allowAnonymous: true`, our `canWrite` decides): each upload tied to the response being filled in, which attaches only its own uploads; unattached files deleted after about an hour; a daily byte quota per form plus a free-disk floor; office files only as docx, xlsx and pptx (no docm, xlsm, pptm or old binary formats; content must match the extension); always served as a download, PDFs included; pictures re-encoded; clean file names (path separators, control characters, U+202E) and an RFC 5987 Content-Disposition; per-IP limits rely on `trustProxy` set to Caddy only.
 
 ## Events, live updates and other lanes
 
@@ -75,7 +80,7 @@ Form routes are the default export of `apps/server/src/features/forms/routes.ts`
 - Live: `publishTopic('db:<databaseId>', { type: 'rows-changed', data: { rowIds } })` after commit (no row ids when the database has row rules), and `{ type: 'schema-changed' }` for settings.
 - `apps/server/src/features/databases/api.ts` for Team tools: `listDatedRows`, `listDateSources`, `setRowDate`, `listViewRows`, `createRow`.
 - Share links: `registerShareLinkGuard('database' | 'row', isShareLinkSafe)` refuses databases with row access rules or property access.
-- Move to: handle `pages.kindChanged` (a row that becomes a page loses its values; a page that becomes a row starts empty).
+- Move to: handle `page.kindChanged` (a row that becomes a page loses its values; a page that becomes a row starts empty).
 - Search: `registerSearchText('row', …)` with visible text only.
 - Jobs: CSV import and export, repeating templates (every 15 minutes), date reminders (every minute).
 

@@ -66,7 +66,7 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 
 ### 2.3 Settings
 
-- Core settings are in `apps/server/src/config.ts` (`PORT`, `HOST`, `WEB_DIST_DIR`, `CAREHUB_VERSION`, `NODE_ENV`, `DATABASE_URL`, `SESSION_SECRET`, `CAREHUB_PUBLIC_URL`, `COOKIE_SECURE`, `FILES_DIR`).
+- Core settings are in `apps/server/src/config.ts` (`PORT`, `HOST`, `WEB_DIST_DIR`, `CAREHUB_VERSION`, `CAREHUB_BUILD_DATE` (set by the build, for the Status page), `NODE_ENV`, `DATABASE_URL`, `CAREHUB_PUBLIC_URL` (required when `NODE_ENV=production`), `COOKIE_SECURE`, `FILES_DIR`). There is no `SESSION_SECRET`: sessions are random tokens stored hashed.
 - A feature reads its own optional settings in its own folder with `readSettings(schema)` from `apps/server/src/core/settings.ts`: a zod schema over `process.env`, where empty values count as unset. Missing optional settings switch that feature off with a plain message (for example "Google sign-in isn't set up yet."). They never stop the server.
 - Each lane lists its settings in `docs/<lane>/settings.md` and sends the main lead the lines for `deploy/.env.example`. Secrets never go in the repository.
 - Workspace settings that admins change in the app: `getWorkspaceSetting(db, workspaceId, key)` and `setWorkspaceSetting(db, workspaceId, key, value, userId)` from `apps/server/src/features/workspaces/index.ts`, with keys named `<feature>.<name>` (for example `pages.trashRetentionDays`, `claude.enabled`). Each feature validates its own keys.
@@ -87,11 +87,13 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 
 ### 3.1 Sessions and the current user (accounts PR 1, ETA Oct 27)
 
-- Cookies: `carehub_session` (HttpOnly, Secure, SameSite=Lax, 30-day sliding) and `carehub_csrf` (readable). Every state-changing `/api` request sends the `X-CSRF-Token` header with the `carehub_csrf` value, and the Origin is checked.
+- Cookies: `carehub_session` (HttpOnly, Secure, SameSite=Lax, 30-day sliding, 90 days at most) and `carehub_csrf` (readable). Over HTTPS both names get the `__Host-` prefix, so never hard-code them. Every state-changing `/api` request sends the `X-CSRF-Token` header with the CSRF cookie's value, and the Origin is checked. Web code never reads the cookie itself: `lib/api.ts` sends the header, using S1's `readCsrfToken()` (accounts 1b).
 - `request.user`: `{ id, email, name, avatarUrl, isSiteAdmin, timeZone, use24h, weekStart, mustChangePassword }` (`timeZone` is IANA, default `America/Denver`; `weekStart` 0 = Sunday). `null` when signed out.
 - `request.member`: `{ workspaceId, roleId, roleName, permissions: ReadonlySet<PermissionKey>, isAdmin }` for the current workspace, or `null`. One workspace for now ("Care Hub"); the model allows more.
 - Guards (Fastify preHandlers): `app.requireUser`, `app.requireMember`, `app.requirePermission(key)`, `app.requireSiteAdmin`.
-- For the live co-editing server: `getUserFromSessionToken(db, token)` and `SESSION_COOKIE`.
+- `getMembership(db, workspaceId, userId): Promise<Member | null>` (accounts 1b) for work done outside a request, like notices (skip non-members).
+- On public routes a failed session lookup (for example, the database is down) counts as signed out, so `GET /api/status` can still answer.
+- For the live co-editing server: read the token with `app.sessionCookies.sessionToken(request)` (it knows the cookie names), then `getUserFromSessionToken(db, token)`. Check `Origin` on the WebSocket upgrade, because the CSRF check skips GET.
 - HTTP: `GET /api/auth/me` returns `{ user, member, workspace: { id, name } }`. `PATCH /api/auth/profile` takes `name`, `timeZone`, `use24h`, `weekStart`. Sign-in, sign-out, sign-out everywhere and password changes are under `/api/auth/*`.
 
 ### 3.2 Roles and permission keys
@@ -99,7 +101,7 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 Spec: [Roles and permissions](../plan/specs/roles-and-permissions.md).
 
 - `PermissionKey` (from `@carehub/shared`): `pages.edit`, `pages.create`, `pages.comment`, `pages.share`, `templates.manage`, `claude.use`, `learning.build`, `learning.assign`, `learning.analytics`, `guests.add`, `pages.shareLinks`, `workspace.admin` (Admin settings; built-in Admin only, never on custom roles).
-- Built-in roles (per workspace, can't be changed or deleted): **Admin** (all), **Editor** (edit, create, comment, share, templates, claude.use), **Commenter** (comment), **Viewer** (none). Custom roles: any mix except `workspace.admin` (Settings → Roles, ETA Oct 29).
+- Built-in roles (per workspace, can't be changed or deleted): **Admin** (all), **Editor** (edit, create, comment, share, templates, claude.use, guests.add, pages.shareLinks), **Commenter** (comment), **Viewer** (none). Custom roles: any mix except `workspace.admin` (Settings → Roles, ETA Oct 29).
 - Guests have no role (`roleId: null`): `hasPermission` is false for every key, and `app.requireMember` refuses them unless the route sets `config: { allowGuests: true }`. Their page access comes only from grants (no role limit), capped at `edit`.
 - `hasPermission(member, key)` (from `@carehub/shared`) on both sides. A **site admin** (`isSiteAdmin`) manages accounts and the server. A workspace **Admin** is someone whose role has `workspace.admin`.
 - Everyone, in every role, may use Home, Messages, Calendar, reminders and My learning, and fill in forms sent to them. Those routes need only `app.requireMember`.
@@ -120,8 +122,9 @@ Spec: [Roles and permissions](../plan/specs/roles-and-permissions.md).
   - `registerAccessResolver('row', (ctx) => Promise<AccessLevel>)`: the Databases lane adjusts a row's level from its row-access rules. `ctx = { db, userId, rowPageId, databasePageId, inherited, grantLevel }` (`grantLevel` is the `GrantLevel` that reached the database, so the lane can handle `rows_only`). The role limit still applies after it.
   - `grantAccess(tx, { spaceId? , pageId?, principal: { type: 'user' | 'role' | 'group' | 'everyone', id? }, level, grantedBy })` and `revokeAccess(tx, grantId, by)`. Nobody can grant above their own level.
   - `registerShareLinkGuard(kind, (db, pageId) => Promise<{ ok: boolean, reason? }>)`: called before a share link is made (the Databases lane refuses databases with row rules or property access).
-  - `changePageKind(tx, pageId, { kind: 'page' | 'row', parentId, spaceId? }, by)` for "Move to" between a database and normal pages; emits `pages.kindChanged { pageId, from, to }`.
+  - `changePageKind(tx, pageId, { kind: 'page' | 'row', parentId, spaceId? }, by)` for "Move to" between a database and normal pages; emits `page.kindChanged { pageId, from, to }`.
   - `getPagePreviews(db, userId, pageIds, { maxChars })`: text previews from the stored text copy, filtered by access (Feed view, cards).
+  - `getPageCards(db, userId, pageIds): Promise<Map<string, PageCard | { id, deleted: true } | { id, locked: true }>>` with `PageCard = { id, kind, title, icon: PageIcon | null, spaceName }`; no access gives `locked`. Route: `POST /api/pages/cards { ids }`, same entries (S2's PR 3, ETA Oct 28). A deleted page's own `GET` is 404.
 
 ## 4. Pages (core)
 
@@ -140,10 +143,10 @@ Spec: [Roles and permissions](../plan/specs/roles-and-permissions.md).
 
 ### 4.3 Other core services
 
-- **Files** (ETA Oct 28): `POST /api/files` (multipart, field `file`, query `scope=<feature>:<id>`) returns `{ id, name, size, mimeType, url, width?, height? }`; `GET /api/files/:id` (supports Range and `?download=1`); `DELETE /api/files/:id`. Default limit 100 MB per file (setting `FILES_MAX_MB`; Data settings may lower it per type); the type is checked from the file's content, not its name, and programs are refused. SVG is accepted only as a picture. Every file response sends `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`; anything that isn't a picture, video, audio or PDF is sent as a download. Picture locations (EXIF GPS) are removed on upload (Pages and blocks 3.4). Each lane decides who may read its files: `registerFileScope(feature, { canRead(ctx), canWrite(ctx) })` with `ctx = { db, user, member, scopeId }` (`user` and `member` are null only for a scope that allows anonymous uploads, pending the security reviewer) from `apps/server/src/features/files/index.ts`. `POST /api/files/from-url { url, scope }` copies a pasted web picture (pictures only, up to 10 MB, 5 s timeout, private and tailnet addresses refused) and returns the same shape. HEIC stays as uploaded (location removed); the web uploader turns it into JPEG first when the browser can. Web: `uploadFile(file, { scope, onProgress })` from `apps/web/src/lib/files.ts`.
+- **Files** (ETA Oct 28): `POST /api/files` (multipart, field `file`, query `scope=<feature>:<id>`) returns `{ id, name, size, mimeType, url, width?, height? }`; `GET /api/files/:id` (supports Range and `?download=1`); `DELETE /api/files/:id`. Default limit 100 MB per file (setting `FILES_MAX_MB`; Data settings may lower it per type); the type is checked from the file's content, not its name, and programs are refused. SVG is accepted only as a picture. Every file response sends `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`; anything that isn't a picture, video, audio or PDF is sent as a download. Picture locations (EXIF GPS) are removed on upload (Pages and blocks 3.4). Each lane decides who may read its files: `registerFileScope(feature, { canRead(ctx), canWrite(ctx) })` with `ctx = { db, user, member, scopeId }` (`user` and `member` are null only in a scope registered with `allowAnonymous: true`, for anonymous forms, under the security reviewer's conditions in 0010) from `apps/server/src/features/files/index.ts`. `POST /api/files/from-url { url, scope }` copies a pasted web picture (pictures only, up to 10 MB, 5 s timeout, private and tailnet addresses refused) and returns the same shape. HEIC stays as uploaded (location removed); the web uploader turns it into JPEG first when the browser can. Web: `uploadFile(file, { scope, onProgress })` from `apps/web/src/lib/files.ts`.
 - **People, groups and managers** (ETA Oct 29): `GET /api/workspace/members` also returns `kind` (`member` | `guest`), `managerId` and `groupIds`; `GET /api/workspace/groups` returns `{ id, name, memberIds }[]`; admins manage groups and managers in Settings → Members (Settings and members spec). Server: `listGroupMembers(db, groupId)`, `listReports(db, managerId)`.
 - **Search** (ETA Oct 29): pages, databases and rows by title and text, filtered by access. A lane can add text for its own pages with `registerSearchText('row', (db, pageId) => Promise<string>)`.
-- **Security headers** (ETA Oct 28): core sends a strict Content-Security-Policy and the usual security headers on every response. `frame-src` is the admin-managed embed list (Pages and blocks, PB-D4) plus the origins a lane registers with `registerFrameSources(feature, origins)` from `apps/server/src/core/security.ts` (https only; a leading `*.` is the only wildcard). Core never imports lane packages for this.
+- **Security headers** (ETA Oct 28): core sends a strict Content-Security-Policy and the usual security headers on every response. `frame-src` is the admin-managed embed list (Pages and blocks, PB-D4) plus the origins a lane registers with `registerFrameSources(feature, origins)` from `apps/server/src/core/security.ts` (https only; a leading `*.` is the only wildcard). Core never imports lane packages for this. The rest of the policy: `default-src 'self'`; `script-src 'self' 'wasm-unsafe-eval'` (in-browser transcription); `style-src 'self' 'unsafe-inline'`; `img-src 'self' data: blob:`; `connect-src 'self'` plus the WebSocket origin; `worker-src 'self'` (no `blob:`); `manifest-src 'self'`; `object-src 'none'`; `base-uri 'none'`; `form-action 'self'`; `frame-ancestors 'none'`. `Permissions-Policy` allows only `microphone=(self)` (camera off). No COEP (it would break embeds). HSTS when served over HTTPS.
 - **Comments and mentions** (ETA Oct 29): comments on pages and rows; '@' mentions of people, pages and dates in the editor and in comments. Mentions send a notice through Team tools' `sendNotice`. Server: `listComments(db, userId, pageId, { limit })`, filtered by access.
 
 ### 4.4 From the Team tools lane (names from its brief; that lead owns them)
@@ -166,6 +169,7 @@ Spec: [Roles and permissions](../plan/specs/roles-and-permissions.md).
 
 - `api` from `apps/web/src/lib/api.ts` (ETA Oct 27): `api.get(path, { schema? })`, `api.post/put/patch/delete(path, body?, { schema? })`. It sends cookies and the CSRF header, parses JSON (with an optional zod schema) and throws `ApiError { status, code, message }`.
 - TanStack Query for server data; query keys start with the feature name (`['pages', id]`).
+- Routing: React Router 7. Import from `react-router` (for example `RouterProvider`, `useNavigate`), not `react-router-dom` or `react-router/dom`.
 - `useMe()` returns `{ user, member, workspace }`; `usePermission(key)`; `usePageAccess(pageId)` (from `apps/web/src/features/auth` and `features/pages`, ETA Oct 28).
 
 ### 5.3 Slots (`apps/web/src/slots.ts`, ETA Oct 27)
@@ -182,11 +186,13 @@ Each web feature may export `slots` (a partial `Slots` object) from `features/<f
 | `pageKindViews` | `{ database?: Component<{ page }> }` | the page view shows the Databases lane's `<DatabasePage>` for `kind = 'database'` |
 | `pageHeaderExtras` | `{ row?: Component<{ page }> }` | a row's properties above the editor |
 | `treeItemChildren` | `{ database?: Component<{ page }> }` | a database's views under it in the sidebar tree when expanded |
+| `appStart` | `{ id, run(ctx: { api, navigate }) }` | run once after sign-in, from `RequireAuth` (Team tools re-sends the push subscription, opens a chat from a notification); A's sign-in PR, ETA Oct 28 |
 | `editor` | `{ nodeViews?, slashItems?, linkPickers?, bubbleItems?, extensions? }` | React views for lane blocks by node name (`nodeViews`, e.g. `database`, meeting notes), "/database", writing help; `extensions` only for things that aren't nodes or marks |
 
 ### 5.4 The editor (`@carehub/editor`)
 
-- `BlockEditor` for page content (core), with the extension props `extensions`, `slashItems`, `linkPickers` (`{ label, pick(): Promise<string | null> }`, returning a relative link) and `bubbleItems`. Lanes add blocks through their own `lanes/<lane>.ts` file and the `editor` slot, never by editing the rest of the package.
+- `BlockEditor` for page content (core), with the extension props `extensions`, `slashItems`, `linkPickers` (`{ label, pick(): Promise<string | null> }`, returning a relative link) and `bubbleItems`. Lanes add blocks through their own `lanes/<lane>.ts` file and the `editor` slot, never by editing the rest of the package. `extensions` is only for behavior (shortcuts, plugins); nodes and marks there are ignored with a console warning.
+- **Core block groups** (#62): each group's schema is in `packages/editor/src/blocks/<group>.ts` (Tiptap packages only, no React) and its "/" entries and views in `blocks/<group>.ui.ts` (with the "/" menu, #69). Groups: text, lists, toggle, callout, colors, code, table, columns, tabs, math, toc, synced, page, media, embed. The builder of a group owns its two files; core owns `blocks/index.ts` and `blocks/ui.ts`.
 - **Lane blocks share one schema** on the server and every client, because a client that doesn't know a node deletes it from the shared document. Each lane puts its schema-only Tiptap nodes (no React or app code; only `@tiptap/core` and `@tiptap/pm`) in `packages/editor/src/lanes/<lane>.ts`: `databases` and `forms` (Databases and Forms lane), `meetings` and `claude` (Team tools), `learning` (Learning). The lane owns that file; core owns `lanes/index.ts`, which collects them with one `// feature:` line each. `createPageSchema()` and `BlockEditor` always include them. React views come through the `editor` slot's `nodeViews`; a node without a view shows a plain "needs <feature>" box and is never deleted. Node and attribute names never change once they're on `main`.
 - The collab server tells each client its build; a client on another build stops editing until it reloads.
 - `RichTextField({ value, onChange, ariaLabel, placeholder?, marks?, singleLine?, autoFocus?, readOnly?, id?, ariaDescribedBy?, onPickPage?, linkPickers? })` for small rich-text fields without live co-editing (paragraphs and hard breaks; ETA Oct 28). `export type { JSONContent }`.
@@ -197,7 +203,7 @@ Each web feature may export `slots` (a partial `Slots` object) from `features/<f
 - All agents share one GitHub account: push in few, larger commits; never poll in a loop (check the CI comment at most every 5 minutes); on any rate-limit or abuse error wait at least 5 minutes, then 15, before trying again.
 - Before merge, the security reviewer looks at every PR that adds dependencies or touches `.github/`, `deploy/`, a Dockerfile or `.npmrc` (decision 0010).
 - A security reviewer checks PRs and `main` twice a day and opens GitHub issues labelled `security` plus the lane. Lane leads watch for them and fix serious ones first.
-- Each evening the browser tests (01:00 UTC) and the Docker image (01:30 UTC) run on `main` with everything merged. The main lead sends any breakage to the lead that owns it.
+- Each night the browser tests run on `main` with everything merged; the main lead sends any breakage to the lead that owns it. The Docker image is built only on request (by hand or the `image` label): the server builds its own (0010, Deploy).
 
 ## Consequences
 
