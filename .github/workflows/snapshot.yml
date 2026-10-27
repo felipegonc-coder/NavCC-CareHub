@@ -28,8 +28,10 @@ jobs:
           PART_BYTES: '600000'
         run: |
           set -euo pipefail
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
-          echo "::add-mask::$auth"
+          # Mask the base64 value itself, so it never shows in the log.
+          b64=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)
+          echo "::add-mask::$b64"
+          auth="AUTHORIZATION: basic $b64"
           remote="https://github.com/${GITHUB_REPOSITORY}.git"
           work="$RUNNER_TEMP/snapshot"
           mkdir -p "$work/src" "$work/out"
