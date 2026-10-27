@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@carehub/editor": "*",
+    "@carehub/extras": "*",
     "@carehub/learning": "*",
     "@carehub/shared": "*",
     "@carehub/team-time": "*",
@@ -21,14 +22,13 @@
     "drizzle-orm": "^0.44.2",
     "fastify": "^5",
     "fastify-plugin": "^5.0.1",
-    "markdown-it": "^14.1.0",
+    "lib0": "^0.2.90",
     "pg": "^8.16.0",
     "ws": "^8",
     "yjs": "^13.6.8",
     "zod": "^4"
   },
   "devDependencies": {
-    "@types/markdown-it": "^14",
     "@types/node": "^24",
     "@types/pg": "^8.15.0",
     "@types/ws": "^8",
