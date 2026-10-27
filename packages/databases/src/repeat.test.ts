@@ -305,6 +305,7 @@ describe('validateSchedule', () => {
     expect(validateSchedule(schedule({ every: 'month', monthDay: 'last' }))).toBeNull();
     expect(validateSchedule(schedule({ every: 'year', month: 2, monthDay: 28 }))).toBeNull();
     expect(validateSchedule(schedule({ timesLeft: 1 }))).toBeNull();
+    expect(validateSchedule(schedule({ timesLeft: 0 }))).toBeNull(); // ended, saved as it is
     expect(validateSchedule(schedule({ timesLeft: LIMITS.repeatTimes, end: null }))).toBeNull();
     expect(REPEAT_MESSAGES.times).toBe('Enter a number from 1 to 1,000.');
     expect(LIMITS.repeatTimes).toBe(1_000);
@@ -327,7 +328,7 @@ describe('validateSchedule', () => {
     [{ timeZone: 'Mars/Olympus' }, M.timeZone],
     [{ start: '2026-02-30' }, M.date],
     [{ end: '2026-10-25' }, M.endBeforeStart],
-    [{ timesLeft: 0 }, M.times],
+    [{ timesLeft: -1 }, M.times],
     [{ timesLeft: 1_001 }, M.times],
     [{ timesLeft: 2.5 }, M.times],
     [{ timesLeft: 5, end: '2026-12-31' }, M.oneEnd],
