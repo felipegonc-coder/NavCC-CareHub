@@ -34,7 +34,7 @@ export function HotspotInput(props: InputProps<'hotspot'>) {
         Click or tap the right place on the picture. With a keyboard, press Tab to go through its
         areas.
       </p>
-      <div className="relative w-full max-w-2xl overflow-hidden rounded border border-border">
+      <div className="relative w-full max-w-page overflow-hidden rounded border border-border">
         <img
           src={src}
           alt={question.image.decorative ? '' : question.image.alt}
