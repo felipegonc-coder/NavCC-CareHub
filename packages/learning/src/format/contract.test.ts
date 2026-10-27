@@ -1,7 +1,7 @@
 // Contract test: the zod schemas must infer exactly the types in docs/learning/course-format.md.
 // The types below are copied from that document (plus the optional fields added since: they are marked "added").
 // If this file stops compiling, either the schemas or the document drifted; fix whichever is wrong.
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type * as F from './index';
 import {
   BLOCK_TYPES,
@@ -464,4 +464,39 @@ describe('course format contract', () => {
       'certification',
     ]);
   });
+});
+
+// ---------- TEMPORARY CI probe (server and databases, node); removed in the next push ----------
+// Runs other workspaces' tests inside this file so their failures show in the CI report.
+declare global {
+  interface ImportMeta {
+    glob(pattern: string | string[]): Record<string, () => Promise<unknown>>;
+  }
+}
+const probeFailures: string[] = [];
+afterEach(({ task }) => {
+  if (task.result?.state !== 'fail') return;
+  const names = [task.name];
+  for (let suite = task.suite; suite?.suite; suite = suite.suite) names.unshift(suite.name);
+  const message = task.result.errors?.[0]?.message ?? '';
+  probeFailures.push(`${names.join(' > ')}: ${message.slice(0, 200)}`);
+});
+const probeTests = import.meta.glob([
+  '../../../../apps/server/src/**/*.test.ts',
+  '../../../../apps/server/test/**/*.test.ts',
+  '../../../../packages/databases/src/**/*.test.ts',
+  '../../../../packages/databases/test/**/*.test.ts',
+]);
+for (const [file, load] of Object.entries(probeTests)) {
+  describe(file, async () => {
+    try {
+      await load();
+    } catch (error) {
+      probeFailures.push(`${file} did not load: ${String(error).slice(0, 300)}`);
+    }
+  });
+}
+it('probe: the other tests were found and pass', () => {
+  expect(Object.keys(probeTests).length).toBeGreaterThan(0);
+  expect(probeFailures).toEqual([]);
 });
