@@ -1,8 +1,5 @@
-// @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ApiErrorBodySchema, errorForStatus, PublishNotifySchema } from './index';
-
-await import(/* @vite-ignore */ '@testing-library/jest-dom/vitest');
 
 describe('API error shape', () => {
   it('gives each status its code and a plain message', () => {
@@ -58,39 +55,4 @@ describe('API error shape', () => {
     expect(PublishNotifySchema.options).toEqual(['none', 'tell', 'retake']);
     expect(PublishNotifySchema.safeParse('everyone').success).toBe(false);
   });
-});
-
-// ---------- TEMPORARY CI probe (web, jsdom); removed in the next push ----------
-// Runs other workspaces' tests inside this file so their failures show in the CI report.
-declare global {
-  interface ImportMeta {
-    glob(pattern: string | string[]): Record<string, () => Promise<unknown>>;
-  }
-}
-const probeFailures: string[] = [];
-afterEach(({ task }) => {
-  if (task.result?.state !== 'fail') return;
-  const names = [task.name];
-  for (let suite = task.suite; suite?.suite; suite = suite.suite) names.unshift(suite.name);
-  const message = task.result.errors?.[0]?.message ?? '';
-  probeFailures.push(`${names.join(' > ')}: ${message.slice(0, 200)}`);
-});
-const probeTests = import.meta.glob([
-  '../../../../apps/web/src/**/*.test.{ts,tsx}',
-  '../../../../apps/web/test/**/*.test.{ts,tsx}',
-  '../../../../packages/databases/src/**/*.test.tsx',
-  '../../../../packages/databases/test/**/*.test.tsx',
-]);
-for (const [file, load] of Object.entries(probeTests)) {
-  describe(file, async () => {
-    try {
-      await load();
-    } catch (error) {
-      probeFailures.push(`${file} did not load: ${String(error).slice(0, 300)}`);
-    }
-  });
-}
-it('probe: the other tests were found and pass', () => {
-  expect(Object.keys(probeTests).length).toBeGreaterThan(0);
-  expect(probeFailures).toEqual([]);
 });

@@ -1,5 +1,6 @@
 import { errorForStatus, parseWith, type ApiErrorBody, type ApiIssue } from '@carehub/learning';
 import type { z } from 'zod';
+import { HttpError } from '../../core/errors';
 
 /** An error the Learning API sends as `{ error: { code, message, issues? } }` with its status. */
 export class LearningError extends Error {
@@ -30,9 +31,10 @@ export function parseInput<S extends z.ZodType>(schema: S, input: unknown): z.ou
 }
 
 /**
- * The status and body for anything thrown in a Learning route. Our own errors keep their details; Fastify's
- * (a bad JSON body, a body that's too large) keep their status with a plain message; anything else is a 500
- * that says nothing about the cause.
+ * The status and body for anything thrown in a Learning route. Our own errors keep their details, and so do
+ * core's (the sign-in and security checks that run before every route); Fastify's (a bad JSON body, a body
+ * that's too large) keep their status with a plain message; anything else is a 500 that says nothing about
+ * the cause.
  */
 export function errorReply(error: unknown): { status: number; body: ApiErrorBody } {
   if (error instanceof LearningError) {
@@ -40,6 +42,12 @@ export function errorReply(error: unknown): { status: number; body: ApiErrorBody
     return {
       status: error.status,
       body: { error: issues ? { code, message, issues } : { code, message } },
+    };
+  }
+  if (error instanceof HttpError && error.statusCode >= 400 && error.statusCode < 500) {
+    return {
+      status: error.statusCode,
+      body: { error: { code: error.code, message: error.message } },
     };
   }
   const status = httpStatusOf(error);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { httpError as coreError } from '../../core/errors';
 import { errorReply, httpError, LearningError, parseInput } from './errors';
 
 describe('Learning API errors', () => {
@@ -26,6 +27,18 @@ describe('Learning API errors', () => {
     });
   });
 
+  it("keeps core's code and message, as from the sign-in and security checks", () => {
+    expect(errorReply(coreError(401, 'signed_out'))).toEqual({
+      status: 401,
+      body: { error: { code: 'signed_out', message: 'Sign in to continue.' } },
+    });
+    const blocked = 'This request came from another site, so it was blocked.';
+    expect(errorReply(coreError(403, 'forbidden', blocked))).toEqual({
+      status: 403,
+      body: { error: { code: 'forbidden', message: blocked } },
+    });
+  });
+
   it("keeps a framework error's status but never its wording", () => {
     const tooLarge = Object.assign(
       new Error('Request body is too large (FST_ERR_CTP_BODY_TOO_LARGE)'),
@@ -35,7 +48,7 @@ describe('Learning API errors', () => {
     );
     expect(errorReply(tooLarge)).toEqual({
       status: 413,
-      body: { error: { code: 'too_large', message: 'This is larger than Care Hub allows.' } },
+      body: { error: { code: 'too_large', message: "That's over the size limit." } },
     });
   });
 
@@ -51,7 +64,7 @@ describe('Learning API errors', () => {
         body: {
           error: {
             code: 'server_error',
-            message: 'Something went wrong on our side. Try again soon.',
+            message: 'Something went wrong on our side. Try again in a moment.',
           },
         },
       });
