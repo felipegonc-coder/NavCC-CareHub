@@ -224,7 +224,7 @@ describe('Connected calendars', () => {
     fireEvent.click(dialog.getByRole('button', { name: 'Add calendar' }));
     expect(dialog.getByText('Give it a name.')).toBeInTheDocument();
     expect(
-      dialog.getByText('Use a link that starts with https:// or webcal://.'),
+      dialog.getByText('Calendar links must start with https:// or webcal://.'),
     ).toBeInTheDocument();
     expect(server.sent('POST')).toEqual([]);
 

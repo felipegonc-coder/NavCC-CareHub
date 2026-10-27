@@ -1,4 +1,4 @@
-# W1-E status (S.E.V.E.N) — rewritten 07:55Z Oct 27 (sandbox was reset to a 03:41Z backup; restored from GitHub)
+# W1-E status (S.E.V.E.N) — updated 08:25Z Oct 27 (sandbox was reset once at ~07:43Z; restored from GitHub)
 - Repo felipegonc-coder/NavCC-CareHub (GitHub MCP "GitHub"). Lead .../405338c7-cfde-8194-9162-00a9151f06ff; W1-D .../405338c7-cfde-8111-a034-00a9d1eb6d1b; W1-B .../405338c7-cfde-813c-aa1d-00a93f91a4ad. W1-G (web calendar) link: asked lead (Q3).
 - PR 2 = #117 (82c8bfc) CI passed, sent to lead; waiting merge.
 - PR 3 branch feat/team-calendar-connections-storage @b2d05f0 (no PR yet). Non-test 593. Body must be rewritten (kit/pr3-body.md). When PR 3 is open: get_files on it -> restore PR3 files locally (testing.ts, store.test, layers.test, 3-table migration, PR3 schema/store).
@@ -7,7 +7,16 @@
 - Sent lead 06:55Z: status + Q3 (web placement: /calendar/connections in web features/calendar/routes.tsx on a `// calendar: connections` line; Settings section later via features/calendar/slots.ts; W1-G's link?) + Q2 still open (web PR in parallel?).
 - W1-B: server features/calendar/routes.ts is W1-B's; line `// calendar: connections` -> `await app.register(import('./connections/routes'));`. W1-B adds app.ts line. If I land first, I create routes.ts with my line.
 - W1-B API (#168 open): layerSchema {id, kind, name, color, on, order, status ok|error, error {message, action retry|reconnect}|null, database, connectionId}; CALENDAR_CHANGED + calendarChangedSchema {eventId?, layerId?}; idSchema 1..100; instantSchema; layerColorSchema. My schemas -> packages/team-calendar-api/src/connections.ts after #168 merges (draft: kit/drafts/connections.ts).
-- Plan: PR 4 sync storage (secrets 91, bounds 64, sync-store 409 + tests) ; PR 5 engine (sync.ts 422 + memory store 253 test support + sync.test) ; PR 6a Google routes (no PATCH; oauth states migration+schema, google-connect, routes, store +rename/reconnect/find) ; 6b PATCH, links, package schemas, docs ; PR 7 web screen.
+- Plan (08:25Z, each <=600 non-test, open next only after previous merges):
+  PR3 storage (restore-pr3 files, fresh branch off main e.g. feat/team-calendar-storage, migration renamed to a timestamp after main's latest + schema.ts 'Mirrors' comment) ->
+  PR4 sync storage (secrets 91 + bounds 64 + sync-store 409; branch feat/team-calendar-sync-storage) ->
+  PR5 engine (sync.ts 422 + memory-sync-store test support + package connections.ts after #168; CALENDAR_CHANGED from package) ->
+  PR6 Google routes incl. PATCH (~596; oauth migration later ts, schema +20, oauth-states 46, google-connect 160, routes 251, store +105) ->
+  PR7 web A (Google + list ~518; screen exported as connectionsRoutes from apps/web/src/features/calendar/connections/routes.ts) ->
+  PR8 links end to end (POST /connections/links after W1-D part 5, testCalendarOrigins wiring, LinkDialog, docs: testing doc + settings.md CAREHUB_TEST_CALENDAR_ORIGINS row).
+  Deadline: basics on main by end of Oct 29; last PR opens by Oct 30.
+- Link scheme: package LINK_SCHEME_MESSAGE = W1-D's sentence 'Calendar links must start with https:// or webcal://.'; schema regex /^(https?|webcals?):\/\/\S+$/i (http only works for test origins; the fetcher refuses it elsewhere with the same sentence).
+- Asked W1-B 08:20Z: who adds @carehub/team-calendar-api to apps/web + apps/server package.json (+lockfile). No reply yet.
 - Reviewer conditions for CAREHUB_TEST_CALENDAR_ORIGINS: exact loopback origins with port; NODE_ENV test/development only (else ignored + warning); skips only private-address check; test that production ignores it.
 - Local checks: tsc -p /data/kit/tsconfig.check.json ; tests: cd /data && NODE_PATH=/vercel/sandbox/node_modules /vercel/sandbox/node_modules/.bin/tsx --tsconfig /data/kit/tsconfig.json --test <files> ; prettier --print-width 100 --single-quote --trailing-comma all
 - Push: node /data/kit/mkpush.mjs <branch> <msg> <out.json> <files...> ; payload < 64 KB. Never push mock-google.master.ts.

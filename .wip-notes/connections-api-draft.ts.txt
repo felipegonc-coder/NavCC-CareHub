@@ -73,13 +73,18 @@ export const connectionPatchSchema = z
   .refine((patch) => patch.label !== undefined || patch.calendars, 'Send at least one change.');
 export type ConnectionPatch = z.infer<typeof connectionPatchSchema>;
 
+/** The same sentence the link reader uses when it turns a link down for its scheme. */
+export const LINK_SCHEME_MESSAGE = 'Calendar links must start with https:// or webcal://.';
+
 /** `POST /api/calendar/connections/links`: subscribe to a private calendar link. */
 export const linkConnectSchema = z.strictObject({
   url: z
     .string()
     .trim()
     .max(2000, 'Links can be up to 2,000 characters.')
-    .regex(/^(https|webcal):\/\/\S+$/i, 'Use a link that starts with https:// or webcal://.'),
+    // http:// only reaches the server's test origins (CAREHUB_TEST_CALENDAR_ORIGINS); the link
+    // reader turns it down anywhere else, with the same sentence. webcals:// reads as https://.
+    .regex(/^(https?|webcals?):\/\/\S+$/i, LINK_SCHEME_MESSAGE),
   label: labelSchema,
   color: layerColorSchema,
 });
