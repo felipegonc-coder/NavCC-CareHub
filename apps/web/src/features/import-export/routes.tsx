@@ -7,4 +7,9 @@ export const routes: RouteObject[] = [
     path: 'exports/:exportId',
     lazy: async () => ({ Component: (await import('./export/ExportScreen')).ExportScreen }),
   },
+  {
+    // Page menu → Print, and Export → PDF (the browser's Save as PDF): the page alone, to print.
+    path: 'p/:pageId/print',
+    lazy: async () => ({ Component: (await import('./print/PrintScreen')).PrintScreen }),
+  },
 ];
