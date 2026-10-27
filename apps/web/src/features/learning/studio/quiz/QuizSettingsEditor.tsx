@@ -127,8 +127,8 @@ export function QuizSettingsEditor({ settings, questionCount, onChange }: QuizSe
         onChange={(shuffleQuestions) => onChange({ shuffleQuestions })}
       />
       <Toggle
-        label="Shuffle the answers"
-        hint="Answer options and matching lists. True or false keeps its order."
+        label="Shuffle answer choices"
+        hint="Choice questions only. Matching and put-in-order answers always shuffle. True or false keeps its order."
         checked={settings.shuffleOptions}
         onChange={(shuffleOptions) => onChange({ shuffleOptions })}
       />
