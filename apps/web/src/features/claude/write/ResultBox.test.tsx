@@ -101,6 +101,12 @@ describe('ResultBox', () => {
     expect(button('Discard')).toHaveFocus();
   });
 
+  it("says why the answer didn't go in, keeping it", () => {
+    box({ status: 'done', answer }, { notice: "Couldn't add that here." });
+    expect(screen.getByText("Couldn't add that here.")).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: "Claude's answer" })).toBeInTheDocument();
+  });
+
   it('moves focus to the answer when Claude finishes', () => {
     const view = box({ status: 'writing' });
     view.rerender(
