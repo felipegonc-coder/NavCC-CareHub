@@ -27,28 +27,18 @@ export class LearnerPage {
     if (search) await this.main.getByRole('searchbox').fill(search);
   }
 
-  /** The link on a course card (its title), which opens the course start page. */
+  /** A course card (or row) that links to the course. */
   card(title: string): Locator {
     return this.main.getByRole('link', { name: title });
   }
 
-  /** The whole course card: its title, and on My learning the due date and the learner's status. */
-  entry(title: string): Locator {
-    return this.main.getByRole('article').filter({ has: this.card(title) });
-  }
-
-  /** Opens the start page and starts (or carries on with) the course. */
+  /** Opens the start page and starts (or resumes) the course. */
   async start(courseId: string) {
     await this.page.goto(`/learning/courses/${courseId}`);
-    await this.startOrContinue();
-  }
-
-  /** On a course start page: "Start course", or "Continue" part way (the labels' defaults). */
-  async startOrContinue() {
     const start = /^(start|resume|continue)/i;
     await this.main
-      .getByRole('link', { name: start })
-      .or(this.main.getByRole('button', { name: start }))
+      .getByRole('button', { name: start })
+      .or(this.main.getByRole('link', { name: start }))
       .click();
     await expect(this.page).toHaveURL(/\/lessons\/[\w-]+/);
   }

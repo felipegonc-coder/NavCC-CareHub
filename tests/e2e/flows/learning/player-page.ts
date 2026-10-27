@@ -57,12 +57,24 @@ export class PlayerPage extends LearnerPage {
     await this.main.getByRole('button', { name: /^submit/i }).click();
   }
 
-  /** From My learning: the course card opens the start page, and Continue the lesson. */
+  /** The whole course card: its title, and on My learning the due date and the learner's status. */
+  entry(title: string): Locator {
+    return this.main.getByRole('article').filter({ has: this.card(title) });
+  }
+
+  /** From My learning: the course card opens the start page, and its Continue link the lesson. */
   async resumeFromMyLearning(title: string) {
     await this.page.goto('/learning');
     await this.card(title).click();
     await expect(this.page).toHaveURL(/\/learning\/courses\/[\w-]+/);
-    if (!/\/lessons\//.test(this.page.url())) await this.startOrContinue();
+    if (!/\/lessons\//.test(this.page.url())) {
+      const carryOn = /^(resume|continue)/i;
+      await this.main
+        .getByRole('link', { name: carryOn })
+        .or(this.main.getByRole('button', { name: carryOn }))
+        .click();
+    }
+    await expect(this.page).toHaveURL(/\/lessons\/[\w-]+/);
   }
 
   async progress(courseId: string): Promise<Progress> {

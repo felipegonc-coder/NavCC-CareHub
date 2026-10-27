@@ -1,5 +1,5 @@
 import type { Browser, Page } from '@playwright/test';
-import { apiFor, lanePeople, signInAs, uniqueName } from '../_support/index.js';
+import { apiFor, signInAs, uniqueName } from '../_support/index.js';
 import type { AuthoredQuestion } from './studio-page.js';
 
 /**
@@ -8,7 +8,7 @@ import type { AuthoredQuestion } from './studio-page.js';
  */
 
 /** Tara Trainer from the Learning seed: role Trainer (Editor plus build, assign and analytics). */
-export const TARA = lanePeople.trainer.email;
+export const TARA = 'tara.trainer@example.test';
 
 /** A new page in its own browser context, signed in as this person (a second person in a flow). */
 export async function pageFor(browser: Browser, who: Parameters<typeof signInAs>[1]) {
