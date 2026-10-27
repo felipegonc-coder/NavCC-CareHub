@@ -323,8 +323,12 @@ describe('restoring and naming versions', () => {
     const input = within(dialog).getByRole('textbox', { name: 'Name' });
     await waitFor(() => expect(input).toHaveFocus());
 
+    const save = within(dialog).getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(save).toBeDisabled();
     fireEvent.change(input, { target: { value: ' Before the audit ' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    fireEvent.click(save);
     expect(await screen.findByText('Version named')).toBeInTheDocument();
     expect(changes()).toEqual([
       {

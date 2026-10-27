@@ -30,6 +30,8 @@ export function NameDialog({ pageId, version, onDone }: NameDialogProps) {
   const client = useQueryClient();
   const { toast } = useToast();
   const [name, setName] = useState(version.name ?? '');
+  // Spaces alone aren't a name, so Save waits; Remove name takes a name off.
+  const trimmed = name.trim();
   const save = useMutation({
     mutationFn: (value: string | null) => nameVersion(pageId, version.id, value),
     onSuccess: ({ version: saved }) => {
@@ -59,7 +61,7 @@ export function NameDialog({ pageId, version, onDone }: NameDialogProps) {
           className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            save.mutate(name.trim() || null);
+            if (trimmed) save.mutate(trimmed);
           }}
         >
           <DialogHeader>
@@ -92,7 +94,7 @@ export function NameDialog({ pageId, version, onDone }: NameDialogProps) {
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" loading={save.isPending}>
+            <Button type="submit" loading={save.isPending} disabled={!trimmed}>
               Save
             </Button>
           </DialogFooter>
