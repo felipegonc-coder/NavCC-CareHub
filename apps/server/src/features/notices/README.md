@@ -23,8 +23,10 @@ await sendNotice({
 
 It returns `{ noticeId, grouped }`, with `duplicate: true` when the idempotency key was already
 used (see Retries), or `dropped: true` and an empty `noticeId` when the person isn't in the
-workspace, as a member or a guest (checked once workspace members are on main). Bad input throws
-a `NoticeInputError` that lists every problem: that's a bug in the caller, so let it fail loudly.
+workspace, as a member or a guest (checked once workspace members are on main), or
+`turnedOff: true` and an empty `noticeId` when the person turned that kind off (see Settings). Bad
+input throws a `NoticeInputError` that lists every problem: that's a bug in the caller, so let it
+fail loudly.
 
 ## Fields
 
@@ -51,13 +53,13 @@ Unknown fields are rejected. Blank optional text counts as absent.
 The kind sets the default icon and which filter chip shows the notice. All shows every notice and
 Unread every unread one.
 
-| Chip                 | Kinds                                                            |
-| -------------------- | ---------------------------------------------------------------- |
-| Mentions and replies | `mention`, `reply`, `suggestion_accepted`, `suggestion_rejected` |
-| Following            | `comment`, `suggestion`, `edit_summary`                          |
-| Reminders            | `reminder`                                                       |
-| Requests             | `access_request`                                                 |
-| All only             | `alert`, `automation`, `shared`, `import`, `export`, `review`    |
+| Chip                 | Kinds                                                                          |
+| -------------------- | ------------------------------------------------------------------------------ |
+| Mentions and replies | `mention`, `reply`, `suggestion_accepted`, `suggestion_rejected`               |
+| Following            | `comment`, `suggestion`, `edit_summary`                                        |
+| Reminders            | `reminder`                                                                     |
+| Requests             | `access_request`                                                               |
+| All only             | `alert`, `automation`, `shared`, `import`, `export`, `review`, `form_response` |
 
 Titles stay generic, such as "Mentioned you in a comment" or "Your export is ready".
 
@@ -142,6 +144,23 @@ workspace, nothing changes and the result is `{ noticeId, grouped: false, duplic
 with the first notice's ID. A key lasts as long as its notice. Saves for one chat run one at a
 time, so concurrent retries add one notice.
 
+## Settings
+
+Each person chooses in Settings → Notifications (Settings spec 3.3), for each workspace, which of
+these kinds reach their chat. Everything is on until they turn it off, and a kind that's off is
+not saved at all: the send returns `turnedOff: true`.
+
+| Setting         | Kinds                   |
+| --------------- | ----------------------- |
+| `comments`      | `comment`, `suggestion` |
+| `edits`         | `edit_summary`          |
+| `formResponses` | `form_response`         |
+| `automations`   | `automation`            |
+
+Mentions, replies, reminders and access requests are always on, and so are the other kinds.
+Senders of `edit_summary` keep to at most one per page per hour. Pausing notifications (Settings)
+doesn't change any of this.
+
 ## After a notice is sent
 
 - `app.events` gets `notices.notice.created` with `{ workspaceId, userId, noticeId, kind, grouped }`
@@ -149,8 +168,8 @@ time, so concurrent retries add one notice.
 - The person's open tabs get the live event `notices-changed` and refetch the chat and the unread
   count on the Messages badge.
 
-Neither runs if the send fails, is a duplicate or is dropped, and a failure in either never fails
-the send.
+Neither runs if the send fails, is a duplicate, is dropped or is turned off, and a failure in
+either never fails the send.
 
 ## Reading one notice
 
@@ -170,7 +189,8 @@ for a grouped notice.
 ## Coming next
 
 - Once workspace members are on main: the `/api/notices` routes for the chat (members and
-  guests), the membership check behind `dropped`, and the foreign key to `workspaces`.
+  guests) and for the settings (`GET`/`PATCH /api/notices/settings`), the membership check behind
+  `dropped`, and the foreign keys to `workspaces`.
 - Part 3: the 🔔 Care Hub chat (`NoticesChat`) and `useNoticesUnread()` for Messages, which
   shows them at `/messages/care-hub` and on its badge.
 - Open page cards once core's `getPageCards` is on main.

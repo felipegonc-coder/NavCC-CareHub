@@ -17,6 +17,7 @@
  * - `access_request`: someone asked for access to a page the person can share.
  * - `import`, `export`: an import or export the person started has finished, or failed.
  * - `review`: a knowledge base page the person owns is due for review, or a review report.
+ * - `form_response`: someone answered a form the person gets the responses of.
  */
 export const NOTICE_KINDS = [
   'reminder',
@@ -34,6 +35,7 @@ export const NOTICE_KINDS = [
   'import',
   'export',
   'review',
+  'form_response',
 ] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
@@ -124,6 +126,8 @@ export interface SendNoticeResult {
   duplicate?: true;
   /** Set when the person isn't in the workspace (any more): nothing was saved. */
   dropped?: true;
+  /** Set when the person turned this kind of notice off in Settings: nothing was saved. */
+  turnedOff?: true;
 }
 
 export type SendNotice = (input: SendNoticeInput) => Promise<SendNoticeResult>;
@@ -141,6 +145,22 @@ export interface NoticeCreatedEvent {
 
 /** The live event type published to a person whenever their notices change. */
 export const NOTICES_CHANGED_EVENT = 'notices-changed';
+
+/**
+ * The kinds of notices a person can turn off in Settings → Notifications (Settings spec 3.3),
+ * each for one workspace. Mentions, replies, reminders and access requests are always on.
+ * - `comments`: comments and suggested edits on pages they follow (`comment`, `suggestion`).
+ * - `edits`: summaries of edits to pages they follow (`edit_summary`).
+ * - `formResponses`: responses to their forms (`form_response`).
+ * - `automations`: messages from automations (`automation`).
+ */
+export type NoticeSettingKey = 'comments' | 'edits' | 'formResponses' | 'automations';
+
+/** On (true) or off for each; every kind is on until the person turns it off. */
+export type NoticeSettings = Record<NoticeSettingKey, boolean>;
+
+/** The live event type published to a person when their notice settings change. */
+export const NOTICE_SETTINGS_CHANGED_EVENT = 'notice-settings-changed';
 
 /** What an action handler receives when the notice's owner clicks one of its action buttons. */
 export interface NoticeActionContext {
