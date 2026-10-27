@@ -16,8 +16,12 @@ export const EXPORT_JOB = 'import-export.export';
 const MB = 1024 * 1024;
 /** Exports up to 50 pages and 100 MB download at once. */
 export const AT_ONCE = { pages: 50, bytes: 100 * MB };
-/** The most any export holds: the zip waits in Postgres until Files can keep it. */
-export const MAX_EXPORT_BYTES = 500 * MB;
+/**
+ * The most any export holds. Until Files can keep exports, the zip is held in memory twice (its
+ * parts, then the whole file) and saved in one Postgres row, and each person can run 3 at once.
+ */
+export const MAX_EXPORT_BYTES = 200 * MB;
+export const TOO_LARGE_MESSAGE = `Exports can be up to ${MAX_EXPORT_BYTES / MB} MB. Try fewer pages, or leave out files.`;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const LINK_DAYS = 7;
 const RUNNING_LIMIT = 3;
@@ -271,9 +275,8 @@ export async function runExportJob(db: Db, exportId: string, ctx: JobContext) {
     await finish(db, row, built, row.createdBy);
   } catch (error) {
     if (!(error instanceof ExportTooLargeError)) throw error;
-    const message = `Exports can be up to ${MAX_EXPORT_BYTES / MB} MB. Try fewer pages, or leave out files.`;
-    await fail(db, row.id, message);
-    throw new JobError(message);
+    await fail(db, row.id, TOO_LARGE_MESSAGE);
+    throw new JobError(TOO_LARGE_MESSAGE);
   }
   await notifyReady(row);
 }

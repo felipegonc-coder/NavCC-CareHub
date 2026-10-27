@@ -14,7 +14,7 @@ import {
 import { drainJobsForTest } from '../../jobs/testing';
 import { bindMemoryNotices, type MemoryNoticeStore } from '../../notices/testing';
 import { ieExports } from './schema';
-import { expireExports, type ExportView } from './service';
+import { expireExports, MAX_EXPORT_BYTES, TOO_LARGE_MESSAGE, type ExportView } from './service';
 import {
   bindExportSources,
   type ExportFile,
@@ -38,6 +38,15 @@ let membersCanExport: boolean | undefined;
 
 const doc = (...content: object[]) => ({ type: 'doc', content });
 const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+
+describe('export size', () => {
+  it('caps an export at 200 MB while the zip is kept in memory and in one row', () => {
+    expect(MAX_EXPORT_BYTES).toBe(200 * 1024 * 1024);
+    expect(TOO_LARGE_MESSAGE).toBe(
+      'Exports can be up to 200 MB. Try fewer pages, or leave out files.',
+    );
+  });
+});
 
 describe.skipIf(!hasDatabase)('exports on Postgres', () => {
   let test: TestApp;
