@@ -1,5 +1,6 @@
 import {
   learnerCourse,
+  paperAnswerKey,
   planAttempt,
   quizPaper,
   reduceProgress,
@@ -89,11 +90,27 @@ type Serve = { offline?: 'start' | 'send'; refuse?: ProgressRejectReason };
 
 /**
  * A fake progress server for `course` on `fetch`: attempts are planned and events reduced as the
- * real one does. `offline` makes starting or sending fail; `refuse` refuses the events sent.
+ * real one does, with the right answers on the attempts while the quiz shows them. `offline`
+ * makes starting or sending fail; `refuse` refuses the events sent.
  */
 function serve(course: Course, { offline, refuse }: Serve = {}) {
   const lesson = course.lessons[0] as QuizLesson;
   const stored: ProgressEvent[] = [];
+  const learnerState = (): LearnerCourseState => {
+    const state = reduceProgress(course, stored);
+    const quizzes = state.quizzes.map((quiz) =>
+      quiz.revealAnswers
+        ? {
+            ...quiz,
+            attempts: quiz.attempts.map((attempt) => ({
+              ...attempt,
+              answers: paperAnswerKey(lesson, attempt.plan),
+            })),
+          }
+        : quiz,
+    );
+    return { ...state, quizzes };
+  };
   const calls: { url: string; body: Record<string, unknown> }[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input);
@@ -124,7 +141,7 @@ function serve(course: Course, { offline, refuse }: Serve = {}) {
             reason: refuse,
           }))
         : [];
-      return reply(200, { state: reduceProgress(course, stored), rejected });
+      return reply(200, { state: learnerState(), rejected });
     }
     return reply(404, { error: { code: 'not_found', message: 'Not found.' } });
   });
@@ -322,6 +339,22 @@ describe('QuizLessonView', () => {
     press('Submit');
     expect(await screen.findByRole('heading', { name: 'Your score: 100%' })).toBeInTheDocument();
     expect(rightAnswers()).toEqual([]);
+  });
+
+  it('shows the right answers the server keeps on the attempt', async () => {
+    const course = courseOf({
+      ...graded,
+      settings: { ...graded.settings, revealAnswers: 'after_each_attempt' },
+    });
+    serve(course);
+    show(learnerCourse(course), reduceProgress(course, []));
+    press('Start quiz');
+    await screen.findByText('Question 1 of 2');
+    pick(WRONG);
+    pick('True');
+    press('Submit');
+    expect(await screen.findByRole('heading', { name: 'Your score: 50%' })).toBeInTheDocument();
+    expect(rightAnswers()).toEqual([`Right answer: ${RIGHT}`]);
   });
 
   it('shows where the learner stands after passing', () => {

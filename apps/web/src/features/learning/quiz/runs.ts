@@ -12,7 +12,6 @@ import {
   type LearnerQuizLesson,
   type ProgressRejectReason,
   type QuestionResponse,
-  type QuizAttemptRecord,
   type QuizLesson,
   type QuizPaperQuestion,
   type QuizStatus,
@@ -54,10 +53,6 @@ const refusal = (reason: ProgressRejectReason) =>
       ? ENDED
       : NOT_COUNTED;
 
-/** The right answers B3 sends with a submitted attempt while the quiz shows them (0316). */
-const revealed = (attempt: QuizAttemptRecord): Answers | null =>
-  (attempt as QuizAttemptRecord & { answers?: Answers }).answers ?? null;
-
 /** The error to show: `offline` when the server couldn't be reached, else the server's words. */
 const plain = (error: unknown, offline: string) =>
   new Error(
@@ -89,7 +84,8 @@ export function useServerRun(
       const quiz = sent.state.quizzes.find((entry) => entry.lessonId === lesson.id);
       const attempt = quiz?.attempts.find((entry) => entry.attemptId === sheet.attemptId);
       if (!quiz || !attempt) throw new Error(NOT_COUNTED);
-      const rightAnswers = quiz.revealAnswers ? revealed(attempt) : null;
+      // The server keeps the right answers on the learner's own attempts while the quiz shows them.
+      const rightAnswers = quiz.revealAnswers ? (attempt.answers ?? null) : null;
       return { result: attempt.result, status: quiz, rightAnswers };
     },
   };
