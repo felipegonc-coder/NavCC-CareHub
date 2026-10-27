@@ -5,6 +5,7 @@ import {
   keyAction,
   parentRow,
   pathTo,
+  rootedRows,
   stepFocus,
   visibleRows,
   type TreeEntry,
@@ -121,6 +122,24 @@ describe('visibleRows', () => {
     const loop = groupChildren([entry('a', 'b', 'a'), entry('b', 'a', 'a'), entry('c', null, 'a')]);
     const rows = visibleRows(loop, { expanded: new Set(['a', 'b', 'c']) });
     expect(rows.length).toBeLessThan(10);
+  });
+});
+
+describe('rootedRows', () => {
+  it('lists favorites at the top, each with its own scope for what is open', () => {
+    const roots = [nodes[3] as TreeEntry, nodes[1] as TreeEntry]; // Day 1, then Onboarding
+    const rows = rootedRows(roots, byParent, {
+      expanded: new Set(['fav:onboarding:onboarding', 'fav:onboarding:week1', 'fav:day1:day1']),
+      scope: 'fav',
+    });
+    expect(rows.map((r) => `${r.key}@${r.level}`)).toEqual([
+      'fav:day1:day1@1',
+      'fav:day1:day1:empty@2',
+      'fav:onboarding:onboarding@1',
+      'fav:onboarding:week1@2',
+      'fav:onboarding:day1@3',
+    ]);
+    expect(rows[2]).toMatchObject({ posInSet: 2, setSize: 2, expanded: true });
   });
 });
 

@@ -18,6 +18,7 @@ import {
   keyAction,
   MORE_STEP,
   pathTo,
+  rootedRows,
   rowKey,
   visibleRows,
   type TreeRow,
@@ -46,6 +47,8 @@ export interface PageTreeProps {
   label: string;
   /** Entries by parent ID (see `groupChildren`). */
   byParent: ReadonlyMap<string | null, readonly TreeNode[]>;
+  /** Favorites: these entries at the top, in this order, instead of the top of `byParent`. */
+  roots?: readonly TreeNode[] | undefined;
   /** Keeps what's open here apart from other trees showing the same pages. */
   scope: string;
   expanded: ReadonlySet<string>;
@@ -58,6 +61,7 @@ export interface PageTreeProps {
 export function PageTree({
   label,
   byParent,
+  roots,
   scope,
   expanded,
   onExpand,
@@ -72,12 +76,14 @@ export function PageTree({
 
   const rows = useMemo(() => {
     const hasExtra = renderExtra ? (page: TreeNode) => page.kind === 'database' : undefined;
-    return visibleRows(byParent, { expanded, shown, scope, hasExtra });
-  }, [byParent, expanded, shown, scope, renderExtra]);
+    const options = { expanded, shown, scope, hasExtra };
+    return roots ? rootedRows(roots, byParent, options) : visibleRows(byParent, options);
+  }, [byParent, roots, expanded, shown, scope, renderExtra]);
 
-  // The open page is highlighted and the entries above it open, once per page opened.
+  // The open page is highlighted and the entries above it open, once per page opened (in its
+  // space; Favorites stay as the person left them).
   useEffect(() => {
-    if (!current || revealed.current === current) return;
+    if (roots || !current || revealed.current === current) return;
     const path = pathTo(byParent, current);
     if (!path) return;
     revealed.current = current;
@@ -88,7 +94,7 @@ export function PageTree({
         ?.querySelector(`[data-key="${rowKey(scope, current)}"]`)
         ?.scrollIntoView?.({ block: 'nearest' });
     });
-  }, [current, byParent, scope, expanded, onExpand]);
+  }, [roots, current, byParent, scope, expanded, onExpand]);
 
   const focusable = rows.filter(isFocusable);
   const tabbable = (
@@ -139,7 +145,7 @@ export function PageTree({
             <TreeItem
               key={row.key}
               row={row}
-              topLevel={row.level === 1}
+              topLevel={!roots && row.level === 1}
               tabbable={row.key === tabbable}
               current={row.node.id === current}
               onFocusRow={() => setFocusKey(row.key)}

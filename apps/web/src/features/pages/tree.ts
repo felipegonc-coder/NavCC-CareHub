@@ -137,6 +137,24 @@ export function visibleRows<T extends TreeEntry>(
   return walk.rows;
 }
 
+/**
+ * Rows for a list of chosen entries (Favorites), each at the top with its own sub-pages under
+ * it. Each one gets its own key scope, so a page can be open under one favorite only.
+ */
+export function rootedRows<T extends TreeEntry>(
+  roots: readonly T[],
+  byParent: ReadonlyMap<string | null, readonly T[]>,
+  options: RowOptions<T>,
+): TreeRow<T>[] {
+  const walk: Walk<T> = { byParent, options, rows: [] };
+  roots.forEach((node, index) => {
+    const scope = rowKey(options.scope, node.id);
+    const at = { level: 1, posInSet: index + 1, setSize: roots.length, scope };
+    pushEntry(walk, node, at, new Set());
+  });
+  return walk.rows;
+}
+
 /** Rows the keyboard can land on. */
 export function isFocusable<T>(row: TreeRow<T> | undefined): boolean {
   return row?.kind === 'node' || row?.kind === 'more';
