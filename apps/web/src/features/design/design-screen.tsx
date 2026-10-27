@@ -18,6 +18,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   EmptyState,
   ErrorState,
@@ -184,6 +187,22 @@ export function DesignScreen() {
               <DropdownMenuItem>Duplicate</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="danger">Move to Trash</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary">Ticket actions</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem>Reply</DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Assign to</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {people.map((name) => (
+                    <DropdownMenuItem key={name}>{name}</DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuContent>
           </DropdownMenu>
           <Dialog>

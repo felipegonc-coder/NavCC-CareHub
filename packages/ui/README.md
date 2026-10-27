@@ -78,7 +78,9 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
 - **Bigger text:** set `data-text-size="large"` on `<html>`; all sizes are in rem.
 - **Fields:** wrap a control in `<Field label hint error required>` and it gets its label, description
   and invalid state for screen readers.
-- **Overlays:** `DropdownMenu`, `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
+- **Overlays:** `DropdownMenu` (with `DropdownMenuSub`, `DropdownMenuSubTrigger` and
+  `DropdownMenuSubContent` for a second menu, which a phone shows as a sheet over the first),
+  `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
   and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
   focus back. A toast can carry one button, `action: { label: 'Undo', onClick }`; it then stays
   8 seconds instead of 5. Its timer stops while the pointer or keyboard focus is on it, so people
