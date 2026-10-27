@@ -6,6 +6,7 @@ import type { Job, JobProgress, JobStatus, JsonValue } from './domain/types';
 import { jobRunner } from './index';
 import { createPostgresJobStore, type SqlRunner } from './store';
 import { sqlRunnerFor } from './sql';
+import { runTestHook } from './testHook';
 
 export interface JobsRoutesOptions {
   /** The signed-in user's id, or null (401). Defaults to `request.user?.id`. */
@@ -20,6 +21,8 @@ export interface JobsRoutesOptions {
   testHooks?: boolean;
   /** Whether the signed-in user is a site admin. Defaults to `request.user?.isSiteAdmin`. */
   isSiteAdmin?: (request: FastifyRequest) => boolean | Promise<boolean>;
+  /** The test hook's allow-list. Defaults to `TEST_HOOK_TASKS` (`testHookTasks.ts`). */
+  testHookTasks?: Readonly<Record<string, string>>;
 }
 
 /** Decision 0007, section 2.3. Only end-to-end test servers set it; never production. */
@@ -60,8 +63,6 @@ export function toJobView(job: Job): JobView {
 }
 
 const params = z.object({ jobId: z.string().min(1).max(100) });
-const taskParams = z.object({ name: z.string().min(1).max(100) });
-const taskBody = z.object({ now: z.iso.datetime({ offset: true }).optional() });
 
 /** Sends the shared error shape, `{ error: { code, message } }`. */
 function sendError(
@@ -124,24 +125,19 @@ const jobsRoutes: FastifyPluginAsync<JobsRoutesOptions> = async (app, options) =
   const isSiteAdmin =
     options.isSiteAdmin ?? ((request: FastifyRequest) => request.user?.isSiteAdmin === true);
 
-  /** Test hook: runs a periodic task once now, as if it were `now` (default the current time). */
+  /** Test hook: runs an allow-listed periodic task once now, as if it were `now` (`testHook.ts`). */
   app.post('/test/periodic/:name', async (request, reply) => {
-    if (!(await getUserId(request))) {
-      return sendError(reply, 401, 'signed_out', 'Sign in to continue.');
-    }
-    if (!(await isSiteAdmin(request))) {
-      return sendError(reply, 403, 'forbidden', "You don't have access to this.");
-    }
-    const name = taskParams.safeParse(request.params);
-    const body = taskBody.safeParse(request.body ?? {});
-    if (!body.success) {
-      return sendError(reply, 400, 'invalid', 'Give now as an ISO date and time, or leave it out.');
-    }
-    const now = body.data.now ? new Date(body.data.now) : new Date();
-    if (!name.success || !(await runner.runPeriodicTask(name.data.name, { now }))) {
-      return sendError(reply, 404, 'not_found', 'There is no periodic task with this name.');
-    }
-    return { task: name.data.name, now: now.toISOString() };
+    const userId = (await getUserId(request)) ?? null;
+    const outcome = await runTestHook(
+      {
+        userId,
+        isSiteAdmin: userId !== null && (await isSiteAdmin(request)),
+        params: request.params,
+        body: request.body,
+      },
+      { runner, log: app.log, tasks: options.testHookTasks },
+    );
+    return reply.code(outcome.status).send(outcome.body);
   });
 };
 
