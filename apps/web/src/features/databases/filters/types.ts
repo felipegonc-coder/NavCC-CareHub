@@ -2,8 +2,8 @@ import type { DatabaseMeta, EvalContext, Id, View, Viewer } from '@carehub/datab
 import type { PersonChoice } from '../cells';
 import type { ViewActions } from '../contract';
 
-/** What the Filter and Sort panels draw from (most of it from the shell's PanelProps). */
-export interface FilterPanelBaseProps {
+/** What every view panel gets from the shell (most of it straight from LayoutProps). */
+export interface PanelProps {
   meta: DatabaseMeta;
   /** The view as the viewer sees it (with their "Changed for you only" override). */
   view: View;
@@ -18,29 +18,13 @@ export interface FilterPanelBaseProps {
   rowTitles?: Readonly<Record<Id, string>> | undefined;
 }
 
-/** Where a filter chip opens the Filter panel: on its rule, or on the advanced filter. */
-export interface FilterTarget {
-  ruleId?: Id | undefined;
-  advanced?: boolean | undefined;
-}
-
-/**
- * What the panels use when the shell passes it besides PanelProps: the query answer's
- * propertyIds and rowTitles, and the chip that opened the Filter panel.
- */
-export interface PanelExtras {
-  propertyIds?: readonly Id[] | undefined;
-  rowTitles?: Readonly<Record<Id, string>> | undefined;
-  target?: FilterTarget | undefined;
-}
-
 /** Names for people and related rows in filter chips and rules. */
 export function panelContext({
   meta,
   viewer,
   people = [],
   rowTitles = {},
-}: Pick<FilterPanelBaseProps, 'meta' | 'viewer' | 'people' | 'rowTitles'>): EvalContext {
+}: Pick<PanelProps, 'meta' | 'viewer' | 'people' | 'rowTitles'>): EvalContext {
   return {
     properties: meta.properties,
     viewer,

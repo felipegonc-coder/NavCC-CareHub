@@ -18,7 +18,7 @@ import {
   removeSort,
   sortableProperties,
 } from './sort-model';
-import type { FilterPanelBaseProps } from './types';
+import type { PanelProps } from './types';
 
 interface Drag {
   from: number;
@@ -27,7 +27,7 @@ interface Drag {
   middles: number[];
 }
 
-export function SortPanel({ meta, view, actions, propertyIds }: FilterPanelBaseProps) {
+export function SortPanel({ meta, view, actions, propertyIds }: PanelProps) {
   const candidates = useMemo(
     () => sortableProperties(meta.properties, propertyIds),
     [meta.properties, propertyIds],
