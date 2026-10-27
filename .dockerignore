@@ -1,0 +1,21 @@
+# Keep the build context small and free of secrets.
+.git
+.github
+deploy
+docs
+Dockerfile
+.dockerignore
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+**/*.tsbuildinfo
+**/*.log
+**/.env
+**/.env.*
+# A data folder (CAREHUB_DATA_DIR) inside the checkout: never part of an image.
+data
+**/playwright-report
+**/test-results
+**/blob-report
+**/screenshots

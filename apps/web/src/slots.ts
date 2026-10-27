@@ -85,6 +85,19 @@ export interface LinkPicker {
   pick(): Promise<string | null>;
 }
 
+/** Rendered once by the app shell, outside every screen: the Ctrl+K window, the assistant panel. */
+export interface Overlay {
+  id: string;
+  Component: ComponentType;
+}
+
+/** Shown above a page's title, in `order`, such as "Archived" or an article's verification. */
+export interface PageBanner {
+  id: string;
+  order: number;
+  Component: ComponentType<{ page: SlotPage }>;
+}
+
 /** Additions to the page editor, such as the `database` block and "/database". */
 export interface EditorSlots {
   /** React views for blocks, by node name. */
@@ -104,6 +117,8 @@ export interface Slots {
   pageMenuItems: PageMenuItem[];
   pageKindViews: PageKindViews;
   pageHeaderExtras: PageHeaderExtras;
+  overlays: Overlay[];
+  pageBanners: PageBanner[];
   editor: EditorSlots;
 }
 
@@ -132,6 +147,8 @@ export function mergeSlots(parts: readonly FeatureSlots[]): MergedSlots {
     pageMenuItems: sorted(join((part) => part.pageMenuItems)),
     pageKindViews: Object.assign({}, ...parts.map((part) => part.pageKindViews)),
     pageHeaderExtras: Object.assign({}, ...parts.map((part) => part.pageHeaderExtras)),
+    overlays: join((part) => part.overlays),
+    pageBanners: sorted(join((part) => part.pageBanners)),
     editor: {
       nodeViews: Object.assign({}, ...parts.map((part) => part.editor?.nodeViews)),
       slashItems: join((part) => part.editor?.slashItems),
@@ -160,7 +177,15 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
 
   // feature: settings
 
-  // feature: search
+  () => import('./features/search/slots'), // feature: search
+
+  () => import('./features/history/slots'), // feature: history
+
+  () => import('./features/templates/slots'), // feature: templates
+
+  () => import('./features/import-export/slots'), // feature: import-export
+
+  () => import('./features/knowledge/slots'), // feature: knowledge
 
   // feature: learning
 
@@ -178,9 +203,9 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
 
   // feature: analytics
 
-  // feature: notifications
+  () => import('./features/notifications/slots'),
 
-  // feature: claude
+  () => import('./features/claude/slots'), // feature: claude
 
   // feature: comments
 

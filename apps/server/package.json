@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "@carehub/editor": "*",
+    "@carehub/extras": "*",
     "@carehub/learning": "*",
     "@carehub/shared": "*",
+    "@carehub/team-automations": "*",
     "@carehub/team-time": "*",
     "@fastify/cookie": "^11.0.2",
     "@fastify/static": "^8",

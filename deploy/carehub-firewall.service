@@ -1,0 +1,20 @@
+# Lets only Tailscale reach Care Hub's Tailscale address. Docker's published ports bypass ufw,
+# and Linux accepts packets for the tailscale0 address on any interface, so without this rule a
+# device on the LAN could reach Caddy by routing that address through the server. The rule in
+# Docker's DOCKER-USER chain drops those packets unless they came in on tailscale0. Installed
+# as in deploy/README.md (First start), with @TAILSCALE_IP@ replaced by `tailscale ip -4`.
+[Unit]
+Description=Care Hub: only tailscale0 may reach the Tailscale address
+Before=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/iptables -N DOCKER-USER
+ExecStartPre=-/usr/sbin/iptables -D DOCKER-USER -m conntrack --ctdir ORIGINAL --ctorigdst @TAILSCALE_IP@ ! -i tailscale0 -j DROP
+ExecStart=/usr/sbin/iptables -I DOCKER-USER -m conntrack --ctdir ORIGINAL --ctorigdst @TAILSCALE_IP@ ! -i tailscale0 -j DROP
+ExecStop=-/usr/sbin/iptables -D DOCKER-USER -m conntrack --ctdir ORIGINAL --ctorigdst @TAILSCALE_IP@ ! -i tailscale0 -j DROP
+
+[Install]
+WantedBy=docker.service
