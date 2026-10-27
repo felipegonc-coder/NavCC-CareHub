@@ -25,6 +25,8 @@ describe('mergeSlots', () => {
       pageHeaderExtras: {},
       overlays: [],
       pageBanners: [],
+      appStart: [],
+      signOut: [],
       editor: { nodeViews: {}, slashItems: [], linkPickers: [], bubbleItems: [], extensions: [] },
     });
   });
@@ -42,6 +44,17 @@ describe('mergeSlots', () => {
     ]);
     expect(merged.overlays.map((overlay) => overlay.id)).toEqual(['search', 'assistant']);
     expect(merged.pageBanners.map((banner) => banner.id)).toEqual(['archived', 'verified']);
+  });
+
+  it('joins the app start items and sign-out hooks in line order', () => {
+    const run = () => undefined;
+    const merged = mergeSlots([
+      { appStart: [{ id: 'push', run }], signOut: [{ id: 'push', run }] },
+      { signOut: [{ id: 'learning-queue', run }] },
+      { appStart: [{ id: 'open-chat', run }] },
+    ]);
+    expect(merged.appStart.map((item) => item.id)).toEqual(['push', 'open-chat']);
+    expect(merged.signOut.map((hook) => hook.id)).toEqual(['push', 'learning-queue']);
   });
 
   it('joins lists and sorts them by order, keeping line order for ties', () => {
