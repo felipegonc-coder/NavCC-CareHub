@@ -3,7 +3,7 @@
 import type { AccessLevel } from '@carehub/shared';
 import { api, ApiError } from '../../lib/api';
 import type { MoveTo } from './move';
-import type { PageIcon, PageLink, Space, TreeNode } from './types';
+import type { PageIcon, PageLink, Space, SpaceAccess, SpaceKind, TreeNode } from './types';
 
 export const pagesKeys = {
   all: ['pages'] as const,
@@ -16,6 +16,7 @@ export const pagesKeys = {
   prefs: ['pages', 'prefs'] as const,
   trash: ['pages', 'trash'] as const,
   page: (id: string) => ['pages', 'page', id] as const,
+  space: (id: string) => ['pages', 'space', id] as const,
 };
 
 /** A list from a response that is either the list itself or `{ [field]: list }`. */
@@ -48,6 +49,32 @@ export const restoreFromTrash = (id: string, to?: MoveTo) =>
 export const addFavorite = (pageId: string) => api.put('/api/favorites', { pageId });
 export const removeFavorite = (pageId: string) => api.delete('/api/favorites', { pageId });
 export const clearRecent = () => api.delete('/api/recent');
+
+/** A team space to make; the person making it becomes an owner (Sidebar spec, section 3.3). */
+export interface NewSpace {
+  name: string;
+  icon: PageIcon | null;
+  description: string;
+  kind: SpaceKind;
+  defaultAccess: SpaceAccess;
+}
+/** Space names are unique in the workspace (409 otherwise) and up to 60 characters. */
+export const SPACE_NAME_MAX = 60;
+export const createSpace = (space: NewSpace) => api.post('/api/spaces', space);
+/** The last owner can't leave (409) until someone else is an owner. */
+export const leaveSpace = (id: string) => api.post(`/api/spaces/${id}/leave`);
+/** It leaves every sidebar and its pages turn read-only; Admins can unarchive it. */
+export const archiveSpace = (id: string) => api.patch(`/api/spaces/${id}`, { archived: true });
+/** Moves the space and all its pages to Trash. */
+export const deleteSpace = (id: string) => api.delete(`/api/spaces/${id}`);
+
+/** How many pages the space holds, for the Delete space confirm; null when the server doesn't say. */
+export async function fetchPageCount(spaceId: string): Promise<number | null> {
+  type Reply = { space?: { pageCount?: unknown }; pageCount?: unknown } | null;
+  const data = (await api.get(`/api/spaces/${spaceId}`)) as Reply;
+  const count = data?.space?.pageCount ?? data?.pageCount;
+  return typeof count === 'number' ? count : null;
+}
 
 /** Without `confirmAccessChange`, a move that changes who can open the page is refused (409). */
 export const movePage = (id: string, to: MoveTo, confirmAccessChange: boolean) =>

@@ -32,6 +32,7 @@ import type { MoveScope } from './move';
 import { useMoveDialogs } from './MoveDialog';
 import { EntryIcon, PageTree, titleOf } from './PageTree';
 import { useFlagPref, useSetPref } from './prefs';
+import { CreateSpaceButton, SpaceMenu } from './SpaceMenu';
 import { groupChildren } from './tree';
 import type { PageLink, Space, TreeNode } from './types';
 
@@ -66,11 +67,19 @@ export default function PagesSidebar() {
   return (
     <div className="flex flex-col gap-4">
       <Favorites ctx={ctx} spaces={spaces.data} />
-      {team.length > 0 && (
-        <Section id="spaces" title="Spaces" ctx={ctx}>
+      {(team.length > 0 || actions.canCreate) && (
+        <Section
+          id="spaces"
+          title="Spaces"
+          ctx={ctx}
+          add={actions.canCreate && <CreateSpaceButton />}
+        >
           {team.map((space) => (
             <SpaceTree key={space.id} space={space} ctx={ctx} />
           ))}
+          {team.length === 0 && (
+            <p className="py-1 pl-2 text-small text-muted">Spaces you join show here.</p>
+          )}
         </Section>
       )}
       <Shared ctx={ctx} />
@@ -249,8 +258,9 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
             </span>
           </button>
         </h3>
-        {canAdd && (
-          <span className="md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
+        <span className="flex items-center md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100 md:has-[[data-state=open]]:opacity-100">
+          <SpaceMenu space={space} />
+          {canAdd && (
             <AddButton
               label={`Add a page to ${space.name}`}
               onClick={() => {
@@ -258,8 +268,8 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
                 ctx.actions.create({ spaceId: space.id });
               }}
             />
-          </span>
-        )}
+          )}
+        </span>
       </div>
       {open && (
         <TreeBody
