@@ -1,6 +1,7 @@
 // Version history (section 2; HT-04, HT-07, HT-16): the preview fills the left and the versions
 // sit on the right, newest first and grouped by day, named ones in bold; ↑ and ↓ move between
-// versions. On phones the list shows first, and the preview after a tap.
+// versions and Enter restores after the confirm. On phones the list shows first, and the preview
+// after a tap.
 import { versionKindLabel, versionLine } from '@carehub/extras/history';
 import {
   Button,
@@ -29,6 +30,8 @@ import {
 import { ApiError } from '../../lib/api';
 import { useLiveTopic } from '../live';
 import { getVersion, historyKeys, listVersions, versionLink } from './api';
+import { NameDialog } from './NameDialog';
+import { RestoreDialog } from './RestoreDialog';
 import { groupByDay, stepIndex } from './versionList';
 import { VersionPreview } from './VersionPreview';
 
@@ -45,9 +48,11 @@ export interface VersionHistoryProps {
   pageId: string;
   /** The version to show first; the newest when null. */
   initialVersionId: string | null;
+  /** Closes the window, after a restore. */
+  onClose(): void;
 }
 
-export function VersionHistory({ pageId, initialVersionId }: VersionHistoryProps) {
+export function VersionHistory({ pageId, initialVersionId, onClose }: VersionHistoryProps) {
   const client = useQueryClient();
   const { toast } = useToast();
   const optionPrefix = useId();
@@ -56,6 +61,8 @@ export function VersionHistory({ pageId, initialVersionId }: VersionHistoryProps
   const [picked, setPicked] = useState(initialVersionId);
   const [showChanges, setShowChanges] = useState(true);
   const [phonePreview, setPhonePreview] = useState(initialVersionId !== null);
+  const [confirming, setConfirming] = useState(false);
+  const [naming, setNaming] = useState(false);
 
   const list = useInfiniteQuery({
     queryKey: historyKeys.list(pageId),
@@ -68,6 +75,8 @@ export function VersionHistory({ pageId, initialVersionId }: VersionHistoryProps
     () => list.data?.pages.flatMap((one) => one.versions) ?? [],
     [list.data],
   );
+  // Can edit, and the page isn't locked or archived.
+  const canRestore = list.data?.pages[0]?.canRestore ?? false;
   const selectedId = picked ?? versions[0]?.id ?? null;
 
   const version = useQuery({
@@ -115,9 +124,13 @@ export function VersionHistory({ pageId, initialVersionId }: VersionHistoryProps
   function onListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const index = versions.findIndex((one) => one.id === selectedId);
     const to = stepIndex(event.key, index, versions.length);
-    if (to === null) return;
-    event.preventDefault();
-    select(to);
+    if (to !== null) {
+      event.preventDefault();
+      select(to);
+    } else if (event.key === 'Enter' && canRestore && shown) {
+      event.preventDefault();
+      setConfirming(true);
+    }
   }
 
   function onListClick(event: MouseEvent<HTMLDivElement>) {
@@ -202,7 +215,22 @@ export function VersionHistory({ pageId, initialVersionId }: VersionHistoryProps
               Copy link
             </Button>
           )}
+          {shown && canRestore && (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setNaming(true)}>
+                Name this version
+              </Button>
+              <Button size="sm" onClick={() => setConfirming(true)}>
+                Restore this version
+              </Button>
+            </>
+          )}
         </div>
+        {!canRestore && (
+          <p className="border-b border-border px-4 py-2 text-small text-muted">
+            The page is locked or archived, so versions can&apos;t be restored or named.
+          </p>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">{preview}</div>
       </section>
 
@@ -263,6 +291,19 @@ export function VersionHistory({ pageId, initialVersionId }: VersionHistoryProps
           </Button>
         )}
       </div>
+
+      {shown && (
+        <RestoreDialog
+          pageId={pageId}
+          version={shown}
+          open={confirming}
+          onOpenChange={setConfirming}
+          onRestored={onClose}
+        />
+      )}
+      {shown && naming && (
+        <NameDialog pageId={pageId} version={shown} onDone={() => setNaming(false)} />
+      )}
     </div>
   );
 }

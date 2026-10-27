@@ -53,6 +53,7 @@ export function VersionHistoryOverlay() {
               key={`${target.page.id}:${target.versionId ?? 'newest'}`}
               pageId={target.page.id}
               initialVersionId={target.versionId}
+              onClose={closeVersionHistory}
             />
           </Suspense>
         </DialogContent>
