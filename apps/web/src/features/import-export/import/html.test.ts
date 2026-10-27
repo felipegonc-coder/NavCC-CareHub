@@ -218,25 +218,32 @@ describe('htmlToContent', () => {
     ]);
   });
 
-  it("links where the importer says, and drops links that aren't safe", () => {
+  it('links where the importer says, to plan links and web, mail and phone addresses only', () => {
     const targets: Record<string, string | null> = {
       'Other%20page.html': 'carehub-import:page-2',
       'gone.html': null,
       'evil.html': 'javascript:alert(1)',
+      'notes.html': 'notes.html',
+      'ftp://files.example.com/a': 'ftp://files.example.com/a',
       '//cdn.example.com/a': '//cdn.example.com/a',
       'mailto:ana@example.com': 'mailto:ana@example.com',
+      'tel:+15550100': 'tel:+15550100',
     };
     const html =
       '<p><a href="Other%20page.html">Other</a> <a href="gone.html">Gone</a> ' +
-      '<a href="evil.html">Evil</a> <a href="//cdn.example.com/a">CDN</a> ' +
-      '<a href="mailto:ana@example.com">Ana</a> <a name="top">Top</a></p>';
+      '<a href="evil.html">Evil</a> <a href="notes.html">Notes</a> ' +
+      '<a href="ftp://files.example.com/a">Files</a> <a href="//cdn.example.com/a">CDN</a> ' +
+      '<a href="mailto:ana@example.com">Ana</a> <a href="tel:+15550100">Call</a> ' +
+      '<a name="top">Top</a></p>';
     expect(blocks(html, (href) => targets[href] ?? null)).toEqual([
       p(
         link('Other', 'carehub-import:page-2'),
-        text(' Gone Evil '),
+        text(' Gone Evil Notes Files '),
         link('CDN', 'https://cdn.example.com/a'),
         text(' '),
         link('Ana', 'mailto:ana@example.com'),
+        text(' '),
+        link('Call', 'tel:+15550100'),
         text(' Top'),
       ),
     ]);
@@ -263,10 +270,13 @@ describe('htmlToContent', () => {
     expect(problems).toEqual([
       {
         file: 'Notes/Trip.html',
-        what: 'Kept as links',
-        why: "2 pictures. Pages can't show pictures yet.",
+        what: '2 pictures kept as links',
+        why: "Pages can't show pictures yet.",
       },
-      { file: 'Notes/Trip.html', what: 'Left out', why: "2 pictures. Their files weren't found." },
+      { file: 'Notes/Trip.html', what: '2 pictures left out', why: "Their files weren't found." },
+    ]);
+    expect(read('<p><img src="gone.png"></p>', () => null).problems).toEqual([
+      { file: 'Notes/Trip.html', what: '1 picture left out', why: "Its file wasn't found." },
     ]);
   });
 
@@ -286,8 +296,8 @@ describe('htmlToContent', () => {
     expect(problems).toEqual([
       {
         file: 'Notes/Trip.html',
-        what: 'Kept as text',
-        why: "1 table, a line for each row. Pages can't show tables yet.",
+        what: '1 table kept as text',
+        why: "Pages can't show tables yet, so each row is a line.",
       },
     ]);
   });
@@ -302,7 +312,7 @@ describe('htmlToContent', () => {
       { type: 'blockquote', content: [p(text('💡 '), text('Bring '), text('water', 'bold'))] },
       { type: 'blockquote', content: [p(text('!')), bullets(item(p(text('Hat'))))] },
     ]);
-    expect(problems.map((problem) => problem.what)).toEqual(['Kept as quotes']);
+    expect(problems.map((problem) => problem.what)).toEqual(['2 callouts kept as quotes']);
   });
 
   it('leaves out scripts, styles, hidden content and controls, and lists videos and frames', () => {
@@ -316,8 +326,8 @@ describe('htmlToContent', () => {
     expect(problems).toEqual([
       {
         file: 'Notes/Trip.html',
-        what: 'Left out',
-        why: "2 videos, sounds or frames. Pages can't show them yet.",
+        what: '2 videos, sounds or frames left out',
+        why: "Pages can't show them yet.",
       },
     ]);
   });
