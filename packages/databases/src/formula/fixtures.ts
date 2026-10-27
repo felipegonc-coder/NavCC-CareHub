@@ -65,7 +65,7 @@ const d = (date: string) => ({ date });
 const RELATION_DEPTH = 'Formulas can read related rows at most 2 relations away.';
 const UNIT_HELP = 'Use years, quarters, months, weeks, days, hours, minutes or seconds.';
 
-/** The core examples (formula-lib adds more). */
+/** The examples (FX-01): every function and operator, plus empty and error cases. */
 export const FORMULA_FIXTURES: FormulaFixture[] = [
   // Operators and precedence
   v('1 + 2', 3),
@@ -350,6 +350,61 @@ export const FORMULA_FIXTURES: FormulaFixture[] = [
   v('prop("Due") > today()', true),
   v('prop("Due") == parseDate("2026-10-30")', true),
   v('prop("Start") < now()', true),
+  // Patterns (re2js): JavaScript syntax, linear time, plain messages
+  v('test("Avery Lin", "Lin$")', true),
+  v('test("avery", "^A")', false),
+  v('test(prop("Phone"), "^\\\\d{3}-\\\\d{4}$")', true),
+  v('prop("Email").test("@example\\\\.com$")', true),
+  v('test(prop("Ticket"), "^QA-\\\\d+$")', true),
+  v('test(prop("Status"), "Open|Done")', true),
+  v('test("Line one\\nLine two", "^Line two$")', false),
+  v('test("Line one\\nLine two", "(?m)^Line two$")', true),
+  v('test("", "")', true),
+  v('test("", "a")', false),
+  v('match("a1b22c333", "\\\\d+")', ['1', '22', '333']),
+  v('match("Case 12, Case 7", "Case (\\\\d+)")', ['Case 12', 'Case 7']),
+  v('match("AbC abc", "(?i)abc")', ['AbC', 'abc']),
+  v('match(prop("Email"), "^[^@]+")', ['avery']),
+  v('match("😀a😀", ".")', ['😀', 'a', '😀']),
+  v('match("no digits", "\\\\d")', []),
+  v('empty(match("abc", "x"))', true),
+  v('length(match("one two three", "\\\\w+"))', 3),
+  v('match("x1y2", "[0-9]").map(toNumber(current)).sum()', 3),
+  v('replace("2026-10-26", "-", "/")', '2026/10-26'),
+  v('replaceAll("2026-10-26", "-", "/")', '2026/10/26'),
+  v('replace("Avery Lin", "(\\\\w+) (\\\\w+)", "$2, $1")', 'Lin, Avery'),
+  v(
+    'replace("2026-10-26", "(?<y>\\\\d{4})-(?<m>\\\\d{2})-(?<d>\\\\d{2})", "$<d>/$<m>/$<y>")',
+    '26/10/2026',
+  ),
+  v('replace("abc", "b", "$&$&")', 'abbc'),
+  v('replace("cost: 5", "\\\\d", "$$")', 'cost: $'),
+  v('replace("abc", "B", "x")', 'abc'),
+  v('replaceAll("a  b   c", " +", " ")', 'a b c'),
+  v('replaceAll("abc", "", "-")', '-a-b-c-'),
+  v('replaceAll("Tél: 555", "\\\\p{L}", "*")', '***: 555'),
+  v('"x-y-z".replaceAll("-", "+")', 'x+y+z'),
+  v('prop("Website").replace("^https?://", "")', 'example.com/avery'),
+  v('replace(format(prop("Score")), "\\\\.", ",")', '42,5'),
+  v('replaceAll(format(prop("Budget")), "a", "b")', ''),
+  x('test("abc", "(")', "This pattern isn't valid: a '(' has no ')'."),
+  x('match("x", "[")', "This pattern isn't valid: a '[' has no ']'."),
+  x('test("abc", "a{2,1}")', "This pattern isn't valid: a repeat count is backwards."),
+  x('test("abc", "*a")', "This pattern isn't valid: a repeat has nothing before it."),
+  x('test("abc", "(?=a)")', "Patterns can't look ahead, look behind or refer back to a group."),
+  x(
+    'replace("aa", "(a)\\\\1", "")',
+    "Patterns can't look ahead, look behind or refer back to a group.",
+  ),
+  x('test("x", "((a{100}){100}){100}")', 'This pattern is too complex.'),
+  x('test("a", repeat("a", 201))', 'Patterns can be up to 200 characters.'),
+  x('test(123, "2")', 'test() needs Text here; it gets Number.'),
+  // e()
+  v('e()', 2.718281828459045),
+  v('round(e(), 3)', 2.718),
+  v('ln(e())', 1),
+  v('exp(1) == e()', true),
+  v('pi() < e()', false),
   // Writing mistakes
   x('round(1', "Missing ')' at line 1"),
   x('round(1,\n2', "Missing ')' at line 2"),
