@@ -13,6 +13,13 @@ export {
   progressEventsReply,
 } from './api';
 export type { ProgressEventsRequest, ProgressEventsResponse, ProgressNoteRequest } from './api';
+export { courseUpdateFor, withManualCompletion } from './updates';
+export type {
+  CourseUpdate,
+  CourseUpdateNotice,
+  CourseUpdateNotify,
+  ManualCompletion,
+} from './updates';
 export { canCompleteLesson, nextLesson, visibleBlocks } from './gating';
 export type { CanCompleteLesson, LessonBlocker } from './gating';
 export type {
