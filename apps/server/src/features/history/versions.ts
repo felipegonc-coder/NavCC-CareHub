@@ -92,6 +92,8 @@ export async function recordSavedEdits(db: Db): Promise<void> {
  * were the history's own write) and don't start a new one.
  */
 export async function settleEdits(db: Db | Tx, pageId: string, at: Date): Promise<void> {
+  // A page with no edits recorded yet has no row; make one so the settled time counts.
+  await db.insert(historyEdits).values({ pageId }).onConflictDoNothing();
   await db
     .update(historyEdits)
     .set({
