@@ -42,3 +42,7 @@ export function courseStateLabel(course: Pick<StudioCourseSummary, 'state' | 've
 /** The course editor's address. */
 export const editorPath = (courseId: string): string =>
   `/learning/studio/courses/${encodeURIComponent(courseId)}`;
+
+/** The course editor's address with `lessonId` open. */
+export const lessonPath = (courseId: string, lessonId: string): string =>
+  `${editorPath(courseId)}?lesson=${encodeURIComponent(lessonId)}`;

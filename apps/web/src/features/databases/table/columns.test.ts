@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { View } from '@carehub/databases';
 import { jobsDatabase, jobsProperties, PROPS } from '../test-utils';
-import { clampWidth, tableColumns } from './columns';
+import { clampWidth, dropTarget, propertyOrder, tableColumns } from './columns';
 
 function tableView(patch: Partial<View> = {}): View {
   const view = jobsDatabase().views[0];
@@ -81,5 +81,48 @@ describe('tableColumns', () => {
     });
     const wraps = tableColumns(jobsProperties(), view, ALL).map((c) => c.wrap);
     expect(wraps).toEqual([true, false, true]);
+  });
+});
+
+describe('tableColumns widths', () => {
+  it('uses a width being dragged over the saved one', () => {
+    const view = tableView({ properties: [{ propertyId: PROPS.cost, visible: true, width: 120 }] });
+    const columns = tableColumns(jobsProperties(), view, ALL, { [PROPS.cost]: 333 });
+    expect(columns.map((c) => [c.property.id, c.width, c.left])).toEqual([
+      [PROPS.name, 280, 0],
+      [PROPS.cost, 333, 280],
+    ]);
+  });
+});
+
+describe('propertyOrder', () => {
+  it('lists Name, the view order, then the rest, without hidden-from-viewer ones', () => {
+    const view = tableView({
+      properties: [
+        { propertyId: PROPS.cost, visible: false },
+        { propertyId: PROPS.status, visible: true },
+      ],
+    });
+    const visible = ALL.filter((id) => id !== PROPS.notes);
+    expect(propertyOrder(jobsProperties(), view, visible).map((p) => p.id)).toEqual([
+      PROPS.name,
+      PROPS.cost,
+      PROPS.status,
+      PROPS.priority,
+      PROPS.due,
+      PROPS.technician,
+      PROPS.paid,
+    ]);
+  });
+});
+
+describe('dropTarget', () => {
+  it('lands before the first column whose middle is right of the pointer', () => {
+    const columns = tableColumns(jobsProperties(), tableView(), ALL);
+    // Name 0–280, Status 280–480, Priority 480–680 ...
+    expect(dropTarget(columns, 10)).toBe(PROPS.status);
+    expect(dropTarget(columns, 379)).toBe(PROPS.status);
+    expect(dropTarget(columns, 381)).toBe(PROPS.priority);
+    expect(dropTarget(columns, 99_999)).toBeNull();
   });
 });

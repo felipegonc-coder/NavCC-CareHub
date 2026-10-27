@@ -14,7 +14,13 @@
 
 ## Search
 
-Routes, endpoints, controls: _filled in by the search PRs._
+How search works and what's still a stand-in: [search.md](search.md).
+
+- **Until the page model (#49) and accounts 1b (#55) are on main, search finds nothing:** its stand-ins deny by default, so leave `search` off in `tests/e2e/flows/_support/features.ts` until then.
+- **Endpoint:** `POST /api/search/query` with `{ text, filters?, sort?, match?, cursor?, limit? }` answers `{ results, total, nextCursor }`. Share-link visitors and people outside the workspace get 403 "You don't have access to this."
+- **Timing:** a new, renamed, moved, trashed or archived page is searchable (or hidden) at once; text typed into a page is searchable within about 2 seconds. Wait for the result to show (`expect(…).toBeVisible()`), not for a fixed time.
+- **Archived pages** are left out unless the Archived filter (`includeArchived`) is on.
+- **Data:** search shows what the seed's pages hold; it has no seed data of its own.
 
 ## History (versions, Updates, Archive)
 
