@@ -6,7 +6,7 @@ Every setting is optional. Each feature reads its own with `readSettings(schema)
 | ------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `ANTHROPIC_API_KEY`       | claude  | The key for Claude features (secret)                                                                                 | Claude stays off and can't be turned on: "Claude isn't set up on this server yet." |
 | `ANTHROPIC_MODEL`         | claude  | The Claude model every feature uses (CL-D1)                                                                          | The default model in `features/claude/server`                                      |
-| `CLAUDE_MONTHLY_REQUESTS` | claude  | Requests per workspace per month (CL-D2)                                                                             | 3,000                                                                              |
+| `CLAUDE_MONTHLY_REQUESTS` | claude  | Requests per workspace per month until an Admin sets a limit in Settings → Claude (CL-D2)                            | 3,000                                                                              |
 | `ANTHROPIC_BASE_URL`      | claude  | Tests only: a local stub instead of Claude. Accepted only for `http://127.0.0.1:<port>` or `http://localhost:<port>` | `https://api.anthropic.com`                                                        |
 
 Lines for `deploy/.env.example` (sent to the main lead; #3 lists each app variable explicitly):
