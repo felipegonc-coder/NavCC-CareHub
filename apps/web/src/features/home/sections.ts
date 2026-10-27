@@ -1,5 +1,6 @@
 import type { TimePrefs } from '@carehub/team-time';
 import type { ComponentType } from 'react';
+import type { HomeSectionId } from './settings';
 import { UpcomingSection } from './UpcomingSection';
 
 /** What every section gets from Home: one clock, so they all move on together. */
@@ -8,7 +9,7 @@ export interface SectionProps {
   prefs: Readonly<TimePrefs>;
 }
 
-export type HomeSectionId = 'upcoming' | 'unread' | 'tasks' | 'reminders' | 'learning' | 'recent';
+export type { HomeSectionId };
 
 export interface HomeSectionEntry {
   id: HomeSectionId;
