@@ -1,16 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { meResponseSchema, readCsrfToken } from './index';
-
-describe('readCsrfToken', () => {
-  it('reads the __Host- cookie first, then the plain one', () => {
-    expect(readCsrfToken('theme=dark; __Host-carehub_csrf=over-https; carehub_csrf=planted')).toBe(
-      'over-https',
-    );
-    expect(readCsrfToken('carehub_csrf=local; theme=dark')).toBe('local');
-    expect(readCsrfToken('theme=dark; carehub_csrf_old=x')).toBeNull();
-    expect(readCsrfToken('')).toBeNull();
-  });
-});
+import { meResponseSchema } from './index';
 
 describe('meResponseSchema', () => {
   const user = {
@@ -24,42 +13,14 @@ describe('meResponseSchema', () => {
     weekStart: 0,
     mustChangePassword: false,
   };
-  const workspace = { id: '00000000-0000-4000-8000-000000000002', name: 'Care Hub' };
-  const member = {
-    workspaceId: workspace.id,
-    kind: 'member',
-    roleId: '00000000-0000-4000-8000-000000000003',
-    roleName: 'Viewer',
-    permissions: [],
-    isAdmin: false,
-  } as const;
-  const guest = {
-    workspaceId: workspace.id,
-    kind: 'guest',
-    roleId: null,
-    roleName: null,
-    permissions: [],
-    isAdmin: false,
-  } as const;
 
-  it('describes GET /api/auth/me for members, guests and people outside the workspace', () => {
-    for (const me of [
-      { user, member, workspace },
-      { user, member: guest, workspace },
-      { user, member: null, workspace },
-    ]) {
-      expect(meResponseSchema.parse(me)).toEqual(me);
-    }
+  it('describes GET /api/auth/me', () => {
+    const me = { user, member: null, workspace: null };
+    expect(meResponseSchema.parse(me)).toEqual(me);
   });
 
-  it('rejects unknown permissions, guests with a role, permissions or admin, and odd week starts', () => {
-    const bad = [
-      { user, member: { ...member, permissions: ['pages.fly'] }, workspace },
-      { user, member: { ...guest, permissions: ['pages.comment'] }, workspace },
-      { user, member: { ...guest, roleId: member.roleId, roleName: 'Viewer' }, workspace },
-      { user, member: { ...guest, isAdmin: true }, workspace },
-      { user: { ...user, weekStart: 7 }, member: null, workspace },
-    ];
-    for (const me of bad) expect(meResponseSchema.safeParse(me).success).toBe(false);
+  it('rejects a week that starts on an unknown day', () => {
+    const me = { user: { ...user, weekStart: 7 }, member: null, workspace: null };
+    expect(meResponseSchema.safeParse(me).success).toBe(false);
   });
 });

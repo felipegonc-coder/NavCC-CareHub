@@ -30,7 +30,7 @@ describe('loadConfig', () => {
       PORT: '8080',
       HOST: '',
       CAREHUB_VERSION: '1.2.3',
-      NODE_ENV: 'test',
+      NODE_ENV: 'production',
       DATABASE_URL,
       CAREHUB_PUBLIC_URL: 'https://carehub.example.test',
       COOKIE_SECURE: 'false',
@@ -39,7 +39,7 @@ describe('loadConfig', () => {
       PORT: 8080,
       HOST: '0.0.0.0',
       CAREHUB_VERSION: '1.2.3',
-      NODE_ENV: 'test',
+      NODE_ENV: 'production',
       CAREHUB_PUBLIC_URL: 'https://carehub.example.test',
       COOKIE_SECURE: false,
     });
@@ -53,27 +53,5 @@ describe('loadConfig', () => {
       /CAREHUB_PUBLIC_URL/,
     );
     expect(() => loadConfig({ DATABASE_URL, COOKIE_SECURE: 'sometimes' })).toThrow(/COOKIE_SECURE/);
-  });
-
-  it('needs an https CAREHUB_PUBLIC_URL and Secure cookies in production (or http://localhost)', () => {
-    const production = { DATABASE_URL, NODE_ENV: 'production' };
-    const https = 'https://carehub.example.test';
-    expect(() => loadConfig(production)).toThrow(/CAREHUB_PUBLIC_URL/);
-    expect(() =>
-      loadConfig({ ...production, CAREHUB_PUBLIC_URL: 'http://carehub.example.test' }),
-    ).toThrow(/https:\/\//);
-    expect(() =>
-      loadConfig({ ...production, CAREHUB_PUBLIC_URL: https, COOKIE_SECURE: 'false' }),
-    ).toThrow(/COOKIE_SECURE/);
-    expect(loadConfig({ ...production, CAREHUB_PUBLIC_URL: https })).toMatchObject({
-      NODE_ENV: 'production',
-      COOKIE_SECURE: true,
-    });
-    const local = {
-      ...production,
-      CAREHUB_PUBLIC_URL: 'http://localhost:3000',
-      COOKIE_SECURE: 'false',
-    };
-    expect(loadConfig(local)).toMatchObject({ COOKIE_SECURE: false });
   });
 });

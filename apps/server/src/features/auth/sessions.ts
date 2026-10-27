@@ -4,20 +4,14 @@ import { and, eq, gt, isNull, lte, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
 import { sessions, users } from './schema';
 
-/**
- * The HttpOnly session cookie (`__Host-carehub_session` when cookies are Secure; see authCookieNames). Its
- * value is the session token; the database keeps only its SHA-256 hash.
- */
+/** The HttpOnly session cookie. Its value is the session token; the database keeps only its SHA-256 hash. */
 export const SESSION_COOKIE = 'carehub_session';
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
-/** However often it's used, a session ends this long after sign-in. */
-export const SESSION_MAX_AGE_DAYS = 90;
 /** An active session's last-seen time and 30-day expiry move forward at most this often. */
 const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 const TOKEN_FORMAT = /^[A-Za-z0-9_-]{43}$/;
 const expiresFromNow = () =>
   sql`now() + make_interval(secs => ${sql.raw(String(SESSION_TTL_SECONDS))})`;
-const maxAge = () => sql`make_interval(days => ${sql.raw(String(SESSION_MAX_AGE_DAYS))})`;
 
 /** The columns behind `request.user`. */
 export const currentUserColumns = {
@@ -66,7 +60,7 @@ export async function createSession(db: Db | Tx, userId: string, device: Session
   return { id: row.id, token };
 }
 
-/** The live session for a token, or null (unknown, expired or over 90 days old, or the account is locked). */
+/** The live session for a token, or null (unknown or expired, or the account is locked). */
 export async function findSession(
   db: Db | Tx,
   token: string,
@@ -80,7 +74,6 @@ export async function findSession(
       and(
         eq(sessions.tokenHash, hashSessionToken(token)),
         gt(sessions.expiresAt, sql`now()`),
-        gt(sessions.createdAt, sql`now() - ${maxAge()}`),
         isNull(users.lockedAt),
       ),
     )
@@ -93,17 +86,11 @@ export async function findSession(
 export const sessionNeedsTouch = (lastSeenAt: Date) =>
   Date.now() - lastSeenAt.getTime() >= TOUCH_INTERVAL_MS;
 
-/**
- * Sliding expiry: the session now lasts 30 days from this moment, but never past 90 days after sign-in.
- * Also updates the person's last active time.
- */
+/** Sliding expiry: the session now lasts 30 days from this moment. Also updates the person's last active time. */
 export async function touchSession(db: Db | Tx, sessionId: string): Promise<void> {
   const [row] = await db
     .update(sessions)
-    .set({
-      lastSeenAt: sql`now()`,
-      expiresAt: sql`LEAST(${expiresFromNow()}, ${sessions.createdAt} + ${maxAge()})`,
-    })
+    .set({ lastSeenAt: sql`now()`, expiresAt: expiresFromNow() })
     .where(eq(sessions.id, sessionId))
     .returning({ userId: sessions.userId });
   if (row) await markActive(db, row.userId);
@@ -118,9 +105,8 @@ export async function deleteUserSessions(db: Db | Tx, userId: string): Promise<v
 }
 
 /**
- * For the live co-editing server: the person signed in with this session token (the value of the cookie
- * named `app.sessionCookies.names.session`, or `app.sessionCookies.sessionToken(request)`), or null if it's
- * unknown or expired, the account is locked, or a new password must be chosen first.
+ * For the live co-editing server: the person signed in with this session token (the carehub_session cookie
+ * value), or null if it's unknown or expired, the account is locked, or a new password must be chosen first.
  */
 export async function getUserFromSessionToken(
   db: Db | Tx,
