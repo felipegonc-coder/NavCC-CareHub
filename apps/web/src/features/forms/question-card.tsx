@@ -36,11 +36,13 @@ export interface QuestionCardProps {
   onSave(next: FormDefinition): void;
   /**
    * Moves the question at `from` to `to`; false when its logic blocks the move. Focus goes back to
-   * `control` once the card has moved.
+   * `control` once the card has moved (and the menu has closed, when the move came from it).
    */
-  onMove(from: number, to: number, control: HTMLElement | null): boolean;
+  onMove(from: number, to: number, control: HTMLElement | null, fromMenu: boolean): boolean;
   /** Removes the question; false when it can't be saved. */
   onRemove(propertyId: Id): boolean;
+  /** The card's menu closed after a choice that moves focus itself. */
+  onMenuClosed(): void;
 }
 
 /**
@@ -57,6 +59,7 @@ export function QuestionCard({
   onSave,
   onMove,
   onRemove,
+  onMenuClosed,
 }: QuestionCardProps) {
   const id = useId();
   const menuRef = useRef<HTMLButtonElement>(null);
@@ -71,10 +74,10 @@ export function QuestionCard({
     if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
     event.preventDefault();
     const to = event.key === 'ArrowUp' ? index - 1 : index + 1;
-    if (to >= 0 && to <= last) onMove(index, to, event.currentTarget);
+    if (to >= 0 && to <= last) onMove(index, to, event.currentTarget, false);
   };
   const moveTo = (to: number) => {
-    if (onMove(index, to, menuRef.current)) chosen.current = true;
+    if (onMove(index, to, menuRef.current, true)) chosen.current = true;
   };
 
   return (
@@ -118,6 +121,7 @@ export function QuestionCard({
                 if (!chosen.current) return;
                 chosen.current = false;
                 event.preventDefault();
+                onMenuClosed();
               }}
             >
               <DropdownMenuItem disabled={index === 0} onSelect={() => moveTo(index - 1)}>

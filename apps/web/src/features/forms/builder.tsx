@@ -47,10 +47,15 @@ export interface FormBuilderProps {
   onCreate: ((name: string, type: NewQuestionType) => Promise<Id | null>) | null;
 }
 
-/** Where focus goes once the saved form shows (a moved card is put back, so it loses focus). */
+/**
+ * Where focus goes once the saved form shows (a moved card is put back, so it loses focus). After a
+ * menu choice it waits until the menu has closed, as an open menu keeps focus inside it.
+ */
 interface PendingFocus {
   ready(def: FormDefinition): boolean;
   target(): HTMLElement | null | undefined;
+  /** True while the menu the choice came from is still open. */
+  afterMenu: boolean;
 }
 
 const asks = (propertyId: Id) => (def: FormDefinition) =>
@@ -75,18 +80,31 @@ export function FormBuilder({
 }: FormBuilderProps) {
   const addRef = useRef<HTMLButtonElement>(null);
   const pendingFocus = useRef<PendingFocus | null>(null);
+  const shownDef = useRef(def);
   const chosen = useRef(false);
   const [creating, setCreating] = useState(false);
   const addable = addableProperties(def, properties);
   const full = def.questions.length >= LIMITS.formQuestions;
 
-  // After every render: once the saved form shows, focus goes where the last action left it.
-  useEffect(() => {
+  /** Focus goes where the last action left it, once the saved form shows and no menu is open. */
+  const focusPending = () => {
     const pending = pendingFocus.current;
-    if (!pending?.ready(def)) return;
+    if (!pending || pending.afterMenu || !pending.ready(shownDef.current)) return;
     pendingFocus.current = null;
     pending.target()?.focus();
+  };
+
+  // After every render, as the saved form may now show.
+  useEffect(() => {
+    shownDef.current = def;
+    focusPending();
   });
+
+  /** The menu a choice came from has closed (and doesn't put focus back on its button). */
+  const menuClosed = () => {
+    if (pendingFocus.current) pendingFocus.current.afterMenu = false;
+    focusPending();
+  };
 
   function saveThenFocus(next: FormDefinition, pending: PendingFocus): boolean {
     pendingFocus.current = pending;
@@ -96,30 +114,34 @@ export function FormBuilder({
   }
 
   /** Focus goes to a new question's box once its card shows, to type the question. */
-  const toNewQuestion = (propertyId: Id): PendingFocus => ({
+  const toNewQuestion = (propertyId: Id, afterMenu: boolean): PendingFocus => ({
     ready: () => questionBox(propertyId) !== null,
     target: () => questionBox(propertyId),
+    afterMenu,
   });
 
-  const add = (prop: Property) => saveThenFocus(addQuestion(def, prop), toNewQuestion(prop.id));
+  const add = (prop: Property, fromMenu: boolean) =>
+    saveThenFocus(addQuestion(def, prop), toNewQuestion(prop.id, fromMenu));
 
-  /** Focus goes to the card that takes its place, or to "+ Add question". */
+  /** From the question's menu. Focus goes to the card that takes its place, or "+ Add question". */
   const remove = (propertyId: Id): boolean => {
     const at = def.questions.findIndex((q) => q.propertyId === propertyId);
     const neighbour = def.questions[at + 1] ?? def.questions[at - 1];
     return saveThenFocus(removeQuestion(def, propertyId, properties), {
       ready: (d) => !asks(propertyId)(d),
       target: () => (neighbour ? questionBox(neighbour.propertyId) : null) ?? addRef.current,
+      afterMenu: true,
     });
   };
 
   /** Focus stays on the control that moved the card. */
-  const move = (from: number, to: number, control: HTMLElement | null): boolean => {
+  const move = (from: number, to: number, control: HTMLElement | null, fromMenu: boolean) => {
     const moving = def.questions[from];
     if (!moving) return false;
     pendingFocus.current = {
       ready: (d) => d.questions[to]?.propertyId === moving.propertyId,
       target: () => control,
+      afterMenu: fromMenu,
     };
     const moved = onMove(from, to);
     if (!moved) pendingFocus.current = null;
@@ -128,8 +150,8 @@ export function FormBuilder({
 
   const doneCreating = (propertyId: Id | null) => {
     pendingFocus.current = propertyId
-      ? toNewQuestion(propertyId)
-      : { ready: () => true, target: () => addRef.current };
+      ? toNewQuestion(propertyId, false)
+      : { ready: () => true, target: () => addRef.current, afterMenu: false };
     setCreating(false);
   };
 
@@ -160,7 +182,7 @@ export function FormBuilder({
           <ul className="flex flex-wrap gap-2">
             {addable.map((prop) => (
               <li key={prop.id}>
-                <Button variant="secondary" size="sm" onClick={() => add(prop)}>
+                <Button variant="secondary" size="sm" onClick={() => add(prop, false)}>
                   {prop.name}
                 </Button>
               </li>
@@ -182,6 +204,7 @@ export function FormBuilder({
                 onSave={onSave}
                 onMove={move}
                 onRemove={remove}
+                onMenuClosed={menuClosed}
               />
             ) : null;
           })}
@@ -208,13 +231,14 @@ export function FormBuilder({
                 if (!chosen.current) return;
                 chosen.current = false;
                 event.preventDefault();
+                menuClosed();
               }}
             >
               {addable.map((prop) => (
                 <DropdownMenuItem
                   key={prop.id}
                   onSelect={() => {
-                    chosen.current = add(prop);
+                    chosen.current = add(prop, true);
                   }}
                 >
                   {prop.name}
