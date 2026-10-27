@@ -1,5 +1,16 @@
-// Time helpers for Home: what's still on, which day it's under, and the clock that drives them.
-import { datePart, formatTime, toCivil, todayIn, type TimePrefs } from '@carehub/team-time';
+// Time helpers for Home: what's still on, which day it's under, how times read, and the clock
+// that drives them.
+import {
+  datePart,
+  dayOfWeek,
+  daysBetween,
+  formatDate,
+  formatTime,
+  toCivil,
+  todayIn,
+  weekdayName,
+  type TimePrefs,
+} from '@carehub/team-time';
 import { useEffect, useState } from 'react';
 
 /** Something with a start and an end: instants when timed, dates (end exclusive) when all-day. */
@@ -31,6 +42,44 @@ export function upcomingTime(
   const start = new Date(span.start);
   if (start.getTime() <= now.getTime()) return 'Now';
   return formatTime(toCivil(start, prefs.timeZone), prefs);
+}
+
+type ClockPrefs = Pick<TimePrefs, 'timeZone' | 'use24h'>;
+
+/** Days from today that read as words. */
+const NEAR_DAYS = new Map([
+  [-1, 'Yesterday'],
+  [0, 'Today'],
+  [1, 'Tomorrow'],
+]);
+
+/**
+ * When a reminder is due: 'Today, 3:00 PM', 'Tomorrow, 9:00 AM', 'Yesterday, 9:00 AM' (a late
+ * one), else 'Mon, Nov 2, 9:00 AM', with the year when it isn't this year.
+ */
+export function reminderDue(dueAt: string, now: Date, prefs: ClockPrefs): string {
+  const due = toCivil(new Date(dueAt), prefs.timeZone);
+  const date = datePart(due);
+  const today = todayIn(prefs.timeZone, now);
+  const day =
+    NEAR_DAYS.get(daysBetween(today, date)) ??
+    formatDate(date, { weekday: 'short', year: date.slice(0, 4) !== today.slice(0, 4) });
+  return `${day}, ${formatTime(due, prefs)}`;
+}
+
+/**
+ * A chat's latest message in a list: the time today ('2:30 PM'), then 'Yesterday', the weekday
+ * within a week ('Mon'), else the date ('Oct 18', or 'Sep 21, 2025' in another year).
+ */
+export function chatTime(at: string, now: Date, prefs: ClockPrefs): string {
+  const sent = toCivil(new Date(at), prefs.timeZone);
+  const date = datePart(sent);
+  const today = todayIn(prefs.timeZone, now);
+  const days = daysBetween(date, today);
+  if (days <= 0) return formatTime(sent, prefs);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return weekdayName(dayOfWeek(date), 'short');
+  return formatDate(date, { year: date.slice(0, 4) !== today.slice(0, 4) });
 }
 
 const MINUTE = 60_000;

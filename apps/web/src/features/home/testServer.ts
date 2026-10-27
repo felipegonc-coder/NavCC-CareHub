@@ -2,6 +2,28 @@
 import type { HomeSettings } from './settings';
 import type { UpcomingItem } from './upcoming';
 
+/** A pending reminder as `GET /api/reminders` lists it. */
+export interface ReminderListItem {
+  id: string;
+  target: { type: 'page'; pageId: string } | { type: 'event'; eventId: string };
+  title?: string | null;
+  href?: string;
+  dueAt: string;
+  note: string | null;
+}
+
+export function pendingReminder(overrides: Partial<ReminderListItem> = {}): ReminderListItem {
+  return {
+    id: 'r1',
+    target: { type: 'page', pageId: 'p1' },
+    title: 'Shift handover',
+    href: '/p/p1',
+    dueAt: '2026-10-27T21:00:00.000Z',
+    note: 'Check the queue',
+    ...overrides,
+  };
+}
+
 export function upcomingItem(overrides: Partial<UpcomingItem> = {}): UpcomingItem {
   return {
     id: 'e1',
@@ -19,6 +41,12 @@ export function upcomingItem(overrides: Partial<UpcomingItem> = {}): UpcomingIte
 export function createHomeServer() {
   const server = {
     upcoming: [] as UpcomingItem[],
+    reminders: [] as ReminderListItem[],
+    /** The 🔔 Care Hub chat, as `GET /api/notices/summary` answers. */
+    notices: { unread: 0, latest: null } as {
+      unread: number;
+      latest: { title: string; sender: string; latestAt: string } | null;
+    },
     settings: { hiddenSections: [], upcomingFolded: false } as HomeSettings,
     /** How many Upcoming requests fail before they work again. */
     fail: 0,
@@ -52,13 +80,17 @@ export function createHomeServer() {
       server.settings = { ...server.settings, ...change };
       return json(200, { settings: server.settings });
     }
+    if (url === '/api/reminders') return json(200, { pending: server.reminders, sent: [] });
+    if (url === '/api/notices/summary') return json(200, server.notices);
+    if (!url.startsWith('/api/calendar/upcoming?')) {
+      return json(404, { error: { code: 'not_found', message: 'Not found.' } });
+    }
     if (server.hold) return new Promise<Response>(() => {});
     if (server.fail > 0) {
       server.fail -= 1;
       return broken();
     }
-    if (url.startsWith('/api/calendar/upcoming?')) return json(200, { items: server.upcoming });
-    return json(404, { error: { code: 'not_found', message: 'Not found.' } });
+    return json(200, { items: server.upcoming });
   }) as typeof fetch;
   /** The requests for `path` only. */
   const callsTo = (path: string) => server.calls.filter((call) => call.includes(path));
