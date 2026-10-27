@@ -223,6 +223,7 @@ function Editor({ draft }: { draft: StudioDraft }) {
             course={course}
             lesson={course.lessons.find((lesson) => lesson.id === state.lessonId)}
             blockId={state.blockId}
+            flush={async () => (await saving.flush()) === 'saved'}
           />
         )}
       </div>
