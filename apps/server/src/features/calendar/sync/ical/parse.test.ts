@@ -507,7 +507,7 @@ describe('parseCalendar: event details', () => {
     expect(events[0]?.description).toBeUndefined();
   });
 
-  it('reads the calendar name, color, time zone and method', () => {
+  it('reads the calendar name, time zone and method, but no colour', () => {
     const { calendar: info } = parse(
       calendar(
         'METHOD:publish',
@@ -520,7 +520,6 @@ describe('parseCalendar: event details', () => {
     expect(info).toEqual({
       name: 'Avery Lin',
       description: 'Shifts at Bluebird Bakery',
-      color: '#1BADF8',
       timeZone: 'America/New_York',
       method: 'PUBLISH',
     });

@@ -43,7 +43,6 @@ export interface ParseOptions {
 export interface CalendarInfo {
   name?: string;
   description?: string;
-  color?: string;
   timeZone?: string; // X-WR-TIMEZONE, a hint for floating times
   method?: string;
 }
@@ -209,7 +208,6 @@ function readCalendarInfo(calendar: Component): CalendarInfo {
   return compact({
     name: text('NAME', 'X-WR-CALNAME'),
     description: text('X-WR-CALDESC', 'DESCRIPTION'),
-    color: text('COLOR', 'X-APPLE-CALENDAR-COLOR'),
     timeZone: zoneFromTzid(text('X-WR-TIMEZONE') ?? ''),
     method: text('METHOD')?.toUpperCase(),
   });
