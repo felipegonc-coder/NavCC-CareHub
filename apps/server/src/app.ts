@@ -82,7 +82,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: live
 
-  // feature: push
+  await app.register(import('./features/push/routes'), { prefix: '/api/push' });
 
   // feature: jobs
 
