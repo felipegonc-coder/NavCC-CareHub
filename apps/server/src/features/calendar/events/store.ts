@@ -1,8 +1,9 @@
-import { and, eq, gte, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
 import { getProfiles } from '../../auth';
 import { getMembership } from '../../workspaces';
 import { calEventPeople, calEvents } from '../schema';
+import type { EventState } from './edit';
 import type { Profiles, StoredEvent, StoredPerson } from './items';
 import { boundsOf, type EventFields, type Schedule, type Window } from './model';
 
@@ -41,14 +42,18 @@ async function withPeople(
   return rows.map((row) => ({ ...row, people: byEvent.get(row.id) ?? [] }));
 }
 
-/** An event that isn't cancelled, or null. */
-export async function findEvent(db: Database, id: string): Promise<EventRecord | null> {
+/** An event that isn't cancelled, or null. `lock` holds it until the transaction ends. */
+export async function findEvent(
+  db: Database,
+  id: string,
+  lock = false,
+): Promise<EventRecord | null> {
   if (!isUuid(id)) return null;
-  const rows = await db
+  const query = db
     .select()
     .from(calEvents)
     .where(and(eq(calEvents.id, id), isNull(calEvents.cancelledAt)));
-  const [event] = await withPeople(db, rows);
+  const [event] = await withPeople(db, lock ? await query.for('update') : await query);
   return event ?? null;
 }
 
@@ -116,4 +121,41 @@ export async function membersAmong(
   const valid = [...new Set(ids)].filter(isUuid);
   const found = await Promise.all(valid.map((id) => getMembership(db, workspaceId, id)));
   return new Set(valid.filter((_, index) => found[index]?.kind === 'member'));
+}
+
+/** Saves an edited event. People no longer invited go; the others keep their invite time. */
+export async function updateEvent(db: Database, id: string, state: EventState): Promise<void> {
+  const { people, ...fields } = state;
+  await db
+    .update(calEvents)
+    .set({ ...fields, ...rangeOf(fields), updatedAt: new Date() })
+    .where(eq(calEvents.id, id));
+  const ids = people.map((person) => person.userId);
+  const gone = ids.length > 0 ? notInArray(calEventPeople.userId, ids) : undefined;
+  await db.delete(calEventPeople).where(and(eq(calEventPeople.eventId, id), gone));
+  if (people.length === 0) return;
+  await db
+    .insert(calEventPeople)
+    .values(people.map((person) => ({ ...person, eventId: id })))
+    .onConflictDoUpdate({
+      target: [calEventPeople.eventId, calEventPeople.userId],
+      set: {
+        reply: sql`excluded.reply`,
+        note: sql`excluded.note`,
+        occurrenceReplies: sql`excluded.occurrence_replies`,
+      },
+    });
+}
+
+export async function cancelEvent(db: Database, id: string): Promise<void> {
+  const now = new Date();
+  await db.update(calEvents).set({ cancelledAt: now, updatedAt: now }).where(eq(calEvents.id, id));
+}
+
+export async function saveReply(db: Database, eventId: string, person: StoredPerson) {
+  const { userId, reply, note, occurrenceReplies } = person;
+  await db
+    .update(calEventPeople)
+    .set({ reply, note, occurrenceReplies, repliedAt: new Date() })
+    .where(and(eq(calEventPeople.eventId, eventId), eq(calEventPeople.userId, userId)));
 }
