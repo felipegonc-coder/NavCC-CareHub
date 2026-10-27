@@ -122,6 +122,15 @@ describe('uploadFile', () => {
     ]);
   });
 
+  it('sends files for forms anyone can fill in to the anonymous route', async () => {
+    const done = uploadFile(notes(), { scope: 'forms:form-1', anonymous: true });
+    const request = await sent();
+    expect(request.url).toBe('/api/files/anonymous?scope=forms%3Aform-1');
+    expect(sentFile(request)).toMatchObject({ name: 'notes.txt', size: 15 });
+    request.respond(201, uploaded);
+    await expect(done).resolves.toEqual(uploaded);
+  });
+
   it("rejects with Care Hub's error, or one for the status", async () => {
     const tooLarge = uploadFile(notes(), { scope: 'learning:course-1' });
     (await sent()).respond(413, {

@@ -17,6 +17,11 @@ export interface UploadFileOptions {
   onProgress?: (progress: UploadProgress) => void;
   /** Cancels the upload: the promise rejects with an AbortError and the server keeps nothing. */
   signal?: AbortSignal;
+  /**
+   * For a form anyone can fill in (a scope registered with `allowAnonymous: true`), signed in or not: no
+   * one is recorded as the uploader, and Care Hub keeps the file only if the form is sent within an hour.
+   */
+  anonymous?: boolean;
 }
 
 const HEIC_TYPES = new Set([
@@ -50,7 +55,7 @@ const CODES: Record<number, string> = {
  */
 export async function uploadFile(
   file: File,
-  { scope, onProgress, signal }: UploadFileOptions,
+  { scope, onProgress, signal, anonymous = false }: UploadFileOptions,
 ): Promise<UploadedFile> {
   if (signal?.aborted) throw cancelled();
   const upload = isHeic(file) ? await heicAsJpeg(file) : file;
@@ -61,7 +66,8 @@ export async function uploadFile(
   return new Promise<UploadedFile>((resolve, reject) => {
     const request = new XMLHttpRequest();
     const abort = () => request.abort();
-    request.open('POST', `/api/files?scope=${encodeURIComponent(scope)}`);
+    const route = anonymous ? '/api/files/anonymous' : '/api/files';
+    request.open('POST', `${route}?scope=${encodeURIComponent(scope)}`);
     request.setRequestHeader('Accept', 'application/json');
     const token = readCsrfToken(document.cookie);
     if (token) request.setRequestHeader(CSRF_HEADER, decodeURIComponent(token));
