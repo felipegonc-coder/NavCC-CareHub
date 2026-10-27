@@ -1,3 +1,5 @@
+import { readCsrfToken as readCsrfCookie } from '@carehub/shared';
+
 /** Same shape as the server's: a nudge with ids only. Refetch through the normal APIs. */
 export type LiveEvent = { type: string; data?: Record<string, unknown> };
 export type LiveHandler = (event: LiveEvent) => void;
@@ -24,7 +26,7 @@ export interface LiveClientOptions {
   /** Null where there's no EventSource (tests, server rendering): the client stays quiet. */
   createSource?: (url: string) => LiveSource | null;
   fetch?: LiveFetch;
-  /** The CSRF token sent with topic changes. Defaults to the `carehub_csrf` cookie. */
+  /** The CSRF token sent with topic changes. Defaults to the CSRF cookie (`readCsrfToken`). */
   csrfToken?: () => string;
   /** Calls `wake` when the tab is used again; returns a clean-up. */
   onWake?: (wake: () => void) => () => void;
@@ -42,24 +44,22 @@ export type LiveState = 'idle' | 'connecting' | 'open' | 'waiting' | 'parked' | 
 const MAX_TOPICS_PER_REQUEST = 50;
 const MAX_TOPIC_LENGTH = 200;
 
-/** Calls `wake` on focus, when the tab becomes visible and when the network comes back. */
-/** The readable `carehub_csrf` cookie, which state-changing requests send as `X-CSRF-Token`. */
+/**
+ * The readable CSRF cookie, which state-changing requests send as `X-CSRF-Token`:
+ * `__Host-carehub_csrf` over HTTPS, `carehub_csrf` on a plain-HTTP development server.
+ */
 export function readCsrfToken(
   cookie: string = typeof document === 'undefined' ? '' : document.cookie,
 ): string {
-  for (const part of cookie.split(';')) {
-    const [name, ...rest] = part.trim().split('=');
-    if (name !== 'carehub_csrf') continue;
-    const value = rest.join('=');
-    try {
-      return decodeURIComponent(value);
-    } catch {
-      return value;
-    }
+  const value = readCsrfCookie(cookie) ?? '';
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
-  return '';
 }
 
+/** Calls `wake` on focus, when the tab becomes visible and when the network comes back. */
 function listenForWake(wake: () => void): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   const onVisible = () => {
