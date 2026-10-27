@@ -22,6 +22,28 @@ An `Automation` has a name, an owner, on or off, one `trigger`, optional `condit
 
 Tables: `automations_automations` and `automations_runs` (`migrations/202610270700_automations_create_tables.sql`). On `app.db` the store takes `sqlRunnerFor(app.db)` from `features/jobs`.
 
+## Routes (`routes.ts`, mounted at `/api/automations`)
+
+Admins only (AU-D1): anyone else gets 403 (AU-09). It uses `app.db`, `request.user` and
+`request.member`; until the roles PR adds `request.member`, every request gets 403. Options for
+tests: `store`, `getMember(request)` and `now`. Bodies are checked with
+`@carehub/team-automations/validate`; answers use the views in `@carehub/team-automations/api`
+(times as ISO strings).
+
+- `GET /` returns `{ automations }`, sorted by name. Filters: `databaseId`, `ownerUserId`,
+  `enabled` (`true` or `false`).
+- `POST /` creates one, owned by the caller: 201 with `{ automation }`. Scheduled ones get their
+  `nextRunAt`.
+- `GET /:id` returns `{ automation }`. `PATCH /:id` changes only the fields sent. Switching it off
+  clears `nextRunAt`. Switching it on, or changing the trigger, plans the next run at least 15
+  minutes after the last scheduled run. Switching it on also clears `pausedReason`.
+- `DELETE /:id` deletes it and its runs: 204.
+- `GET /:id/runs` returns `{ runs }`, the latest 100, newest first (run keys stay on the server).
+- Errors use the shared shape: 401 `signed_out`, 403 `forbidden`, 404 `not_found` (also for
+  another workspace's automation), 400 `invalid` with `details` (each with the field's `path`,
+  such as `['actions', 0, 'recipients']`), and 413 `too_large` past 50 automations (AU-11).
+
 ## Coming next
 
-Each part is its own pull request: Admin-only routes, running through background jobs (`automations.run`), the Form response and Row added triggers, the Send a message and Add a row actions, run history, then the screens.
+Each part is its own pull request: running through background jobs (`automations.run`), the Form
+response and Row added triggers, the Send a message and Add a row actions, then the screens.

@@ -19,7 +19,8 @@ export type {
   PeriodicTask,
   ScheduleJobInput,
 } from './domain/runner';
-export type { Job, JobProgress, JobStatus, JsonValue } from './domain/types';
+export type { Job, JobProgress, JobStatus, JsonValue, SqlRunner } from './domain/types';
+export { sqlRunnerFor, type SqlExecutor } from './sql';
 
 /** The app-wide runner. Jobs live in memory until routes.ts is given the database. */
 export const jobRunner = createJobRunner({
