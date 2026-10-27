@@ -2,7 +2,7 @@ import type { AnyExtension } from '@tiptap/core';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { useEffect, useRef } from 'react';
 import type * as Y from 'yjs';
-import { createBlockExtensions } from './extensions';
+import { createBlockExtensions, type NodeViews } from './extensions';
 import { PAGE_FIELD } from './schema';
 import type { CollabProvider, EditorUser } from './types';
 import './styles.css';
@@ -24,8 +24,13 @@ export interface BlockEditorProps {
   className?: string;
   onReady?: (editor: Editor) => void;
   /**
-   * More Tiptap nodes, marks and extensions, like a database block with a React node view.
-   * Read when the editor is created: remount the editor (with a `key`) to change them.
+   * React views of lane blocks (nodes in `lanes/`) by node name, like `{ database: DatabaseView }`.
+   * Read when the editor is created, like `extensions`.
+   */
+  nodeViews?: NodeViews;
+  /**
+   * More behavior that isn't a node or mark, like shortcuts or plugins. Read when the editor is
+   * created: remount the editor (with a `key`) to change them.
    */
   extensions?: AnyExtension[];
 }
@@ -41,6 +46,7 @@ export function BlockEditor({
   ariaLabel = 'Page content',
   className,
   onReady,
+  nodeViews,
   extensions,
 }: BlockEditorProps) {
   const awareness = provider?.awareness ?? null;
@@ -57,6 +63,7 @@ export function BlockEditor({
         field,
         provider: awareness ? { awareness } : null,
         user,
+        nodeViews,
         extensions,
         placeholder: () => latest.current.placeholder,
       }),
