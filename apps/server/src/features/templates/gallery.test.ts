@@ -179,6 +179,7 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
       kind: 'database',
       isInline: true,
     });
+    tickets.levels.set(jordan.id, 'view'); // and Avery can't see it
     addPage('Secret notes', [[jordan, 'full']], { parent: top });
     top.markdown = [
       `Kickoff by <!-- carehub:inline {"type":"templateVariable","attrs":{"kind":"me","offsetDays":0}} -->`,
@@ -312,6 +313,30 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
     const inside = await call(jordan, 'POST', '/meeting-notes/use', { target });
     expect(inside.statusCode).toBe(201);
     expect(pages.get(inside.json().pageId)?.parentId).toBe(top.id);
+  });
+
+  it("leaves out databases the person can't see, and won't add to archived pages", async () => {
+    const { top } = launchPage();
+    const card = (await save(sam, top.id, { audience: { type: 'everyone' } })).json();
+    const before = copiedDatabases.length;
+    // Avery can't see Tickets: the rest of the template is copied, Tickets and its rows aren't.
+    const response = await call(avery, 'POST', `/${card.id}/use`, { target: { type: 'private' } });
+    expect(response.statusCode).toBe(201);
+    const { pageId, notCopied } = response.json();
+    expect(notCopied).toEqual(['Tickets (No access)']);
+    expect(copiedDatabases).toHaveLength(before);
+    const copy = pages.get(pageId);
+    expect(copy?.childIds.map((id) => pages.get(id)?.title)).toEqual(['Agenda']);
+
+    const archived = addPage('Old plans', [[sam, 'edit']], { archived: true });
+    for (const type of ['page', 'apply'] as const) {
+      const refused = await call(sam, 'POST', '/weekly-huddle/use', {
+        target: { type, pageId: archived.id },
+      });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json().error.message).toBe('Unarchive the page first.');
+    }
+    expect(archived.childIds).toEqual([]);
   });
 
   it('applies a template to an empty page, saving a version first', async () => {
