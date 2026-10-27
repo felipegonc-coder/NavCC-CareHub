@@ -46,7 +46,14 @@ export function fileStore(root: string) {
           done(null, chunk);
         },
       });
-      await pipeline(stream, meter, createWriteStream(tempPath, { flags: 'wx', mode: 0o600 }));
+      const output = createWriteStream(tempPath, { flags: 'wx', mode: 0o600 });
+      try {
+        await pipeline(stream, meter, output);
+      } catch (error) {
+        // The file may still be opening: wait until it's closed, so removing it afterwards works.
+        if (!output.closed) await new Promise((resolve) => output.once('close', resolve));
+        throw error;
+      }
       return { size, sha256: hash.digest('hex'), head: Buffer.concat(head) };
     },
     /** Reads parts of a file, for example to find its type. Close it when done. */

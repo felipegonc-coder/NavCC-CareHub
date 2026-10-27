@@ -253,6 +253,24 @@ describe.skipIf(!hasDatabase)('files', () => {
     expect((await get(editor, '/api/files/not-a-file')).statusCode).toBe(404);
   });
 
+  it('drops an upload cancelled before the end', async () => {
+    const { payload, headers } = form([
+      { name: 'file', filename: 'cancelled.txt', data: 'Fictional' },
+    ]);
+    const cancelled = await injectAs(testApp.app, editor, {
+      method: 'POST',
+      url: '/api/files?scope=test:open',
+      payload: payload.subarray(0, payload.length - 20),
+      headers,
+      simulate: { end: false, split: false, error: false, close: true },
+    });
+    expect(cancelled.statusCode).toBe(400);
+    expect(cancelled.json().error.message).toBe('The upload was cancelled.');
+    expect(await readdir(path.join(filesDir, 'tmp'))).toEqual([]);
+    const rows = await testApp.db.select().from(files).where(eq(files.name, 'cancelled.txt'));
+    expect(rows).toEqual([]);
+  });
+
   it('needs the file in the field "file"', async () => {
     const notForm = await injectAs(testApp.app, editor, {
       method: 'POST',

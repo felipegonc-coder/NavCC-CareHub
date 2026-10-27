@@ -9,13 +9,14 @@ import { canUseFileScope, hasFileScope, type FileScopeContext } from './scopes';
 import { FILE_CSP, sendStoredFile } from './serve';
 import { deleteFiles, getFile, uploadedFileJson, type StoredFile } from './service';
 import { readFilesSettings } from './settings';
-import { fileStore } from './storage';
+import { fileStore, type FileStore } from './storage';
 
 const MB = 1024 * 1024;
 /** Room for the multipart wrapping around a file, when an upload is judged by its Content-Length. */
 const WRAPPING_BYTES = 64 * 1024;
 const PROGRAMS = "Programs can't be uploaded.";
 const NO_FILE = 'Choose a file to upload.';
+const CANCELLED = 'The upload was cancelled.';
 
 /** /api/files: upload, show or download, and delete files (decision 0007, section 4.3). */
 const filesRoutes: FastifyPluginAsync = async (app) => {
@@ -76,31 +77,14 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
       throw httpError(413, 'too_large', tooLargeMessage(declared, limitMb));
     }
     if (!request.isMultipart()) throw httpError(400, 'invalid', NO_FILE);
-    const part = await request
-      .file({ limits: { fileSize: limitMb * MB }, throwFileSizeLimit: false })
-      .catch((error: unknown) => {
-        throw error instanceof HttpError ? error : httpError(400, 'invalid', NO_FILE);
-      });
-    if (!part || part.fieldname !== 'file') {
-      part?.file.resume();
-      throw httpError(400, 'invalid', NO_FILE);
-    }
-    const name = cleanFileName(part.filename);
-    if (hasBlockedEnding(name)) {
-      part.file.resume();
-      throw httpError(400, 'invalid', PROGRAMS);
-    }
-
     const tempPath = store.tempPath();
     try {
-      const { size, sha256, head } = await store.receive(part.file, tempPath);
-      if (part.file.truncated) {
+      const upload = await receiveUpload(request, store, tempPath, limitMb * MB);
+      if (upload.truncated) {
         throw httpError(413, 'too_large', tooLargeMessage(limitMb * MB + 1, limitMb));
       }
       const reader = await store.reader(tempPath);
-      const type = await detectFileType({ head, size, name, read: reader.read }).finally(
-        reader.close,
-      );
+      const type = await detectFileType({ ...upload, read: reader.read }).finally(reader.close);
       if (type === 'program') throw httpError(400, 'invalid', PROGRAMS);
 
       const storageKey = await store.keep(tempPath);
@@ -112,10 +96,10 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
             scopeFeature: feature,
             scopeId: ctx.scopeId,
             uploadedBy: ctx.user.id,
-            name,
+            name: upload.name,
             mimeType: type.mimeType,
-            size,
-            sha256,
+            size: upload.size,
+            sha256: upload.sha256,
             storageKey,
           })
           .returning();
@@ -149,5 +133,50 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(204).send();
   });
 };
+
+/**
+ * Writes the upload in the multipart field `file` to `tempPath`, refusing program endings before any byte
+ * is kept. An upload cancelled in the browser (the connection closes before the end) stops there.
+ */
+async function receiveUpload(
+  request: FastifyRequest,
+  store: FileStore,
+  tempPath: string,
+  maxBytes: number,
+) {
+  let closedEarly = false;
+  let stream: { destroy(): void } | undefined;
+  const cancel = () => {
+    if (request.raw.readableEnded) return;
+    closedEarly = true;
+    stream?.destroy();
+  };
+  request.raw.once('close', cancel);
+  try {
+    const part = await request
+      .file({ limits: { fileSize: maxBytes }, throwFileSizeLimit: false })
+      .catch((error: unknown) => {
+        if (closedEarly) throw httpError(400, 'invalid', CANCELLED);
+        throw error instanceof HttpError ? error : httpError(400, 'invalid', NO_FILE);
+      });
+    if (!part || part.fieldname !== 'file') {
+      part?.file.resume();
+      throw httpError(400, 'invalid', NO_FILE);
+    }
+    const name = cleanFileName(part.filename);
+    if (hasBlockedEnding(name)) {
+      part.file.resume();
+      throw httpError(400, 'invalid', PROGRAMS);
+    }
+    stream = part.file;
+    if (closedEarly) part.file.destroy();
+    const received = await store.receive(part.file, tempPath).catch((error: unknown) => {
+      throw closedEarly ? httpError(400, 'invalid', CANCELLED) : error;
+    });
+    return { ...received, name, truncated: part.file.truncated };
+  } finally {
+    request.raw.off('close', cancel);
+  }
+}
 
 export default filesRoutes;
