@@ -1,4 +1,6 @@
+import type { CurrentUser } from '@carehub/shared';
 import type { ComponentType, ReactNode } from 'react';
+import type { api } from './lib/api';
 
 // Stand-ins until the real types land; each owner replaces its own line.
 type PermissionKey = string; // accounts PR: `import type { PermissionKey } from '@carehub/shared';`
@@ -98,6 +100,37 @@ export interface PageBanner {
   Component: ComponentType<{ page: SlotPage }>;
 }
 
+/** What an appStart item gets: the API, navigation, and the person who signed in. */
+export interface AppStartContext {
+  api: typeof api;
+  navigate(to: string): void;
+  user: CurrentUser;
+}
+
+/**
+ * Runs once after sign-in, from RequireAuth, and again only after the next sign-in or a reload:
+ * sending the push subscription again, say. Items run side by side and nothing waits for them.
+ */
+export interface AppStart {
+  id: string;
+  run(ctx: AppStartContext): void | Promise<void>;
+}
+
+/** What a signOut hook gets: who just signed out, or null if they were never loaded. */
+export interface SignOutContext {
+  user: CurrentUser | null;
+}
+
+/**
+ * Runs when someone signs out on this device, after the server ended the session and before every
+ * cached query is cleared: turning off push here, or dropping an offline queue. Sign-out waits up
+ * to 3 seconds for all hooks together; a hook's failure is logged and sign-out goes on.
+ */
+export interface SignOutHook {
+  id: string;
+  run(ctx: SignOutContext): void | Promise<void>;
+}
+
 /** Additions to the page editor, such as the `database` block and "/database". */
 export interface EditorSlots {
   /** React views for blocks, by node name. */
@@ -119,6 +152,8 @@ export interface Slots {
   pageHeaderExtras: PageHeaderExtras;
   overlays: Overlay[];
   pageBanners: PageBanner[];
+  appStart: AppStart[];
+  signOut: SignOutHook[];
   editor: EditorSlots;
 }
 
@@ -132,7 +167,8 @@ type SlotsModule = { slots?: FeatureSlots };
 
 /**
  * Merges feature slots in line order: lists are joined and sorted by `order` (ties keep line
- * order; commands keep line order), objects are merged with later lines winning.
+ * order; commands, overlays, appStart and signOut keep line order), objects are merged with later
+ * lines winning.
  */
 export function mergeSlots(parts: readonly FeatureSlots[]): MergedSlots {
   const join = <T>(pick: (part: FeatureSlots) => T[] | undefined): T[] =>
@@ -149,6 +185,8 @@ export function mergeSlots(parts: readonly FeatureSlots[]): MergedSlots {
     pageHeaderExtras: Object.assign({}, ...parts.map((part) => part.pageHeaderExtras)),
     overlays: join((part) => part.overlays),
     pageBanners: sorted(join((part) => part.pageBanners)),
+    appStart: join((part) => part.appStart),
+    signOut: join((part) => part.signOut),
     editor: {
       nodeViews: Object.assign({}, ...parts.map((part) => part.editor?.nodeViews)),
       slashItems: join((part) => part.editor?.slashItems),

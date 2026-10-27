@@ -1,8 +1,9 @@
-import { Logo, sidebarRowClasses, ThemeSwitch, VisuallyHidden } from '@carehub/ui';
+import { sidebarRowClasses, ThemeSwitch, VisuallyHidden } from '@carehub/ui';
 import { Settings } from 'lucide-react';
 import { Component, Suspense, type ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import type { SidebarItem, SidebarSection } from '../../slots';
+import { WorkspaceMenu } from './workspace-menu';
 
 /** Keeps one feature's broken sidebar piece from taking the whole shell down with it. */
 class SlotBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -64,9 +65,8 @@ export interface ShellSidebarProps {
 export function ShellSidebar({ items, sections, onNavigate }: ShellSidebarProps) {
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 px-4 max-md:h-14 max-md:pr-14">
-        <Logo size={24} decorative />
-        <span className="truncate text-small font-medium">Care Hub</span>
+      <div className="flex h-12 shrink-0 items-center px-2 max-md:h-14 max-md:pr-14">
+        <WorkspaceMenu onNavigate={onNavigate} />
       </div>
       <nav
         aria-label="Sidebar"
