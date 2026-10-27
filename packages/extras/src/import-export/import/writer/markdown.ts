@@ -6,6 +6,30 @@ export function escapeMarkdown(text: string): string {
   return text.replace(/[\\`*_[\]<>~|&$#]/g, '\\$&');
 }
 
+/**
+ * Plain text (Asana's notes) as Markdown that reads as typed: each line and paragraph kept, and
+ * nothing read as formatting, not even a line that starts like a list or a heading.
+ */
+export function plainTextMarkdown(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split(/\n\s*\n/)
+    .map((paragraph) =>
+      paragraph
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) =>
+          escapeMarkdown(line)
+            .replace(/^[-+=]/, '\\$&')
+            .replace(/^(\d+)([.)])/, '$1\\$2'),
+        )
+        .join('\\\n'),
+    )
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 /** `text` on one line, for a list item, a heading or a link. */
 export function oneLine(text: string): string {
   return text.replace(/\s+/g, ' ').trim();

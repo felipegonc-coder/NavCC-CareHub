@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeMarkdown, markdownHref, markdownLink, oneLine } from './markdown';
+import { escapeMarkdown, markdownHref, markdownLink, oneLine, plainTextMarkdown } from './markdown';
 
 describe('importer Markdown', () => {
   it('escapes what Markdown would read as formatting', () => {
@@ -7,6 +7,22 @@ describe('importer Markdown', () => {
       'Find the \\*number\\* \\[now\\] \\& \\`call\\` \\#2 \\<b\\>',
     );
     expect(oneLine(' Book\n  a room ')).toBe('Book a room');
+  });
+
+  it('keeps plain text as typed: its lines, its paragraphs, and nothing as formatting', () => {
+    const notes =
+      '  Ask about *Tuesday*.\r\n- not a list\n2. not a list\n\n\n# not a heading\n===\n';
+    expect(plainTextMarkdown(notes)).toBe(
+      [
+        'Ask about \\*Tuesday\\*.\\',
+        '\\- not a list\\',
+        '2\\. not a list',
+        '',
+        '\\# not a heading\\',
+        '\\===',
+      ].join('\n'),
+    );
+    expect(plainTextMarkdown(' \n\n ')).toBe('');
   });
 
   it('writes links whose address cannot end early or start another link', () => {
