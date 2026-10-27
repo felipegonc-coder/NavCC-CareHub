@@ -11,9 +11,12 @@ import {
   type QuizLesson,
 } from '../format/index';
 import {
+  addBankDraw,
   bankIdsUsed,
   checkPublishableWithBanks,
+  removeBankDraw,
   resolveBankDraws,
+  setBankDrawCount,
   stripBankSnapshots,
   type QuestionBank,
 } from './index';
@@ -275,5 +278,49 @@ describe('checkPublishableWithBanks', () => {
     expect(problems[0]?.message).toMatch(
       /question 2 from bank "Mixed bank" is a true false question/,
     );
+  });
+});
+
+describe('editing bank draws', () => {
+  const quiz: QuizLesson = {
+    id: 'final',
+    kind: 'quiz',
+    title: 'Final quiz',
+    settings: presetFor('standard').quiz,
+    questions: [choice('q1')],
+  };
+
+  it('adds one draw per bank, up to 10, with a count of 1 to 50', () => {
+    const one = addBankDraw(quiz, 'billing', 5);
+    expect(one.bankDraws).toEqual([{ bankId: 'billing', count: 5 }]);
+    expect(addBankDraw(one, 'billing')).toBe(one);
+    expect(addBankDraw(quiz, 'returns', 80).bankDraws).toEqual([{ bankId: 'returns', count: 50 }]);
+    const full = Array.from({ length: 10 }, (_, i) => `bank-${i}`).reduce(
+      (lesson, bankId) => addBankDraw(lesson, bankId),
+      quiz,
+    );
+    expect(full.bankDraws).toHaveLength(10);
+    expect(addBankDraw(full, 'one-more')).toBe(full);
+  });
+
+  it('changes how many questions a draw takes', () => {
+    const lesson = addBankDraw(addBankDraw(quiz, 'billing', 5), 'returns', 2);
+    expect(setBankDrawCount(lesson, 'returns', 3.4).bankDraws).toEqual([
+      { bankId: 'billing', count: 5 },
+      { bankId: 'returns', count: 3 },
+    ]);
+    expect(setBankDrawCount(lesson, 'returns', 0).bankDraws?.[1]).toEqual({
+      bankId: 'returns',
+      count: 1,
+    });
+    expect(setBankDrawCount(lesson, 'returns', Number.NaN)).toBe(lesson);
+    expect(setBankDrawCount(lesson, 'missing', 4)).toBe(lesson);
+  });
+
+  it('removes a draw, and the list with the last one', () => {
+    const lesson = addBankDraw(addBankDraw(quiz, 'billing'), 'returns');
+    expect(removeBankDraw(lesson, 'billing').bankDraws).toEqual([{ bankId: 'returns', count: 1 }]);
+    expect(removeBankDraw(removeBankDraw(lesson, 'billing'), 'returns')).toEqual(quiz);
+    expect(removeBankDraw(quiz, 'billing')).toBe(quiz);
   });
 });
