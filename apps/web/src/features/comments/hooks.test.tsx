@@ -1,3 +1,4 @@
+import type { CommentsResponse } from '@carehub/shared';
 import { ToastProvider } from '@carehub/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, screen, waitFor } from '@testing-library/react';
@@ -29,19 +30,24 @@ function renderComments() {
       <ToastProvider>{children}</ToastProvider>
     </QueryClientProvider>
   );
-  return renderHook(() => ({ query: useComments(PAGE_ID), actions: useCommentActions(PAGE_ID) }), {
-    wrapper,
-  });
+  return renderHook(
+    () => {
+      // Read in render, as a screen does: React Query renders again only for what's read.
+      const { data, isSuccess } = useComments(PAGE_ID);
+      return { data, isSuccess, actions: useCommentActions(PAGE_ID) };
+    },
+    { wrapper },
+  );
 }
 
-const texts = (data: ReturnType<typeof useComments>['data']) =>
+const texts = (data: CommentsResponse | undefined) =>
   data?.threads.flatMap((each) => each.comments.map((entry) => entry.text));
 
 describe('useComments', () => {
   it('fetches the threads again when someone changes them', async () => {
     const server = fakeCommentsServer([thread()]);
     const { result } = renderComments();
-    await waitFor(() => expect(result.current.query.data?.threads).toHaveLength(1));
+    await waitFor(() => expect(result.current.data?.threads).toHaveLength(1));
     await act(() => live.open());
     expect(live.subscribed.has(commentsTopic(PAGE_ID))).toBe(true);
 
@@ -52,7 +58,7 @@ describe('useComments', () => {
         commentsTopic(PAGE_ID),
       );
     });
-    await waitFor(() => expect(result.current.query.data?.threads).toHaveLength(2));
+    await waitFor(() => expect(result.current.data?.threads).toHaveLength(2));
   });
 });
 
@@ -64,7 +70,7 @@ describe('useCommentActions', () => {
       release = resolve;
     });
     const { result } = renderComments();
-    await waitFor(() => expect(result.current.query.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     let sent: Promise<unknown> = Promise.resolve();
     await act(async () => {
@@ -81,7 +87,7 @@ describe('useCommentActions', () => {
       await sent;
     });
     expect(result.current.actions.outgoing).toEqual([]);
-    expect(texts(result.current.query.data)).toEqual([
+    expect(texts(result.current.data)).toEqual([
       'Can we move the home visit to Thursday?',
       'Thursday works.',
     ]);
@@ -91,7 +97,7 @@ describe('useCommentActions', () => {
     const server = fakeCommentsServer([thread()]);
     server.failNext = 1;
     const { result } = renderComments();
-    await waitFor(() => expect(result.current.query.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     await act(async () => {
       await result.current.actions.send({ threadId: THREAD_ID, text: 'Thursday works.' });
@@ -102,7 +108,7 @@ describe('useCommentActions', () => {
       await result.current.actions.retry(failed?.id ?? '');
     });
     expect(result.current.actions.outgoing).toEqual([]);
-    expect(texts(result.current.query.data)).toContain('Thursday works.');
+    expect(texts(result.current.data)).toContain('Thursday works.');
     expect(server.requests.filter((request) => request.method === 'POST')).toHaveLength(2);
   });
 
@@ -112,7 +118,7 @@ describe('useCommentActions', () => {
     ]);
     server.failNext = 1;
     const { result } = renderComments();
-    await waitFor(() => expect(result.current.query.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     let saved: boolean | undefined;
     await act(async () => {
@@ -130,6 +136,6 @@ describe('useCommentActions', () => {
       saved = await result.current.actions.resolve(THREAD_ID, true);
     });
     expect(saved).toBe(true);
-    await waitFor(() => expect(result.current.query.data?.threads[0]?.resolvedAt).not.toBeNull());
+    await waitFor(() => expect(result.current.data?.threads[0]?.resolvedAt).not.toBeNull());
   });
 });
