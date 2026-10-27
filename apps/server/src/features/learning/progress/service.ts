@@ -1,0 +1,292 @@
+import {
+  progressIntake,
+  withManualCompletion,
+  type Course,
+  type CourseStatus,
+  type IsoDateTime,
+  type LearnerCourseState,
+  type LiveCourse,
+  type ProgressEvent,
+  type ProgressEventsResponse,
+} from '@carehub/learning';
+import { and, eq, inArray } from 'drizzle-orm';
+import { getCourseVersion, getLiveCourse, type Actor } from '../courses/service';
+import type { Db, Tx } from '../db';
+import { httpError } from '../errors';
+import {
+  learningProgressChanges as changes,
+  learningProgressEvents as events,
+  learningProgress as progress,
+  type ProgressChangeKind,
+} from './schema';
+import {
+  NO_PROGRESS,
+  completionOf,
+  progressKey,
+  runEvents,
+  stateOf,
+  summaryOf,
+  type Learner,
+  type ProgressRow,
+} from './store';
+
+// Progress (docs/learning/api.md): each learner's events per course, and the state the shared
+// logic works out from them. Each run is measured against the course version it is pinned to
+// (decision 0311). Routes check permissions first; every function here stays inside the actor's
+// workspace.
+
+async function liveCourse(db: Db | Tx, workspaceId: string, courseId: string): Promise<LiveCourse> {
+  const live = await getLiveCourse(db, workspaceId, courseId);
+  if (!live) throw httpError(404);
+  return live;
+}
+
+/** The course version the row's run is measured against (`live` when it is that one). */
+async function runCourse(db: Db | Tx, row: ProgressRow, live: LiveCourse): Promise<Course> {
+  if (row.version === live.version) return live.course;
+  const pinned = await getCourseVersion(db, row.workspaceId, row.courseId, row.version);
+  if (!pinned) throw new Error(`Version ${row.version} of ${row.courseId} is missing.`);
+  return pinned.course;
+}
+
+async function findProgress(
+  db: Db | Tx,
+  learner: Learner,
+  lock = false,
+): Promise<ProgressRow | undefined> {
+  const query = db.select().from(progress).where(progressKey(learner));
+  const [row] = lock ? await query.for('update') : await query;
+  return row;
+}
+
+/** The learner's row, added on `version` when missing, and locked until the transaction ends. */
+async function lockProgress(tx: Db | Tx, learner: Learner, version: number): Promise<ProgressRow> {
+  await tx
+    .insert(progress)
+    .values({ ...learner, version })
+    .onConflictDoNothing();
+  const row = await findProgress(tx, learner, true);
+  if (!row) throw new Error('The progress row was not saved.');
+  return row;
+}
+
+async function storeEvents(tx: Db | Tx, row: ProgressRow, list: readonly ProgressEvent[]) {
+  if (list.length === 0) return;
+  const { workspaceId, learnerId, courseId, run } = row;
+  await tx
+    .insert(events)
+    .values(
+      list.map((event) => ({ workspaceId, learnerId, courseId, eventId: event.id, run, event })),
+    )
+    .onConflictDoNothing();
+}
+
+async function recordChange(
+  tx: Db | Tx,
+  row: ProgressRow,
+  change: { kind: ProgressChangeKind; run: number; by: string; note?: string | undefined },
+  at: Date,
+): Promise<void> {
+  const { workspaceId, learnerId, courseId } = row;
+  await tx.insert(changes).values({
+    workspaceId,
+    learnerId,
+    courseId,
+    kind: change.kind,
+    run: change.run,
+    changedBy: change.by,
+    note: change.note || null,
+    changedAt: at,
+  });
+}
+
+const learnerOf = (actor: Actor, courseId: string): Learner => ({
+  workspaceId: actor.workspaceId,
+  learnerId: actor.userId,
+  courseId,
+});
+
+/**
+ * The course version the learner's current run is measured against (decision 0311), or null
+ * before they have a run, when they get the live version. GET /courses/:id, the progress routes
+ * and the quiz routes all use this version.
+ */
+export async function runVersion(
+  db: Db | Tx,
+  who: { workspaceId: string; userId: string; courseId: string },
+): Promise<number | null> {
+  const [row] = await db
+    .select({ version: progress.version })
+    .from(progress)
+    .where(progressKey({ ...who, learnerId: who.userId }));
+  return row?.version ?? null;
+}
+
+/** GET /courses/:id/progress: the learner's state in their run's version (none: not started). */
+export async function getProgress(
+  db: Db | Tx,
+  actor: Actor,
+  courseId: string,
+): Promise<LearnerCourseState> {
+  const live = await liveCourse(db, actor.workspaceId, courseId);
+  const row = await findProgress(db, learnerOf(actor, courseId));
+  if (!row) return stateOf(live.course, undefined, []);
+  return stateOf(await runCourse(db, row, live), row, await runEvents(db, row));
+}
+
+/**
+ * POST /courses/:id/events: stores a batch from the learner's browser and answers with their new
+ * state and the batch's refusals (progressIntake), in their run's version. A first batch pins the
+ * run to the live version. An event sent again is stored once, and events dated before the run
+ * began are refused. 422 when the run would go past MAX_EVENTS_PER_LEARNER_COURSE.
+ */
+export async function recordEvents(
+  db: Db,
+  actor: Actor,
+  courseId: string,
+  batch: readonly unknown[],
+  now = new Date(),
+): Promise<ProgressEventsResponse> {
+  return db.transaction(async (tx) => {
+    const live = await liveCourse(tx, actor.workspaceId, courseId);
+    const learner = learnerOf(actor, courseId);
+    const row = await lockProgress(tx, learner, live.version);
+    const course = await runCourse(tx, row, live);
+    const runStartedAt = row.runStartedAt?.toISOString() ?? null;
+    const stored = await runEvents(tx, row);
+    const intake = progressIntake(course, stored, batch, now.toISOString(), runStartedAt);
+    if (intake.kind === 'too_many') throw httpError(422, intake.message);
+    await storeEvents(tx, row, intake.events);
+    const state = withManualCompletion(intake.reply.state, completionOf(row));
+    if (intake.events.length > 0) {
+      await tx
+        .update(progress)
+        .set({ ...summaryOf(state), updatedAt: now })
+        .where(progressKey(learner));
+    }
+    return { ...intake.reply, state };
+  });
+}
+
+/**
+ * POST /people/:personId/courses/:courseId/reset (learning.assign, decision 0312): the person's
+ * progress starts over in a new run on the live version, without a completion marked by hand.
+ * Their earlier events are kept. Someone who never started has nothing to reset.
+ */
+export async function resetProgress(
+  db: Db,
+  actor: Actor,
+  personId: string,
+  courseId: string,
+  note?: string,
+  now = new Date(),
+): Promise<LearnerCourseState> {
+  return db.transaction(async (tx) => {
+    const live = await liveCourse(tx, actor.workspaceId, courseId);
+    const learner = { workspaceId: actor.workspaceId, learnerId: personId, courseId };
+    const row = await findProgress(tx, learner, true);
+    if (!row) return stateOf(live.course, undefined, []);
+    const run = row.run + 1;
+    await tx
+      .update(progress)
+      .set({
+        ...NO_PROGRESS,
+        run,
+        runStartedAt: now,
+        version: live.version,
+        markedCompleteAt: null,
+        updatedAt: now,
+      })
+      .where(progressKey(learner));
+    await recordChange(tx, row, { kind: 'reset', run, by: actor.userId, note }, now);
+    return stateOf(live.course, undefined, []);
+  });
+}
+
+/**
+ * POST /people/:personId/courses/:courseId/complete (learning.assign, decision 0312): marks the
+ * person's current run complete (withManualCompletion), also for someone who never opened the
+ * course. Marking it again keeps the first date.
+ */
+export async function completeProgress(
+  db: Db,
+  actor: Actor,
+  personId: string,
+  courseId: string,
+  note?: string,
+  now = new Date(),
+): Promise<LearnerCourseState> {
+  return db.transaction(async (tx) => {
+    const live = await liveCourse(tx, actor.workspaceId, courseId);
+    const learner = { workspaceId: actor.workspaceId, learnerId: personId, courseId };
+    const row = await lockProgress(tx, learner, live.version);
+    const markedCompleteAt = row.markedCompleteAt ?? now;
+    const course = await runCourse(tx, row, live);
+    const state = stateOf(course, { markedCompleteAt }, await runEvents(tx, row));
+    if (!row.markedCompleteAt) {
+      await tx
+        .update(progress)
+        .set({ ...summaryOf(state), markedCompleteAt, updatedAt: now })
+        .where(progressKey(learner));
+      await recordChange(tx, row, { kind: 'complete', run: row.run, by: actor.userId, note }, now);
+    }
+    return state;
+  });
+}
+
+/** One learner's state in one course, as reports read it (`listCourseStates`). */
+export type CourseStateRow = {
+  userId: string;
+  courseId: string;
+  status: CourseStatus;
+  /** Completed lessons out of all lessons, whole percent rounded down. */
+  percentComplete: number;
+  startedAt: IsoDateTime | null;
+  completedAt: IsoDateTime | null;
+  lastActivityAt: IsoDateTime | null;
+  /** Mean of the best percents of the graded quizzes taken, or null before any. */
+  score: number | null;
+  activeSeconds: number;
+  /** Quiz attempts submitted in the current run. */
+  attempts: number;
+  /** The lesson opened last, or null before any. */
+  lastLessonId: string | null;
+};
+
+const isoOf = (at: Date | null): IsoDateTime | null => at?.toISOString() ?? null;
+
+/**
+ * Each learner's state per course in the workspace, for reports: their current run as last worked
+ * out, for the people and courses asked for (everyone or every course when a list is left out,
+ * nobody for an empty list). People without a row haven't started the course.
+ */
+export async function listCourseStates(
+  db: Db | Tx,
+  query: { workspaceId: string; userIds?: readonly string[]; courseIds?: readonly string[] },
+): Promise<CourseStateRow[]> {
+  const { workspaceId, userIds, courseIds } = query;
+  if (userIds?.length === 0 || courseIds?.length === 0) return [];
+  const rows: ProgressRow[] = await db
+    .select()
+    .from(progress)
+    .where(
+      and(
+        eq(progress.workspaceId, workspaceId),
+        userIds ? inArray(progress.learnerId, [...userIds]) : undefined,
+        courseIds ? inArray(progress.courseId, [...courseIds]) : undefined,
+      ),
+    );
+  return rows.map((row) => ({
+    userId: row.learnerId,
+    courseId: row.courseId,
+    status: row.status,
+    percentComplete: row.percentComplete,
+    startedAt: isoOf(row.startedAt),
+    completedAt: isoOf(row.completedAt),
+    lastActivityAt: isoOf(row.lastActivityAt),
+    score: row.score,
+    activeSeconds: row.activeSeconds,
+    attempts: row.attempts,
+    lastLessonId: row.lastLessonId,
+  }));
+}
