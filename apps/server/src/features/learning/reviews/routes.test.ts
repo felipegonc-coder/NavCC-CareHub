@@ -5,8 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, hasDatabase, type TestApp } from '../../../testing';
 import learningRoutes from '../routes';
 
-// Core doesn't put the workspace member on requests yet (accounts 1b), so this app does it from the
-// x-test-person header, the way core's sessions will.
+// Core's sessions put the workspace member on each request; this app does it from the
+// x-test-person header.
 const workspaceId = randomUUID();
 const PEOPLE = {
   trainer: {

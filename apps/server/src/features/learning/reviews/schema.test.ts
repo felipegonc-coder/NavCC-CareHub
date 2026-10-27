@@ -3,7 +3,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations } from '../../../db/migrate';
 import { createTestDatabase, hasDatabase } from '../../../testing';
-import { learningReviewComments, learningReviewLinks, learningReviewReminders } from './schema';
+import { learningReviewComments, learningReviewLinks } from './schema';
 
 const workspace = '00000000-0000-4000-8000-000000000001';
 const person = '00000000-0000-4000-8000-000000000002';
@@ -30,7 +30,7 @@ describe.skipIf(!hasDatabase)('Learning review tables', () => {
   });
 
   it('are created exactly as the Drizzle definitions describe them', async () => {
-    for (const table of [learningReviewLinks, learningReviewComments, learningReviewReminders]) {
+    for (const table of [learningReviewLinks, learningReviewComments]) {
       const config = getTableConfig(table);
       const { rows } = await pool.query<{
         name: string;
@@ -102,27 +102,15 @@ describe.skipIf(!hasDatabase)('Learning review tables', () => {
     ).rejects.toThrow(/check constraint/);
   });
 
-  it('send each review-due reminder once', async () => {
-    const remind = () =>
-      pool.query(
-        `INSERT INTO learning_review_reminders (workspace_id, course_id, due_on, sent_on, user_id)
-         VALUES ($1, 'course-1', '2026-10-20', '2026-10-27', $2)`,
-        [workspace, person],
-      );
-    await remind();
-    await expect(remind()).rejects.toThrow(/duplicate key/);
-  });
-
   it('go with their course', async () => {
     await pool.query(`DELETE FROM learning_courses WHERE workspace_id = $1 AND id = 'course-1'`, [
       workspace,
     ]);
     const { rows } = await pool.query(
       `SELECT (SELECT count(*) FROM learning_review_links WHERE workspace_id = $1)::int AS links,
-              (SELECT count(*) FROM learning_review_comments WHERE workspace_id = $1)::int AS comments,
-              (SELECT count(*) FROM learning_review_reminders WHERE workspace_id = $1)::int AS reminders`,
+              (SELECT count(*) FROM learning_review_comments WHERE workspace_id = $1)::int AS comments`,
       [workspace],
     );
-    expect(rows[0]).toEqual({ links: 0, comments: 0, reminders: 0 });
+    expect(rows[0]).toEqual({ links: 0, comments: 0 });
   });
 });

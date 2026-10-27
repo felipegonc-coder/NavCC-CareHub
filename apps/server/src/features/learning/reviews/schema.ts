@@ -1,17 +1,8 @@
-import {
-  date,
-  foreignKey,
-  index,
-  pgTable,
-  primaryKey,
-  text,
-  timestamp,
-  uuid,
-} from 'drizzle-orm/pg-core';
+import { foreignKey, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { learningCourses } from '../courses/schema';
 
-// Mirrors migrations/202610271100_learning_reviews.sql and 202610271130_learning_review_reminders.sql,
-// which are the source of truth (schema.test.ts compares them).
+// Mirrors migrations/202610271100_learning_reviews.sql, which is the source of truth
+// (schema.test.ts compares them).
 
 const when = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -67,25 +58,5 @@ export const learningReviewComments = pgTable(
     }).onDelete('cascade'),
     index('learning_review_comments_course').on(table.workspaceId, table.courseId, table.createdAt),
     index('learning_review_comments_link').on(table.workspaceId, table.linkId, table.createdAt),
-  ],
-);
-
-/** Each review-due reminder sent to an author, so it goes out once. */
-export const learningReviewReminders = pgTable(
-  'learning_review_reminders',
-  {
-    workspaceId: uuid('workspace_id').notNull(),
-    courseId: text('course_id').notNull(),
-    dueOn: date('due_on', { mode: 'string' }).notNull(),
-    sentOn: date('sent_on', { mode: 'string' }).notNull(),
-    userId: uuid('user_id').notNull(),
-    sentAt: when('sent_at').notNull().defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.workspaceId, table.courseId, table.dueOn] }),
-    foreignKey({
-      columns: [table.workspaceId, table.courseId],
-      foreignColumns: [learningCourses.workspaceId, learningCourses.id],
-    }).onDelete('cascade'),
   ],
 );

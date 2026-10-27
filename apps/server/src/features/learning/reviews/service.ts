@@ -1,6 +1,7 @@
 import {
   isReviewTargetInCourse,
   newId,
+  profileZone,
   REVIEW_LIMITS,
   reviewCommentsCsv,
   reviewUrl,
@@ -14,7 +15,6 @@ import {
 } from '@carehub/learning';
 import { and, asc, count, desc, eq, gt, isNull, type SQL } from 'drizzle-orm';
 import { users } from '../../auth/schema';
-import { todayIn } from '../assignments/service';
 import { learningCourses as courses } from '../courses/schema';
 import type { Actor } from '../courses/service';
 import type { Db, Tx } from '../db';
@@ -248,7 +248,7 @@ export async function listReviewComments(
   );
 }
 
-/** The comments as CSV in course order, dated in the actor's own time zone (or Care Hub's default one). */
+/** The comments as CSV in course order, dated in the actor's profile time zone (decision 0317). */
 export async function reviewCommentsCsvFor(
   db: Db | Tx,
   actor: Actor,
@@ -263,8 +263,7 @@ export async function reviewCommentsCsvFor(
     .select({ timeZone: users.timeZone })
     .from(users)
     .where(eq(users.id, actor.userId));
-  const { timeZone } = todayIn(person?.timeZone);
-  return reviewCommentsCsv(course, all, { timeZone, bom: true });
+  return reviewCommentsCsv(course, all, { timeZone: profileZone(person?.timeZone), bom: true });
 }
 
 /** Marks a comment resolved, or open again. */
