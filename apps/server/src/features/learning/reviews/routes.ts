@@ -7,18 +7,25 @@ import {
 } from '@carehub/learning';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { registerPeriodicTask } from '../../jobs';
 import { requirePermission, viewerOf } from '../auth';
 import { parseInput } from '../errors';
+import { REVIEW_REMINDERS_TASK, sendReviewReminders } from './reminders';
 import * as reviews from './service';
 
 const IdParams = z.object({ id: IdSchema });
 const LinkParams = z.object({ linkId: IdSchema });
 const TOKEN_HEADER = REVIEW_TOKEN_HEADER.toLowerCase();
+const HOUR_MS = 60 * 60 * 1000;
 
 // Reviews: review links and comments in Studio (learning.build), and the review itself for any signed-in
 // member with a link, whose token comes in the X-Review-Token header (decision 0309). Endpoints in
-// docs/learning/api.md. Replies that carry a token or a draft are never cached.
+// docs/learning/api.md. Replies that carry a token or a draft are never cached. Review-due reminders go out
+// every hour (decision 0313).
 const reviewsRoutes: FastifyPluginAsync = async (app) => {
+  registerPeriodicTask(REVIEW_REMINDERS_TASK, HOUR_MS, async ({ signal }) => {
+    await sendReviewReminders(app.db, { signal });
+  });
   const build = { preHandler: requirePermission('learning.build') };
   const idOf = (request: FastifyRequest) => parseInput(IdParams, request.params).id;
   const tokenOf = (request: FastifyRequest) => request.headers[TOKEN_HEADER];
