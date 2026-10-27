@@ -1,17 +1,10 @@
-import {
-  compareDays,
-  dueDateCalendarItems,
-  IdSchema,
-  IsoDateSchema,
-  type CourseStatus,
-} from '@carehub/learning';
+import { compareDays, dueDateCalendarItems, IdSchema, IsoDateSchema } from '@carehub/learning';
 import { z } from 'zod';
 import {
   boundAssignmentSources,
   learnerAssignments,
   myLearningFor,
   todayIn,
-  type AssignmentSources,
 } from './assignments/service';
 
 // Learning's server functions for other lanes: Team tools' Calendar layer and Home
@@ -77,33 +70,23 @@ export const listLearningDueDates = async (query: {
   const { userId, workspaceId, from, to, timeZone } = DueDatesQuerySchema.parse(query);
   const sources = boundAssignmentSources();
   if (!sources || from > to) return [];
-  const assignments = await learnerAssignments(
+  const { assignments, progress } = await learnerAssignments(
     sources,
     workspaceId,
     todayIn(timeZone).today,
     userId,
   );
   const courseIds = [...new Set(assignments.map((assignment) => assignment.courseId))];
-  const [courses, statusByCourse] = await Promise.all([
-    sources.liveCourses(workspaceId, courseIds),
-    statusesOf(sources, workspaceId, userId),
-  ]);
+  const courses = await sources.liveCourses(workspaceId, courseIds);
+  const statusByCourse = Object.fromEntries(
+    progress.map((entry) => [entry.courseId, entry.status]),
+  );
   return dueDateCalendarItems(assignments, [...courses.values()], {
     statusByCourse,
     from,
     to,
   }).filter(hasCourseId);
 };
-
-async function statusesOf(
-  sources: AssignmentSources,
-  workspaceId: string,
-  userId: string,
-): Promise<Record<string, CourseStatus>> {
-  const progress = await sources.progress(workspaceId, [userId]);
-  const mine = progress.filter((entry) => entry.userId === userId);
-  return Object.fromEntries(mine.map((entry) => [entry.courseId, entry.status]));
-}
 
 /**
  * The person's current courses for Home, most urgent first, at most `limit`: overdue (most late

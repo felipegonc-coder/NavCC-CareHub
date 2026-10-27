@@ -34,6 +34,7 @@ describe('scale', () => {
       '--ch-page-width': '48rem',
       '--ch-sidebar-width': '16rem',
       '--ch-dialog-width': '32rem',
+      '--ch-sheet-height': '85dvh',
     });
     expect(variables['--ch-font-mono']).toMatch(/^ui-monospace, SFMono-Regular, /);
     expect(variables['--ch-weight-body']).toBeUndefined();
@@ -52,6 +53,8 @@ describe('scale', () => {
     ]);
     expect(extend.fontSize.h1).toEqual(['1.875rem', { lineHeight: '1.3', fontWeight: '600' }]);
     expect(extend.fontSize.small).toEqual(['0.875rem', { lineHeight: '1.25rem' }]);
+    expect(extend.gridTemplateColumns).toEqual({ control: 'auto 1fr' });
+    expect(extend.maxHeight).toEqual({ sheet: '85dvh' });
   });
 
   it('teaches tailwind-merge the new names', () => {
@@ -59,5 +62,7 @@ describe('scale', () => {
     expect(cn('text-body', 'text-h2')).toBe('text-h2');
     expect(cn('z-50', 'z-toast')).toBe('z-toast');
     expect(cn('outline-offset-2', 'outline-offset-inset')).toBe('outline-offset-inset');
+    expect(cn('grid-cols-2', 'grid-cols-control')).toBe('grid-cols-control');
+    expect(cn('max-h-96', 'max-h-sheet')).toBe('max-h-sheet');
   });
 });

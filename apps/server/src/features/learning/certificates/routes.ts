@@ -1,6 +1,32 @@
+import { CertificateListQuerySchema } from '@carehub/learning';
 import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
+import { registerPeriodicTask } from '../../jobs';
+import { parseInput } from '../errors';
+import { CERTIFICATE_NOTICES_TASK, sendCertificateNotices } from './expiry';
+import * as certificates from './service';
+import { viewerOf } from './viewer';
 
-// Certificates (B3). A stub from the base PR until its routes land; endpoints in docs/learning/api.md.
-const certificatesRoutes: FastifyPluginAsync = async () => {};
+const HOUR_MS = 60 * 60 * 1000;
+const CertificateParams = z.object({ id: z.string().max(64) });
+
+// Certificates (B3): the learner's own, and anyone's for people with learning.analytics. Endpoints
+// in docs/learning/api.md. The expiry notices run every hour; each goes out once.
+const certificatesRoutes: FastifyPluginAsync = async (app) => {
+  registerPeriodicTask(CERTIFICATE_NOTICES_TASK, HOUR_MS, async () => {
+    await sendCertificateNotices(app.db);
+  });
+
+  app.get('/certificates', async (request) => {
+    const viewer = viewerOf(request);
+    const query = parseInput(CertificateListQuerySchema, request.query);
+    return certificates.listCertificates(app.db, viewer, query);
+  });
+  app.get('/certificates/:id', async (request) => {
+    const viewer = viewerOf(request);
+    const { id } = parseInput(CertificateParams, request.params);
+    return certificates.getCertificate(app.db, viewer, id);
+  });
+};
 
 export default certificatesRoutes;

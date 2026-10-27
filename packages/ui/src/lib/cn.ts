@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { extendTailwindMerge } from 'tailwind-merge';
-import { layers, outlineOffsets, shadows, typeScale } from '../scale';
+import { gridColumns, layers, outlineOffsets, shadows, typeScale } from '../scale';
 
 // Teach tailwind-merge the preset's own names so `text-small` and `text-muted` don't clash.
 const merge = extendTailwindMerge({
@@ -9,6 +9,8 @@ const merge = extendTailwindMerge({
       'font-size': [{ text: Object.keys(typeScale) }],
       shadow: [{ shadow: Object.keys(shadows) }],
       'max-w': [{ 'max-w': ['page', 'dialog', 'toast'] }],
+      'max-h': [{ 'max-h': ['sheet'] }],
+      'grid-cols': [{ 'grid-cols': Object.keys(gridColumns) }],
       'outline-offset': [{ 'outline-offset': Object.keys(outlineOffsets) }],
       z: [{ z: Object.keys(layers) }],
     },

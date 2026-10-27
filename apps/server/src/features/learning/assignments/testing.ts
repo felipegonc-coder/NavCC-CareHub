@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Course } from '@carehub/learning';
+import type { SendNoticeInput } from '../../notices';
+import type { ReminderSources, SentReminderRow } from './reminders';
 import type { AssignmentSources, CourseProgress } from './service';
 import type { AssignmentRow, AssignmentStore, LearnerRow } from './store';
 
@@ -17,25 +19,35 @@ export function memoryAssignmentStore(now: () => Date = () => new Date()): Memor
     learnerRows,
     async insert(newRows) {
       const at = now();
-      const added = newRows.map((row) => ({ ...row, id: randomUUID(), createdAt: at }));
+      const added = newRows.map((row) => ({
+        ...row,
+        id: randomUUID(),
+        createdAt: row.createdAt ?? at,
+      }));
       rows.push(...added);
       return added.map((row) => ({ ...row }));
     },
-    async list(workspaceId, { courseId, userId } = {}) {
+    async list(workspaceId, { courseId, userId, pathId } = {}) {
       return rows.filter(
         (row) =>
           row.workspaceId === workspaceId &&
           (courseId === undefined || row.courseId === courseId) &&
+          (pathId === undefined || row.pathId === pathId) &&
           (userId === undefined || row.userIds.includes(userId) || row.groupIds.length > 0),
       );
     },
     async remove(workspaceId, id) {
       const index = rows.findIndex((row) => row.workspaceId === workspaceId && row.id === id);
-      if (index === -1) return false;
-      rows.splice(index, 1);
-      const kept = learnerRows.filter((learner) => learner.assignmentId !== id);
+      const [removed] = index === -1 ? [] : rows.splice(index, 1);
+      const kept = learnerRows.filter((learner) => learner.assignmentId !== removed?.id);
       learnerRows.splice(0, learnerRows.length, ...kept);
-      return true;
+      return removed ? { ...removed } : null;
+    },
+    async setDueDate(workspaceId, id, dueDate) {
+      const row = rows.find((each) => each.workspaceId === workspaceId && each.id === id);
+      if (!row) return null;
+      Object.assign(row, { dueDate, dueInDays: null });
+      return { ...row };
     },
     async learners(assignmentIds) {
       return learnerRows.filter((learner) => assignmentIds.includes(learner.assignmentId));
@@ -94,6 +106,45 @@ export function memorySources(world: MemoryWorld = {}): AssignmentSources & { st
       return !(world.learningOff ?? []).includes(workspaceId);
     },
   };
+}
+
+/**
+ * Memory sources for the reminders: their log and the notices sent (`notices`). `outbox.failing`
+ * makes sending throw, for every notice or for those it picks. `canOpen` lists "userId courseId"
+ * pairs.
+ */
+export function memoryReminderSources(world: MemoryWorld, canOpen: readonly string[] = []) {
+  const base = memorySources(world);
+  const log: SentReminderRow[] = [];
+  const notices: SendNoticeInput[] = [];
+  const outbox: { failing: boolean | ((notice: SendNoticeInput) => boolean) } = { failing: false };
+  const sameRow = (a: SentReminderRow) => (b: SentReminderRow) =>
+    JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
+  const sources: ReminderSources = {
+    ...base,
+    workspaces: async () => [...new Set(base.store.rows.map((row) => row.workspaceId))],
+    sentReminders: async (workspaceId, userIds) =>
+      log.filter((row) => row.workspaceId === workspaceId && userIds.includes(row.userId)),
+    async logReminder(row) {
+      if (log.some(sameRow(row))) return false;
+      log.push(row);
+      return true;
+    },
+    async unlogReminder(row) {
+      const at = log.findIndex(sameRow(row));
+      if (at !== -1) log.splice(at, 1);
+    },
+    canOpen: async (_workspaceId, userId, courseId) => canOpen.includes(`${userId} ${courseId}`),
+    async sendNotice(notice) {
+      const { failing } = outbox;
+      if (typeof failing === 'function' ? failing(notice) : failing) {
+        throw new Error('The notices are down.');
+      }
+      notices.push(notice);
+      return { noticeId: String(notices.length), grouped: false };
+    },
+  };
+  return { sources, store: base.store, log, notices, outbox };
 }
 
 /** The one item in `items`; throws when there are none or more. */

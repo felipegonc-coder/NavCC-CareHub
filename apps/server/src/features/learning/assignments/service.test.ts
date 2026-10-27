@@ -5,14 +5,18 @@ import {
   sampleRequiredReadCourse,
   sampleStandardCourse,
   type CreateAssignmentsRequest,
+  type MyLearningEntry,
 } from '@carehub/learning';
 import { describe, expect, it } from 'vitest';
 import {
+  assignRecertification,
   createAssignments,
   deleteAssignment,
   learnerAssignments,
   listAssignments,
   myLearningFor,
+  RECERTIFICATION_ASSIGNER,
+  syncPath,
   todayIn,
   type CourseProgress,
 } from './service';
@@ -184,6 +188,116 @@ describe('listAssignments and deleteAssignment', () => {
   });
 });
 
+describe('path assignments', () => {
+  const path = { type: 'path' as const, id: 'path-new-starter' };
+
+  it('go as a whole when any of their courses is removed', async () => {
+    const sources = memorySources({
+      courses: [calls, hold],
+      paths: { [path.id]: [calls.id, hold.id] },
+      now,
+    });
+    const [first] = await createAssignments(
+      sources,
+      actor,
+      request({ target: path, people: [tara] }),
+      today,
+    );
+    const own = only(
+      await createAssignments(
+        sources,
+        actor,
+        request({ target: toCourse(hold.id), people: [tara] }),
+        today,
+      ),
+    );
+
+    await deleteAssignment(sources, workspace, first?.id ?? '');
+
+    expect(sources.store.rows.map((row) => row.id)).toEqual([own.id]);
+  });
+
+  it("follow the path's published courses", async () => {
+    let clock = new Date('2026-10-27T15:00:00Z');
+    const world: MemoryWorld = {
+      courses: [calls, hold, escalations],
+      paths: { [path.id]: [calls.id, escalations.id] },
+      groups: { [frontDesk]: [omar] },
+      now: () => clock,
+    };
+    const sources = memorySources(world);
+    const first = request({ target: path, people: [tara], groups: [frontDesk], dueInDays: 14 });
+    await createAssignments(sources, actor, first, today);
+    clock = new Date('2026-10-28T09:00:00Z');
+    const second = request({
+      target: path,
+      people: [priya],
+      dueDate: '2026-11-30',
+      required: false,
+    });
+    await createAssignments(sources, actor, second, '2026-10-28');
+    const own = only(
+      await createAssignments(
+        sources,
+        actor,
+        request({ target: toCourse(hold.id), people: [tara] }),
+        '2026-10-28',
+      ),
+    );
+
+    const newCourses = [escalations.id, hold.id, privacy.id, hold.id];
+    await syncPath(sources, workspace, path.id, newCourses, '2026-11-02');
+
+    const rows = sources.store.rows.map((row) => ({
+      courseId: row.courseId,
+      pathId: row.pathId,
+      people: row.userIds,
+      due: row.dueDate ?? row.dueInDays,
+      required: row.required,
+      createdAt: row.createdAt.toISOString(),
+    }));
+    const fromFirst = {
+      pathId: path.id,
+      people: [tara],
+      due: 14,
+      required: true,
+      createdAt: '2026-10-27T15:00:00.000Z',
+    };
+    const fromSecond = {
+      pathId: path.id,
+      people: [priya],
+      due: '2026-11-30',
+      required: false,
+      createdAt: '2026-10-28T09:00:00.000Z',
+    };
+    expect(rows).toEqual([
+      { courseId: escalations.id, ...fromFirst },
+      { courseId: escalations.id, ...fromSecond },
+      {
+        courseId: hold.id,
+        pathId: null,
+        people: [tara],
+        due: null,
+        required: true,
+        createdAt: '2026-10-28T09:00:00.000Z',
+      },
+      { courseId: hold.id, ...fromFirst },
+      { courseId: hold.id, ...fromSecond },
+    ]);
+    const added = sources.store.rows.find((row) => row.courseId === hold.id && row.dueInDays);
+    expect(sources.store.learnerRows.filter((row) => row.since === '2026-11-02')).toEqual([
+      { assignmentId: added?.id, userId: tara, since: '2026-11-02' },
+    ]);
+    const kept = new Set(sources.store.rows.map((row) => row.id));
+    expect(sources.store.learnerRows.every((row) => kept.has(row.assignmentId))).toBe(true);
+
+    await syncPath(sources, workspace, path.id, [privacy.id], '2026-11-03');
+    expect(sources.store.rows.map((row) => row.id)).toEqual([own.id]);
+    await syncPath(sources, workspace, 'path-unused', [calls.id], '2026-11-03');
+    expect(sources.store.rows).toHaveLength(1);
+  });
+});
+
 describe('learnerAssignments', () => {
   it("merges each person's assignments: the earliest due date and required win", async () => {
     const sources = memorySources({ courses: [calls], groups: { [frontDesk]: [tara, omar] }, now });
@@ -205,7 +319,7 @@ describe('learnerAssignments', () => {
       today,
     );
 
-    const everyone = await learnerAssignments(sources, workspace, today);
+    const { assignments: everyone } = await learnerAssignments(sources, workspace, today);
 
     expect(everyone).toEqual([
       {
@@ -225,9 +339,11 @@ describe('learnerAssignments', () => {
         assignmentIds: [group?.id],
       },
     ]);
-    expect(await learnerAssignments(sources, workspace, today, omar)).toEqual([everyone[1]]);
-    expect(await learnerAssignments(sources, workspace, today, priya)).toEqual([]);
-    expect(await learnerAssignments(sources, otherWorkspace, today, tara)).toEqual([]);
+    const mine = async (workspaceId: string, userId: string) =>
+      (await learnerAssignments(sources, workspaceId, today, userId)).assignments;
+    expect(await mine(workspace, omar)).toEqual([everyone[1]]);
+    expect(await mine(workspace, priya)).toEqual([]);
+    expect(await mine(otherWorkspace, tara)).toEqual([]);
   });
 
   it('counts "due in N days" from the day each person got the course', async () => {
@@ -241,7 +357,7 @@ describe('learnerAssignments', () => {
     });
     await createAssignments(sources, actor, input, today);
     const dueDates = async (day: string, userId?: string) =>
-      (await learnerAssignments(sources, workspace, day, userId)).map((a) => [
+      (await learnerAssignments(sources, workspace, day, userId)).assignments.map((a) => [
         a.learnerId,
         a.dueDate,
       ]);
@@ -280,7 +396,8 @@ describe('learnerAssignments', () => {
       },
     ]);
 
-    const [mine] = await learnerAssignments(sources, workspace, '2026-10-30', tara);
+    const { assignments } = await learnerAssignments(sources, workspace, '2026-10-30', tara);
+    const [mine] = assignments;
 
     expect(mine?.dueDate).toBe('2026-11-03');
     expect(sources.store.learnerRows).toEqual([
@@ -321,6 +438,7 @@ describe('myLearningFor', () => {
       startedAt: '2026-10-20T16:00:00Z',
       completedAt,
       lastActivityAt: '2026-10-26T16:00:00Z',
+      previousFinishedAt: null,
     });
     world.progress = [
       progress(tara, calls.id, 'in_progress', 42.6),
@@ -368,6 +486,93 @@ describe('myLearningFor', () => {
       assigned: false,
       completedAt: '2026-10-25T16:00:00Z',
     });
+  });
+});
+
+describe('assignRecertification', () => {
+  const renewal = {
+    workspaceId: workspace,
+    courseId: escalations.id,
+    userId: tara,
+    dueDate: '2026-11-25',
+  };
+
+  it('assigns the course again to the person, once per due date', async () => {
+    const world: MemoryWorld = { courses: [escalations], now };
+    const sources = memorySources(world);
+
+    const id = await assignRecertification(sources, renewal);
+
+    expect(await assignRecertification(sources, renewal)).toBe(id);
+    expect(only(sources.store.rows)).toMatchObject({
+      id,
+      courseId: escalations.id,
+      pathId: null,
+      userIds: [tara],
+      groupIds: [],
+      dueDate: '2026-11-25',
+      dueInDays: null,
+      required: true,
+      createdBy: RECERTIFICATION_ASSIGNER,
+    });
+    expect(await assignRecertification(sources, { ...renewal, courseId: calls.id })).toBeNull();
+    world.learningOff = [workspace];
+    expect(await assignRecertification(sources, { ...renewal, dueDate: '2027-11-25' })).toBeNull();
+    expect(sources.store.rows).toHaveLength(1);
+  });
+
+  it('keeps rows done by an earlier run, and the new one open until finished', async () => {
+    let clock = new Date('2025-10-01T15:00:00Z');
+    const world: MemoryWorld = {
+      courses: [escalations],
+      groups: { [frontDesk]: [tara, omar] },
+      now: () => clock,
+    };
+    const sources = memorySources(world);
+    const assign = (input: CreateAssignmentsRequest) =>
+      createAssignments(sources, actor, request(input), '2025-10-01');
+    await assign({ target: toCourse(escalations.id), people: [tara], dueDate: '2025-10-30' });
+    await assign({ target: toCourse(escalations.id), groups: [frontDesk], dueDate: '2025-11-15' });
+    const run = (fields: Partial<CourseProgress>): CourseProgress => ({
+      userId: tara,
+      courseId: escalations.id,
+      status: 'not_started',
+      percentComplete: 0,
+      startedAt: null,
+      completedAt: null,
+      lastActivityAt: null,
+      previousFinishedAt: null,
+      ...fields,
+    });
+    const firstFinish = '2025-10-25T16:00:00Z';
+    clock = new Date('2026-10-27T15:00:00Z');
+    await assignRecertification(sources, renewal);
+    world.progress = [run({ previousFinishedAt: firstFinish })];
+    const me = { userId: tara, workspaceId: workspace };
+    const brief = (entries: readonly MyLearningEntry[]) =>
+      entries.map((entry) => [entry.courseId, entry.dueDate, entry.dueStatus]);
+
+    const { assignments } = await learnerAssignments(sources, workspace, today);
+    expect(assignments.map((a) => [a.learnerId, a.dueDate])).toEqual([
+      [omar, '2025-11-15'],
+      [tara, '2026-11-25'],
+    ]);
+    const renewed = await myLearningFor(sources, me, today, 'UTC');
+    expect(brief(renewed.assigned)).toEqual([[escalations.id, '2026-11-25', 'upcoming']]);
+    expect([...renewed.overdue, ...renewed.finished]).toEqual([]);
+
+    world.progress = [
+      run({
+        status: 'passed',
+        percentComplete: 100,
+        startedAt: '2026-10-30T16:00:00Z',
+        completedAt: '2026-11-02T16:00:00Z',
+        lastActivityAt: '2026-11-02T16:00:00Z',
+        previousFinishedAt: firstFinish,
+      }),
+    ];
+    const done = await myLearningFor(sources, me, '2026-11-03', 'UTC');
+    expect(brief(done.finished)).toEqual([[escalations.id, '2026-11-25', 'done_on_time']]);
   });
 });
 
