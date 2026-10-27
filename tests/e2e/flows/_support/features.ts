@@ -113,6 +113,9 @@ export const onMain = {
 
   /** Learning: certificates. */
   certificates: false,
+
+  /** Claude features: Settings → Claude, writing help, assistant, Claude fields, meeting summary. */
+  claude: false,
 } as const satisfies Record<string, boolean>;
 
 export type Feature = keyof typeof onMain;
