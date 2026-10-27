@@ -8,6 +8,7 @@ import {
   defaultView,
   newProperty,
   relationConfig,
+  type FormQuestion,
   type Property,
   type PropertyConfig,
   type RepeatSchedule,
@@ -89,7 +90,7 @@ function jobs(over: Partial<DatabaseDefinition> = {}): DatabaseDefinition {
   };
 }
 
-function context(): DefinitionContext {
+function context(canChange: DefinitionContext['canChange'] = () => true): DefinitionContext {
   let codes = 0;
   return {
     databaseId: DB,
@@ -99,6 +100,7 @@ function context(): DefinitionContext {
     rowIds: ROW_IDS,
     linkCode: () => `newcode${++codes}`,
     related: new Map([[CREWS, crewProperties]]),
+    canChange,
   };
 }
 
@@ -198,6 +200,7 @@ describe('planDefinition', () => {
       notifyUserIds: [AVERY],
       accepting: true,
     });
+    expect(form?.form?.questions.map((q) => q.mappedBy)).toEqual([AVERY]);
 
     expect(out.rows).toEqual([
       {
@@ -355,6 +358,30 @@ describe('planDefinition', () => {
   it('keeps the row access rules as sent', () => {
     const rule = { id: 'crew-edits', propertyId: 'crew', level: 'edit' } as const;
     expect(plan(jobs({ accessRules: [rule] })).settings.accessRules).toEqual([rule]);
+  });
+
+  it("makes form questions the person's, and refuses one on a property they can't change", () => {
+    const form = defaultForm('Request a visit', jobProperties());
+    const notes: FormQuestion = {
+      propertyId: 'notes',
+      text: 'Anything else?',
+      description: [],
+      required: false,
+      display: 'long',
+      logic: null,
+    };
+    const questions = [...form.questions, { ...notes, mappedBy: JORDAN }];
+    const def = databaseDefinitionSchema.parse(
+      jobs({ views: [{ layout: 'form', settings: { form: { ...form, questions } } }] }),
+    );
+    const [made] = planDefinition(def, context()).settings.views;
+    expect(made?.form?.questions.map((q) => q.mappedBy)).toEqual([AVERY, AVERY]);
+    const refused = () =>
+      planDefinition(
+        def,
+        context((p) => p.id !== 'notes'),
+      );
+    expect(refused).toThrow(VIEW_MESSAGES.mapping);
   });
 
   const withProperty = (extra: Property) => jobs({ properties: [...jobProperties(), extra] });
@@ -695,6 +722,7 @@ describe('planCopy', () => {
       linkChangedAt: null,
       notifyUserIds: [],
     });
+    expect(form?.form?.questions.map((q) => q.mappedBy)).toEqual([AVERY]);
 
     expect(settings.accessRules).toEqual(source.accessRules);
     expect(settings.locked).toBe(true);
