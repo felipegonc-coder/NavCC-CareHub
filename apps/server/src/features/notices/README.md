@@ -67,8 +67,9 @@ title, icon and space are looked up for them. A reader who can't open the page o
 "🔒 A page you can't open" with no title; a deleted one shows "This page was deleted". That's why
 `title` and `text` must never repeat a page or event title: put the page on the card instead.
 
-An event card can point at one occurrence of a repeating event with `occurrenceStart`
-(`YYYY-MM-DD`, `YYYY-MM-DDTHH:mm` or an ISO instant).
+An event card can point at one occurrence of a repeating event with `occurrenceStart`, Calendar's
+occurrence key (`YYYY-MM-DD`, `YYYY-MM-DDTHH:mm` in the event's zone, or an ISO instant for synced
+events). Synced events use the ID `synced:<rowId>`.
 
 Page cards stay locked until core's page cards (`getPageCards`) are on main. Event cards come
 from the Calendar feature, which registers a resolver at start-up:
@@ -76,18 +77,23 @@ from the Calendar feature, which registers a resolver at start-up:
 ```ts
 import { eventCardKey, registerNoticeCardResolver, type EventCardResult } from '../notices';
 
-registerNoticeCardResolver('event', async (db, userId, cards) => {
+registerNoticeCardResolver('event', async (db, reader, cards) => {
+  // reader: { userId, timeZone, use24h }, the person whose chat is loading.
   const found = new Map<string, EventCardResult>();
   // For each card the reader can see:
-  // found.set(eventCardKey(card), { title, when: 'Tue, Oct 28 · 3:00 PM', href });
+  // found.set(eventCardKey(card), { title, when: 'Tue, Oct 28 · 3:00–4:00 PM', href });
   // or { locked: true } when they can't see it, { deleted: true } when it's gone.
   return found;
 });
 ```
 
-It's called once for each page of the chat, with each card once. Cards it leaves out are
-locked, and so is every event card on the page when it throws (the error is logged). An `href`
-that isn't a Care Hub path, or a blank title, keeps the card locked too.
+It's called once for each page of the chat, with each card once. `when` is display text, worded
+in the reader's time zone and 12- or 24-hour time. `href` is a Care Hub path, such as
+`/calendar?event=<id>&occurrence=<key>` (no `occurrence` for an event that doesn't repeat).
+`locked` means the reader isn't the organizer or an attendee (for a synced event, its owner);
+`deleted` means the event was cancelled or deleted, or that occurrence was removed. Cards it
+leaves out are locked, and so is every event card on the page when it throws (the error is
+logged). An `href` that isn't a Care Hub path, or a blank title, keeps the card locked too.
 
 ## Buttons
 

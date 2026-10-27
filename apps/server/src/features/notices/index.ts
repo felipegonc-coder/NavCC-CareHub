@@ -25,6 +25,7 @@ export {
   type EventCardResolver,
   type EventCardResult,
   type NoticeCardResolvers,
+  type NoticeReader,
 } from './cards';
 export { sendNotice } from './service';
 export { getNotice } from './store';

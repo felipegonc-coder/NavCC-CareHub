@@ -19,7 +19,7 @@ export type EventCardResult =
       title: string;
       /** When it happens, worded for the reader, such as "Tue, Oct 28 · 3:00 PM". */
       when?: string;
-      /** A relative path, such as `/calendar?event=<id>&occurrence=<start>`. */
+      /** A relative path, such as `/calendar?event=<id>&occurrence=<key>`. */
       href: string;
     }
   /** The reader can't see the event. */
@@ -27,13 +27,21 @@ export type EventCardResult =
   /** The event, or this occurrence of it, is gone. */
   | { deleted: true };
 
+/** The person whose chat is loading, with their time settings for wording `when`. */
+export interface NoticeReader {
+  userId: string;
+  /** IANA time zone, such as "America/Denver". */
+  timeZone: string;
+  use24h: boolean;
+}
+
 /**
  * Looks up event cards for a reader, keyed by `eventCardKey(card)`. Cards it leaves out are
  * locked; if it throws, every event card in that page of the chat is locked and the error logged.
  */
 export type EventCardResolver = (
   db: Db,
-  userId: string,
+  reader: NoticeReader,
   cards: EventCardRef[],
 ) => Promise<ReadonlyMap<string, EventCardResult>>;
 
@@ -61,17 +69,17 @@ export function registerNoticeCardResolver<Type extends keyof NoticeCardResolver
  */
 export async function lookUpCards(
   db: Db,
-  reader: { userId: string },
+  reader: NoticeReader,
   records: readonly NoticeRecord[],
   onError: (error: unknown) => void,
 ): Promise<CardLookups> {
   const { events } = collectCardRefs(records);
-  return { pages: new Map(), events: await lookUpEvents(db, reader.userId, events, onError) };
+  return { pages: new Map(), events: await lookUpEvents(db, reader, events, onError) };
 }
 
 async function lookUpEvents(
   db: Db,
-  userId: string,
+  reader: NoticeReader,
   refs: EventCardRef[],
   onError: (error: unknown) => void,
 ): Promise<Map<string, CardLookup<EventCardInfo>>> {
@@ -80,7 +88,7 @@ async function lookUpEvents(
   if (!resolve || refs.length === 0) return lookups;
   let results: ReadonlyMap<string, EventCardResult>;
   try {
-    results = await resolve(db, userId, refs);
+    results = await resolve(db, reader, refs);
   } catch (error) {
     onError(error);
     return lookups;
