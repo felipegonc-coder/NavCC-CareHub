@@ -23,6 +23,7 @@ describe('mergeSlots', () => {
       pageMenuItems: [],
       pageKindViews: {},
       pageHeaderExtras: {},
+      treeItemChildren: {},
       editor: { nodeViews: {}, slashItems: [], linkPickers: [], bubbleItems: [], extensions: [] },
     });
   });

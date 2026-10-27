@@ -79,6 +79,11 @@ export interface PageHeaderExtras {
   row?: ComponentType<{ page: SlotPage }>;
 }
 
+/** Shown under an expanded entry in the sidebar tree by page kind, such as a database's views. */
+export interface TreeItemChildren {
+  database?: ComponentType<{ page: SlotPage }>;
+}
+
 /** Another source of links in the editor; `pick` returns a relative link, or null if cancelled. */
 export interface LinkPicker {
   label: string;
@@ -104,6 +109,7 @@ export interface Slots {
   pageMenuItems: PageMenuItem[];
   pageKindViews: PageKindViews;
   pageHeaderExtras: PageHeaderExtras;
+  treeItemChildren: TreeItemChildren;
   editor: EditorSlots;
 }
 
@@ -132,6 +138,7 @@ export function mergeSlots(parts: readonly FeatureSlots[]): MergedSlots {
     pageMenuItems: sorted(join((part) => part.pageMenuItems)),
     pageKindViews: Object.assign({}, ...parts.map((part) => part.pageKindViews)),
     pageHeaderExtras: Object.assign({}, ...parts.map((part) => part.pageHeaderExtras)),
+    treeItemChildren: Object.assign({}, ...parts.map((part) => part.treeItemChildren)),
     editor: {
       nodeViews: Object.assign({}, ...parts.map((part) => part.editor?.nodeViews)),
       slashItems: join((part) => part.editor?.slashItems),
@@ -157,6 +164,7 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
   // feature: home
 
   // feature: pages
+  () => import('./features/pages/slots'),
 
   // feature: settings
 
