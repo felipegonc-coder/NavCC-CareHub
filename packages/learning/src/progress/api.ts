@@ -63,6 +63,8 @@ const REJECT_REASONS = [
   'not_required',
   'bad_statement',
   'server_only',
+  'future',
+  'restarted',
 ] as const satisfies readonly ProgressRejectReason[];
 
 /** Read straight from what was sent, cut to 100 characters, so not always a valid id or time. */
