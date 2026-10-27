@@ -60,6 +60,25 @@ describe('readUpload', () => {
     ]);
   });
 
+  it('leaves out Mac programs too', async () => {
+    const macho = Uint8Array.from([0xcf, 0xfa, 0xed, 0xfe, 7, 0, 0, 1]);
+    const universal = Uint8Array.from([0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 2]);
+    const { plan, files } = await readUpload(
+      request(
+        zip([
+          { name: 'a.md', data: '![x](helper.png) ![y](fat.gif)' },
+          { name: 'helper.png', data: macho },
+          { name: 'fat.gif', data: universal },
+        ]),
+      ),
+    );
+    expect(files).toEqual([]);
+    expect(plan.problems.map((problem) => [problem.file, problem.what]).sort()).toEqual([
+      ['fat.gif', 'Refused'],
+      ['helper.png', 'Refused'],
+    ]);
+  });
+
   it('stops with a reason the person can read', async () => {
     await expect(readUpload(request(utf8('not a zip')))).rejects.toThrow("the file isn't a zip");
     const damaged = zip([{ name: 'a.md', data: 'Hello', crc: 1 }]);

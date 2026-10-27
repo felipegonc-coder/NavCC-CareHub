@@ -46,6 +46,8 @@ export interface ReadOptions {
   timeoutMs?: number;
   /** The worker script; tests pass their own. */
   workerFile?: URL | null;
+  /** Without the worker, production refuses to read. Defaults to NODE_ENV being 'production'. */
+  production?: boolean;
 }
 
 /**
@@ -56,10 +58,14 @@ export function readInWorker(request: ReadRequest, options: ReadOptions = {}): P
   const { signal, timeoutMs = READ_LIMITS.timeoutMs } = options;
   if (signal?.aborted) return Promise.reject(signal.reason);
   const file = options.workerFile === undefined ? bundledWorker() : options.workerFile;
-  // stand-in: dist/import-worker.js (an esbuild entry in apps/server/build.mjs). Until the build
-  // makes it, and in tests, the read runs here with the same limits on what it makes and the same
-  // timeout, but without the thread's memory limit.
-  if (file === null) return inline(readUpload(request), timeoutMs, signal);
+  if (file === null) {
+    // stand-in: dist/import-worker.js (an esbuild entry in apps/server/build.mjs). Without it,
+    // production reads nothing. In development and tests the read runs here, with the same limits
+    // on what it makes and the same timeout, but without the thread's memory limit.
+    const production = options.production ?? process.env.NODE_ENV === 'production';
+    if (production) return Promise.reject(new ImportFileError("the file can't be read right now"));
+    return inline(readUpload(request), timeoutMs, signal);
+  }
   return new Promise<ReadResult>((resolve, reject) => {
     const worker = new Worker(file, { workerData: request, resourceLimits: READ_LIMITS.thread });
     let settled = false;

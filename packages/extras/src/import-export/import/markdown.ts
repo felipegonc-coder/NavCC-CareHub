@@ -24,7 +24,7 @@ export interface MarkdownEntry {
 }
 
 const DOCUMENT = /\.(md|markdown|txt)$/i;
-const PROGRAM = /\.(exe|dll|msi|com|scr|bat|cmd|ps1|vbs|jar|app|apk|sh)$/i;
+const PROGRAM = /\.(exe|dll|msi|com|scr|bat|cmd|ps1|vbs|jar|app|apk|sh|dmg|pkg)$/i;
 
 /** Hidden files and folders, and the __MACOSX folder zips made on a Mac have. */
 const isSkipped = (path: string) =>

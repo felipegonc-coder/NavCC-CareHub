@@ -82,6 +82,18 @@ describe('planMarkdown', () => {
     ]);
   });
 
+  it('refuses Mac installers by their name', () => {
+    const plan = planMarkdown([
+      { path: 'Notes.md', text: 'Hi' },
+      { path: 'Installer.dmg' },
+      { path: 'tool.pkg' },
+    ]);
+    expect(plan.problems).toEqual([
+      { file: 'Installer.dmg', what: 'Refused', why: "Programs can't be imported." },
+      { file: 'tool.pkg', what: 'Refused', why: "Programs can't be imported." },
+    ]);
+  });
+
   it('leaves code, other sites and anchors alone', () => {
     const plan = planMarkdown([
       {

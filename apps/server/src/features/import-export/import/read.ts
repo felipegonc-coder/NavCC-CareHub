@@ -72,9 +72,14 @@ export function openZip(bytes: Uint8Array): ImportZip {
 
 const isZipName = (fileName: string) => /\.zip$/i.test(fileName);
 
-/** Windows and Linux programs and scripts, by their first bytes, whatever their name says. */
+/** Mac programs (Mach-O, 32 and 64 bit, either byte order) and universal binaries. */
+const MACH_O = new Set([0xcffaedfe, 0xcefaedfe, 0xfeedface, 0xfeedfacf, 0xcafebabe]);
+
+/** Windows, Linux and Mac programs and scripts, by their first bytes, whatever their name says. */
 function isProgram(bytes: Uint8Array): boolean {
   const [a, b, c, d] = bytes;
+  const first4 = bytes.length >= 4 ? new DataView(bytes.buffer, bytes.byteOffset, 4) : null;
+  if (first4 && MACH_O.has(first4.getUint32(0))) return true;
   return (
     (a === 0x4d && b === 0x5a) ||
     (a === 0x7f && b === 0x45 && c === 0x4c && d === 0x46) ||
