@@ -11,7 +11,7 @@ import {
 } from './oauth';
 
 const REDIRECT = googleRedirectUri('https://carehub.example.org/');
-const FULL_CALENDAR = 'https://www.googleapis.com/auth/calendar';
+const READ_ALL = 'https://www.googleapis.com/auth/calendar.readonly';
 
 function setup() {
   const google = createMockGoogle();
@@ -195,11 +195,11 @@ describe('Google sign-in', () => {
     expect(google.activeGrants()).toBe(0);
   });
 
-  it('accepts the full calendar scope in place of the narrower ones', async () => {
+  it('accepts a broader read-only scope in place of the narrower ones', async () => {
     const { google, oauth } = setup();
-    expect(await signIn(google, oauth, { grant: [FULL_CALENDAR] })).toMatchObject({
+    expect(await signIn(google, oauth, { grant: [READ_ALL] })).toMatchObject({
       kind: 'connected',
-      tokens: { scopes: [FULL_CALENDAR] },
+      tokens: { scopes: [READ_ALL] },
     });
   });
 

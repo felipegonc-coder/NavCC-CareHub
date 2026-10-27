@@ -12,19 +12,19 @@ export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 
 const SCOPE = 'https://www.googleapis.com/auth/';
-/** See the calendar list, and see and edit events. The primary calendar's id is the account email. */
+/** Read-only: the calendar list and events. The primary calendar's id is the account email. */
 export const GOOGLE_SCOPES = [
   `${SCOPE}calendar.calendarlist.readonly`,
-  `${SCOPE}calendar.events`,
+  `${SCOPE}calendar.events.readonly`,
 ] as const;
 /** Broader scopes a person may already have granted that cover what Care Hub asks for. */
 const COVERED_BY: Record<string, string[]> = {
   [GOOGLE_SCOPES[0]]: [
-    `${SCOPE}calendar`,
     `${SCOPE}calendar.readonly`,
     `${SCOPE}calendar.calendarlist`,
+    `${SCOPE}calendar`,
   ],
-  [GOOGLE_SCOPES[1]]: [`${SCOPE}calendar`],
+  [GOOGLE_SCOPES[1]]: [`${SCOPE}calendar.readonly`, `${SCOPE}calendar.events`, `${SCOPE}calendar`],
 };
 
 export const GOOGLE_SIGN_IN_MESSAGES = {
@@ -35,7 +35,7 @@ export const GOOGLE_SIGN_IN_MESSAGES = {
   cancelled: 'Google sign-in was cancelled.',
   'sign-in-failed': "Google sign-in didn't finish. Please try again.",
   'missing-scopes':
-    'Care Hub needs to see your calendars and edit events. Please connect again and allow both.',
+    'Care Hub needs to see your calendars and their events. Please connect again and allow both.',
   'no-refresh-token': "Google didn't keep Care Hub signed in. Please connect again.",
   revoked: 'Google needs you to sign in again.',
   'invalid-grant': 'Google needs you to sign in again.',
