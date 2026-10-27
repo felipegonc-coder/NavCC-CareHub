@@ -60,7 +60,7 @@ describe.skipIf(!hasDatabase)('Learning certificate tables', () => {
            course_title, course_version, completed_at, issued_on, expires_on)
          VALUES ($1, $2, $3, 'Test Person', 'course-a', 'Hold etiquette', 1, $4, '2026-10-27', $5)
          RETURNING id`,
-        [workspace, learner, code, completedAt, expiresOn],
+        [workspace, code, learner, completedAt, expiresOn],
       );
     await expect(add('7kq2-m9xd-4tb8', '2026-10-27T10:00:00Z', null)).rejects.toThrow(/check/);
     await expect(add('7KQ2-M9XD-4TB8', '2026-10-27T10:00:00Z', '2026-10-27')).rejects.toThrow(
