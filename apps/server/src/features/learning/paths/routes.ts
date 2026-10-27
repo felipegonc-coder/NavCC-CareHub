@@ -7,9 +7,8 @@ import * as paths from './service';
 
 const PathParams = z.object({ id: IdSchema });
 
-// Learning paths (B3): the path page for anyone in the workspace, and the Studio path API for
-// people with learning.build. Endpoints in docs/learning/api.md. Who is asking comes from a
-// stand-in for the courses server's ../auth (B1, #250).
+// Learning paths: the path page for anyone in the workspace, and the Studio path API for people
+// with learning.build. Endpoints in docs/learning/api.md. Who is asking comes from ../auth.
 const pathsRoutes: FastifyPluginAsync = async (app) => {
   const build = { preHandler: requirePermission('learning.build') };
   const pathOf = (request: FastifyRequest) => parseInput(PathParams, request.params).id;

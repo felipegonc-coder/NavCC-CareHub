@@ -1,4 +1,4 @@
--- Learning paths (B3, docs/learning/api.md): courses to take one after another, or in any order,
+-- Learning paths (docs/learning/api.md): courses to take one after another, or in any order,
 -- built in Studio. Learners only see the courses of a path they can open, and the path's
 -- assignments follow its published courses (assignments' syncPathAssignments).
 --

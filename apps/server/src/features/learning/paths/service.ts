@@ -21,7 +21,7 @@ import { learningPaths as paths } from './schema';
 
 // Learning paths (docs/learning/api.md): built in Studio (learning.build), opened by anyone in the
 // workspace, who sees only the courses of the path they can open. Saving a path keeps its
-// assignments in step with its courses (assignments' syncPathAssignments, B4).
+// assignments in step with its courses (assignments' syncPathAssignments).
 
 /** The signed-in person, in the workspace they are using. */
 export type Actor = { userId: string; workspaceId: string };
@@ -97,7 +97,7 @@ export async function getPath(
 
 /**
  * The course ids on a path, in path order, or null when the workspace has no such path: what
- * assignments' `pathCourses` source reads (B4, assignments/sources.ts).
+ * assignments' `pathCourses` source reads (assignments/sources.ts).
  */
 export async function pathCourseIds(
   db: Db | Tx,
