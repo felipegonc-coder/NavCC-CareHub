@@ -37,7 +37,11 @@ export type NewPagePlace = { spaceId: string } | { parentId: string };
 export const createPage = async (place: NewPagePlace) =>
   (await api.post('/api/pages', { kind: 'page', title: '', ...place })) as { id: string };
 export const renamePage = (id: string, title: string) => api.patch(`/api/pages/${id}`, { title });
+/** Moves the page, with everything in it, to Trash as one item with the page's ID. */
 export const trashPage = (id: string) => api.delete(`/api/pages/${id}`);
+/** Puts it back where it was, or at `to` when the person picks another place. */
+export const restoreFromTrash = (id: string, to?: MoveTo) =>
+  api.post(`/api/trash/${id}/restore`, to ?? {});
 export const addFavorite = (pageId: string) => api.put('/api/favorites', { pageId });
 export const removeFavorite = (pageId: string) => api.delete('/api/favorites', { pageId });
 export const clearRecent = () => api.delete('/api/recent');
