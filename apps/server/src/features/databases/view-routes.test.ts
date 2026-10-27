@@ -89,7 +89,7 @@ describe.skipIf(!hasDatabase)('view routes', () => {
     const table = named(body, 'Table');
     const list = await addView(people.avery, {
       version,
-      type: 'list',
+      layout: 'list',
       name: 'Today',
       afterViewId: table.id,
     });
@@ -98,15 +98,15 @@ describe.skipIf(!hasDatabase)('view routes', () => {
 
     const stale = await addView(people.avery, { version: version - 1, layout: 'list' });
     expect(stale.statusCode).toBe(409);
-    const both = await addView(people.avery, { version, layout: 'list', type: 'board' });
-    expect(both.statusCode).toBe(400);
-    expect(both.json()).toEqual(INVALID);
+    const typeOnly = await addView(people.avery, { version, type: 'board' });
+    expect(typeOnly.statusCode).toBe(400);
+    expect(typeOnly.json()).toEqual(INVALID);
     const viewer = await addView(people.jordan, { version, layout: 'list' });
     expect(viewer.statusCode).toBe(403);
   });
 
   it('makes a form with a link code kept in forms_links, shown to people who can edit', async () => {
-    const res = await addView(people.avery, { version, type: 'form' });
+    const res = await addView(people.avery, { version, layout: 'form' });
     expect(res.statusCode).toBe(200);
     const body = took(res.json());
     const form = named(body, 'Form');

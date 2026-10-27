@@ -9,7 +9,7 @@ import { parseRequest } from '@carehub/databases/schemas';
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Tx } from '../../db';
-import { invalidRequest, notFound } from './errors';
+import { notFound } from './errors';
 import { accept, allow, answerFor, databasePage, signedIn, versionOf } from './http';
 import { visibleIds } from './meta';
 import type { DatabaseRecord } from './record';
@@ -79,15 +79,13 @@ export function registerViewRoutes(app: FastifyInstance): void {
   // A new view with its layout's defaults, or a dashboard tile; a form gets its link code.
   app.post('/:id/views', edit, async (request) => {
     const page = databasePage(request);
-    const { version, layout, type, ...input } = accept(parseRequest(newViewRequest, request.body));
-    const kind = layout ?? type;
-    if (!kind) throw invalidRequest();
+    const { version, ...input } = accept(parseRequest(newViewRequest, request.body));
     let viewId = '';
     const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
       allow('edit_views', page.level, current.locked);
-      if (kind === 'form') allow('edit_forms', page.level, current.locked);
-      const linkCode = kind === 'form' ? newLinkCode() : undefined;
-      const plan = planNewView(current, { ...input, layout: kind, linkCode });
+      if (input.layout === 'form') allow('edit_forms', page.level, current.locked);
+      const linkCode = input.layout === 'form' ? newLinkCode() : undefined;
+      const plan = planNewView(current, { ...input, linkCode });
       await keepLinkCode(tx, current.id, plan.view);
       viewId = plan.view.id;
       return { views: plan.views };

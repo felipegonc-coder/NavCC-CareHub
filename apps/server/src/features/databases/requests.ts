@@ -84,19 +84,15 @@ const view = viewSchema.shape;
 
 /**
  * POST /api/databases/:id/views: a new view with the defaults of its layout, after `afterViewId`
- * (or last), or a tile of the dashboard `dashboardId`. `type` is another name for `layout` (the
- * decision's test steps send `type: 'form'`); send one of them.
+ * (or last), or a tile of the dashboard `dashboardId`.
  */
-export const newViewRequest = z
-  .strictObject({
-    version: versionSchema,
-    layout: view.layout.optional(),
-    type: view.layout.optional(),
-    name: view.name.optional(),
-    afterViewId: idSchema.optional(),
-    dashboardId: idSchema.optional(),
-  })
-  .refine((r) => (r.layout === undefined) !== (r.type === undefined));
+export const newViewRequest = z.strictObject({
+  version: versionSchema,
+  layout: view.layout,
+  name: view.name.optional(),
+  afterViewId: idSchema.optional(),
+  dashboardId: idSchema.optional(),
+});
 export type NewViewRequest = z.infer<typeof newViewRequest>;
 
 /**

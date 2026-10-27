@@ -19,7 +19,6 @@ import {
 } from '@carehub/databases';
 import { aggregatesFor } from '@carehub/databases/aggregate';
 import { validateChartOptions } from '@carehub/databases/chart';
-import { validateColorRules } from '@carehub/databases/color';
 import { viewPropertyIds } from '@carehub/databases/engine';
 import { validateFilter } from '@carehub/databases/filter';
 import { validateFormDefinition } from '@carehub/databases/forms';
@@ -307,6 +306,22 @@ function fillLayout(view: View, properties: readonly Property[]): void {
   if (fresh.feed && !view.feed) view.feed = fresh.feed;
 }
 
+/**
+ * Colour rules: on the row or a property that exists, each with a filter validateFilter accepts
+ * (the schema checks the rest). The package's validateColorRules takes over once this branch is
+ * on a main that has it.
+ */
+function colorRulesProblem(view: View, properties: readonly Property[]): string | null {
+  for (const rule of view.colorRules ?? []) {
+    if (rule.target.kind === 'property' && !findProperty(properties, rule.target.propertyId)) {
+      throw invalidRequest();
+    }
+    const problem = validateFilter(rule.filter, properties);
+    if (problem) return problem;
+  }
+  return null;
+}
+
 /** The changed settings of a view, checked against the database's properties. */
 function checkView(current: DatabaseRecord, before: View, view: View, patch: ViewPatch): void {
   const properties = current.properties;
@@ -339,7 +354,7 @@ function checkView(current: DatabaseRecord, before: View, view: View, patch: Vie
       if (aggregate && p && !fits(p, aggregate)) throw invalid(VIEW_MESSAGES.calculation);
     }
   }
-  if ('colorRules' in patch) fail(validateColorRules(view.colorRules, properties));
+  if ('colorRules' in patch) fail(colorRulesProblem(view, properties));
   if (view.chart && changed('chart')) fail(validateChartOptions(view.chart, properties));
   if (view.calendar && changed('calendar') && !isDate(view.calendar.showBy)) {
     throw invalid(VIEW_MESSAGES.date);
