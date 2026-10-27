@@ -19,11 +19,17 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  EmptyState,
+  ErrorState,
   Field,
   IconButton,
   Input,
   Kbd,
+  LoadingState,
   Logo,
+  NoAccessState,
+  NotFoundState,
+  OfflineBanner,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -247,6 +253,35 @@ export function DesignScreen() {
           <Skeleton className="h-4 w-40" />
           <Skeleton className="h-4 w-24" />
         </div>
+      </Section>
+
+      <Section title="States">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded border border-border p-6">
+            <LoadingState delayMs={0} label="Loading the example" />
+          </div>
+          <EmptyState
+            className="rounded border border-border"
+            message="No pages here yet."
+            action={
+              <Button size="sm">
+                <Plus aria-hidden />
+                Add a page
+              </Button>
+            }
+          />
+          <ErrorState
+            className="rounded border border-border"
+            message="Couldn't load the pages."
+            onRetry={() => toast({ title: 'Trying again' })}
+          />
+          <NoAccessState className="rounded border border-border" />
+          <NotFoundState className="rounded border border-border" />
+        </div>
+        <OfflineBanner
+          offline
+          className="overflow-hidden rounded border-x border-t border-border"
+        />
       </Section>
     </main>
   );

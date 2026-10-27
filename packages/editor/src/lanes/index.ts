@@ -1,6 +1,7 @@
 import type { AnyExtension } from '@tiptap/core';
 import { nodes as claude } from './claude';
 import { nodes as databases } from './databases';
+import { nodes as extras } from './extras';
 import { nodes as forms } from './forms';
 import { nodes as learning } from './learning';
 import { nodes as meetings } from './meetings';
@@ -21,6 +22,7 @@ export const laneNodesByFeature = {
   meetings, // feature: meetings
   learning, // feature: learning
   claude, // feature: claude
+  extras, // feature: extras
 } satisfies Record<string, AnyExtension[]>;
 
 export const laneNodes: AnyExtension[] = Object.values(laneNodesByFeature).flat();

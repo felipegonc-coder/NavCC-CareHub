@@ -33,5 +33,11 @@ describe('DesignScreen', () => {
       'aria-haspopup',
       'menu',
     );
+    expect(within(main).getByRole('alert')).toHaveTextContent("Couldn't load the pages.");
+    expect(within(main).getByRole('button', { name: 'Retry' })).toBeVisible();
+    expect(within(main).getByText("You don't have access to this.")).toBeVisible();
+    expect(
+      within(main).getByText("You're offline. Changes that need the server are paused."),
+    ).toBeVisible();
   });
 });
