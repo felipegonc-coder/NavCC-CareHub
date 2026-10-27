@@ -3,8 +3,10 @@ import { canConvert, planConversion, type ConversionPlan } from './convert';
 import { defaultConfig, newProperty, relationConfig } from './schema';
 import type {
   ComputedValue,
+  ConfigOf,
   EvalContext,
   Property,
+  PropertyConfig,
   PropertyType,
   Row,
   SelectOption,
@@ -53,6 +55,13 @@ const opt = (id: string, name: string, color: SelectOption['color']): SelectOpti
 });
 
 const notes = newProperty('Notes', defaultConfig('text'));
+const rollup: ConfigOf<'rollup'> = {
+  type: 'rollup',
+  relationPropertyId: 'p-jobs',
+  targetPropertyId: 'p-trade',
+  aggregate: 'show_original',
+  number: null,
+};
 
 describe('canConvert', () => {
   const cases: [PropertyType, PropertyType, boolean][] = [
@@ -84,9 +93,15 @@ describe('canConvert', () => {
     ['text', 'files', false],
     ['text', 'relation', false],
     ['text', 'checklist', false],
-    ['text', 'formula', false],
-    ['number', 'unique_id', false],
-    ['text', 'button', false],
+    ['text', 'formula', true],
+    ['number', 'unique_id', true],
+    ['text', 'button', true],
+    ['select', 'rollup', true],
+    ['relation', 'formula', true],
+    ['formula', 'rollup', true],
+    ['title', 'formula', false],
+    ['formula', 'formula', false],
+    ['unique_id', 'unique_id', false],
     ['number', 'select', false],
     ['checkbox', 'number', false],
     ['date', 'number', false],
@@ -162,6 +177,23 @@ describe('planConversion', () => {
         computed,
       });
       expect(valuesOf(plan)).toEqual({ r0: [{ text: '3' }] });
+      expect(plan.cleared).toBe(0);
+    });
+    it('keeps a rollup list as it shows', () => {
+      const trades = newProperty('Trades', rollup);
+      const list: ComputedValue = {
+        kind: 'list',
+        value: [
+          { kind: 'text', value: 'Plumbing' },
+          { kind: 'page', value: 'r-leak' },
+          { kind: 'number', value: 2 },
+        ],
+      };
+      const plan = planConversion(trades, defaultConfig('text'), [row('r0')], {
+        ...ctx,
+        computed: () => list,
+      });
+      expect(valuesOf(plan)).toEqual({ r0: [{ text: 'Plumbing, Fix kitchen leak, 2' }] });
       expect(plan.cleared).toBe(0);
     });
     it("writes related rows' titles and leaves out rows you can't open", () => {
@@ -385,6 +417,43 @@ describe('planConversion', () => {
       );
       expect(valuesOf(plan)).toEqual({ r0: complete?.id });
       expect(todo?.group).toBe('todo');
+    });
+  });
+
+  describe('into Formula, Rollup, ID or Button', () => {
+    const into: PropertyConfig[] = [
+      defaultConfig('formula'),
+      rollup,
+      defaultConfig('unique_id'),
+      defaultConfig('button'),
+    ];
+    it.each(into.map((c): [PropertyType, PropertyConfig] => [c.type, c]))(
+      'carries no values into %s',
+      (_type: PropertyType, config: PropertyConfig) => {
+        const rows = textRows(notes, ['Call', '', 'Quote']);
+        const plan = planConversion(notes, config, rows, ctx);
+        expect(plan.config).toEqual(config);
+        expect(plan.values.size).toBe(0);
+        expect(plan.cleared).toBe(2);
+      },
+    );
+    it('counts unticked checkboxes and IDs as values', () => {
+      const done = newProperty('Done', defaultConfig('checkbox'));
+      const rows = [row('r0', { [done.id]: false }), row('r1', { [done.id]: true })];
+      expect(planConversion(done, defaultConfig('formula'), rows, ctx).cleared).toBe(2);
+      const id = newProperty('ID', defaultConfig('unique_id'));
+      const ids = [row('r0', {}, 12), row('r1')];
+      expect(planConversion(id, defaultConfig('button'), ids, ctx).cleared).toBe(1);
+    });
+    it('still never changes Name, and same type is not a change', () => {
+      const name = newProperty('Name', defaultConfig('title'));
+      expect(() => planConversion(name, defaultConfig('formula'), [], ctx)).toThrow(
+        "A title property can't change to formula.",
+      );
+      const total = newProperty('Total', defaultConfig('formula'));
+      expect(() => planConversion(total, defaultConfig('formula'), [], ctx)).toThrow(
+        "A formula property can't change to formula.",
+      );
     });
   });
 
