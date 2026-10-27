@@ -94,7 +94,10 @@ export async function updateForm(
   return getFormView(page, databaseId, viewId);
 }
 
-/** Adds a Form view that accepts responses, with these questions and any other settings. */
+/**
+ * Adds a Form view that accepts responses with these questions. It takes more than one response
+ * per person, so a test can send a second one by hand, unless the settings say otherwise.
+ */
 export async function makeForm(
   page: Page,
   database: Database,
@@ -102,7 +105,8 @@ export async function makeForm(
   settings: Partial<Form> = {},
 ): Promise<FormView> {
   const view = await addView(page, database.id, uniqueName('Fictional QA form'), 'form');
-  return updateForm(page, database.id, view.id, { accepting: true, ...settings, questions });
+  const form = { accepting: true, allowMultiple: true, ...settings, questions };
+  return updateForm(page, database.id, view.id, form);
 }
 
 /** The title the fill screen shows: the form's own, or else the database's name. */
