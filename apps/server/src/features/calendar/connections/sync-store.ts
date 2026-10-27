@@ -3,7 +3,6 @@
 // read the same calendars at once, and a run that crashed lets go when the lease runs out.
 import { and, asc, eq, inArray, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
-import { users } from '../../auth/schema';
 import { type SyncedEventInput, eventRows } from './event-rows';
 import {
   type ConnectionKind,
@@ -22,11 +21,10 @@ const INSERT_CHUNK = 500;
 
 export type { SyncedEventInput } from './event-rows';
 
-/** A connection as a run sees it: with its sealed secret and the owner's address. */
+/** A connection as a run sees it, with its sealed secret. */
 export interface SyncConnection {
   id: string;
   ownerId: string;
-  ownerEmail: string;
   workspaceId: string | null;
   kind: ConnectionKind;
   label: string;
@@ -206,7 +204,6 @@ export function pgSyncStore(db: Db): SyncStore {
         .select({
           id: connections.id,
           ownerId: connections.ownerId,
-          ownerEmail: users.email,
           workspaceId: connections.workspaceId,
           kind: connections.kind,
           label: connections.label,
@@ -218,7 +215,6 @@ export function pgSyncStore(db: Db): SyncStore {
           lastSyncedAt: connections.lastSyncedAt,
         })
         .from(connections)
-        .innerJoin(users, eq(users.id, connections.ownerId))
         .where(eq(connections.id, id));
       return connection && { connection, calendars: await listCalendars(db, id) };
     },
