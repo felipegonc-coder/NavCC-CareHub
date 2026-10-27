@@ -1,6 +1,7 @@
 import { AssignmentListQuerySchema, CreateAssignmentsRequestSchema } from '@carehub/learning';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { registerPeriodicTask } from '../../jobs';
 import { parseInput } from '../errors';
 import {
   bindAssignmentSources,
@@ -12,6 +13,8 @@ import {
   todayIn,
   type AssignmentSources,
 } from './service';
+import { REMINDERS_EVERY_MS, REMINDERS_TASK, sendReminders } from './reminders';
+import { postgresReminderSources } from './reminders-store';
 import { postgresSources } from './sources';
 import { requirePermission, viewerOf } from './viewer';
 
@@ -23,13 +26,21 @@ const IdParams = z.object({ id: z.guid() });
 const todayFor = (request: FastifyRequest) => todayIn(request.user?.timeZone);
 
 // Assignments (learning.assign) and My learning (every member), B4. Endpoints in
-// docs/learning/api.md. The routes also bind their sources for public.ts while the server runs.
+// docs/learning/api.md. The routes also bind their sources for public.ts while the server runs, and
+// on the database they start the reminders job.
 const assignmentsRoutes: FastifyPluginAsync<AssignmentsRoutesOptions> = async (app, options) => {
   const sources = options.sources ?? postgresSources(app.db);
   bindAssignmentSources(sources);
   app.addHook('onClose', async () => {
     if (boundAssignmentSources() === sources) bindAssignmentSources(null);
   });
+  if (options.sources === undefined) {
+    // The reminders run in the jobs runner, and only while this app does (tests start many).
+    const reminders = postgresReminderSources(app.db, sources);
+    registerPeriodicTask(REMINDERS_TASK, REMINDERS_EVERY_MS, async ({ signal }) => {
+      if (boundAssignmentSources() === sources) await sendReminders(reminders, new Date(), signal);
+    });
+  }
   const assign = { preHandler: requirePermission('learning.assign') };
 
   app.get('/me', async (request) => {
