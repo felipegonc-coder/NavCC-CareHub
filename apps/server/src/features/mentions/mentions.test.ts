@@ -37,9 +37,13 @@ describe.skipIf(!hasDatabase)('mentions on Postgres', () => {
   let notices: MemoryNoticeStore;
   const unbinds: (() => void)[] = [];
   const created: MentionCreatedEvent[] = [];
+  let resumeJobs: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     test = await createTestApp();
+    // Notices go only when a test drains the jobs: the app's own runner could otherwise send one
+    // between a test's steps, or while drainJobsForTest is looking.
+    resumeJobs = await pauseJobsForTest();
     avery = await createUser(test.db, { name: 'Avery Lin', email: 'avery.lin@example.test' });
     sam = await createUser(test.db, { name: 'Sam Ortiz', email: 'sam.ortiz@example.test' });
     kai = await createUser(test.db, { name: 'Kai Moreno', email: 'kai.moreno@example.test' });
@@ -58,6 +62,7 @@ describe.skipIf(!hasDatabase)('mentions on Postgres', () => {
     });
   });
   afterAll(async () => {
+    await resumeJobs?.();
     for (const unbind of unbinds) unbind();
     await test?.close();
   });
@@ -288,20 +293,15 @@ describe.skipIf(!hasDatabase)('mentions on Postgres', () => {
   });
 
   it('sends nothing for a comment deleted before its notice goes', async () => {
-    // The notice is due at once, so hold the app's runner until the comment is deleted.
-    const resume = await pauseJobsForTest();
-    try {
-      const pageId = teamPage();
-      const text = `<@${kai.id}> look`;
-      const posted = await call(sam, 'POST', '/api/comments', { pageId, text });
-      const { id: commentId } = posted.json() as CreateCommentResponse;
-      await test.app.events.settled();
-      expect((await call(sam, 'DELETE', `/api/comments/${commentId}`)).statusCode).toBe(204);
-      await drainJobsForTest();
-      expect(noticesOn(kai, pageId)).toEqual([]);
-    } finally {
-      await resume();
-    }
+    // The notice is due at once; the runner is held (beforeAll), so it waits for the drain.
+    const pageId = teamPage();
+    const text = `<@${kai.id}> look`;
+    const posted = await call(sam, 'POST', '/api/comments', { pageId, text });
+    const { id: commentId } = posted.json() as CreateCommentResponse;
+    await test.app.events.settled();
+    expect((await call(sam, 'DELETE', `/api/comments/${commentId}`)).statusCode).toBe(204);
+    await drainJobsForTest();
+    expect(noticesOn(kai, pageId)).toEqual([]);
   });
 
   it('tells the @ menu who can open the page', async () => {

@@ -16,6 +16,7 @@ import type {
   SelectOption,
 } from '@carehub/databases';
 import { defaultConfig } from '@carehub/databases';
+import { ApiError } from '../databases/api';
 import { FormsClientProvider, type FillForm, type FormsClient } from './api';
 import { FormPage, SIGN_IN_PATH } from './form-page';
 
@@ -168,6 +169,13 @@ export function mockFormsClient(data: FillForm = fillForm()): MockFormsClient {
   return {
     getForm: vi.fn<FormsClient['getForm']>().mockResolvedValue(data),
     submitResponse: vi.fn<FormsClient['submitResponse']>().mockResolvedValue({ ok: true }),
+    // Not a form anyone can fill in, unless a test says so.
+    getPublicForm: vi
+      .fn<FormsClient['getPublicForm']>()
+      .mockRejectedValue(new ApiError(404, 'not_found', NOT_FOUND)),
+    submitPublicResponse: vi
+      .fn<FormsClient['submitPublicResponse']>()
+      .mockResolvedValue({ ok: true }),
     searchPeople: vi.fn<FormsClient['searchPeople']>().mockResolvedValue([
       { id: 'user-avery', name: 'Avery Lin', email: 'avery@bluepine.example' },
       { id: 'user-jordan', name: 'Jordan Park', email: 'jordan@bluepine.example' },

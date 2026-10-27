@@ -40,9 +40,10 @@ function usePageTitle(title: string | null, enabled: boolean) {
 }
 
 /**
- * The form behind a link, for the person signed in (people who aren't go to sign in and come
- * straight back): a skeleton while it loads, the form or the message that replaces it, or what
- * went wrong with Retry. Used by the form link and by the Form view for people who can't edit it.
+ * The form behind a link, for the person signed in. With nobody signed in, a form anyone can fill
+ * in opens as it is; any other sends them to sign in and straight back. A skeleton while it loads,
+ * the form or the message that replaces it, or what went wrong with Retry. Used by the form link
+ * and by the Form view for people who can't edit it.
  */
 export function FormByCode({ code, setsTitle = false }: { code: string; setsTitle?: boolean }) {
   const client = useFormsClient();
@@ -68,6 +69,7 @@ export function FormByCode({ code, setsTitle = false }: { code: string; setsTitl
         key={loaded.data.formId}
         data={loaded.data}
         code={code}
+        signedOut={loaded.signedOut}
         onReload={() => void query.refetch()}
       />
     );
@@ -88,8 +90,9 @@ export function FormByCode({ code, setsTitle = false }: { code: string; setsTitl
 }
 
 /**
- * The form link `/forms/:code`: the form for the person signed in; signed out, the sign-in screen
- * first, then straight back. Works without the app shell.
+ * The form link `/forms/:code`: the form for the person signed in; signed out, the form when
+ * anyone can fill it in, else the sign-in screen first, then straight back. Works without the app
+ * shell.
  */
 export function FormPage() {
   const { code = '' } = useParams();
