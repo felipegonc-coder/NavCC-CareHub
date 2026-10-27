@@ -1,4 +1,4 @@
-// Stand-in until features/auth exports usePermission() (decision 0007, section 5.2, ETA Oct 28).
+// Stand-in until features/auth exports usePermission() (decision 0007, section 5.2).
 // Then this file goes and the import switches.
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';

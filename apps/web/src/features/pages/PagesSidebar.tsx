@@ -41,6 +41,7 @@ import type { MoveScope } from './move';
 import { useMoveDialogs } from './MoveDialog';
 import { EntryIcon, PageTree, titleOf } from './PageTree';
 import { useFlagPref, useListPref, useSetPref } from './prefs';
+import { isNewPageKeys } from './shortcuts';
 import { orderSpaces, placeSpace, stepSpace, type SpacePlace } from './space-order';
 import { CreateSpaceButton, SpaceMenu, type SpaceMoves } from './SpaceMenu';
 import { groupChildren } from './tree';
@@ -70,6 +71,7 @@ export default function PagesSidebar() {
   const navigate = useNavigate();
   const moves = useMoveDialogs();
   const actions = useEntryActions(moves.host);
+  useNewPageKeys(actions.canCreate);
   const ctx: Ctx = { expanded, onExpand, collapsed, onCollapse, showRecent, onShowRecent, actions };
 
   if (spaces.isError) return <Retry onRetry={() => void spaces.refetch()} />;
@@ -127,6 +129,21 @@ export default function PagesSidebar() {
       {moves.dialogs(actions.move)}
     </div>
   );
+}
+
+/** Ctrl+Alt+N (Cmd+Option+N on a Mac) starts a new page, for people who may add pages. */
+function useNewPageKeys(enabled: boolean) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!enabled) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || !isNewPageKeys(event)) return;
+      event.preventDefault();
+      void navigate('/new');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [enabled, navigate]);
 }
 
 interface SectionProps {
