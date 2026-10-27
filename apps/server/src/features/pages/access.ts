@@ -1,27 +1,25 @@
-// Who can open what (decision 0005; names in decision 0007, section 3.3). Routes, live co-editing,
+// Who can open what (decision 0012; names in decision 0007, section 3.3). Routes, live co-editing,
 // comments, search and the other lanes all ask these functions, so the rules live in one place.
-import { atLeast, type AccessLevel, type GrantLevel, type PermissionKey } from '@carehub/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { forbidden, invalid, isUuid, notFound, uuidArray } from './http';
+import {
+  ACCESS_LEVELS,
+  atLeast,
+  type AccessLevel,
+  type GrantLevel,
+  type PermissionKey,
+} from './levels';
 import { accessGrants, accessHistory, type AccessGrant } from './schema';
 
 export type Executor = Db | Tx;
 
-/** In order. `array_position(RANKS, level)` is the level's index in LEVELS. */
-const LEVELS: readonly AccessLevel[] = ['none', 'view', 'comment', 'edit_content', 'edit', 'full'];
+/** `array_position(RANKS, level)` is the level's index in ACCESS_LEVELS. */
 const RANKS = sql`ARRAY['view', 'comment', 'edit_content', 'edit', 'full']::text[]`;
 /** Levels as granted, for the row resolver; 'rows_only' sorts first (index = position - 1). */
-const GRANTS: readonly GrantLevel[] = [
-  'rows_only',
-  'view',
-  'comment',
-  'edit_content',
-  'edit',
-  'full',
-];
+const GRANTS: readonly GrantLevel[] = ['rows_only', ...ACCESS_LEVELS.slice(1)];
 const GRANT_RANKS = sql`ARRAY['rows_only', 'view', 'comment', 'edit_content', 'edit', 'full']::text[]`;
 const lower = (a: AccessLevel, b: AccessLevel): AccessLevel => (atLeast(a, b) ? b : a);
 
@@ -60,11 +58,8 @@ export async function loadViewer(db: Executor, userId: string): Promise<Viewer> 
     ORDER BY m.workspace_id`);
   for (const { permissions, ...row } of rows) {
     const keys = new Set(permissions ?? []);
-    viewer.memberships.set(row.workspaceId, {
-      ...row,
-      permissions: keys,
-      isAdmin: row.kind === 'member' && keys.has('workspace.admin'),
-    });
+    const isAdmin = row.kind === 'member' && keys.has('workspace.admin');
+    viewer.memberships.set(row.workspaceId, { ...row, permissions: keys, isAdmin });
   }
   // Group memberships come with groups (a later accounts pull request).
   return viewer;
@@ -80,31 +75,54 @@ export function viewerFor(request: FastifyRequest): Promise<Viewer> {
   return viewer;
 }
 
+const memberWorkspaces = (viewer: Viewer) =>
+  uuidArray(
+    [...viewer.memberships.values()].flatMap((m) => (m.kind === 'member' ? [m.workspaceId] : [])),
+  );
+
 /** Grants (alias `g`) that reach the person. Role and everyone grants don't reach guests. */
 function grantedTo(viewer: Viewer): SQL {
-  const asMember = [...viewer.memberships.values()].filter((member) => member.kind === 'member');
-  const roleIds = asMember.flatMap((member) => (member.roleId ? [member.roleId] : []));
+  const roleIds = [...viewer.memberships.values()].flatMap((m) =>
+    m.kind === 'member' && m.roleId ? [m.roleId] : [],
+  );
   return sql`((g.principal_type = 'user' AND g.principal_id = ${viewer.userId}::uuid)
     OR (g.principal_type = 'group' AND g.principal_id = ANY(${uuidArray(viewer.groupIds)}))
-    OR (g.workspace_id = ANY(${uuidArray(asMember.map((member) => member.workspaceId))})
+    OR (g.workspace_id = ANY(${memberWorkspaces(viewer)})
       AND (g.principal_type = 'everyone'
         OR (g.principal_type = 'role' AND g.principal_id = ANY(${uuidArray(roleIds)})))))`;
 }
 
-type Place = { workspaceId: string; spaceKind: 'team' | 'private'; ownerId: string | null };
-
-/** The owner of a private space and admins in team spaces have Full access; others their best grant. */
-function levelFrom(viewer: Viewer, member: Membership, place: Place, best: number | null) {
-  const owns = place.spaceKind === 'private' ? place.ownerId === viewer.userId : member.isAdmin;
-  return owns ? 'full' : (LEVELS[best ?? 0] ?? 'none');
+/** The person's space memberships (alias `m`, its space `s`), directly or through a group. */
+function memberOf(viewer: Viewer): SQL {
+  return sql`(s.workspace_id = ANY(${memberWorkspaces(viewer)})
+    AND ((m.principal_type = 'user' AND m.principal_id = ${viewer.userId}::uuid)
+      OR (m.principal_type = 'group' AND m.principal_id = ANY(${uuidArray(viewer.groupIds)}))))`;
 }
+
+type SpaceKind = 'open' | 'closed' | 'private' | 'personal';
+type Place = {
+  workspaceId: string;
+  spaceKind: SpaceKind;
+  ownerId: string | null;
+  archived: boolean;
+};
+
+/** The owner of a Private section and Admins in team spaces get Full access; others their best. */
+function levelFrom(viewer: Viewer, member: Membership, place: Place, best: number | null) {
+  const owns = place.spaceKind === 'personal' ? place.ownerId === viewer.userId : member.isAdmin;
+  return owns ? 'full' : (ACCESS_LEVELS[best ?? 0] ?? 'none');
+}
+
+/** The role limit, then read-only pages in archived spaces (Sidebar spec 3.3). */
+const finish = (level: AccessLevel, member: Membership, place: Place) =>
+  place.archived ? lower(limitByRole(level, member), 'view') : limitByRole(level, member);
 
 export type RowAccessContext = {
   db: Executor;
   userId: string;
   rowPageId: string;
   databasePageId: string;
-  /** The row's level from grants and admin rights, before the role limit. */
+  /** The row's level from grants, space membership and admin rights, before the role limit. */
   inherited: AccessLevel;
   /** The best grant that reached the database (or the row's other parents), as given. */
   grantLevel: GrantLevel | null;
@@ -132,8 +150,9 @@ export type PageAnswer = Pick<PageFacts, 'kind' | 'deleted' | 'workspaceId'> & {
 /**
  * The person's level on each existing page (pages in Trash too, marked `deleted`). Grants reach a
  * page from the page itself, then from each parent while the page below inherits, then from the
- * space. A database's 'edit_content' reaches its rows as 'edit', and its 'rows_only' not at all
- * (on the database itself it means 'view'); the row resolver can lift rows from there.
+ * space (its grants, and its default access or Full access for its members and owners). Below a
+ * database, its 'edit_content' counts as 'edit' and its 'rows_only' as nothing (on the database
+ * itself 'rows_only' is 'view'); the row resolver can lift rows from there.
  */
 export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readonly string[]) {
   const ids = uuidArray([...new Set(pageIds)].filter(isUuid));
@@ -147,6 +166,17 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
       WHERE c.inherit_access AND c.depth < 1000
     ),
     mine AS (SELECT g.* FROM access_grants g WHERE ${grantedTo(viewer)}),
+    joined AS (
+      SELECT m.space_id,
+        CASE WHEN bool_or(m.role = 'owner') THEN 'full' ELSE min(s.default_access) END AS level
+      FROM space_members m JOIN spaces s ON s.id = m.space_id
+      WHERE ${memberOf(viewer)}
+      GROUP BY m.space_id
+    ),
+    from_spaces AS (
+      SELECT space_id, level FROM mine WHERE space_id IS NOT NULL
+      UNION ALL SELECT space_id, level FROM joined
+    ),
     reaching AS (
       SELECT c.page_id, c.depth, g.level AS granted, CASE
           WHEN c.node_id = c.page_id THEN replace(g.level, 'rows_only', 'view')
@@ -155,7 +185,8 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
           ELSE g.level END AS level
       FROM chain c JOIN mine g ON g.page_id = c.node_id
       UNION ALL
-      SELECT c.page_id, c.depth, g.level, g.level FROM chain c JOIN mine g ON g.space_id = c.space_id
+      SELECT c.page_id, c.depth, f.level, f.level FROM chain c JOIN from_spaces f
+        ON f.space_id = c.space_id
       WHERE c.parent_id IS NULL AND c.inherit_access
     ),
     best AS (
@@ -165,7 +196,7 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
     )
     SELECT p.id, p.workspace_id AS "workspaceId", p.kind, p.parent_id AS "parentId",
       p.deleted_at IS NOT NULL AS deleted, s.kind AS "spaceKind", s.owner_id AS "ownerId",
-      b.best, b.granted
+      s.archived_at IS NOT NULL AS archived, b.best, b.granted
     FROM pages p JOIN spaces s ON s.id = p.space_id LEFT JOIN best b ON b.page_id = p.id
     WHERE p.id = ANY(${ids})`);
   const answers = new Map<string, PageAnswer>();
@@ -173,14 +204,17 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
   await Promise.all(
     rows.map(async ({ best, granted, ...page }) => {
       const member = viewer.memberships.get(page.workspaceId);
-      let level = member ? levelFrom(viewer, member, page, best) : 'none';
-      if (member && resolver && page.kind === 'row' && page.parentId) {
+      if (!member) {
+        answers.set(page.id, { ...page, level: 'none' });
+        return;
+      }
+      let level = levelFrom(viewer, member, page, best);
+      if (resolver && page.kind === 'row' && page.parentId) {
         const grantLevel = GRANTS[(granted ?? 0) - 1] ?? null;
         const ctx = { db, userId: viewer.userId, rowPageId: page.id, inherited: level, grantLevel };
         level = await resolver({ ...ctx, databasePageId: page.parentId });
       }
-      level = member ? limitByRole(level, member) : 'none';
-      answers.set(page.id, { ...page, level });
+      answers.set(page.id, { ...page, level: finish(level, member, page) });
     }),
   );
   return answers;
@@ -231,34 +265,6 @@ export function pageAccessOf(request: FastifyRequest) {
   const answer = checked.get(request);
   if (!answer) throw new Error('requirePageAccess must run first');
   return answer;
-}
-
-export type SpaceFacts = Place & {
-  id: string;
-  name: string;
-  icon: unknown;
-  position: string;
-  everyone: GrantLevel | null;
-  level: AccessLevel;
-};
-
-/** Spaces matching `where` (alias `s`) with the person's level, in sidebar order. */
-export async function spacesFor(db: Executor, viewer: Viewer, where: SQL): Promise<SpaceFacts[]> {
-  const { rows } = await db.execute<Omit<SpaceFacts, 'level'> & { best: number | null }>(sql`
-    SELECT s.id, s.workspace_id AS "workspaceId", s.kind AS "spaceKind", s.owner_id AS "ownerId",
-      s.name, s.icon, s.position,
-      (SELECT g.level FROM access_grants g
-        WHERE g.space_id = s.id AND g.principal_type = 'everyone') AS everyone,
-      (SELECT max(array_position(${RANKS}, g.level)) FROM access_grants g
-        WHERE g.space_id = s.id AND ${grantedTo(viewer)}) AS best
-    FROM spaces s
-    WHERE ${where}
-    ORDER BY s.kind = 'private', s.position, s.id`);
-  return rows.map(({ best, ...space }) => {
-    const member = viewer.memberships.get(space.workspaceId);
-    const level = member ? limitByRole(levelFrom(viewer, member, space, best), member) : 'none';
-    return { ...space, level };
-  });
 }
 
 export type Principal = { type: 'user' | 'role' | 'group' | 'everyone'; id?: string };
@@ -315,22 +321,14 @@ export async function writeGrant(
 
 type GrantPlace = { spaceId?: string | null; pageId?: string | null };
 
-/** Where a grant goes, what it is (a space, or a page of some kind) and the changer's level there. */
+/** The page a grant is on, its kind and the changer's level there. */
 async function targetFor(db: Executor, userId: string, place: GrantPlace) {
+  if (place.spaceId || !place.pageId) throw invalid('Grants on spaces come with the spaces API.');
   const viewer = await loadViewer(db, userId);
-  if (place.pageId && !place.spaceId) {
-    const answer = (await resolvePages(db, viewer, [place.pageId])).get(place.pageId);
-    if (!answer || answer.deleted) throw notFound();
-    const target = { workspaceId: answer.workspaceId, spaceId: null, pageId: place.pageId };
-    return { target, kind: answer.kind, level: answer.level };
-  }
-  if (!place.spaceId || place.pageId) throw invalid('Give a space or a page, not both.');
-  if (!isUuid(place.spaceId)) throw notFound();
-  const [space] = await spacesFor(db, viewer, sql`s.id = ${place.spaceId}`);
-  if (!space) throw notFound();
-  if (space.spaceKind === 'private') throw invalid("A private space can't be shared.");
-  const target = { workspaceId: space.workspaceId, spaceId: space.id, pageId: null };
-  return { target, kind: 'space' as const, level: space.level };
+  const answer = (await resolvePages(db, viewer, [place.pageId])).get(place.pageId);
+  if (!answer || answer.deleted) throw notFound();
+  const target = { workspaceId: answer.workspaceId, spaceId: null, pageId: place.pageId };
+  return { target, kind: answer.kind, level: answer.level };
 }
 
 /** Checks the principal belongs to the workspace; returns whether it's a guest. */
@@ -370,9 +368,7 @@ export async function grantAccess(tx: Executor, input: GrantAccessInput) {
   const forDatabases = input.level === 'edit_content' || input.level === 'rows_only';
   if (forDatabases && kind !== 'database') throw invalid('That level is only for databases.');
   const guest = await checkPrincipal(tx, target.workspaceId, input.principal);
-  if (guest && (kind === 'space' || input.level === 'full')) {
-    throw invalid('Guests get pages shared with them, and never Full access.');
-  }
+  if (guest && input.level === 'full') throw invalid('Guests never get Full access.');
   return writeGrant(tx, target, input.principal, input.level, input.grantedBy);
 }
 

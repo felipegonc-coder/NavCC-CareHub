@@ -1,24 +1,52 @@
--- Spaces, pages and access grants (decision 0005; contract in decision 0007, sections 3.3 and 4.1).
+-- Spaces, pages and who can open them (decision 0012; names in decision 0007, sections 3.3 and 4.1;
+-- spaces as in the Sidebar spec, section 4). Foreign keys to workspaces come with the roles PR.
 
--- Team spaces, and one private space per person and workspace (only its owner can open it).
+-- Open, Closed and Private team spaces, and each person's own Private section ('personal').
 CREATE TABLE spaces (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id uuid NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
-  kind text NOT NULL CHECK (kind IN ('team', 'private')),
+  workspace_id uuid NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('open', 'closed', 'private', 'personal')),
   owner_id uuid REFERENCES users (id) ON DELETE CASCADE,
-  name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
+  name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 60),
   icon jsonb,
-  -- Fractional sort key; the "C" collation sorts it like plain string comparison.
-  position text COLLATE "C" NOT NULL,
+  description text NOT NULL DEFAULT '' CHECK (char_length(description) <= 1000),
+  -- What members get on the pages that inherit. Space owners and Admins get full.
+  default_access text NOT NULL DEFAULT 'edit'
+    CHECK (default_access IN ('view', 'comment', 'edit', 'full')),
+  owners_only_top_level boolean NOT NULL DEFAULT false,
+  allow_share_links boolean NOT NULL DEFAULT true,
+  allow_guests boolean NOT NULL DEFAULT true,
+  allow_export boolean NOT NULL DEFAULT true,
+  allow_move_out boolean NOT NULL DEFAULT true,
+  -- New members join default spaces.
+  is_default boolean NOT NULL DEFAULT false,
+  archived_by uuid REFERENCES users (id) ON DELETE SET NULL,
+  archived_at timestamptz,
+  deleted_by uuid REFERENCES users (id) ON DELETE SET NULL,
+  deleted_at timestamptz,
   created_by uuid REFERENCES users (id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (workspace_id, id),
-  CHECK ((kind = 'private') = (owner_id IS NOT NULL))
+  CHECK ((kind = 'personal') = (owner_id IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX spaces_private_owner_idx ON spaces (workspace_id, owner_id)
-  WHERE kind = 'private';
+CREATE UNIQUE INDEX spaces_personal_idx ON spaces (workspace_id, owner_id) WHERE kind = 'personal';
+CREATE UNIQUE INDEX spaces_name_idx ON spaces (workspace_id, lower(name))
+  WHERE kind <> 'personal' AND deleted_at IS NULL;
+
+-- People and groups in a team space. Guests can't join spaces.
+CREATE TABLE space_members (
+  space_id uuid NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
+  principal_type text NOT NULL CHECK (principal_type IN ('user', 'group')),
+  principal_id uuid NOT NULL,
+  role text NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
+  added_by uuid REFERENCES users (id) ON DELETE SET NULL,
+  joined_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (space_id, principal_type, principal_id)
+);
+
+CREATE INDEX space_members_principal_idx ON space_members (principal_id);
 
 -- Pages, databases and database rows. IDs never change, so links (/p/<id>) never break.
 CREATE TABLE pages (
@@ -33,9 +61,10 @@ CREATE TABLE pages (
   cover jsonb,
   cover_position smallint NOT NULL DEFAULT 50 CHECK (cover_position BETWEEN 0 AND 100),
   full_width boolean NOT NULL DEFAULT false,
-  -- Font, small text, text direction, backlinks, page comments and floating contents.
+  -- Font, small text, backlinks, page comments and floating contents.
   style jsonb NOT NULL DEFAULT '{}',
   inherit_access boolean NOT NULL DEFAULT true,
+  -- Fractional sort key among siblings; the "C" collation compares it like plain strings.
   position text COLLATE "C" NOT NULL,
   locked_by uuid REFERENCES users (id) ON DELETE SET NULL,
   locked_at timestamptz,
@@ -63,11 +92,11 @@ ALTER TABLE pages
 CREATE INDEX pages_parent_idx ON pages (parent_id);
 CREATE INDEX pages_live_tree_idx ON pages (space_id, parent_id, position) WHERE deleted_at IS NULL;
 
--- Who can open a space or page: a person (member or guest), a role, a group or everyone in the
+-- Grants on a space or page to a person (member or guest), a role, a group or everyone in the
 -- workspace. 'edit_content' and 'rows_only' are only given on databases.
 CREATE TABLE access_grants (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id uuid NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
+  workspace_id uuid NOT NULL,
   space_id uuid REFERENCES spaces (id) ON DELETE CASCADE,
   page_id uuid REFERENCES pages (id) ON DELETE CASCADE,
   principal_type text NOT NULL CHECK (principal_type IN ('user', 'role', 'group', 'everyone')),
@@ -79,12 +108,9 @@ CREATE TABLE access_grants (
   CHECK ((principal_type = 'everyone') = (principal_id IS NULL))
 );
 
--- One grant per place and principal.
-CREATE UNIQUE INDEX access_grants_one_idx ON access_grants (
-  coalesce(space_id, page_id),
-  principal_type,
-  coalesce(principal_id, '00000000-0000-0000-0000-000000000000')
-);
+-- One grant per place and principal ('everyone' has no principal_id).
+CREATE UNIQUE INDEX access_grants_one_idx ON access_grants (coalesce(space_id, page_id),
+  principal_type, coalesce(principal_id, '00000000-0000-0000-0000-000000000000'));
 CREATE INDEX access_grants_page_idx ON access_grants (page_id) WHERE page_id IS NOT NULL;
 CREATE INDEX access_grants_space_idx ON access_grants (space_id) WHERE space_id IS NOT NULL;
 CREATE INDEX access_grants_principal_idx ON access_grants (principal_id);
@@ -92,7 +118,7 @@ CREATE INDEX access_grants_principal_idx ON access_grants (principal_id);
 -- Every grant change, for Settings → Roles → History. No foreign keys: it outlives what it names.
 CREATE TABLE access_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id uuid NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
+  workspace_id uuid NOT NULL,
   changed_by uuid,
   space_id uuid,
   page_id uuid,

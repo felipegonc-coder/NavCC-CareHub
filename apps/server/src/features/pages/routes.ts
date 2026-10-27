@@ -10,7 +10,7 @@ declare module 'fastify' {
 }
 
 // fastify-plugin makes `app.requirePageAccess` visible to every feature registered after this one
-// (decision 0005). A prefix wouldn't apply here, so the routes use their full /api/... paths.
+// (decision 0012). A prefix wouldn't apply here, so the routes use their full /api/... paths.
 export default fp(
   async (app) => {
     app.decorate('requirePageAccess', requirePageAccess);

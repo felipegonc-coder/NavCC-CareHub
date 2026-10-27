@@ -1,6 +1,6 @@
-import type { AccessLevel, PermissionKey } from '@carehub/shared';
 import { describe, expect, it } from 'vitest';
 import { limitByRole, type Membership } from './access';
+import type { AccessLevel, PermissionKey } from './levels';
 
 const member = (permissions: PermissionKey[], kind: Membership['kind'] = 'member'): Membership => ({
   workspaceId: '00000000-0000-4000-8000-000000000001',
@@ -13,30 +13,17 @@ const member = (permissions: PermissionKey[], kind: Membership['kind'] = 'member
 const editor = member(['pages.edit', 'pages.create', 'pages.comment', 'pages.share']);
 const commenter = member(['pages.comment']);
 const viewer = member([]);
-const levels: AccessLevel[] = ['none', 'view', 'comment', 'edit_content', 'edit', 'full'];
+const all: AccessLevel[] = ['none', 'view', 'comment', 'edit_content', 'edit', 'full'];
+const limit = (who: Membership) => all.map((level) => limitByRole(level, who));
 
 describe('limitByRole', () => {
   it('leaves an Editor every level', () => {
-    expect(levels.map((level) => limitByRole(level, editor))).toEqual(levels);
+    expect(limit(editor)).toEqual(all);
   });
 
   it('keeps a Commenter at Can comment and a Viewer at Can view (RP-03)', () => {
-    expect(levels.map((level) => limitByRole(level, commenter))).toEqual([
-      'none',
-      'view',
-      'comment',
-      'comment',
-      'comment',
-      'comment',
-    ]);
-    expect(levels.map((level) => limitByRole(level, viewer))).toEqual([
-      'none',
-      'view',
-      'view',
-      'view',
-      'view',
-      'view',
-    ]);
+    expect(limit(commenter)).toEqual(['none', 'view', 'comment', 'comment', 'comment', 'comment']);
+    expect(limit(viewer)).toEqual(['none', 'view', 'view', 'view', 'view', 'view']);
   });
 
   it('turns Full access into Can edit without Share (RP-04)', () => {
@@ -46,15 +33,18 @@ describe('limitByRole', () => {
   });
 
   it('turns Can comment into Can view without Comment, even with Edit', () => {
-    const noComment = member(['pages.edit', 'pages.share']);
-    expect(limitByRole('comment', noComment)).toBe('view');
-    expect(limitByRole('edit', noComment)).toBe('edit');
+    expect(limitByRole('comment', member(['pages.edit']))).toBe('view');
+    expect(limitByRole('edit', member(['pages.edit']))).toBe('edit');
   });
 
-  it('never gives a guest Full access', () => {
-    const guest = member([], 'guest');
-    expect(limitByRole('full', guest)).toBe('edit');
-    expect(limitByRole('comment', guest)).toBe('comment');
-    expect(limitByRole('none', guest)).toBe('none');
+  it("lets a guest's grants decide, up to Can edit", () => {
+    expect(limit(member([], 'guest'))).toEqual([
+      'none',
+      'view',
+      'comment',
+      'edit_content',
+      'edit',
+      'edit',
+    ]);
   });
 });

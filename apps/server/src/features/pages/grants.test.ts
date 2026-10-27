@@ -1,10 +1,9 @@
-// Access rules on a real database (decision 0005): grants, inheritance, role limits, guests and
-// database levels. Fictional people only.
-import type { AccessLevel } from '@carehub/shared';
+// Access rules on a real database (decision 0012): space members, grants, inheritance, role limits,
+// guests and database levels. Fictional people only.
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
-import { createTestApp, createUser, injectAs, type TestUser } from '../../testing';
+import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
 import {
   getAccessForPages,
   grantAccess,
@@ -14,46 +13,64 @@ import {
   writeGrant,
   type Principal,
 } from './access';
+import type { AccessLevel } from './levels';
+
+type Role = 'admin' | 'editor' | 'commenter' | 'viewer';
+const PERMISSIONS: Record<Role, string[]> = {
+  admin: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share', 'workspace.admin'],
+  editor: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share', 'templates.manage'],
+  commenter: ['pages.comment'],
+  viewer: [],
+};
 
 let close: () => Promise<void>;
 let app: Awaited<ReturnType<typeof createTestApp>>['app'];
 let db: Db;
 let workspaceId: string;
+const roleIds = {} as Record<Role, string>;
 const people = {} as Record<'admin' | 'editor' | 'editor2' | 'commenter' | 'viewer', TestUser>;
 
-beforeAll(async () => {
-  ({ app, db, close } = await createTestApp({
-    routes: (server) => {
-      // Another feature's route behind app.requirePageAccess.
-      const check = { preHandler: server.requirePageAccess('comment') };
-      server.get('/api/test-pages/:id', check, async (request) => ({
-        level: pageAccessOf(request).level,
-      }));
-    },
-  }));
-  people.admin = await createUser(db, { role: 'admin', name: 'Avery Admin' });
-  people.editor = await createUser(db, { role: 'editor', name: 'Eli Editor' });
-  people.editor2 = await createUser(db, { role: 'editor', name: 'Emery Editor' });
-  people.commenter = await createUser(db, { role: 'commenter', name: 'Casey Commenter' });
-  people.viewer = await createUser(db, { role: 'viewer', name: 'Val Viewer' });
-  workspaceId = await memberField(people.editor.id, sql`workspace_id`);
-});
-afterAll(() => close());
-
-async function memberField(userId: string, column: ReturnType<typeof sql>): Promise<string> {
-  const { rows } = await db.execute<{ value: string }>(
-    sql`SELECT ${column} AS value FROM workspace_members WHERE user_id = ${userId}`,
+// Stand-ins for the roles pull request's tables (decision 0007 names) until it lands; then these
+// helpers become createUser(db, { role }).
+async function standInWorkspace() {
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS roles (id uuid PRIMARY KEY DEFAULT
+    gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL, permissions text[] NOT NULL)`);
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS workspace_members (workspace_id uuid NOT NULL,
+    user_id uuid NOT NULL, role_id uuid, kind text NOT NULL DEFAULT 'member',
+    PRIMARY KEY (workspace_id, user_id))`);
+  const { rows } = await db.execute<{ id: string }>(
+    sql`INSERT INTO workspaces (name) VALUES ('Care Hub') RETURNING id`,
   );
-  return rows[0]!.value;
+  workspaceId = rows[0]!.id;
+  for (const role of Object.keys(PERMISSIONS) as Role[]) {
+    const { rows: made } = await db.execute<{ id: string }>(sql`
+      INSERT INTO roles (workspace_id, name, permissions)
+      VALUES (${workspaceId}, ${role}, ${`{${PERMISSIONS[role].join(',')}}`}::text[]) RETURNING id`);
+    roleIds[role] = made[0]!.id;
+  }
+}
+
+async function person(role: Role, name: string): Promise<TestUser> {
+  const user = await createUser(db, { name });
+  await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
+    VALUES (${workspaceId}, ${user.id}, ${roleIds[role]})`);
+  return user;
 }
 
 let made = 0;
-async function space(kind: 'team' | 'private' = 'team', ownerId: string | null = null) {
+async function space(kind = 'open', ownerId: string | null = null) {
   made += 1;
   const { rows } = await db.execute<{ id: string }>(sql`
-    INSERT INTO spaces (workspace_id, kind, owner_id, name, position)
-    VALUES (${workspaceId}, ${kind}, ${ownerId}, ${`Space ${made}`}, ${`V${made}`}) RETURNING id`);
+    INSERT INTO spaces (workspace_id, kind, owner_id, name)
+    VALUES (${workspaceId}, ${kind}, ${ownerId}, ${`Space ${made}`}) RETURNING id`);
   return rows[0]!.id;
+}
+
+async function join(spaceId: string, who: TestUser, role: 'owner' | 'member' = 'member') {
+  await db.execute(sql`INSERT INTO space_members (space_id, principal_type, principal_id, role)
+    VALUES (${spaceId}, 'user', ${who.id}, ${role})`);
 }
 
 async function page(
@@ -71,7 +88,7 @@ async function page(
 }
 
 const everyone: Principal = { type: 'everyone' };
-const user = (person: TestUser): Principal => ({ type: 'user', id: person.id });
+const user = (who: TestUser): Principal => ({ type: 'user', id: who.id });
 const grant = (
   place: { spaceId?: string; pageId?: string },
   to: Principal,
@@ -85,21 +102,46 @@ const grant = (
     people.admin.id,
   );
 
-async function levels(person: TestUser, ids: string[]): Promise<AccessLevel[]> {
-  const found = await getAccessForPages(db, person.id, ids);
+async function levels(who: TestUser, ids: string[]): Promise<AccessLevel[]> {
+  const found = await getAccessForPages(db, who.id, ids);
   return ids.map((id) => found.get(id) ?? 'none');
 }
 
-describe('page access', () => {
-  it('passes an open space down to every page, limited by role (RP-03)', async () => {
-    const s = await space();
+describe.skipIf(!hasDatabase)('page access', () => {
+  beforeAll(async () => {
+    ({ app, db, close } = await createTestApp({
+      routes: (server) => {
+        // Another feature's route behind app.requirePageAccess.
+        const check = { preHandler: server.requirePageAccess('comment') };
+        server.get('/api/test-pages/:id', check, async (request) => ({
+          level: pageAccessOf(request).level,
+        }));
+      },
+    }));
+    await standInWorkspace();
+    people.admin = await person('admin', 'Avery Admin');
+    people.editor = await person('editor', 'Eli Editor');
+    people.editor2 = await person('editor', 'Emery Editor');
+    people.commenter = await person('commenter', 'Casey Commenter');
+    people.viewer = await person('viewer', 'Val Viewer');
+  });
+  afterAll(() => close());
+
+  it('gives space members its default access and owners Full access, within their role', async () => {
+    const s = await space('open');
     const top = await page(s);
     const child = await page(s, top);
-    await grant({ spaceId: s }, everyone, 'edit');
+    for (const who of [people.editor, people.commenter, people.viewer]) await join(s, who);
+    await join(s, people.editor2, 'owner');
     expect(await levels(people.editor, [top, child])).toEqual(['edit', 'edit']);
     expect(await levels(people.commenter, [child])).toEqual(['comment']);
     expect(await levels(people.viewer, [child])).toEqual(['view']);
+    expect(await levels(people.editor2, [child])).toEqual(['full']);
+    // Admins have Full access in every team space; people outside it have nothing.
     expect(await levels(people.admin, [child])).toEqual(['full']);
+    expect(await levels(await person('editor', 'Owen Outsider'), [top])).toEqual(['none']);
+    await db.execute(sql`UPDATE spaces SET default_access = 'comment' WHERE id = ${s}`);
+    expect(await levels(people.editor, [child])).toEqual(['comment']);
   });
 
   it('takes the highest grant, and Stop inheriting drops what comes from above (RP-08)', async () => {
@@ -115,22 +157,19 @@ describe('page access', () => {
   });
 
   it('lets a role grant reach people who get the role later (RP-07)', async () => {
-    const s = await space();
-    const p = await page(s);
-    const roleId = await memberField(people.commenter.id, sql`role_id`);
-    await grant({ pageId: p }, { type: 'role', id: roleId }, 'comment');
-    const later = await createUser(db, { role: 'commenter', name: 'Lee Later' });
+    const p = await page(await space('closed'));
+    await grant({ pageId: p }, { type: 'role', id: roleIds.commenter }, 'comment');
+    const later = await person('commenter', 'Lee Later');
     expect(await levels(later, [p])).toEqual(['comment']);
     expect(await levels(people.viewer, [p])).toEqual(['none']);
   });
 
-  it('keeps private spaces to their owner, admins included (RP-14)', async () => {
-    const mine = await page(await space('private', people.editor.id));
+  it('keeps a Private section to its owner, admins included, unless a page is shared', async () => {
+    const mine = await page(await space('personal', people.editor.id));
     expect(await levels(people.editor, [mine])).toEqual(['full']);
     expect(await levels(people.admin, [mine])).toEqual(['none']);
-    const viewersOwn = await page(await space('private', people.viewer.id));
+    const viewersOwn = await page(await space('personal', people.viewer.id));
     expect(await levels(people.viewer, [viewersOwn])).toEqual(['view']);
-    // A page in a private space can still be shared, e.g. meeting notes with attendees.
     await grantAccess(db, {
       pageId: mine,
       principal: user(people.editor2),
@@ -140,27 +179,29 @@ describe('page access', () => {
     expect(await levels(people.editor2, [mine])).toEqual(['edit']);
   });
 
+  it('makes pages in an archived space read-only (SB-09)', async () => {
+    const s = await space('private');
+    const p = await page(s);
+    await join(s, people.editor, 'owner');
+    await db.execute(sql`UPDATE spaces SET archived_at = now() WHERE id = ${s}`);
+    expect(await levels(people.editor, [p])).toEqual(['view']);
+    expect(await levels(people.admin, [p])).toEqual(['view']);
+  });
+
   it('gives database levels to rows: edit_content as edit, rows_only through the row resolver', async () => {
     const s = await space();
     const tracker = await page(s, null, { kind: 'database' });
     const row = await page(s, tracker, { kind: 'row' });
-    await grantAccess(db, {
-      pageId: tracker,
-      principal: user(people.editor2),
-      level: 'edit_content',
-      grantedBy: people.admin.id,
-    });
+    const by = people.admin.id;
+    const to = user(people.editor2);
+    await grantAccess(db, { pageId: tracker, principal: to, level: 'edit_content', grantedBy: by });
     expect(await levels(people.editor2, [tracker, row])).toEqual(['edit_content', 'edit']);
 
     const reviews = await page(s, null, { kind: 'database' });
     const theirs = await page(s, reviews, { kind: 'row' });
     const others = await page(s, reviews, { kind: 'row' });
-    await grantAccess(db, {
-      pageId: reviews,
-      principal: user(people.commenter),
-      level: 'rows_only',
-      grantedBy: people.admin.id,
-    });
+    const casey = user(people.commenter);
+    await grantAccess(db, { pageId: reviews, principal: casey, level: 'rows_only', grantedBy: by });
     expect(await levels(people.commenter, [reviews, theirs, others])).toEqual([
       'view',
       'none',
@@ -174,28 +215,24 @@ describe('page access', () => {
     // The resolver lifts the row to Can edit; the Commenter role keeps it at Can comment.
     expect(await levels(people.commenter, [theirs, others])).toEqual(['comment', 'none']);
     // A grant on the row itself doesn't hide the database's rows_only from the resolver.
-    await grant({ pageId: theirs }, user(people.commenter), 'view');
+    await grant({ pageId: theirs }, casey, 'view');
     expect(await levels(people.commenter, [theirs])).toEqual(['comment']);
 
     const plain = await page(s);
     await expect(
-      grantAccess(db, {
-        pageId: plain,
-        principal: everyone,
-        level: 'edit_content',
-        grantedBy: people.admin.id,
-      }),
+      grantAccess(db, { pageId: plain, principal: everyone, level: 'edit_content', grantedBy: by }),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it('reaches guests only through grants to them, never with Full access', async () => {
-    const guest = await createUser(db, { role: 'viewer', name: 'Gray Guest' });
+  it('reaches guests only through grants to them, without the role limit, up to Can edit', async () => {
+    const guest = await person('viewer', 'Gray Guest');
     await db.execute(
       sql`UPDATE workspace_members SET kind = 'guest', role_id = NULL WHERE user_id = ${guest.id}`,
     );
     const s = await space();
     const p = await page(s);
     await grant({ spaceId: s }, everyone, 'edit');
+    await join(s, guest);
     expect(await levels(guest, [p])).toEqual(['none']);
     const by = people.admin.id;
     await grantAccess(db, { pageId: p, principal: user(guest), level: 'edit', grantedBy: by });
@@ -203,14 +240,11 @@ describe('page access', () => {
     await expect(
       grantAccess(db, { pageId: p, principal: user(guest), level: 'full', grantedBy: by }),
     ).rejects.toMatchObject({ statusCode: 400 });
-    await expect(
-      grantAccess(db, { spaceId: s, principal: user(guest), level: 'view', grantedBy: by }),
-    ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('answers every ID asked, with none for missing, malformed and trashed pages', async () => {
     const s = await space();
-    await grant({ spaceId: s }, everyone, 'edit');
+    await join(s, people.editor);
     const live = await page(s);
     const trashed = await page(s);
     await db.execute(sql`UPDATE pages SET deleted_at = now() WHERE id = ${trashed}`);
@@ -227,8 +261,9 @@ describe('page access', () => {
   it('needs Full access to change grants and records every change (RP-04, RP-15)', async () => {
     const s = await space();
     const p = await page(s);
-    await grant({ spaceId: s }, everyone, 'edit');
+    await join(s, people.editor);
     const to = user(people.viewer);
+    const admin = people.admin.id;
     await expect(
       grantAccess(db, { pageId: p, principal: to, level: 'view', grantedBy: people.editor.id }),
     ).rejects.toMatchObject({ statusCode: 403 });
@@ -236,16 +271,16 @@ describe('page access', () => {
       pageId: p,
       principal: to,
       level: 'comment',
-      grantedBy: people.admin.id,
+      grantedBy: admin,
     });
     const second = await grantAccess(db, {
       pageId: p,
       principal: to,
       level: 'view',
-      grantedBy: people.admin.id,
+      grantedBy: admin,
     });
     expect(second?.id).toBe(first?.id);
-    await revokeAccess(db, first!.id, people.admin.id);
+    await revokeAccess(db, first!.id, admin);
     const { rows } = await db.execute<{ before: string | null; after: string | null }>(sql`
       SELECT before_level AS before, after_level AS after FROM access_history
       WHERE page_id = ${p} ORDER BY created_at, id`);
@@ -254,14 +289,8 @@ describe('page access', () => {
       ['comment', 'view'],
       ['view', null],
     ]);
-    const priv = await space('private', people.editor.id);
     await expect(
-      grantAccess(db, {
-        spaceId: priv,
-        principal: everyone,
-        level: 'view',
-        grantedBy: people.editor.id,
-      }),
+      grantAccess(db, { spaceId: s, principal: everyone, level: 'view', grantedBy: admin }),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
@@ -271,8 +300,8 @@ describe('page access', () => {
     const p = await page(s);
     const trashed = await page(s);
     await db.execute(sql`UPDATE pages SET deleted_at = now() WHERE id = ${trashed}`);
-    const ask = (person: TestUser, id: string) =>
-      injectAs(app, person, { method: 'GET', url: `/api/test-pages/${id}` });
+    const ask = (who: TestUser, id: string) =>
+      injectAs(app, who, { method: 'GET', url: `/api/test-pages/${id}` });
     const ok = await ask(people.commenter, p);
     expect([ok.statusCode, ok.json()]).toEqual([200, { level: 'comment' }]);
     const closed = await ask(people.viewer, p);
