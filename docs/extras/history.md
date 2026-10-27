@@ -21,6 +21,15 @@ What happened on a page, for its Updates panel (HT-08). An entry (`history_updat
 - **Comments and history:** `comment.created` → `commented` (a reply when `newThread` is false); `history.version.restored` → `restored`, with when the restored version was saved.
 - **Who sees what** (HT-08, HT-15): the list needs Can view. A move between pages names each page only if the person can open it; otherwise the place is `{ kind: 'hidden' }` ("a page you can't open"), with no ID or title. Property changes show only to people who can see the property. Only people with Can edit get `versionId`, which Show changes opens in Version history.
 
+## Archive
+
+For pages and databases that are done but worth keeping (spec 3.5, HT-14). The page model keeps who archived what and does the archiving (pages PR 2: `archived_at`, `archived_by`, `archivePage`, `unarchivePage`, and a sidebar tree without archived pages). History checks access, refuses rows and says how many sub-pages go along.
+
+- **Archive** needs Full access. The page and its sub-pages turn read-only: the page model keeps them from being edited, and their versions can't be restored or named. A row can't be archived on its own ("Rows can't be archived. Use a property or Trash."), nor can a page that's already archived, by itself or with a parent page (both 409).
+- **Unarchive** puts back the page that was archived and everything that went with it, even when asked from a sub-page (its banner). It needs Full access on that page; anyone else gets 403 without its title.
+- **Sub-pages** are counted without rows and Trash, the same way in the confirm and in the answer, and only for people with Full access.
+- **Events**, after the commit: `page.archived { pageId, pageIds, by }` and `page.unarchived { pageId, pageIds, by }`, where `pageIds` are the page and everything that went with it. Updates records `archived` and `unarchived` on the page. Search re-indexes `pageIds` (left out unless Include archived); reminders, review notices (knowledge base), automations and forms stop and start again from them.
+
 ## Show changes and the preview
 
 - `diffDocs(previous, version)` in `@carehub/extras/history` compares a version with the one before it. Whole blocks are compared first. Blocks of the same type that changed are compared inside: the blocks of a list, quote or table one by one, and the text of a paragraph or heading word by word. A change of marks alone doesn't count as changed text, but its block still shows as changed. `countChanges` gives the number of changes, for "3 changes" in Updates.
@@ -76,6 +85,9 @@ What happened on a page, for its Updates panel (HT-08). An entry (`history_updat
 | `PATCH /pages/:pageId/versions/:versionId { name }`                  | Can edit, not locked or archived | `SavedVersionResponse`; an empty name or null removes it                                                                            |
 | `POST /pages/:pageId/versions/:versionId/restore`                    | Can edit, not locked or archived | `SavedVersionResponse` with the version saved just before (`createdBy` is the restorer, `restoredFrom` the restored version's time) |
 | `GET /pages/:pageId/updates?before&limit`                            | Can view                         | `UpdateListResponse`: newest first, 50 at a time, as "Who sees what" above says                                                     |
+| `GET /pages/:pageId/archive`                                         | Can view                         | `ArchiveState`: who archived it (or the parent page it went with) and when, `canChange`, and how many sub-pages go along            |
+| `POST /pages/:pageId/archive`                                        | Full access, not a row           | `ArchiveChange` `{ pageId, title, subPages }`; 409 for a row or a page that's already archived                                      |
+| `POST /pages/:pageId/unarchive`                                      | Full access (see Archive)        | `ArchiveChange` for the page that was archived; 409 when the page isn't archived                                                    |
 
 Missing pages, pages in Trash and malformed IDs answer 404; too little access answers 403 "You don't have access to this." without the title (HT-15). A version that's gone answers 404 "This version is too old to show (deleted under the Data settings period)." Shapes are in `@carehub/extras/history`.
 
@@ -94,6 +106,7 @@ Until they're bound nothing is tracked or saved, no queries run and the routes a
 | The workspace's time zone for the clean-up                           | `retention.ts`                     | workspaces 1c                                         |
 | Titles of the pages a move went between (`getPageTitles`)            | `pages.ts`                         | `getPageCards` in the page model (#49)                |
 | Which of a row's properties the person sees: none until bound        | `updateList.ts`                    | the Databases lane's property check                   |
+| Archiving: who archived what, sub-pages, archive and unarchive       | `pages.ts`                         | the page model's archiving (pages PR 2)               |
 
 The periodic tasks run in the jobs runner, which starts once the jobs routes are registered (#288).
 
