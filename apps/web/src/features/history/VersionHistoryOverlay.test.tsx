@@ -1,6 +1,7 @@
+import { restoreNote, versionDate } from '@carehub/extras/history';
 import { ToastProvider } from '@carehub/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useNavigate, type NavigateFunction } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setLiveClientForTest } from '../live/client';
@@ -81,5 +82,20 @@ describe('the Version history window', () => {
     });
     expect(currentVersionHistory()).toBeNull();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('HT-05: closes after a restore and shows the note', async () => {
+    renderOverlay();
+    act(() => menuItem().onSelect(PAGE));
+    const history = await screen.findByRole('dialog', { name: 'Version history' });
+    fireEvent.click(await within(history).findByRole('button', { name: 'Restore this version' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Restore this version?' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Restore' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(currentVersionHistory()).toBeNull();
+    const from = versionDate(fakeVersion('v-1', 5, 'Call the member.').summary.createdAt);
+    const note = restoreNote('Avery Lin', from).replace(/\s+/g, ' ');
+    expect(screen.getByText(note)).toBeInTheDocument();
   });
 });
