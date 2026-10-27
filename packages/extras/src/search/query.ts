@@ -104,11 +104,8 @@ export function parseQuery(
     const parts = wordsOf(text);
     if (parts.length === 0) return;
     const prefix = typing && index === lastWord && !token.quoted && !token.negate;
-    const term: SearchTerm = {
-      text: token.quoted ? parts.join(' ') : text,
-      phrase: token.quoted,
-      prefix,
-    };
+    // Postgres reads the words of a term itself, as it did for the index ("qa-17" as "qa", "-17").
+    const term: SearchTerm = { text, phrase: token.quoted, prefix };
     if (token.negate) {
       none.push(term);
       return;

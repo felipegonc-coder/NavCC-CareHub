@@ -4,12 +4,19 @@
  */
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import type { DatabaseMeta, EvalContext, Id, View, ViewOverride, Viewer } from '@carehub/databases';
+import { useQueryClient } from '@tanstack/react-query';
+import type { DatabaseMeta, Id, View, ViewOverride, Viewer } from '@carehub/databases';
 import { defaultTemplate } from '@carehub/databases/templates';
-import { findQueryRow } from '../cache';
-import type { OpenMode, ViewActions, ViewData } from '../contract';
+import { pageUrl } from '@carehub/shared';
+import { personChoice } from '../api';
+import { findQueryRow, savedOptionIds } from '../cache';
+import { cellContext, type OpenMode, type ViewActions, type ViewData } from '../contract';
 import {
+  membersQuery,
+  useAddOptions,
   useCreateRow,
+  useDatabaseClient,
+  useDuplicateRows,
   useMoveRow,
   useRestoreRows,
   useTrashRows,
@@ -47,8 +54,12 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
     input,
     navigate: useNavigate(),
     toasts: useToasts(),
+    client: useDatabaseClient(),
+    queryClient: useQueryClient(),
     createRow: useCreateRow(databaseId),
     updateValues: useUpdateValues(databaseId),
+    addOptions: useAddOptions(databaseId),
+    duplicateRows: useDuplicateRows(databaseId),
     trashRows: useTrashRows(databaseId),
     restoreRows: useRestoreRows(databaseId),
     moveRow: useMoveRow(databaseId, input.savedView.id),
@@ -71,9 +82,8 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
       openRow(rowId, mode) {
         const { input, navigate } = now();
         const where = mode ?? input.view.openPagesIn;
-        // pageUrl() from @carehub/shared once it's on main (decision 0007).
         if (input.onOpenRow) input.onOpenRow(rowId, where);
-        else void navigate(`/p/${rowId}`);
+        else void navigate(pageUrl(rowId));
       },
 
       async createRow(newRow = {}) {
@@ -96,9 +106,37 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
         }
       },
 
-      async updateValues(rowId, values) {
+      async updateValues(rowId, values, newOptions) {
         try {
-          return await now().updateValues.mutateAsync({ rowId, values });
+          return await now().updateValues.mutateAsync({ rowId, values, newOptions });
+        } catch (error) {
+          return refused(error);
+        }
+      },
+
+      async addOptions(propertyId, options) {
+        try {
+          const meta = await now().addOptions.mutateAsync({ propertyId, options });
+          return savedOptionIds(
+            meta.properties.find((p) => p.id === propertyId),
+            options,
+          );
+        } catch (error) {
+          return refused(error);
+        }
+      },
+
+      async searchPeople(query) {
+        const { client, queryClient } = now();
+        const members = await queryClient.fetchQuery(membersQuery(client, query.trim()));
+        return members.map(personChoice);
+      },
+
+      async duplicateRows(rowIds) {
+        const ids = [...rowIds];
+        if (ids.length === 0) return [];
+        try {
+          return await now().duplicateRows.mutateAsync(ids);
         } catch (error) {
           return refused(error);
         }
@@ -125,14 +163,9 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
       async moveRow(rowId, place) {
         const { input, moveRow } = now();
         const { view, data, meta, viewer } = input;
-        const ctx: EvalContext = {
-          properties: meta.properties,
-          viewer,
-          userName: () => undefined,
-          rowTitle: (id) => data?.rowTitles[id],
-        };
+        const ctx = cellContext(meta, data ?? { rowTitles: {} }, viewer);
         const row = data ? findQueryRow(data, rowId) : undefined;
-        const values = moveValues(row, view, place, ctx);
+        const values = moveValues(row, view, place, { ...ctx, properties: meta.properties });
         // A group that can't set the value keeps the row where it was.
         if (!values) return;
         const changesGroup = Object.keys(values).length > 0;

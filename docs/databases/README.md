@@ -1,7 +1,7 @@
 # Databases and Forms lane: guide for builders
 
 Lead: the Databases and Forms lead (reviews and squash-merges every `feat/db-*` and `feat/forms-*` pull request).
-Specs: [Databases](https://app.notion.com/p/fe27d484cabc4a74ae11028f8d43465f), [Forms](https://app.notion.com/p/6640881fdf6d41c390c8576c2c971b1d) and the lane's [additions](additions.md) (the decisions of Oct 26 and Notion-parity items). Wave plan and parts: [PLAN.md](PLAN.md). Status: [STATUS.md](STATUS.md).
+Specs: Databases and Forms (in Notion; see the [specs index](../plan/specs/README.md)), [Formulas](../plan/specs/formulas.md) and the lane's [additions](additions.md) (the decisions of Oct 26 and Notion-parity items). Wave plan and parts: [PLAN.md](PLAN.md). Status: [STATUS.md](STATUS.md).
 
 ## 1. Clean room (most important)
 

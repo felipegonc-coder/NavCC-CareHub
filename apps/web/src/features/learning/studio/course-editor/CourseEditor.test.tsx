@@ -1,19 +1,33 @@
-import type { Course } from '@carehub/learning';
+import type { Block, Course } from '@carehub/learning';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { blockEditors } from '../editors/registry';
 import { CourseEditorScreen } from '../index';
 import { pageTitles, renderStudio, testStudioClient } from '../test-utils';
 
 // Fictional data only.
+const paragraph = (id: string, text: string): Block => ({
+  id,
+  type: 'paragraph',
+  text: [{ runs: [{ text }] }],
+});
 
-/** Opens "Hand hygiene" (two lessons) in the editor, at `search`. */
+/** Opens "Hand hygiene" (two lessons, the first with two paragraphs) in the editor, at `search`. */
 async function openCourse(search = '') {
   const client = testStudioClient();
   const draft = await client.createCourse({ type: 'standard', title: 'Hand hygiene' });
   const course: Course = {
     ...draft.course,
     lessons: [
-      { id: 'lesson-why', kind: 'content', title: 'Why it matters', blocks: [] },
+      {
+        id: 'lesson-why',
+        kind: 'content',
+        title: 'Why it matters',
+        blocks: [
+          paragraph('block-1', 'Clean hands save lives.'),
+          paragraph('block-2', 'Use soap or hand rub.'),
+        ],
+      },
       { id: 'lesson-moments', kind: 'content', title: 'Five moments', blocks: [] },
     ],
   };
@@ -27,9 +41,24 @@ const lessonNames = () =>
   within(screen.getByRole('navigation', { name: 'Outline' }))
     .getAllByRole('link')
     .map((link) => link.textContent ?? '');
+const blockTexts = () => screen.getAllByTestId('paragraph').map((text) => text.textContent);
 const savedTitle = (client: { getCourse(id: string): Promise<{ course: Course }> }, id: string) =>
   client.getCourse(id).then((draft) => draft.course.title);
 const SAVE_WAIT = { timeout: 3000 };
+
+// Show each paragraph's text plainly, so these tests read it without the paragraph editor.
+const realParagraphEditor = blockEditors.paragraph;
+beforeEach(() => {
+  blockEditors.paragraph = ({ block }) => (
+    <p data-testid="paragraph">
+      {block.text.map((p) => p.runs.map((run) => run.text).join('')).join('\n')}
+    </p>
+  );
+});
+afterEach(() => {
+  if (realParagraphEditor) blockEditors.paragraph = realParagraphEditor;
+  else delete blockEditors.paragraph;
+});
 
 describe('course editor', () => {
   it('opens the draft on its first lesson', async () => {
@@ -41,7 +70,8 @@ describe('course editor', () => {
       'true',
     );
     expect(screen.getByRole('region', { name: 'Lesson: Why it matters' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Lesson title' })).toHaveValue('Why it matters');
+    expect(screen.getByRole('region', { name: 'Block 2, Paragraph' })).toBeInTheDocument();
+    expect(blockTexts()).toEqual(['Clean hands save lives.', 'Use soap or hand rub.']);
     expect(screen.getByText('Saved')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
   });
@@ -88,7 +118,7 @@ describe('course editor', () => {
       'true',
     );
     expect(screen.getByRole('region', { name: 'Lesson: Lesson 3' })).toHaveTextContent(
-      "The lesson's blocks are edited here once the lesson canvas is ready.",
+      'This lesson is empty. Add a block to start.',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Move Lesson 3 up' }));
@@ -113,6 +143,119 @@ describe('course editor', () => {
     expect(screen.getByRole('region', { name: 'Lesson: Quiz' })).toHaveTextContent(
       'Quiz questions and settings are edited here once the quiz editor is ready.',
     );
+  });
+
+  it("sets a lesson's minimum time in seconds; an empty box removes it", async () => {
+    const { client, courseId } = await openCourse();
+    const firstLesson = async () => (await client.getCourse(courseId)).course.lessons[0];
+    const minimum = screen.getByRole('spinbutton', { name: 'Minimum time, in seconds' });
+    fireEvent.change(minimum, { target: { value: '60' } });
+    await waitFor(
+      async () => expect(await firstLesson()).toMatchObject({ minimumSeconds: 60 }),
+      SAVE_WAIT,
+    );
+    fireEvent.change(minimum, { target: { value: '4000' } });
+    expect(screen.getByText('Use a whole number from 1 to 3600.')).toBeInTheDocument();
+    fireEvent.change(minimum, { target: { value: '' } });
+    await waitFor(
+      async () => expect(await firstLesson()).not.toHaveProperty('minimumSeconds'),
+      SAVE_WAIT,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add quiz' }));
+    expect(screen.queryByRole('spinbutton')).toBeNull();
+  });
+
+  it('adds blocks from the menu, asking for an address when a block needs one', async () => {
+    const { client, courseId } = await openCourse();
+    fireEvent.click(screen.getByRole('link', { name: '2. Five moments' }));
+    const lesson = screen.getByRole('region', { name: 'Lesson: Five moments' });
+    fireEvent.click(within(lesson).getByRole('button', { name: 'Add block' }));
+    let menu = screen.getByRole('region', { name: 'Add a block' });
+    const search = within(menu).getByRole('searchbox', { name: 'Search blocks' });
+    await waitFor(() => expect(search).toHaveFocus());
+    fireEvent.change(search, { target: { value: 'paragraph' } });
+    expect(within(menu).getByRole('menu', { name: 'Add a block' })).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Paragraph' }));
+
+    const added = screen.getByRole('region', { name: 'Block 1, Paragraph' });
+    await waitFor(() => expect(added).toHaveFocus());
+    expect(screen.queryByRole('region', { name: 'Add a block' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a block below block 1' }));
+    menu = screen.getByRole('region', { name: 'Add a block' });
+    const file = within(menu).getByRole('menuitem', { name: 'File download' });
+    expect(file).toHaveAttribute('aria-disabled', 'true');
+    expect(file).toHaveAccessibleDescription('Available once file uploads are ready.');
+    fireEvent.click(file);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Image' }));
+    const address = within(menu).getByRole('textbox', { name: 'Picture address' });
+    await waitFor(() => expect(address).toHaveFocus());
+    fireEvent.change(address, { target: { value: 'http://example.org/hands.png' } });
+    fireEvent.click(within(menu).getByRole('button', { name: 'Add block' }));
+    expect(within(menu).getByText('Use a full https:// address.')).toBeInTheDocument();
+    fireEvent.change(address, { target: { value: 'https://example.org/hands.png' } });
+    fireEvent.click(within(menu).getByRole('button', { name: 'Add block' }));
+    expect(screen.getByRole('region', { name: 'Block 2, Image' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add block' }));
+    fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Search blocks' }), { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Add a block' })).toBeNull();
+
+    await waitFor(async () => {
+      const { course } = await client.getCourse(courseId);
+      expect(
+        course.lessons[1]?.kind === 'content' && course.lessons[1].blocks.map((b) => b.type),
+      ).toEqual(['paragraph', 'image']);
+    }, SAVE_WAIT);
+  });
+
+  it('moves through the add-block menu with the keyboard', async () => {
+    await openCourse();
+    fireEvent.click(screen.getByRole('link', { name: '2. Five moments' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add block' }));
+    const search = screen.getByRole('searchbox', { name: 'Search blocks' });
+    await waitFor(() => expect(search).toHaveFocus());
+    fireEvent.change(search, { target: { value: 'quote' } });
+    const items = screen.getAllByRole('menuitem');
+    expect(items.map((item) => item.getAttribute('tabindex'))).toEqual(
+      items.map((_, index) => (index === 0 ? '0' : '-1')),
+    );
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    expect(items[0]).toHaveFocus();
+    fireEvent.keyDown(items[0] as HTMLElement, { key: 'ArrowUp' });
+    expect(search).toHaveFocus();
+
+    fireEvent.change(search, { target: { value: 'heading' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(screen.getByRole('region', { name: 'Block 1, Heading' })).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('moves, copies and deletes blocks, and Undo brings one back', async () => {
+    await openCourse();
+    fireEvent.click(screen.getByRole('button', { name: 'Move block 1 down' }));
+    expect(blockTexts()).toEqual(['Use soap or hand rub.', 'Clean hands save lives.']);
+    expect(screen.getByRole('button', { name: 'Move block 1 up' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate block 2' }));
+    expect(blockTexts()).toEqual([
+      'Use soap or hand rub.',
+      'Clean hands save lives.',
+      'Clean hands save lives.',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete block 1' }));
+    expect(screen.getByText('Deleted block 1 (Paragraph).')).toBeInTheDocument();
+    expect(blockTexts()).toEqual(['Clean hands save lives.', 'Clean hands save lives.']);
+    await waitFor(() => expect(document.activeElement).toHaveTextContent('Undo'));
+    fireEvent.click(document.activeElement as HTMLElement);
+    expect(blockTexts()).toEqual([
+      'Use soap or hand rub.',
+      'Clean hands save lives.',
+      'Clean hands save lives.',
+    ]);
   });
 
   it('undoes and redoes with the buttons and the keyboard', async () => {

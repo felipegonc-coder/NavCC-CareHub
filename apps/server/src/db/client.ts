@@ -18,7 +18,13 @@ export function createDatabase(
   databaseUrl: string,
   onError?: (error: Error) => void,
 ): DatabaseConnection {
-  const pool = new pg.Pool({ connectionString: databaseUrl, max: 10 });
+  // Without a connect timeout, an unreachable database host holds every request for minutes; this way they
+  // fail after 5 s, and public routes such as GET /api/status can still answer (see the auth plugin).
+  const pool = new pg.Pool({
+    connectionString: databaseUrl,
+    max: 10,
+    connectionTimeoutMillis: 5_000,
+  });
   // An idle connection can fail (for example when Postgres restarts). Without a listener that would crash the process.
   pool.on('error', (error) => onError?.(error));
   let closing: Promise<void> | undefined;
