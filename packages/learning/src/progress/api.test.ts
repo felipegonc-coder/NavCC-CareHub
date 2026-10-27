@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import {
   LearnerCourseStateSchema,
   MAX_EVENTS_PER_REQUEST,
+  MAX_SECONDS_AHEAD,
   ProgressEventsRequestSchema,
   ProgressEventsResponseSchema,
   ProgressNoteRequestSchema,
@@ -104,13 +105,16 @@ describe('checkProgressEvents', () => {
       type: 'lesson_opened',
       lessonId: 'l1',
     };
-    const checked = checkProgressEvents([
-      good,
-      { ...good, id: 'ev-2', at: 'yesterday' },
-      { id: 'ev-3', type: 'teleported' },
-      42,
-      { ...good, id: 'x'.repeat(150) },
-    ]);
+    const checked = checkProgressEvents(
+      [
+        good,
+        { ...good, id: 'ev-2', at: 'yesterday' },
+        { id: 'ev-3', type: 'teleported' },
+        42,
+        { ...good, id: 'x'.repeat(150) },
+      ],
+      good.at,
+    );
     expect(checked.valid).toEqual([good]);
     expect(checked.rejected).toEqual([
       { eventId: 'ev-2', type: 'lesson_opened', at: 'yesterday', reason: 'invalid_event' },
@@ -124,6 +128,29 @@ describe('checkProgressEvents', () => {
       },
     ]);
   });
+
+  it("refuses events dated more than 2 minutes after the server's clock", () => {
+    const now = '2026-10-27T09:00:00.000Z';
+    const opened = (id: string, at: string) => ({ id, at, type: 'lesson_opened', lessonId: 'l1' });
+    const late = '2026-10-27T09:02:00.001Z';
+    const checked = checkProgressEvents(
+      [
+        opened('ev-1', '2026-10-20T09:00:00.000Z'),
+        opened('ev-2', '2026-10-27T09:02:00.000Z'),
+        opened('ev-3', late),
+      ],
+      now,
+    );
+    expect(MAX_SECONDS_AHEAD).toBe(120);
+    expect(checked.valid.map((event) => event.id)).toEqual(['ev-1', 'ev-2']);
+    expect(checked.rejected).toEqual([
+      { eventId: 'ev-3', type: 'lesson_opened', at: late, reason: 'future' },
+    ]);
+    const reply = progressEventsReply(reduceProgress(course, checked.valid), checked);
+    expect(ProgressEventsResponseSchema.safeParse(overTheWire(reply)).success).toBe(true);
+    // A server clock that can't be read refuses everything instead of letting it through.
+    expect(checkProgressEvents([opened('ev-4', now)], 'later').rejected[0]?.reason).toBe('future');
+  });
 });
 
 describe('progressEventsReply', () => {
@@ -132,7 +159,10 @@ describe('progressEventsReply', () => {
     const stored = l.events.slice();
     const tooSoon = l.complete('quiz');
     const opened = l.open('l1');
-    const checked = checkProgressEvents([tooSoon, opened, { id: 'ev-bad', type: 'lesson_opened' }]);
+    const checked = checkProgressEvents(
+      [tooSoon, opened, { id: 'ev-bad', type: 'lesson_opened' }],
+      opened.at,
+    );
     const state = reduceProgress(course, [...stored, ...checked.valid]);
 
     const reply = progressEventsReply(state, checked);
