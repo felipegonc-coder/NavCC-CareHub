@@ -11,7 +11,7 @@ import {
   validateChartOptions,
   type ChartData,
 } from './chart';
-import { EMPTY_COLOR, OPTION_CHART_COLORS, OTHER_COLOR, paletteColor } from './chart-palette';
+import { EMPTY_COLOR, OTHER_COLOR, paletteColor } from './chart-palette';
 import { fromPlainText } from './richtext';
 import {
   EMPTY_GROUP,
@@ -804,16 +804,29 @@ describe('chartData pie and donut', () => {
 // ------------------------------------------------------------------ colors
 
 describe('chartData colors', () => {
-  it('uses option colors with the default palette, gray for No value', () => {
+  it('uses option colours with Auto, and a faint default for No value', () => {
     const d = data(statusRows());
     expect(d.categories.map((c) => c.color)).toEqual([
-      OPTION_CHART_COLORS.default,
-      OPTION_CHART_COLORS.blue,
-      OPTION_CHART_COLORS.green,
+      { color: 'default' },
+      { color: 'blue' },
+      { color: 'green' },
       EMPTY_COLOR,
     ]);
     expect(d.display.colorBy).toBe('category');
     expect(d.series[0]?.color).toEqual(paletteColor('default', 0));
+  });
+
+  it('replaces option colours with Colorful, handing out copies', () => {
+    const d = data(statusRows(), { palette: 'colorful' });
+    expect(d.categories.map((c) => c.color)).toEqual([
+      paletteColor('colorful', 0),
+      paletteColor('colorful', 1),
+      paletteColor('colorful', 2),
+      EMPTY_COLOR,
+    ]);
+    const empty = d.categories[3]?.color;
+    if (empty) empty.strength = 5;
+    expect(EMPTY_COLOR).toEqual({ color: 'default', strength: 2 });
   });
 
   it('colors by position with another palette, the same whatever the sort order', () => {
@@ -845,9 +858,9 @@ describe('chartData colors', () => {
   it('gives split series their option colors', () => {
     const d = data(statusRows(), { xPropertyId: 'owner', splitBy: 'status' });
     expect(d.series.map((s) => s.color)).toEqual([
-      OPTION_CHART_COLORS.default,
-      OPTION_CHART_COLORS.blue,
-      OPTION_CHART_COLORS.green,
+      { color: 'default' },
+      { color: 'blue' },
+      { color: 'green' },
       EMPTY_COLOR,
     ]);
     expect(d.series.map((s) => s.key)).toEqual(['o:s-todo', 'o:s-doing', 'o:s-done', EMPTY_GROUP]);
