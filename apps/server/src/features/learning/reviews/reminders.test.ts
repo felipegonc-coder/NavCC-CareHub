@@ -81,7 +81,7 @@ describe.skipIf(!hasDatabase)('Learning review reminders', () => {
   }
 
   it('reminds whoever published the course once its interval has passed, once per due day', async () => {
-    // Published late on 15 January in Care Hub's default time zone (America/Denver).
+    // Published late on 15 January as Learning counts days (America/Denver, decision 0317).
     const { author, course } = await live(6, '2031-01-16T03:00:00.000Z');
 
     expect(await sendReviewReminders(db, { now: at('2031-07-15T05:00:00.000Z') })).toBe(0);

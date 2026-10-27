@@ -1,8 +1,6 @@
-import { compareDays, reviewDueOn, reviewReminderNotice } from '@carehub/learning';
+import { compareDays, learningToday, reviewDueOn, reviewReminderNotice } from '@carehub/learning';
 import { and, eq, isNotNull, max, sql } from 'drizzle-orm';
-import { users } from '../../auth/schema';
 import { sendNotice } from '../../notices';
-import { todayIn } from '../assignments/service';
 import { canSeeCourse } from '../courses/access';
 import { learningCourses as courses, learningCourseVersions as versions } from '../courses/schema';
 import type { Db } from '../db';
@@ -11,8 +9,8 @@ import { learningReviewReminders as reminders } from './schema';
 
 // Review-due reminders (decision 0313): when a live course sets `settings.reviewEveryMonths`, whoever published
 // its live version gets a 🔔 notice that many months after publishing, then again every interval until someone
-// publishes it again. Archived courses and workspaces with Learning switched off get none. Days are counted in
-// the publisher's time zone.
+// publishes it again. Archived courses and workspaces with Learning switched off get none. Days are Learning
+// days (decision 0317): the same for everyone, whatever the publisher's profile time zone.
 
 /** The periodic task that sends them, every hour. */
 export const REVIEW_REMINDERS_TASK = 'learning.review-reminders';
@@ -26,7 +24,7 @@ export async function sendReviewReminders(
   db: Db,
   options: { now?: Date; signal?: AbortSignal } = {},
 ): Promise<number> {
-  const now = options.now ?? new Date();
+  const today = learningToday(options.now);
   const live = await db
     .select({
       workspaceId: courses.workspaceId,
@@ -34,7 +32,6 @@ export async function sendReviewReminders(
       course: versions.course,
       publishedAt: versions.publishedAt,
       publishedBy: versions.publishedBy,
-      timeZone: users.timeZone,
     })
     .from(courses)
     .innerJoin(
@@ -45,7 +42,6 @@ export async function sendReviewReminders(
         eq(versions.version, courses.liveVersion),
       ),
     )
-    .leftJoin(users, eq(users.id, versions.publishedBy))
     .where(
       and(
         eq(courses.archived, false),
@@ -81,8 +77,7 @@ export async function sendReviewReminders(
     if (options.signal?.aborted) break;
     const everyMonths = row.course.settings.reviewEveryMonths;
     if (typeof everyMonths !== 'number') continue;
-    const { today, timeZone } = todayIn(row.timeZone ?? undefined, now);
-    const publishedOn = todayIn(timeZone, row.publishedAt).today;
+    const publishedOn = learningToday(row.publishedAt);
     const lastSentOn = lastSent.get(`${row.workspaceId}/${row.courseId}`) ?? null;
     const dueOn = reviewDueOn(everyMonths, publishedOn, lastSentOn);
     if (dueOn === null || compareDays(today, dueOn) < 0) continue;
