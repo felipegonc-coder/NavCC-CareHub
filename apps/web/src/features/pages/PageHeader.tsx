@@ -1,10 +1,14 @@
 // The page's header (Pages and blocks, sections 2 and 3.1): its cover, its icon and its title.
-import { cn, coverGradients, isCoverName, useToast } from '@carehub/ui';
+import { Button, cn, useToast } from '@carehub/ui';
 import { useQueryClient } from '@tanstack/react-query';
+import { Image as ImageIcon, Smile } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { changePage, type PageDetail } from './api';
-import { reasonOf, showEverywhere } from './change';
+import { reasonOf, showEverywhere, useChangePage } from './change';
+import { IconPicker } from './IconPicker';
 import { cleanTitle, TITLE_MAX } from './page';
+import { PageCover, randomCover } from './PageCover';
+import type { PageIcon } from './types';
 
 /** How long typing in the title pauses before the new title is sent. */
 const SAVE_AFTER_MS = 500;
@@ -24,49 +28,65 @@ export interface PageHeaderProps {
 }
 
 export function PageHeader({ page, editable, autoFocus, onEnter }: PageHeaderProps) {
+  const change = useChangePage(page.id);
+  const setIcon = (icon: PageIcon | null) =>
+    void change(
+      { icon },
+      { icon },
+      icon ? "Couldn't change the icon." : "Couldn't remove the icon.",
+    );
+  const addCover = () => {
+    const cover = randomCover();
+    void change(
+      { cover, coverPosition: 50 },
+      { cover, coverPosition: 50 },
+      "Couldn't add a cover.",
+    );
+  };
+  const emoji = page.icon?.type === 'emoji' ? page.icon.emoji : null;
+
   return (
-    <div className="flex flex-col">
-      {page.cover && <PageCover page={page} />}
+    <div className="group/header flex flex-col">
+      <PageCover page={page} editable={editable} />
       <div className={cn(columnClasses(page.fullWidth), 'flex flex-col gap-2 pt-12 max-md:pt-6')}>
-        {page.icon && <PageIcon page={page} />}
+        {emoji &&
+          (editable ? (
+            <IconPicker icon={page.icon} onChange={setIcon}>
+              <button
+                type="button"
+                aria-label="Page icon"
+                className="self-start rounded text-6xl leading-none hover:bg-fill-hover"
+              >
+                {emoji}
+              </button>
+            </IconPicker>
+          ) : (
+            <span role="img" aria-label="Page icon" className="text-6xl leading-none">
+              {emoji}
+            </span>
+          ))}
+        {editable && (!emoji || !page.cover) && (
+          // Shown on hover or focus on computers, always on phones (section 2, Header).
+          <div className="flex gap-1 md:opacity-0 md:focus-within:opacity-100 md:group-hover/header:opacity-100">
+            {!emoji && (
+              <IconPicker icon={null} onChange={setIcon}>
+                <Button variant="ghost" size="sm">
+                  <Smile aria-hidden />
+                  Add icon
+                </Button>
+              </IconPicker>
+            )}
+            {!page.cover && (
+              <Button variant="ghost" size="sm" onClick={addCover}>
+                <ImageIcon aria-hidden />
+                Add cover
+              </Button>
+            )}
+          </div>
+        )}
         <PageTitle page={page} editable={editable} autoFocus={autoFocus} onEnter={onEnter} />
       </div>
     </div>
-  );
-}
-
-/** 160 px tall on phones and 280 px on computers (section 3.1). */
-const COVER_CLASSES = 'h-40 w-full md:h-[17.5rem]';
-
-function PageCover({ page }: { page: PageDetail }) {
-  const { cover, coverPosition } = page;
-  if (cover?.type === 'file') {
-    return (
-      <img
-        src={`/api/files/${cover.fileId}`}
-        alt="Page cover"
-        className={cn(COVER_CLASSES, 'object-cover')}
-        style={{ objectPosition: `center ${coverPosition}%` }}
-      />
-    );
-  }
-  const gradient = cover && isCoverName(cover.name) ? coverGradients[cover.name] : undefined;
-  return (
-    <div
-      role="img"
-      aria-label="Page cover"
-      className={cn(COVER_CLASSES, 'bg-fill')}
-      style={{ backgroundImage: gradient }}
-    />
-  );
-}
-
-function PageIcon({ page }: { page: PageDetail }) {
-  if (page.icon?.type !== 'emoji') return null;
-  return (
-    <span role="img" aria-label="Page icon" className="text-6xl leading-none">
-      {page.icon.emoji}
-    </span>
   );
 }
 

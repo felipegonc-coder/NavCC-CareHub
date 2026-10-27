@@ -129,6 +129,7 @@ function open(id: string, state?: unknown) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 const titleField = () => screen.findByRole('textbox', { name: 'Page title' });
@@ -176,7 +177,7 @@ describe('PageScreen', () => {
     open('refunds');
     expect(await titleField()).toHaveValue('Refund steps');
     expect(document.title).toBe('Care Hub · 🚀 Refund steps');
-    expect(screen.getByRole('img', { name: 'Page icon' })).toHaveTextContent('🚀');
+    expect(screen.getByRole('button', { name: 'Page icon' })).toHaveTextContent('🚀');
     const crumbs = within(topBar()).getByRole('navigation', { name: 'Breadcrumbs' });
     expect(within(crumbs).getByRole('link', { name: 'Policies' })).toHaveAttribute(
       'href',
@@ -219,6 +220,9 @@ describe('PageScreen', () => {
       'true',
     );
     expect(screen.queryByText(HINT)).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Page icon' })).toHaveTextContent('🚀');
+    expect(screen.queryByRole('button', { name: 'Page icon' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add cover' })).not.toBeInTheDocument();
   });
 
   it('renames as it is typed: the tab title at once, the server after a pause', async () => {
@@ -350,5 +354,126 @@ describe('PageScreen', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete forever' }));
     expect(await screen.findByText('Home')).toBeInTheDocument();
     expect(api.delete).toHaveBeenCalledWith('/api/trash/refunds');
+  });
+});
+
+describe('PageScreen icon and cover', () => {
+  const rocket = { type: 'emoji', emoji: '🚀' };
+  const ocean = { type: 'preset', name: 'ocean' };
+  const picker = () => screen.findByRole('dialog', { name: 'Choose an icon' });
+
+  it('adds an icon from the picker and shows it everywhere at once', async () => {
+    pages.set('refunds', refunds({ icon: null }));
+    const queryClient = open('refunds');
+    const tree = ['pages', 'tree', 'support'];
+    queryClient.setQueryData(tree, [{ id: 'refunds', title: 'Refund steps', icon: null }]);
+    await titleField();
+    expect(document.title).toBe('Care Hub · Refund steps');
+    fireEvent.click(screen.getByRole('button', { name: 'Add icon' }));
+    const search = within(await picker()).getByRole('searchbox', { name: 'Search emoji' });
+    fireEvent.change(search, { target: { value: 'rocket' } });
+    fireEvent.click(within(await picker()).getByRole('button', { name: 'rocket' }));
+    expect(await screen.findByRole('button', { name: 'Page icon' })).toHaveTextContent('🚀');
+    expect(document.title).toBe('Care Hub · 🚀 Refund steps');
+    expect(queryClient.getQueryData(tree)).toEqual([
+      { id: 'refunds', title: 'Refund steps', icon: rocket },
+    ]);
+    expect(api.patch).toHaveBeenCalledWith('/api/pages/refunds', { icon: rocket });
+  });
+
+  it('picks the first match with Enter, or one at random', async () => {
+    pages.set('refunds', refunds({ icon: null }));
+    open('refunds');
+    await titleField();
+    fireEvent.click(screen.getByRole('button', { name: 'Add icon' }));
+    const search = within(await picker()).getByRole('searchbox', { name: 'Search emoji' });
+    fireEvent.change(search, { target: { value: 'zzz' } });
+    expect(within(await picker()).getByText('No emoji match.')).toBeInTheDocument();
+    fireEvent.change(search, { target: { value: 'sunfl' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(await screen.findByRole('button', { name: 'Page icon' })).toHaveTextContent('🌻');
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Page icon' }));
+    fireEvent.click(within(await picker()).getByRole('button', { name: 'Random' }));
+    random.mockRestore();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Page icon' })).toHaveTextContent('😀'),
+    );
+  });
+
+  it('removes the icon, and puts it back if the server refuses', async () => {
+    api.patch.mockRejectedValueOnce(new Refused(403, 'Only people who can edit can change it.'));
+    open('refunds');
+    await titleField();
+    fireEvent.click(screen.getByRole('button', { name: 'Page icon' }));
+    fireEvent.click(within(await picker()).getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith({
+        title: "Couldn't remove the icon.",
+        description: 'Only people who can edit can change it.',
+        variant: 'danger',
+      }),
+    );
+    expect(await screen.findByRole('button', { name: 'Page icon' })).toHaveTextContent('🚀');
+    fireEvent.click(screen.getByRole('button', { name: 'Page icon' }));
+    fireEvent.click(within(await picker()).getByRole('button', { name: 'Remove' }));
+    expect(await screen.findByRole('button', { name: 'Add icon' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Page icon' })).not.toBeInTheDocument();
+    expect(document.title).toBe('Care Hub · Refund steps');
+    expect(api.patch).toHaveBeenLastCalledWith('/api/pages/refunds', { icon: null });
+  });
+
+  it('adds a cover from the gallery, changes it and removes it', async () => {
+    open('refunds');
+    await titleField();
+    fireEvent.click(screen.getByRole('button', { name: 'Add cover' }));
+    expect(await screen.findByRole('img', { name: 'Page cover' })).toBeInTheDocument();
+    expect(api.patch).toHaveBeenCalledWith('/api/pages/refunds', {
+      cover: { type: 'preset', name: expect.any(String) },
+      coverPosition: 50,
+    });
+    expect(screen.queryByRole('button', { name: 'Add cover' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Change cover' }));
+    const gallery = await screen.findByRole('dialog', { name: 'Covers' });
+    fireEvent.click(within(gallery).getByRole('button', { name: 'Ocean' }));
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenLastCalledWith('/api/pages/refunds', { cover: ocean }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('img', { name: 'Page cover' })).not.toBeInTheDocument(),
+    );
+    expect(api.patch).toHaveBeenLastCalledWith('/api/pages/refunds', { cover: null });
+  });
+
+  it('moves the cover with Reposition and the arrow keys', async () => {
+    pages.set('refunds', refunds({ cover: ocean, coverPosition: 50 }));
+    open('refunds');
+    await titleField();
+    fireEvent.click(screen.getByRole('button', { name: 'Reposition' }));
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Cover position' }), { key: 'Escape' });
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Reposition' }));
+    const slider = screen.getByRole('slider', { name: 'Cover position' });
+    expect(slider).toHaveFocus();
+    fireEvent.keyDown(slider, { key: 'ArrowUp' });
+    fireEvent.keyDown(slider, { key: 'ArrowUp' });
+    expect(slider).toHaveAttribute('aria-valuenow', '54');
+    expect(screen.queryByRole('button', { name: 'Change cover' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save position' }));
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith('/api/pages/refunds', { coverPosition: 54 }),
+    );
+    expect(api.patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the icon and cover, but no way to change them, to someone who can only view', async () => {
+    pages.set('refunds', refunds({ access: 'view', cover: ocean }));
+    open('refunds');
+    await titleField();
+    expect(screen.getByRole('img', { name: 'Page cover' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change cover' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reposition' })).not.toBeInTheDocument();
   });
 });
