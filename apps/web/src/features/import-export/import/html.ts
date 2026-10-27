@@ -92,29 +92,21 @@ const TEXT_DECORATION = /(?:^|;)\s*text-decoration(?:-line)?\s*:\s*([^;]*)/i;
 const DISPLAY_NONE = /(?:^|;)\s*display\s*:\s*none/i;
 const LANGUAGE = /^[\w#+.-]{1,40}$/;
 const PLAN_ADDRESS = new RegExp(`^${PLAN_LINK}[A-Za-z0-9_-]{1,64}$`);
-const SAFE_SCHEMES = new Set(['http', 'https', 'mailto', 'tel']);
 
 /**
- * The address a link may keep, or null: http(s), mailto and tel links and links inside Care Hub,
- * with `//host` as https. The editor's rule (packages/editor/src/links.ts), which the server
- * checks documents with.
+ * A web address a link may keep, or null: links keep only http, https, mailto and tel (spec 3.1),
+ * and `//host` is https. The server checks them again with the editor's rule.
  */
-function safeHref(href: string): string | null {
-  const blank = (char: string) => char <= ' ' || char === '\u007f';
-  const chars = Array.from(href);
-  const compact = chars.filter((char) => !blank(char)).join('');
-  if (/^[/\\]{2}/.test(compact)) {
-    const start = chars.findIndex((char) => !blank(char) && char !== '/' && char !== '\\');
-    const rest = chars.slice(start < 0 ? chars.length : start).join('');
-    const url = `https://${rest.trim()}`;
-    try {
-      return new URL(url).host === '' ? null : url;
-    } catch {
-      return null;
-    }
+function webAddress(href: string): string | null {
+  const value = href.trim();
+  if (/^(?:https?|mailto|tel):/i.test(value)) return value;
+  if (!/^[/\\]{2}/.test(value)) return null;
+  const url = `https://${value.replace(/^[/\\]+/, '')}`;
+  try {
+    return new URL(url).host === '' ? null : url;
+  } catch {
+    return null;
   }
-  const scheme = /^([a-z][a-z\d+.-]*):/i.exec(compact)?.[1]?.toLowerCase();
-  return compact && (scheme === undefined || SAFE_SCHEMES.has(scheme)) ? href.trim() : null;
 }
 
 function styleValue(element: Element, pattern: RegExp): string | undefined {
@@ -340,9 +332,6 @@ function pictureName(picture: Element, src: string): string {
 const isPixel = (picture: Element) =>
   ['width', 'height'].every((name) => /^[01](?:px)?$/.test(picture.getAttribute(name) ?? ''));
 
-const count = (n: number, one: string, many = `${one}s`) =>
-  `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
-
 class HtmlReader {
   private readonly found = { links: 0, missing: 0, tables: 0, callouts: 0, embeds: 0 };
   /** Elements already read another way (a callout's icon). */
@@ -355,19 +344,30 @@ class HtmlReader {
     return this.readNodes(Array.from(element.childNodes), scope);
   }
 
+  /** Each kind of thing pages can't show, once ("2 pictures kept as links", spec 3.2). */
   problems(): ImportProblem[] {
     const { links, missing, tables, callouts, embeds } = this.found;
-    const rows = `${count(tables, 'table')}, a line for each row`;
-    const media = count(embeds, 'video, sound or frame', 'videos, sounds or frames');
-    const problems: [number, string, string][] = [
-      [links, 'Kept as links', `${count(links, 'picture')}. Pages can't show pictures yet.`],
-      [missing, 'Left out', `${count(missing, 'picture')}. Their files weren't found.`],
-      [tables, 'Kept as text', `${rows}. Pages can't show tables yet.`],
-      [callouts, 'Kept as quotes', `${count(callouts, 'callout')}. Pages can't show callouts yet.`],
-      [embeds, 'Left out', `${media}. Pages can't show them yet.`],
-    ];
     const file = this.context.source;
-    return problems.filter(([n]) => n > 0).map(([, what, why]) => ({ file, what, why }));
+    const problems: ImportProblem[] = [];
+    const add = (n: number, one: string, many: string, why: string) => {
+      const what = `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+      if (n > 0) problems.push({ file, what, why });
+    };
+    add(
+      links,
+      'picture kept as a link',
+      'pictures kept as links',
+      "Pages can't show pictures yet.",
+    );
+    const lost = missing === 1 ? "Its file wasn't found." : "Their files weren't found.";
+    add(missing, 'picture left out', 'pictures left out', lost);
+    const lines = "Pages can't show tables yet, so each row is a line.";
+    add(tables, 'table kept as text', 'tables kept as text', lines);
+    const quotes = "Pages can't show callouts yet.";
+    add(callouts, 'callout kept as a quote', 'callouts kept as quotes', quotes);
+    const media = ['video, sound or frame left out', 'videos, sounds or frames left out'] as const;
+    add(embeds, ...media, "Pages can't show them yet.");
+    return problems;
   }
 
   private readNodes(nodes: Node[], scope: Scope): PlanNode[] {
@@ -436,11 +436,11 @@ class HtmlReader {
     return next;
   }
 
-  /** The address to link to: the importer's, if it's a plan link or a safe address. */
+  /** The address to link to: the importer's, if it's a plan link or a web address. */
   private address(href: string): string | null {
     const address = this.context.link(href);
     if (address === null) return null;
-    return PLAN_ADDRESS.test(address) ? address : safeHref(address);
+    return PLAN_ADDRESS.test(address) ? address : webAddress(address);
   }
 
   /** Pages can't show pictures yet: a picture is a link to its file, named by its alt text. */
