@@ -148,6 +148,17 @@ From first to last:
 - Screen readers hear errors when they appear; suggestions are a list with their descriptions.
 - Phone: the editor opens full screen with a row of extra keys above the keyboard: ( ) " , . + − \* / and = .
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **FX-02** Add the formula if(prop("Score") \>= 90, "Pass", "Review"), then have Sam change a Score from 85 to 95. → The row shows Review, then Pass within 2 seconds.
+2. ⭐ **FX-04** Type a formula with a missing bracket, then one that adds text to a number. → The error shows its line and message and Done stays off; the second suggests format().
+3. **FX-05** Rename Score, then delete it. → The formula keeps working after the rename and shows "⚠ Formula error" after the delete.
+4. **FX-06** Make two formulas that use each other. → Care Hub refuses, and the message names both.
+5. **FX-03** Add dateBetween(today(), prop("Review date"), "days") and look just after midnight in Denver. → The count is right for that day.
+6. **FX-09** Show a number formula as a ring, then sort and filter by it. → It sorts and filters as a number.
+
 ## 7. Acceptance checks
 
 - **FX-01** A test set of at least 200 formulas with known answers (every function and operator, plus empty and error cases) gives the same results in the browser and on the server.

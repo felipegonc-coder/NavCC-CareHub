@@ -250,6 +250,23 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 - Long-press a block to select it and open its menu as a bottom sheet; then drag its handle to move it.
 - The "/" menu shows above the keyboard. Pictures open full screen. Tables scroll sideways inside their block. Columns stack. Embeds fit the width.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **PB-01** On a new page, type / and pick To-do, then type ## and a space on the next line. → A to-do and a heading appear; Ctrl+Z right after the ## turns it back into the typed text.
+2. ⭐ **PB-30** Avery Lin and Sam Ortiz open "Weekly huddle – Oct 27" in two browsers and type in the same paragraph. → No letters are lost, each sees the other's named cursor, and Ctrl+Z undoes only your own typing.
+3. ⭐ **PB-25** Copy a section with headings, a list, a table and a link from a Google Docs file and paste it. → It keeps its structure; Ctrl+Shift+V pastes the same text plain.
+4. ⭐ **PB-06** Drag 3 photos from the computer onto a page. → 3 image blocks appear in the same order.
+5. ⭐ **PB-19** Rename "Refund steps" to "Refund steps 2026". → Its mentions, links, breadcrumbs and sidebar entry change at once.
+6. **PB-03** Press Tab on a bullet below another bullet, then Shift+Tab. → It nests, then un-nests.
+7. **PB-02** Turn a bullet that has children into a heading, then into a to-do. → The text, formatting and children stay.
+8. **PB-05** Drag a block to the right edge of another block. → Two columns; at phone width they stack.
+9. **PB-26** Paste a Care Hub page link, then a web link. → The first becomes a page mention; the second offers Mention, Bookmark and Embed.
+10. **PB-28** Type @tomorrow 9am and add a reminder 15 minutes before. → A date chip appears, and the reminder arrives in the 🔔 chat on time.
+11. **PB-31** Turn the network off for 2 minutes while typing, then on. → Typing never stops, and everything saves once, in order.
+12. **PB-36** On a phone, use the / menu, long-press a block and open a picture. → The menus work and the picture opens full screen.
+
 ## 7. Acceptance checks
 
 - **PB-01** Every block in the catalog can be added from "/", and each Markdown shortcut makes its block; Ctrl+Z right after turns it back into the typed text.

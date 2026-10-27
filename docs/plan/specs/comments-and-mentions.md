@@ -89,6 +89,19 @@ Talking about work where it lives: comments on a page, on selected text, on a bl
 - Screen readers hear "Commented text, 2 comments" on highlighted text, and "Suggested insertion by Riley Chen: within 3 days" on suggestions.
 - **Phone:** comment markers become a count at the end of the block; tapping opens the thread as a bottom sheet; selecting text shows Comment in the toolbar; the comments panel is a full screen.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **CM-01** Select a sentence and comment on it; Sam replies. → Both see the thread within 2 seconds, and each can edit or delete their own comment.
+2. ⭐ **CM-08** Type @Sam Ortiz in a page. → Sam gets one 🔔 notice with the sentence, and clicking it opens the exact spot.
+3. ⭐ **CM-03** Resolve a thread, then reply to it from Resolved. → The highlight goes away, then the thread reopens.
+4. **CM-05** Turn on Suggesting, delete a word and add a sentence. → Both show as suggestions; Accept one and Reject the other.
+5. **CM-09** Mention Riley, who can't open the page. → Care Hub asks first; Share with Can view gives Riley access and a notice.
+6. **CM-02** Comment on a sentence; Avery then rewrites part of it. → The comment stays on the sentence.
+7. **CM-12** In the 🔔 chat, use the filter chips and Mark all as read, then Reply in a comment notice. → The filters and read state work, and the reply lands in the thread.
+8. **CM-11** Follow a page, then mute one of its threads. → Each new comment brings a notice, except in the muted thread.
+
 ## 7. Acceptance checks
 
 - **CM-01** Page, text, block and property comments can be added, replied to, edited and deleted; others see them within 2 seconds.

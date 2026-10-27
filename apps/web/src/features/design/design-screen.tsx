@@ -31,6 +31,7 @@ import {
 } from '@carehub/ui';
 import { Plus, Settings, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { PaletteSwatches } from './palette-swatches';
 
 const variants: ButtonVariant[] = ['primary', 'secondary', 'ghost', 'danger'];
 const people = ['Sam Rivers', 'Alex Morgan', 'Priya Nandakumar', 'Jo Lee'];
@@ -73,6 +74,10 @@ export function DesignScreen() {
             </li>
           ))}
         </ul>
+      </Section>
+
+      <Section title="Picked colours and covers">
+        <PaletteSwatches />
       </Section>
 
       <Section title="Type">
