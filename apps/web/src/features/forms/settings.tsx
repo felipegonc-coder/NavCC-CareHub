@@ -3,8 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Popover, PopoverContent, PopoverTrigger, buttonClasses } from '@carehub/ui';
 import {
   LIMITS,
-  fromPlainText,
-  plainText,
   type FormDefinition,
   type Id,
   type Property,
@@ -13,7 +11,8 @@ import {
 import { anonymityWarning, formAudience, type FormAudience } from '@carehub/databases/forms';
 import { useDatabaseClient, databaseKeys } from '../databases/hooks';
 import { problemText, useFormsClient } from './api';
-import { CommitInput, CommitTextarea, NativeSelect, SwitchField } from './controls';
+import { CommitInput, NativeSelect, SwitchField } from './controls';
+import { RichTextField } from './rich-editor';
 import {
   closeAtFromValue,
   closeAtValue,
@@ -48,7 +47,7 @@ function TextField({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-small font-medium text-fg">
+      <label id={`${id}-label`} htmlFor={id} className="text-small font-medium text-fg">
         {label}
       </label>
       {children}
@@ -109,12 +108,12 @@ export function FormSettings({
         />
       </TextField>
       <TextField id={`${id}-confirmation`} label="Confirmation message">
-        <CommitTextarea
+        <RichTextField
           id={`${id}-confirmation`}
-          rows={3}
+          aria-labelledby={`${id}-confirmation-label`}
           maxLength={LIMITS.formDescription}
-          value={plainText(def.confirmation)}
-          onCommit={(t) => onSave({ ...def, confirmation: fromPlainText(t) })}
+          value={def.confirmation}
+          onCommit={(confirmation) => onSave({ ...def, confirmation })}
         />
       </TextField>
       <SwitchField

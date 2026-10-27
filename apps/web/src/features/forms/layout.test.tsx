@@ -6,6 +6,7 @@ import {
   defaultView,
   type FormDefinition,
   type Property,
+  type RichText,
   type Viewer,
 } from '@carehub/databases';
 import { ApiError, type DatabaseWithVersion } from '../databases/api';
@@ -23,6 +24,7 @@ import {
 } from '../databases/test-utils';
 import { FormsClientProvider } from './api';
 import FormLayout from './layout';
+import { writeSelection } from './rich-dom';
 import { mockFormsClient, question, stubResizeObserver } from './test-utils';
 
 const FORM_VIEW = 'view-form';
@@ -311,6 +313,38 @@ describe('Form view builder', () => {
     // Inside act, so anything the refusal changes would show before the check.
     await act(() => expect(actions.updateView.mock.results.at(-1)?.value).rejects.toBe(refused));
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it("formats a question's description and saves it as rich text", () => {
+    const { saved } = renderFormView();
+    const description = within(card('Name')).getByRole('textbox', { name: 'Description' });
+    act(() => {
+      description.focus();
+      description.textContent = 'Your full name';
+      writeSelection(description, { start: 5, end: 9 });
+    });
+    fireEvent.input(description);
+    fireEvent.click(within(card('Name')).getByRole('button', { name: 'Bold' }));
+    act(() => description.blur());
+    expect(saved().questions[0]?.description).toEqual([
+      { text: 'Your ' },
+      { text: 'full', marks: ['bold'] },
+      { text: ' name' },
+    ]);
+  });
+
+  it('FM-07: a description looks the same in the builder and in Preview', () => {
+    const description: RichText = [
+      { text: 'Call ' },
+      { text: 'Blue Pine', marks: ['bold', 'underline'], color: 'blue' },
+      { text: ' or see ' },
+      { text: 'the guide', link: 'https://bluepine.example/guide' },
+    ];
+    renderFormView(formDatabase({ description }));
+    const editing = screen.getByRole('textbox', { name: 'Form description' }).innerHTML;
+    expect(editing).toContain('<strong class="font-semibold">Blue Pine</strong>');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.getByText('Call or see').innerHTML).toBe(editing);
   });
 
   it('Preview shows the form as people fill it in', () => {
