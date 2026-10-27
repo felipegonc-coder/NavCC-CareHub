@@ -9,7 +9,12 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestApp } from '../../testing';
 import { createRole } from '../roles';
-import { getDefaultWorkspace, syncDefaultWorkspace } from './members';
+import {
+  getCurrentMember,
+  getDefaultWorkspace,
+  getMembership,
+  syncDefaultWorkspace,
+} from './members';
 import { roles, workspaceMembers, workspaces } from './schema';
 
 const LEARNING: PermissionKey[] = ['learning.build', 'learning.assign', 'learning.analytics'];
@@ -129,6 +134,61 @@ describe.skipIf(!hasDatabase)('workspaces, roles and members', () => {
     expect(await get(member, '/api/test/member')).toBe(403);
     const me = await injectAs(app, member, { method: 'GET', url: '/api/auth/me' });
     expect(me.json()).toMatchObject({ member: null });
+  });
+
+  it('getMembership finds members and guests of that workspace, and null for anyone else', async () => {
+    const member = await createUser(testApp.db, { role: 'commenter' });
+    const guest = await createUser(testApp.db, { kind: 'guest' });
+    const outsider = await createUser(testApp.db, { role: null });
+    const removed = await createUser(testApp.db, { role: 'viewer' });
+    await testApp.db
+      .update(workspaceMembers)
+      .set({ removedAt: new Date() })
+      .where(eq(workspaceMembers.userId, removed.id));
+    const commenter = await getMembership(testApp.db, workspaceId, member.id);
+    expect(commenter).toEqual({
+      kind: 'member',
+      workspaceId,
+      roleId: member.roleId,
+      roleName: BUILT_IN_ROLES.commenter.name,
+      permissions: new Set(BUILT_IN_ROLES.commenter.permissions),
+      isAdmin: false,
+    });
+    expect(await getCurrentMember(testApp.db, member.id)).toEqual(commenter);
+    expect(await getMembership(testApp.db, workspaceId, guest.id)).toEqual({
+      kind: 'guest',
+      workspaceId,
+      roleId: null,
+      roleName: null,
+      permissions: new Set(),
+      isAdmin: false,
+    });
+    expect(await getMembership(testApp.db, workspaceId, outsider.id)).toBeNull();
+    expect(await getMembership(testApp.db, workspaceId, removed.id)).toBeNull();
+
+    const [second] = await testApp.db
+      .insert(workspaces)
+      .values({ name: 'Second' })
+      .returning({ id: workspaces.id });
+    const secondId = second?.id ?? '';
+    const [visitor] = await testApp.db
+      .insert(roles)
+      .values({ workspaceId: secondId, name: 'Visitor', permissions: ['pages.comment'] })
+      .returning({ id: roles.id });
+    await testApp.db
+      .insert(workspaceMembers)
+      .values({ workspaceId: secondId, userId: outsider.id, roleId: visitor?.id ?? null });
+    expect(await getMembership(testApp.db, secondId, outsider.id)).toEqual({
+      kind: 'member',
+      workspaceId: secondId,
+      roleId: visitor?.id,
+      roleName: 'Visitor',
+      permissions: new Set(['pages.comment']),
+      isAdmin: false,
+    });
+    expect(await getMembership(testApp.db, secondId, member.id)).toBeNull();
+    expect(await getCurrentMember(testApp.db, outsider.id)).toBeNull();
+    await testApp.db.delete(workspaces).where(eq(workspaces.id, secondId));
   });
 
   it('requirePermission answers every key as each built-in role allows, and no to guests (RP-12)', async () => {
