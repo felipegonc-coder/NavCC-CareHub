@@ -23,7 +23,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { isSafeHref, linkAttributes, normalizeLinkInput } from './links';
+import { linkAttributes, normalizeLinkInput, safeHref } from './links';
 import { registerToolbar } from './toolbar-keys';
 import type { BubbleItem, LinkPicker } from './types';
 
@@ -90,10 +90,8 @@ export function SelectionToolbar(props: FormattingToolbarProps) {
  * picker is open (also through other people's edits), so the link lands on the same text.
  */
 export async function pickLink(editor: Editor, picker: LinkPicker): Promise<boolean> {
-  const href = await picker.pick();
-  if (!href || !isSafeHref(href) || editor.isDestroyed || editor.state.selection.empty) {
-    return false;
-  }
+  const href = safeHref(await picker.pick());
+  if (href === null || editor.isDestroyed || editor.state.selection.empty) return false;
   return editor.chain().focus().extendMarkRange('link').setLink(linkAttributes(href)).run();
 }
 

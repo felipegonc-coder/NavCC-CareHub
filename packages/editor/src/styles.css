@@ -290,3 +290,108 @@ span.ch-lane-block {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* The selection toolbar and its link panel. */
+.ch-bubble {
+  z-index: 50;
+}
+
+.ch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ch-space-0_5);
+  padding: var(--ch-space-1);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+  color: rgb(var(--ch-fg));
+  box-shadow: var(--ch-shadow-menu);
+}
+
+.ch-toolbar-button,
+.ch-link-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--ch-space-8);
+  height: var(--ch-space-8);
+  padding: 0 var(--ch-space-1_5);
+  border: none;
+  border-radius: var(--ch-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+  cursor: pointer;
+}
+
+.ch-toolbar-button:hover,
+.ch-link-picker:hover,
+.ch-toolbar-button[aria-pressed='true'] {
+  background: rgb(var(--ch-fill));
+}
+
+.ch-toolbar-button[aria-pressed='true'] {
+  color: rgb(var(--ch-primary));
+}
+
+.ch-toolbar :focus-visible {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: 1px;
+}
+
+.ch-link-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ch-space-1);
+}
+
+.ch-link-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ch-space-1);
+}
+
+.ch-link-input {
+  width: var(--ch-space-60);
+  height: var(--ch-space-8);
+  padding: 0 var(--ch-space-2);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+  color: rgb(var(--ch-fg));
+  font: inherit;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+}
+
+.ch-link-input::placeholder {
+  color: rgb(var(--ch-muted));
+}
+
+.ch-link-apply {
+  height: var(--ch-space-8);
+  padding: 0 var(--ch-space-3);
+  border: none;
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-primary));
+  color: rgb(var(--ch-primary-fg));
+  font: inherit;
+  font-size: var(--ch-text-small);
+  font-weight: var(--ch-weight-medium);
+  line-height: var(--ch-leading-small);
+  cursor: pointer;
+}
+
+.ch-link-picker {
+  justify-content: flex-start;
+}
+
+.ch-link-error {
+  margin: 0;
+  padding: 0 var(--ch-space-1);
+  color: rgb(var(--ch-danger));
+  font-size: var(--ch-text-label);
+  line-height: var(--ch-leading-label);
+}
