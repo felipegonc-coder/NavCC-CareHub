@@ -27,7 +27,9 @@ Switch and approval changes go to the Security log (`logSecurityEvent`; for now 
   - It's plain text: show it as text, never as HTML.
   - The person must be able to open the notes page, and the result goes to nobody who can't open the notes.
   - A long transcript is cut to fit; the agenda and notes always go in whole.
-- `fillClaudeFields(db, { userId, databaseId, propertyId, rowIds })` fills a Claude field By hand for the Databases field type; see [Claude fields](#claude-fields-apiclaudefields).
+- For the Databases field type (see [Claude fields](#claude-fields-apiclaudefields)):
+  - `fillClaudeFields(db, { userId, databaseId, propertyId, rowIds, confirmedRows? })` fills a Claude field By hand: one row now, more in the background. `planClaudeFieldFill(db, { userId, databaseId, propertyId, rowIds })` gives the row count to confirm first.
+  - `claudeFieldRowChanged(db, { databaseId, rowId, propertyIds, contentChanged?, source })` is for Databases' row events. It queues the Automatically fills. Never call it for imports or duplicates.
 
 The `documents` are `{ title, text }` pairs the **server** loaded by ID after the access check. A caller never passes text a client says came from a page; only the person's own selection comes from the client. The model and the largest `max_tokens` are set on the server. `maxTokens` can only lower that limit for one feature.
 
@@ -72,10 +74,16 @@ Databases owns the property type and its cell (phase 5). The shapes are in `@car
 - **Who:** Fill needs `claude.use`, the switch, and Can edit on the row with permission to change the field. Anyone who can see the row sees the value.
 - **What's sent:** the used properties' text as the person sees it and, if ticked, the row page's own text (never synced blocks or linked databases), cut to fit one request. A row with nothing to read fills empty without a request.
 - **The value** (`claudeFieldValueSchema`): plain text up to 10,000 characters, `filledAt`, `filledFor` (null when it filled automatically) and `status`. When a request sent fails, the old text stays and `status` is `failed` ("Couldn't fill. Try again.").
-- **`POST /fill`** `{ databaseId, propertyId, rowIds: [rowId] }` fills one row now and answers `{ status: 'filled', rowId, value }`. Refusals answer `CLAUDE_ERRORS` or `CLAUDE_FIELD_ERRORS` with `details: { reason }`.
-- **Limits:** each database's Claude fields send at most 300 requests an hour (`claude_field_fills`, `database_hour`), on top of the monthly cap and each person's limit. Usage rows have the feature `fields`.
-- **Next PR:** Fill all and Fill empty with the row-count confirm, filling 5 at a time in the background, and automatic fills.
-- **Stand-in:** until Databases calls `bindClaudeFieldHost(host)` (`field`, `fillableRows`, `readRowText`, `saveFill`), no property is a Claude field, so nothing fills.
+- **`POST /plan`** `{ databaseId, propertyId, rowIds }` answers `{ rows, monthlyRequests }` for the confirm: "Fill 240 rows? This uses 240 of this month's 3,000 requests." `rowIds` is up to 1,000 row IDs, `all` or `empty`. Rows the person can't edit are left out.
+- **`POST /fill`** takes the same, plus `confirmedRows`:
+  - One row ID fills now and answers `{ status: 'filled', rowId, value }`.
+  - More rows (or `all` or `empty`) need `confirmedRows` to match the count now. Otherwise it answers 409 `rows_changed` with `details: { reason, rows }`. When it matches, it answers `{ status: 'queued', rows }` and the rows fill in the background (`claude_field_queue`), 5 at a time, as the person who asked.
+  - Refusals answer `CLAUDE_ERRORS` or `CLAUDE_FIELD_ERRORS` with `details: { reason }`.
+- **`GET /progress`** `?databaseId=…&propertyId=…` answers `{ waiting }`: how many of the person's own rows are still waiting, for the progress in the header.
+- **Automatically** (`fill: 'auto'`): 2 minutes after the last change to a used property or the page content, the row refills as the field's owner (who last saved the setup) and shows "Filled by Claude automatically". Each change moves the fill back, so a row being edited fills once. A By-hand fill already waiting goes first; one filling during the change runs, then the row refills automatically. With the switch off, nothing fills automatically. Imports and duplicates never fill.
+- **Limits:** each database's Claude fields send at most 300 requests an hour (`claude_field_fills`, `database_hour`), on top of the monthly cap and each person's limit. Usage rows have the feature `fields`. A background row that meets the hourly cap or the person's limit waits a minute and tries again. Any other refusal drops it, and the old value stays.
+- **Next PR:** the web part (the property's setup, the cell, Fill and the confirm).
+- **Stand-in:** until Databases calls `bindClaudeFieldHost(host)` (`field`, `autoFields`, `fillableRows`, `readRowText`, `saveFill`) and its row events call `claudeFieldRowChanged`, no property is a Claude field, so nothing fills.
 
 ## Security rules (security reviewer, Oct 27)
 
