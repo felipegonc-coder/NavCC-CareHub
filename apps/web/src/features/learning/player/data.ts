@@ -127,10 +127,11 @@ export function useSignedInId() {
 }
 
 /**
- * The time zone on the signed-in person's profile. Every time Learning shows (completed, tried,
- * signed, issued, last active) is in it, never in the browser's zone (0317); calendar days, such as
- * due dates, show as stored. Undefined while core's GET /api/auth/me loads; America/Denver when the
- * profile has no zone, or the call fails.
+ * The time zone on the signed-in person's profile, for My learning and the course sign-off. Every
+ * time they show (completed, tried, signed, issued, last active) is in it, never in the browser's
+ * zone (0317); calendar days, such as due dates, show as stored. Undefined while core's
+ * GET /api/auth/me loads; America/Denver when the profile has no zone, or the call fails.
+ * Learning's shared hook in data/timeZone.ts takes its place once that file is on main.
  */
 export function useProfileTimeZone(): string | undefined {
   const me = useSignedIn(profileZone);

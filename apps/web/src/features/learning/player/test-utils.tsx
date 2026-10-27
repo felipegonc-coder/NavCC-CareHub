@@ -126,7 +126,7 @@ export const LEARNER = {
 export const signedInReply = (user: { id?: string; timeZone?: string | null } = {}) =>
   jsonReply(200, { user: { ...LEARNER, ...user }, member: null, workspace: null });
 
-/** Where the learner's waiting events are kept in this browser (B1's event queue). */
+/** Where the learner's waiting events are kept in this browser (the shared event queue). */
 export const queueKey = (userId = LEARNER.id) => `carehub.learning.events.v1:${userId}`;
 
 type ServeOptions = {
