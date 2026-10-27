@@ -1,0 +1,28 @@
+import type { Screen } from '../screens.js';
+
+// The screens of the learning lane. Names start with "learning-"; see ../README.md.
+export const screens: Screen[] = [
+  // Studio (B8): the course list, and New course with the course types and the examples to copy.
+  { name: 'learning-studio', path: '/learning/studio' },
+  {
+    name: 'learning-studio-new-course',
+    path: '/learning/studio',
+    setup: async (page) => {
+      await page.getByRole('button', { name: 'New course' }).click();
+      await page.getByRole('dialog', { name: 'New course' }).waitFor();
+    },
+  },
+  // The course editor, on a copy of the first example course.
+  {
+    name: 'learning-studio-editor',
+    path: '/learning/studio',
+    setup: async (page) => {
+      await page.getByRole('button', { name: 'New course' }).click();
+      await page
+        .getByRole('button', { name: /^Copy / })
+        .first()
+        .click();
+      await page.getByRole('navigation', { name: 'Outline' }).waitFor();
+    },
+  },
+];

@@ -1,10 +1,20 @@
 import type { AnyExtension } from '@tiptap/core';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type * as Y from 'yjs';
 import { createBlockExtensions } from './extensions';
 import { PAGE_FIELD } from './schema';
-import type { CollabProvider, EditorUser } from './types';
+import { SlashMenu } from './SlashMenu';
+import { SlashMenuStore } from './slash';
+import { SelectionToolbar } from './Toolbar';
+import type {
+  BubbleItem,
+  CollabProvider,
+  EditorUser,
+  LinkPicker,
+  NodeViews,
+  SlashItem,
+} from './types';
 import './styles.css';
 
 export interface BlockEditorProps {
@@ -24,13 +34,33 @@ export interface BlockEditorProps {
   className?: string;
   onReady?: (editor: Editor) => void;
   /**
-   * More Tiptap nodes, marks and extensions, like a database block with a React node view.
-   * Read when the editor is created: remount the editor (with a `key`) to change them.
+   * React views of lane blocks (nodes in `lanes/`) by node name, like `{ database: DatabaseView }`.
+   * Read when the editor is created, like `extensions`.
+   */
+  nodeViews?: NodeViews;
+  /**
+   * More "/" menu entries, after the blocks' own. An entry with the id of a block (like
+   * `heading1`) replaces it. Can change at any time.
+   */
+  slashItems?: SlashItem[];
+  /** More ways to choose a link target in the link panel, like "Link to a lesson". */
+  linkPickers?: LinkPicker[];
+  /**
+   * More buttons in the selection toolbar: `comment` right after Link, the others after the
+   * formatting buttons. Items with `readOnly` also show when `editable` is false.
+   */
+  bubbleItems?: BubbleItem[];
+  /**
+   * More behavior that isn't a node or mark, like shortcuts or plugins. Read when the editor is
+   * created: remount the editor (with a `key`) to change them.
    */
   extensions?: AnyExtension[];
 }
 
-/** The page editor: blocks and Markdown shortcuts on a Y.Doc, live with a collab provider. */
+/**
+ * The page editor: blocks, the "/" menu, the selection toolbar and Markdown shortcuts on a Y.Doc,
+ * live with a collab provider.
+ */
 export function BlockEditor({
   ydoc,
   field = PAGE_FIELD,
@@ -41,11 +71,21 @@ export function BlockEditor({
   ariaLabel = 'Page content',
   className,
   onReady,
+  nodeViews,
+  slashItems,
+  linkPickers,
+  bubbleItems,
   extensions,
 }: BlockEditorProps) {
   const awareness = provider?.awareness ?? null;
   const latest = useRef({ placeholder, onReady });
   latest.current = { placeholder, onReady };
+  const userId = user?.id;
+  // The blocks you used last are offered first, per person on this device.
+  const slashMenu = useMemo(
+    () => new SlashMenuStore(userId ? `carehub.editor.recent-blocks.${userId}` : undefined),
+    [userId],
+  );
 
   // A new provider or person makes a new editor; the blocks stay in the Y.Doc.
   const editor = useEditor(
@@ -57,6 +97,8 @@ export function BlockEditor({
         field,
         provider: awareness ? { awareness } : null,
         user,
+        nodeViews,
+        slashMenu,
         extensions,
         placeholder: () => latest.current.placeholder,
       }),
@@ -77,13 +119,28 @@ export function BlockEditor({
   }, [editor, editable]);
 
   useEffect(() => {
+    slashMenu.setItems(slashItems);
+  }, [slashMenu, slashItems]);
+
+  useEffect(() => {
     if (editor) latest.current.onReady?.(editor);
   }, [editor]);
 
   if (!editor) return null;
+  const toolbar = editable || (bubbleItems?.some((item) => item.readOnly) ?? false);
   return (
     <div className={className ? `ch-block-editor ${className}` : 'ch-block-editor'}>
       <EditorContent editor={editor} />
+      {editable && <SlashMenu editor={editor} store={slashMenu} />}
+      {toolbar && (
+        <SelectionToolbar
+          key={editable ? 'edit' : 'view'}
+          editor={editor}
+          readOnly={!editable}
+          linkPickers={linkPickers}
+          bubbleItems={bubbleItems}
+        />
+      )}
     </div>
   );
 }

@@ -70,12 +70,13 @@ docs/decisions    decision records
 
 ## 5. Lanes
 
-Four lanes build in parallel. Each lane changes only its own folders and its own `// feature:` lines; folders, branches, decision numbers and the shared contracts (user and session API, page model, permission checks, how to add tables, routes and screens) are in [`docs/decisions/0007-shared-contracts.md`](docs/decisions/0007-shared-contracts.md).
+Five lanes build in parallel. Each lane changes only its own folders and its own `// feature:` lines; folders, branches, decision numbers and the shared contracts (user and session API, page model, permission checks, how to add tables, routes and screens) are in [`docs/decisions/0007-shared-contracts.md`](docs/decisions/0007-shared-contracts.md).
 
-- **Core** (main lead): root files, CI, `deploy/`, the design kit, the app shell and navigation, sign-in and users, roles and permissions, the page model, the editor, files, search, comments, history, templates, import and export. Branches `feat/<name>`.
+- **Core** (main lead): root files, CI, `deploy/`, the design kit, the app shell and navigation, sign-in and users, roles and permissions, the page model and Trash, the editor, files and comments. Branches `feat/<name>`.
 - **Learning** (Learning lead): `packages/learning*/`, `apps/{server,web}/src/features/learning/`, `tests/e2e/learning/`, `docs/learning/`. Branches `feat/learning-*`.
 - **Databases and Forms** (Databases lead): `packages/databases*/`, `apps/{server,web}/src/features/{databases,forms}/`, `tests/e2e/{databases,forms}/`, `docs/databases/`. Branches `feat/db-*` and `feat/forms-*`.
-- **Team tools** (Team tools lead): `packages/team-*/`, `apps/{server,web}/src/features/{messages,notices,live,push,jobs,reminders,home,calendar,meetings,automations,analytics,status,claude}/` (web also `notifications`), `tests/e2e/team/`, `docs/team/`. Branches `feat/team-*`.
+- **Team tools** (Team tools lead): `packages/team-*/`, `apps/{server,web}/src/features/{messages,notices,live,push,jobs,reminders,home,calendar,meetings,automations,analytics,status}/` (web also `notifications`), `tests/e2e/team/`, `docs/team/`. Branches `feat/team-*`.
+- **Extras** (Extras lead): `packages/extras/`, `apps/{server,web}/src/features/{search,history,templates,import-export,knowledge,claude}/`, `packages/editor/src/lanes/{extras,claude}.ts`, `tests/e2e/extras/`, `docs/extras/`. Branches `feat/extras-*`. Search, page history and Archive, templates and buttons, import and export, the knowledge base and the Claude features (decision 0400).
 
 Lane leads review and squash-merge their own lane's pull requests. Anything outside a lane's folders goes through the main lead.
 
@@ -86,14 +87,16 @@ Lane leads review and squash-merge their own lane's pull requests. Anything outs
 - **Tests:** Vitest for logic, Playwright for screens. Add each new screen to `tests/e2e/screens.ts` so it gets an axe check and screenshots in light and dark, on a computer and a phone.
 - **Done means:** matches the spec, the quick checks are green, pull requests that change screens have one green browser-test run, works with the keyboard and screen readers, works on phones, permissions are checked on the server, no secrets, nothing copied.
 - **Security:** check permissions on the server for every request (hiding a button is not security). Sessions in Secure, HttpOnly, SameSite cookies. CSRF protection on every state-changing request. Rate limits on sign-in. Validate all input with zod. Never log passwords, tokens or cookies.
-- **Look:** follow [`docs/plan/look-and-feel.md`](docs/plan/look-and-feel.md). Use the tokens and components from `@carehub/ui`, never hard-coded colors. 8 px corners, system font, text contrast of at least 4.5:1, a visible focus outline, and respect for reduced motion.
+- **Basic first:** a working basic version of every feature first; polish comes later.
+- **Look:** follow [`docs/plan/look-and-feel.md`](docs/plan/look-and-feel.md). Every colour, font, size, spacing and corner radius comes from `@carehub/ui` (the Tailwind preset's classes, or the `--ch-*` CSS variables in plain CSS), never one-off values: Felipe restyles Care Hub from the design kit later. 8 px corners, system font, text contrast of at least 4.5:1, a visible focus outline, and respect for reduced motion.
 - **Scope:** build what the plan and your task say, nothing more. Put open questions in the pull request description instead of guessing on anything hard to undo.
 
 ## 7. CI (must fit GitHub's free 2,000 minutes a month)
 
-- **Quick checks** (`.github/workflows/ci.yml`) run on every pull request and on `main`: install (cached), type check, lint, unit tests (Vitest, with Postgres) and the license check. They skip changes that only touch docs, Markdown, `deploy/` or other workflow files, and a newer push cancels the older run on the same branch. When a step fails, CI posts the end of the log as a comment on the pull request.
-- **Browser tests** (`.github/workflows/e2e.yml`): build, start the server, then Playwright smoke tests, axe and screenshots (light and dark, computer and phone), posted as a comment on the pull request. They run only when the pull request gets the label `e2e`, every night on `main`, or by hand. Add the label once your screens are ready (at most 2 runs per pull request without asking the lead), and put the result and the link to the screenshot comment in the pull request description. The review helper may add the label for you.
-- **Docker image** (`.github/workflows/image.yml`): built and smoke-tested once a day on `main` (only if `main` changed), by hand, or when a pull request gets the label `image`. Only runs on `main` push the image to the private GHCR package.
+- **Quick checks** (`.github/workflows/ci.yml`) run on every pull request that isn't a draft, and on `main` every 3 hours when it has changed (and by hand): install (cached), type check, lint, unit tests (Vitest, with Postgres), the license check, the audit and the secret scan. They skip changes that only touch docs, Markdown, `deploy/` or other workflow files, and a newer push cancels the older run on the same branch. A pull request that changes only lane folders (section 5) runs only those lanes' unit tests. When a step fails, CI posts the end of the log as a comment on the pull request; on `main`, in the issue "Main checks failing".
+- **Saving minutes:** open your pull request as a draft while you work (drafts get no runs) and mark it ready for review when it's done (`update_pull_request` with `draft: false`), which starts its first run. Push once when it's ready, with every fix in that push. Merge `main` into your branch only for a conflict or when the lead asks.
+- **Browser tests** (`.github/workflows/e2e.yml`): build, start the server, then Playwright smoke tests, axe and screenshots (light and dark, computer and phone), posted as a comment on the pull request. They run only when the pull request gets the label `e2e`, every night on `main`, or by hand. Add the label once your screens are ready (at most 1 run per pull request without asking the lead), and put the result and the link to the screenshot comment in the pull request description. The review helper may add the label for you.
+- **Docker image** (`.github/workflows/image.yml`): built and smoke-tested only by hand or when a pull request gets the label `image`. Nothing publishes images: the server builds its own (`deploy/README.md`).
 - Agent computers have no network, so nobody can install or run the whole app locally: GitHub is the test runner. You can still run pure logic locally with `tsx` (zod is preinstalled).
 - Push complete, self-reviewed changes in as few commits as you can. Never push or re-label in a loop. If the minutes run out, the lead reviews the code and the latest results by hand and merges anyway.
 
@@ -103,5 +106,11 @@ If your computer has no internet access, you can't `git clone` or `npm install`:
 
 - Write files on your computer, then push them with the GitHub tool `push_files` (one commit per push). For more than a few files, write the tool's arguments as a JSON file and pass it with `arguments_file_path`.
 - Read repository files with `get_file_contents`.
-- CI is your test runner: watch `pull_request_read` with `get_check_runs`, and read the failure comments with `get_comments`. Add labels (`e2e`, `image`) with `issue_write`.
+- **A working copy of `main`:** every hour (when `main` has changed), `.github/workflows/snapshot.yml` writes it to the branch `snapshot` as a few text files.
+  1. `get_file_contents` with `ref: refs/heads/snapshot` for `PARTS` (the part names, in order) and `SOURCE_SHA` (the commit they hold).
+  2. Get each part the same way and save its text, unchanged, to a file of the same name. A big result is saved to a file for you: take the text out with a short script.
+  3. `cat part-* | base64 -d > main.tar.gz`, check `sha256sum main.tar.gz` against the `SHA256` file, then `mkdir carehub && tar -xzf main.tar.gz -C carehub`.
+
+  Fetch it again only when you need a newer `main` (compare `SOURCE_SHA`). Never push to `snapshot` or start a branch from it: every run replaces it.
+- CI is your test runner: read the `<!-- carehub-ci-report -->` comment with `pull_request_read` `get_comments`, at most every 5 minutes (our token can't read `get_check_runs`). After any rate-limit error, wait 5 minutes, then 15. Add labels (`e2e`, `image`) with `issue_write`.
 - **Fixing a conflict without git:** if `update_pull_request_branch` fails because of a conflict in a file, (1) push that file with `main`'s exact content, (2) run `update_pull_request_branch` again, (3) push the file once more with your changes on top.

@@ -1,9 +1,14 @@
 name: CI
 
 # Quick checks only (docs/decisions/0006-ci-within-free-minutes.md). Builds and browser tests
-# run in e2e.yml and image.yml.
+# run in e2e.yml and image.yml. To save minutes: draft pull requests get no run, main is checked
+# every 3 hours instead of after every merge (and only if it changed), and a pull request that
+# changes only lane folders runs only those lanes' unit tests (scripts/ci-test-scope.mjs).
 on:
+  # A draft gets no run: work in a draft pull request and mark it ready for review when it's
+  # done, which starts the first run.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
@@ -13,39 +18,96 @@ on:
       - '.dockerignore'
       - '.github/workflows/e2e.yml'
       - '.github/workflows/image.yml'
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
-      - 'deploy/**'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - '.github/workflows/e2e.yml'
-      - '.github/workflows/image.yml'
+  # Main: every 3 hours, skipped when main hasn't changed since a finished run (the gate job), and
+  # by hand (Actions > CI > Run workflow), which always checks. Each pull request was checked
+  # against main when it last changed. A failed run opens the issue "Main checks failing" (or
+  # comments on it); the next passing run closes it.
+  schedule:
+    - cron: '23 */3 * * *'
+  workflow_dispatch:
 
-# A newer push cancels the older run on the same branch, on main too.
+# A newer push cancels the older run on the same branch, and a newer run on main the older one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# Decision 0011: the checks job runs the pull request's code, so it can only read. The report job
+# can write one comment and the main report job one issue, and the gate job can read Actions
+# runs; none of them checks out or runs the repository's code.
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
+  # Scheduled runs only: when an earlier run of this workflow on main already finished (passed or
+  # failed) on this same commit, main hasn't changed, so this run skips the checks and the issue.
+  # A run by hand always checks. It reads the Actions API only.
+  gate:
+    name: main changed
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+    outputs:
+      skip: ${{ steps.look.outputs.skip }}
+    steps:
+      - name: Look for a finished run on this commit
+        id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          query='[.workflow_runs[] | select(.id != ($run | tonumber) and .event != "pull_request"
+            and (.conclusion == "success" or .conclusion == "failure"))] | length'
+          finished=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=completed&per_page=50" \
+            | jq --arg run "$GITHUB_RUN_ID" "$query") || finished=0
+          if [ "${finished:-0}" -gt 0 ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "Main is still at ${GITHUB_SHA:0:7}, which an earlier run checked, so the checks are skipped."
+          else
+            echo 'skip=false' >> "$GITHUB_OUTPUT"
+            echo "Main is at ${GITHUB_SHA:0:7}, which no finished run has checked yet."
+          fi
+
   checks:
     name: checks
+    needs: gate
+    # Pull requests unless they're drafts; main unless the gate found it unchanged (the gate is
+    # skipped for pull requests and runs by hand).
+    if: >-
+      ${{ !cancelled() && (github.event_name == 'pull_request' && !github.event.pull_request.draft
+      || github.event_name != 'pull_request' && needs.gate.outputs.skip != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Step outcomes for the report job.
+    outputs:
+      steps: ${{ toJSON(steps) }}
+    # The server tests need Postgres. Each test file creates (and drops) its own database.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: carehub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres@localhost:5432/carehub_test
     defaults:
       run:
         shell: bash
     steps:
+      # The token isn't kept for later steps. The full history is for gitleaks.
       - name: Check out
         id: checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Node.js
         id: setup-node
@@ -62,14 +124,32 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package.json', 'apps/*/package.json', 'packages/*/package.json', 'tests/*/package.json', 'package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
 
+      # Every @carehub/* package must be one of this repository's workspaces, never a download from
+      # the npm registry (#75). It needs only Node, so it runs before the install, and a failure
+      # skips the install and the checks that need it.
+      - name: Workspace check
+        id: workspaces
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-logs"
+          { node --test --test-reporter=dot scripts/check-workspaces.test.mjs scripts/ci-test-scope.test.mjs \
+            && node scripts/check-workspaces.mjs; } 2>&1 \
+            | tee "$RUNNER_TEMP/ci-logs/workspaces.log"
+
+      # Without install scripts (decision 0011). npm ci needs a lockfile in sync with every
+      # package.json; when a pull request adds a dependency without updating it, npm install is
+      # the fallback.
       - name: Install
         id: install
         run: |
           mkdir -p "$RUNNER_TEMP/ci-logs"
-          npm install --no-audit --no-fund 2>&1 | tee "$RUNNER_TEMP/ci-logs/install.log"
+          log="$RUNNER_TEMP/ci-logs/install.log"
+          if npm ci --ignore-scripts --no-audit --no-fund 2>&1 | tee "$log"; then exit 0; fi
+          if ! grep -q 'can only install' "$log"; then exit 1; fi
+          echo '::warning::package-lock.json does not match package.json, so this run used npm install. The repo bot updates the lockfile after merge.'
+          npm install --ignore-scripts --no-audit --no-fund 2>&1 | tee -a "$log"
 
       # Each check runs even if an earlier one failed (not if install failed) and keeps its
-      # output in $RUNNER_TEMP/ci-logs/<step id>.log for the report step.
+      # output in $RUNNER_TEMP/ci-logs/<step id>.log for the report job.
       - name: Type check
         id: typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
@@ -80,25 +160,215 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run lint 2>&1 | tee "$RUNNER_TEMP/ci-logs/lint.log"
 
+      # On a pull request that changes only lane folders, only those lanes' tests
+      # (scripts/ci-test-scope.mjs, AGENTS.md section 5); otherwise, and on main, all of them.
+      # HEAD is the merge commit, so HEAD^1 is the base branch it was merged into.
       - name: Unit tests
         id: test
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: npm run test 2>&1 | tee "$RUNNER_TEMP/ci-logs/test.log"
+        run: |
+          log="$RUNNER_TEMP/ci-logs/test.log"
+          status=0
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git diff --name-only --no-renames HEAD^1 HEAD | node scripts/ci-test-scope.mjs --run 2>&1 \
+              | tee "$log" || status=$?
+          else
+            npm run test 2>&1 | tee "$log" || status=$?
+          fi
+          # The failed tests' names at the end of the log, where the report shows them, even when
+          # later workspaces' output pushed them out of its last lines.
+          if [ "$status" -ne 0 ]; then
+            { echo; echo '== Failed tests (lines with FAIL or ×) =='
+              sed -E 's/\x1b\[[0-9;]*m//g' "$log" | grep -aE '(^| )(FAIL|×) ' | tail -n 40 || true
+            } | tee -a "$log"
+          fi
+          exit "$status"
 
       - name: License check
         id: license
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run license:check 2>&1 | tee "$RUNNER_TEMP/ci-logs/license.log"
 
-      # Keep this step last. On a pull request it posts or updates one comment with the result:
-      # the end of each failed step's log, or that everything passed.
+      # Known vulnerabilities in shipped packages (decision 0011): critical fails the run. High and
+      # critical go to the job summary, and to the report once ci-report.mjs reads
+      # REPORT_EXTRA_FILE (#4). Dev tools are left out. The repository's .npmrc turns audit off
+      # for installs, so this step turns it on.
+      - name: Audit
+        id: audit
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          npm_config_audit: 'true'
+        run: |
+          npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
+          jq -r '
+            [(.vulnerabilities // {}) | to_entries[] | select(.value.severity == "high" or .value.severity == "critical")]
+            | select(length > 0)
+            | "**npm audit:** \(length) shipped package(s) with high or critical vulnerabilities", "",
+              (.[] | "- `\(.key)` \(.value.range) (\(.value.severity)): \([.value.via[] | if type == "object" then .title else "via \(.)" end] | unique | join("; "))")
+          ' "$RUNNER_TEMP/audit.json" > "$RUNNER_TEMP/ci-logs/audit.md" || true
+          cat "$RUNNER_TEMP/ci-logs/audit.md" >> "$GITHUB_STEP_SUMMARY"
+          npm audit --omit=dev --audit-level=critical 2>&1 | tee "$RUNNER_TEMP/ci-logs/audit.log"
+
+      # Secrets in the pull request's commits, or on main in the whole history (so nothing merged
+      # between two runs is missed), with a pinned gitleaks (MIT) for Linux x64, the runner's
+      # platform, whose checksum is checked first. Findings are redacted in the log. A false positive, such as a fictional password,
+      # gets a "gitleaks:allow" comment on its line, or its fingerprint (printed in the log) in
+      # .gitleaksignore.
+      - name: Secret scan
+        id: gitleaks
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          version=8.30.1
+          sum=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          dir="$RUNNER_TEMP/gitleaks"
+          mkdir -p "$dir" "$RUNNER_TEMP/ci-logs"
+          curl -fsSL --retry 3 -o "$dir/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v$version/gitleaks_${version}_linux_x64.tar.gz"
+          if ! echo "$sum  $dir/gitleaks.tar.gz" | sha256sum --check --status; then
+            echo "The gitleaks $version download does not match its pinned checksum." | tee "$RUNNER_TEMP/ci-logs/gitleaks.log"
+            exit 1
+          fi
+          tar -xzf "$dir/gitleaks.tar.gz" -C "$dir" gitleaks
+          # On main, everything up to HEAD_SHA. On a pull request, its own commits; without a known
+          # base commit, only the last one.
+          range="$HEAD_SHA"
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            range="$BASE_SHA..$HEAD_SHA"
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2> /dev/null; then range="-1 $HEAD_SHA"; fi
+          fi
+          "$dir/gitleaks" git --no-banner --redact --verbose --log-opts="$range" . 2>&1 \
+            | tee "$RUNNER_TEMP/ci-logs/gitleaks.log"
+
+      # Keep this step last: the report jobs read these logs.
+      - name: Keep the logs for the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: ${{ runner.temp }}/ci-logs
+          retention-days: 1
+          overwrite: true
+
+  # On a pull request, posts or updates one comment with the result: the end of each failed
+  # step's log, or that everything passed. It runs the base branch's ci-report.mjs, not the pull
+  # request's, and treats the logs as text.
+  report:
+    name: report
+    needs: checks
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the report script from the base branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Download the logs
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-logs
+          path: ${{ runner.temp }}/ci-logs
+
       - name: Report on the pull request
-        id: report
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          STEPS_JSON: ${{ toJSON(steps) }}
-        run: node .github/scripts/ci-report.mjs
+          STEPS_JSON: ${{ needs.checks.outputs.steps || '{}' }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          REPORT_EXTRA_FILE: ${{ runner.temp }}/ci-logs/audit.md
+        run: |
+          # A checks job that failed without a failed step (a timeout, a lost runner) still shows as failed.
+          if [ "$CHECKS_RESULT" != success ] && ! jq -e 'any(.[]; .outcome == "failure")' <<< "$STEPS_JSON" > /dev/null; then
+            STEPS_JSON=$(jq -c '. + {checks: {outcome: "failure", conclusion: "failure"}}' <<< "$STEPS_JSON")
+          fi
+          node .github/scripts/ci-report.mjs
+
+  # On main (every 3 hours when it changed, or by hand): a failure opens the issue "Main checks failing", or adds a
+  # comment to it if it's open, with the end of each failed step's log; a pass closes it. The logs
+  # come from main's own code. It checks out nothing and runs no npm.
+  main-report:
+    name: main report
+    needs: checks
+    # main only (not a run by hand on another branch), and only when the checks ran.
+    if: >-
+      ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      && needs.checks.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download the logs
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-logs
+          path: ${{ runner.temp }}/ci-logs
+
+      - name: Open, comment on or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEPS_JSON: ${{ needs.checks.outputs.steps || '{}' }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+        run: |
+          title='Main checks failing'
+          repo="repos/$GITHUB_REPOSITORY"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          numbers=$(gh api --paginate "$repo/issues?state=open" \
+            --jq ".[] | select(.pull_request == null and .user.login == \"github-actions[bot]\" and .title == \"$title\") | .number")
+          issue=${numbers%%$'\n'*}
+          short=${GITHUB_SHA:0:7}
+          body="$RUNNER_TEMP/issue.md"
+
+          if [ "$CHECKS_RESULT" = success ]; then
+            if [ -n "$issue" ]; then
+              printf 'Main checks passed again on %s ([run](%s)), so the issue is closed.\n' "$short" "$run_url" > "$body"
+              gh api --method POST "$repo/issues/$issue/comments" -F body=@"$body" > /dev/null
+              gh api --method PATCH "$repo/issues/$issue" -f state=closed -f state_reason=completed > /dev/null
+              echo "Closed issue #$issue."
+            else
+              echo 'Main checks passed, and no issue is open.'
+            fi
+            exit 0
+          fi
+
+          failed=$(jq -r '[to_entries[] | select(.value.outcome == "failure") | .key] | join(" ")' <<< "$STEPS_JSON")
+          printf '**Main checks failed on %s** ([run](%s)).\n' "$short" "$run_url" > "$body"
+          if [ -z "$failed" ]; then
+            printf '\nNo step failed, so the job timed out or lost its runner.\n' >> "$body"
+          fi
+          # The last 60 lines of each failed step's log, while the comment stays under GitHub's limit.
+          for id in $failed; do
+            log="$RUNNER_TEMP/ci-logs/$id.log"
+            [[ $id =~ ^[a-z0-9-]+$ && -f $log && ! -L $log ]] || continue
+            section=$(printf '\n<details><summary>%s</summary>\n\n```text\n%s\n```\n\n</details>\n' "$id" "$(tail -n 60 "$log" | sed 's/```/` ` `/g')")
+            if [ $(( $(wc -c < "$body") + ${#section} )) -lt 60000 ]; then printf '%s\n' "$section" >> "$body"; fi
+          done
+
+          if [ -n "$issue" ]; then
+            gh api --method POST "$repo/issues/$issue/comments" -F body=@"$body" > /dev/null
+            echo "Commented on issue #$issue."
+          else
+            printf '\n_Opened by the run above. Later failures add comments; a pass closes it._\n' >> "$body"
+            number=$(gh api --method POST "$repo/issues" -f title="$title" -F body=@"$body" --jq .number)
+            echo "Opened issue #$number."
+          fi

@@ -14,8 +14,8 @@ const buttonVariants: Record<ButtonVariant, string> = {
 };
 
 const buttonSizes: Record<ButtonSize, { text: string; icon: string }> = {
-  sm: { text: 'h-8 px-3', icon: 'size-8' },
-  md: { text: 'h-9 px-4', icon: 'size-9' },
+  sm: { text: 'h-8 px-3 max-md:h-11', icon: 'size-8 max-md:size-11' },
+  md: { text: 'h-9 px-4 max-md:h-11', icon: 'size-9 max-md:size-11' },
 };
 
 export interface ButtonClassOptions {
@@ -45,6 +45,14 @@ export const controlClasses =
 export const surfaceClasses =
   'z-50 overflow-hidden rounded border border-border bg-bg p-1 text-fg shadow-menu animate-pop-in focus:outline-none';
 
+/**
+ * On phones (under `md`), pop-ups open as bottom sheets: along the bottom edge, as wide as the
+ * screen, sliding up, and scrolling once they reach `max-h-sheet`. Menus, popovers and select
+ * lists also carry `data-sheet`, which styles.css uses to take Radix's placement off them there.
+ */
+export const bottomSheetClasses =
+  'max-md:w-full max-md:max-w-none max-md:max-h-sheet max-md:overflow-y-auto max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:animate-slide-in-bottom';
+
 /** One row in a menu or list. Keyboard focus keeps its outline, drawn inside the row. */
 export const menuItemClasses =
-  'relative flex cursor-default select-none items-center gap-2 rounded px-2 py-1.5 text-small focus-visible:outline-offset-[-2px] data-[disabled]:pointer-events-none data-[highlighted]:bg-fill-hover data-[disabled]:text-faint [&_svg]:size-4 [&_svg]:shrink-0';
+  'relative flex cursor-default select-none items-center gap-2 rounded px-2 py-1.5 text-small max-md:min-h-11 focus-visible:outline-offset-inset data-[disabled]:pointer-events-none data-[highlighted]:bg-fill-hover data-[disabled]:text-faint [&_svg]:size-4 [&_svg]:shrink-0';

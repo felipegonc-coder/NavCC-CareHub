@@ -1,6 +1,10 @@
 import type { Editor } from '@tiptap/core';
-import type { ReactNode } from 'react';
+import type { ReactNodeViewProps } from '@tiptap/react';
+import type { ComponentType, ReactNode } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
+
+/** React views for nodes, by node name, like `{ database: DatabaseView }`. */
+export type NodeViews = Record<string, ComponentType<ReactNodeViewProps>>;
 
 /** The person editing, as other people see them next to their caret. */
 export interface EditorUser {
@@ -25,8 +29,13 @@ export interface SlashItem {
   icon?: ReactNode;
   /** More words that find this entry when typed after "/". */
   keywords?: string[];
-  /** Heading the entry is listed under, like "Basic blocks" or "Media" (default "Other"). */
+  /**
+   * Heading the entry is listed under (default "Other"). The spec's groups come first, in order:
+   * "Basic blocks", "Media", "Database", "Advanced", "Inline", "Embeds"; "Actions" comes last.
+   */
   group?: string;
+  /** The Markdown shortcut for the same block, shown on the right, like `#` or `---`. */
+  hint?: string;
   /** Runs once the typed "/query" is gone, with the cursor where it was. */
   run(editor: Editor): void;
 }
@@ -38,7 +47,10 @@ export interface LinkPicker {
   pick(): Promise<string | null>;
 }
 
-/** An extra button in the selection toolbar. */
+/**
+ * An extra button in the selection toolbar. The one with the id `comment` goes right after Link,
+ * where the spec puts Comment; the others go after the formatting buttons.
+ */
 export interface BubbleItem {
   id: string;
   /** Accessible name, also shown as the tooltip. */
@@ -46,5 +58,10 @@ export interface BubbleItem {
   icon?: ReactNode;
   /** Shows the button as pressed. */
   isActive?(editor: Editor): boolean;
+  /**
+   * Also shown in a read-only editor, like Comment for people who can comment. There, selecting
+   * text shows a toolbar with only these items, or no toolbar if there are none.
+   */
+  readOnly?: boolean;
   run(editor: Editor): void;
 }

@@ -1,13 +1,18 @@
 import { clsx, type ClassValue } from 'clsx';
 import { extendTailwindMerge } from 'tailwind-merge';
+import { gridColumns, layers, outlineOffsets, shadows, typeScale } from '../scale';
 
-// Teach tailwind-merge the preset's custom sizes so `text-small` and `text-muted` don't clash.
+// Teach tailwind-merge the preset's own names so `text-small` and `text-muted` don't clash.
 const merge = extendTailwindMerge({
   extend: {
     classGroups: {
-      'font-size': [{ text: ['title', 'body', 'small', 'label'] }],
-      shadow: [{ shadow: ['menu', 'dialog'] }],
-      'max-w': [{ 'max-w': ['page'] }],
+      'font-size': [{ text: Object.keys(typeScale) }],
+      shadow: [{ shadow: Object.keys(shadows) }],
+      'max-w': [{ 'max-w': ['page', 'dialog', 'toast'] }],
+      'max-h': [{ 'max-h': ['sheet'] }],
+      'grid-cols': [{ 'grid-cols': Object.keys(gridColumns) }],
+      'outline-offset': [{ 'outline-offset': Object.keys(outlineOffsets) }],
+      z: [{ z: Object.keys(layers) }],
     },
     theme: { spacing: ['sidebar'] },
   },

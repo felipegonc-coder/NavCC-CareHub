@@ -1,10 +1,16 @@
-import type { AnyExtension, Extensions } from '@tiptap/core';
+import type { AnyExtension, Extensions, NodeViewRenderer, Node as TiptapNode } from '@tiptap/core';
 import { Collaboration } from '@tiptap/extension-collaboration';
 import { CollaborationCaret } from '@tiptap/extension-collaboration-caret';
 import { Placeholder } from '@tiptap/extensions';
+import { ReactNodeViewRenderer } from '@tiptap/react';
 import type * as Y from 'yjs';
+import { blockNodeViews } from './blocks/ui';
+import { laneFeature } from './lanes';
 import { PAGE_FIELD, pageExtensions } from './schema';
-import type { CollabProvider, EditorUser } from './types';
+import { SlashCommand, type SlashMenuStore } from './slash';
+import { ToolbarKeys } from './toolbar-keys';
+import type { CollabProvider, EditorUser, NodeViews } from './types';
+import { UndoShortcut } from './undo-shortcut';
 
 export const DEFAULT_PLACEHOLDER = "Type '/' for commands";
 
@@ -33,6 +39,48 @@ const renderSelection = (user: Record<string, unknown>) => ({
   style: `--ch-caret: ${safeColor(user.color)}`,
 });
 
+/** A lane block whose view isn't loaded: a plain box that says so. The block itself is kept. */
+function laneFallback(feature: string): NodeViewRenderer {
+  return ({ node }) => {
+    const tag = node.isInline ? 'span' : 'div';
+    const dom = document.createElement(tag);
+    dom.className = 'ch-lane-block';
+    const note = document.createElement(tag);
+    note.className = 'ch-lane-block-note';
+    note.setAttribute('contenteditable', 'false');
+    note.textContent = `This block needs ${feature}.`;
+    dom.append(note);
+    if (node.isLeaf) return { dom };
+    const contentDOM = document.createElement(tag);
+    dom.append(contentDOM);
+    return { dom, contentDOM };
+  };
+}
+
+function withView(extension: AnyExtension, nodeViews: NodeViews): AnyExtension {
+  if (extension.type !== 'node') return extension;
+  const node = extension as TiptapNode;
+  const View = nodeViews[node.name];
+  if (View) return node.extend({ addNodeView: () => ReactNodeViewRenderer(View) });
+  const feature = laneFeature(node.name);
+  return feature ? node.extend({ addNodeView: () => laneFallback(feature) }) : node;
+}
+
+const warned = new WeakSet<AnyExtension>();
+
+/** Nodes and marks belong in lanes/, so the server and every client share them. */
+function isBehavior(extension: AnyExtension): boolean {
+  if (extension.type === 'extension') return true;
+  if (!warned.has(extension)) {
+    warned.add(extension);
+    console.warn(
+      `@carehub/editor: ignored the ${extension.type} "${extension.name}" in extensions; ` +
+        'add it to packages/editor/src/lanes instead.',
+    );
+  }
+  return false;
+}
+
 export interface BlockExtensionsOptions {
   /** The page's Y.Doc; the blocks live in its XML fragment `field`. */
   ydoc: Y.Doc;
@@ -42,16 +90,22 @@ export interface BlockExtensionsOptions {
   user?: EditorUser;
   /** Placeholder for an empty page. */
   placeholder?: () => string | undefined;
-  /** More nodes, marks and extensions (like a database block), added after the built-in ones. */
+  /** React views by node name (see `NodeViews`), on top of the block groups' own views. */
+  nodeViews?: NodeViews;
+  /** Enables the "/" menu. */
+  slashMenu?: SlashMenuStore;
+  /** More behavior, like shortcuts or plugins. Nodes and marks here are ignored (use lanes/). */
   extensions?: AnyExtension[];
 }
 
-/** The extensions of the page editor: the page schema, Yjs, carets and placeholders. */
+/** The extensions of the page editor: the page schema with views, Yjs, carets and placeholders. */
 export function createBlockExtensions(options: BlockExtensionsOptions): Extensions {
-  const { ydoc, field = PAGE_FIELD, provider, user, placeholder, extensions = [] } = options;
+  const { ydoc, field = PAGE_FIELD, provider, user, placeholder } = options;
+  const { nodeViews, slashMenu, extensions = [] } = options;
   const awareness = provider?.awareness;
+  const views = { ...blockNodeViews, ...nodeViews };
   return [
-    ...pageExtensions(extensions),
+    ...pageExtensions().map((extension) => withView(extension, views)),
     Placeholder.configure({
       includeChildren: true,
       placeholder: ({ editor, node }) => {
@@ -61,6 +115,7 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
       },
     }),
     Collaboration.configure({ document: ydoc, field }),
+    UndoShortcut,
     ...(awareness && user
       ? [
           CollaborationCaret.configure({
@@ -71,5 +126,8 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
           }),
         ]
       : []),
+    ...(slashMenu ? [SlashCommand.configure({ store: slashMenu })] : []),
+    ToolbarKeys,
+    ...extensions.filter(isBehavior),
   ];
 }

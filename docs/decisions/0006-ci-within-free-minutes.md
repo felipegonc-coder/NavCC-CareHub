@@ -17,6 +17,8 @@ The repository is private on GitHub Free, which includes 2,000 Actions minutes a
 
 ## Update 2026-10-26: Felipe's Mac as a self-hosted runner
 
+> **Superseded 2026-10-27:** Felipe decided against a Mac runner (issue #7 closed), and decision 0011 keeps CI on GitHub-hosted runners. Every job runs on GitHub-hosted `ubuntu-latest`, and nothing below applies.
+
 Felipe is adding a free self-hosted runner on his Mac (labels `self-hosted`, `macOS`, `ARM64`; Apple M2, 8 GB, one job at a time; it may sleep at night, and jobs then wait up to 24 hours).
 
 - **Split:** once the Mac is online, the browser tests (`e2e.yml`: the `e2e` label, nightly, by hand) run on the Mac. The label `e2e-linux` runs the same tests on `ubuntu-latest` when the Mac is asleep and a result is needed now (costs minutes). The quick checks stay on `ubuntu-latest` until the free minutes get low, then move to the Mac in one small PR. `image.yml` always stays on `ubuntu-latest` (it needs Docker).
@@ -24,6 +26,20 @@ Felipe is adding a free self-hosted runner on his Mac (labels `self-hosted`, `ma
 - **Security on the Mac** (jobs run as Felipe's user): no `pull_request_target`; no secrets beyond `GITHUB_TOKEN`, with minimal `permissions`; jobs only for pull requests from this repository; install with `npm ci --ignore-scripts` when the lockfile matches, otherwise `npm install --ignore-scripts`; nothing written outside the job folder, `$RUNNER_TEMP` and the tool cache (set `npm_config_cache` and `PLAYWRIGHT_BROWSERS_PATH` there); no global installs, no `sudo`, no background processes left behind. The security reviewer checks every workflow change that touches the Mac.
 - **Screenshots** from the Mac and from Linux render fonts differently: they are never compared with each other. Each screenshot comment says which runner made it.
 - Node comes from `actions/setup-node`; Playwright's Chromium has a mac-arm64 build.
+
+## Update 2026-10-27: saving minutes
+
+About 170 pull requests in the first 10 hours used most of October's 2,000 minutes. The root coordinator approved these savings; Felipe decides whether to add a paid Actions budget.
+
+- Draft pull requests get no quick checks. Marking one ready for review starts its first run.
+- `main` is checked every 3 hours and by hand instead of after every merge, and a scheduled run stops after a short gate job when `main` hasn't changed since a finished run, since each pull request was checked against `main` when it last changed. A failed run opens the issue "Main checks failing" with the end of each failed step's log; the next passing run closes it. On `main` the secret scan covers the whole history, so nothing merged between two runs is missed.
+- A pull request that changes only lane folders runs only those lanes' unit tests (`scripts/ci-test-scope.mjs`). Anything else, including any `package.json`, migration or lane registration file, runs all of them. Type check, lint, license check, audit and secret scan always run in full.
+- The `snapshot` branch is written every hour (when `main` has changed) instead of after every merge.
+- What still runs when nothing changes: about 8 gate runs and 24 snapshot runs a day. GitHub rounds each job up to a whole minute, so that is about 32 minutes a day (about 1,000 a month). After the build week the snapshot can run less often.
+- One push per pull request when it's ready, `main` merged in only for a conflict, and at most one `e2e` or `image` label run per pull request.
+- Every job has a timeout of 15 minutes or less and runs on GitHub-hosted Linux.
+
+If the minutes still run out, the last point of the decision applies: the lead reviews by hand and merges, smallest and safest pull requests first.
 
 ## Consequences
 

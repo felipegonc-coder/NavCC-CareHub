@@ -1,12 +1,12 @@
-import { Node } from '@tiptap/core';
+import { Extension, Node } from '@tiptap/core';
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
-import { BlockEditor, type Editor } from '../src';
+import { BlockEditor, type Editor, type SlashItem } from '../src';
 import { renderCaret } from '../src/extensions';
-import { flush, testUser } from './helpers';
+import { flush, testUser, typeText } from './helpers';
 
 let root: Root | undefined;
 let awareness: Awareness | undefined;
@@ -16,6 +16,7 @@ afterEach(async () => {
   awareness?.destroy();
   awareness = undefined;
   document.body.innerHTML = '';
+  localStorage.clear();
 });
 
 async function render(element: ReactElement) {
@@ -59,23 +60,78 @@ describe('BlockEditor', () => {
     expect(textbox?.getAttribute('aria-label')).toBe('Shift notes');
   });
 
-  it('takes extra extensions', async () => {
-    const Note = Node.create({
-      name: 'shiftNote',
-      group: 'block',
-      content: 'inline*',
-      parseHTML: () => [{ tag: 'aside' }],
-      renderHTML: () => ['aside', 0],
+  it('takes extensions that are not nodes and ignores nodes there', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const Shortcut = Extension.create({
+      name: 'shiftShortcut',
+      addKeyboardShortcuts: () => ({ 'Mod-Shift-x': () => true }),
     });
-    const ydoc = new Y.Doc();
+    const Note = Node.create({ name: 'shiftNote', group: 'block', content: 'inline*' });
     const ready: { editor?: Editor } = {};
     await render(
-      <BlockEditor ydoc={ydoc} extensions={[Note]} onReady={(editor) => (ready.editor = editor)} />,
+      <BlockEditor
+        ydoc={new Y.Doc()}
+        extensions={[Shortcut, Note]}
+        onReady={(editor) => (ready.editor = editor)}
+      />,
     );
-    expect(ready.editor?.schema.nodes.shiftNote).toBeDefined();
-    ready.editor?.commands.setContent('<aside>Bring the signed form</aside>');
-    expect(ready.editor?.getJSON().content?.[0]?.type).toBe('shiftNote');
-    expect(ydoc.getXmlFragment('default').toString()).toContain('Bring the signed form');
+    const names = ready.editor?.extensionManager.extensions.map((extension) => extension.name);
+    expect(names).toContain('shiftShortcut');
+    expect(ready.editor?.schema.nodes.shiftNote).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"shiftNote"'));
+    warn.mockRestore();
+  });
+
+  it('shows the "/" menu with added entries and remembers what you used', async () => {
+    const signature: SlashItem = {
+      id: 'signature',
+      title: 'Signature',
+      group: 'Care',
+      run: (editor) => editor.commands.insertContent('Robin'),
+    };
+    const ready: { editor?: Editor } = {};
+    const container = await render(
+      <BlockEditor
+        ydoc={new Y.Doc()}
+        user={testUser}
+        slashItems={[signature]}
+        onReady={(editor) => (ready.editor = editor)}
+      />,
+    );
+    const editor = ready.editor as Editor;
+    await act(async () => {
+      typeText(editor, '/sign');
+      await flush();
+    });
+    const option = document.querySelector('[role="listbox"] [role="option"]');
+    expect(option?.textContent).toContain('Signature');
+    expect(option?.getAttribute('aria-selected')).toBe('true');
+    const textbox = container.querySelector('[role="textbox"]');
+    expect(textbox?.getAttribute('aria-activedescendant')).toBe(option?.id);
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('1 result');
+
+    await act(async () => {
+      option?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      await flush();
+    });
+    expect(editor.state.doc.textContent).toBe('Robin');
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(textbox?.hasAttribute('aria-activedescendant')).toBe(false);
+    expect(localStorage.getItem(`carehub.editor.recent-blocks.${testUser.id}`)).toBe(
+      '["signature"]',
+    );
+  });
+
+  it('shows no "/" menu when read-only', async () => {
+    const ready: { editor?: Editor } = {};
+    await render(
+      <BlockEditor ydoc={new Y.Doc()} editable={false} onReady={(e) => (ready.editor = e)} />,
+    );
+    await act(async () => {
+      ready.editor?.commands.insertContent('/');
+      await flush();
+    });
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
   });
 });
 
