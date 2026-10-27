@@ -22,14 +22,13 @@ export function settingsWith(
 
 /**
  * The header's column tools: drag an edge to resize, drag a header to move it (a press opens its
- * menu), the column menus, the Properties menu and Wrap cells. `gridLeft` is the table's left edge.
+ * menu), the column items, the Properties menu and Wrap cells. `gridLeft` is the table's left edge.
  */
 export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
   // A column's width while its edge is dragged, and until saving it is done.
   const [resize, setResize] = useState<{ propertyId: Id; width: number } | null>(null);
   // A header being dragged to a new place: where the pointer is, px from the table's left edge.
   const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
-  const [menuFor, setMenuFor] = useState<Id | null>(null);
   const dragStop = useRef<(() => void) | null>(null);
   const dragged = useRef(false);
 
@@ -51,10 +50,6 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
     freeze: (frozen) =>
       void changeView((v) => ({
         table: withTableOptions(v, { frozenUpTo: frozen ? column.property.id : null }),
-      })),
-    hide: () =>
-      void changeView((v) => ({
-        properties: settingsWith(v, column.property, { visible: false }),
       })),
   });
 
@@ -130,19 +125,16 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
     });
   };
 
-  const pressHeader = (column: TableColumn) => {
-    if (dragged.current) {
-      dragged.current = false;
-      return;
-    }
-    setMenuFor(column.property.id);
+  /** A press on a header ended: true unless it ended a drag (then the menu stays shut). */
+  const pressHeader = (): boolean => {
+    if (!dragged.current) return true;
+    dragged.current = false;
+    return false;
   };
 
   return {
     resize,
     moving,
-    menuFor,
-    setMenuFor,
     startResize,
     startMove,
     pressHeader,

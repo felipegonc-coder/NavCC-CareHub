@@ -72,6 +72,26 @@ describe('EditHistory', () => {
     expect(history.undo()).toBeUndefined();
   });
 
+  it('forgets a property that changed type or went', () => {
+    const history = new EditHistory();
+    const notes = { rowId: 'row-heater', propertyId: 'prop-notes', before: '', after: 'Done' };
+    const row: AddedRow = {
+      ...added('row-new'),
+      input: { title: 'Fit new tap', values: { 'prop-cost': '90', 'prop-notes': 'Kitchen' } },
+    };
+    history.record(edit('row-sink', '180', '200'));
+    history.record({
+      values: [notes, { rowId: 'row-heater', propertyId: 'prop-cost', before: '1450', after: '1500' }],
+      added: [row],
+    });
+    history.forgetProperty('prop-cost');
+    const step = history.undo();
+    expect(step?.values).toEqual([notes]);
+    expect(step?.added[0]).toBe(row);
+    expect(row.input.values).toEqual({ 'prop-notes': 'Kitchen' });
+    expect(history.undo()).toBeUndefined();
+  });
+
   it('clear empties it', () => {
     const history = new EditHistory();
     history.record(edit('row-sink', '180', '200'));
