@@ -72,6 +72,13 @@ export function createAutomationsService(options: AutomationsServiceOptions): Au
     return automation;
   }
 
+  /** When the latest scheduled run started: the next one waits 15 minutes after it. */
+  async function lastScheduledRun(caller: Caller, id: string): Promise<Date | null> {
+    const runs = await store.listRuns(caller.workspaceId, id);
+    const last = runs.find((run) => run.kind === 'scheduled' && run.ranAt !== null);
+    return last?.ranAt ?? null;
+  }
+
   return {
     async list(caller, query) {
       return store.list(caller.workspaceId, listQuery.parse(query ?? {}));
@@ -112,7 +119,9 @@ export function createAutomationsService(options: AutomationsServiceOptions): Au
       const at = now();
       reject(automationProblems(merged, at));
       if (patch.trigger !== undefined || patch.enabled !== undefined) {
-        patch.nextRunAt = nextRunFor(merged, at, current.lastRun?.at ?? null);
+        const scheduled = merged.enabled && merged.trigger.kind === 'schedule';
+        const lastRanAt = scheduled ? await lastScheduledRun(caller, id) : null;
+        patch.nextRunAt = nextRunFor(merged, at, lastRanAt);
       }
       // Switching it back on clears why the server paused it.
       if (patch.enabled === true) patch.pausedReason = null;
