@@ -6,6 +6,7 @@ import {
   ExternalIdSchema,
   IdSchema,
   ImageSchema,
+  IsoDateTimeSchema,
   MediaRefSchema,
   RichTextSchema,
 } from './primitives';
@@ -23,6 +24,12 @@ const NAMED: readonly (readonly [z.core.$ZodType, string])[] = [
   [LessonSchema, 'Lesson'],
   [CourseSchema, 'Course'],
 ];
+
+// zod's own date-time regex changes between zod versions, so the file states the documented shape itself:
+// a date, hours and minutes, optional seconds and fraction, then `Z` or `+hh:mm`. The parser still checks
+// that the day exists.
+const DATE_TIME_PATTERN =
+  '^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d(\\.\\d+)?)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)$';
 
 const isSchema = (value: unknown): value is z.core.$ZodType =>
   typeof value === 'object' && value !== null && '_zod' in value;
@@ -71,6 +78,10 @@ export function courseFileJsonSchema(): Record<string, unknown> {
   const metadata = z.registry<z.core.GlobalMeta>();
   copyMetadata(CourseFileSchema, metadata, new Set());
   for (const [schema, id] of NAMED) metadata.add(schema, { ...metadata.get(schema), id });
+  metadata.add(IsoDateTimeSchema, {
+    ...metadata.get(IsoDateTimeSchema),
+    pattern: DATE_TIME_PATTERN,
+  });
   metadata.add(CourseFileSchema, {
     title: 'Care Hub Learning course file',
     description: `Course format version ${COURSE_FORMAT_VERSION}. Generated from @carehub/learning; see docs/learning/course-format.md.`,
