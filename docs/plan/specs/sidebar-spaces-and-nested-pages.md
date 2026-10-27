@@ -1,6 +1,6 @@
 # Sidebar, spaces and nested pages
 
-_Copied from the Notion spec (https://app.notion.com/p/e5897b49ed3c499d824cf8ede24e8204) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > 🧭 Phase 1 · Notion parity · Depends on: accounts, workspaces, Roles and permissions · Used by: every screen · Related: Pages and blocks, Search, Page history and Trash, Templates and buttons, Settings and members
 
@@ -116,7 +116,7 @@ The left-hand sidebar is how people get around Care Hub: switch workspaces, open
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **SB-01** Sign in as a new member, Riley Chen. → The General space is there, with the Private, Shared and Favorites sections.
 2. ⭐ **SB-03** Drag "Refund steps" onto "Policies", then above it, then onto Trash. → It becomes a sub-page, then moves back up, then goes to Trash.
