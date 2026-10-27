@@ -180,3 +180,20 @@
   outline: 2px solid rgb(var(--ch-ring));
   border-radius: 0.25rem;
 }
+
+/* A lane block whose view isn't loaded. */
+.ch-lane-block {
+  border: 1px dashed rgb(var(--ch-border));
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+span.ch-lane-block {
+  padding: 0 0.25rem;
+}
+
+.ch-lane-block-note {
+  color: rgb(var(--ch-muted));
+  font-size: 0.875rem;
+  user-select: none;
+}
