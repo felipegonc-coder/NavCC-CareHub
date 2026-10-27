@@ -114,11 +114,14 @@ export function RichTextField({
     if (editor && !editor.isDestroyed) editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
 
-  // Replaces the content only when `value` says something else, so the cursor stays put.
+  // Replaces the content only when `value` says something else, so the cursor stays put. Both
+  // sides are cleaned up first: the editor's links also hold attributes `value` leaves out.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const next = sanitizeRichText(value, options);
-    if (!editor.schema.nodeFromJSON(next).eq(editor.state.doc)) {
+    const current = sanitizeRichText(editor.getJSON(), options);
+    const { schema } = editor;
+    if (!schema.nodeFromJSON(next).eq(schema.nodeFromJSON(current))) {
       editor.commands.setContent(next, { emitUpdate: false });
     }
   }, [editor, value, options]);

@@ -159,6 +159,66 @@ describe('RichTextField', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('stores a link as its href and keeps the cursor when that value comes back', async () => {
+    const onChange = vi.fn();
+    const field = (value: JSONContent) => (
+      <RichTextField value={value} onChange={onChange} ariaLabel="Notes" />
+    );
+    const { editor } = await render(field(doc('Rota page')));
+    editor.commands.setTextSelection({ from: 1, to: 5 });
+    editor.commands.setLink({ href: '/p/rota', target: null });
+    const linked: JSONContent = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Rota', marks: [{ type: 'link', attrs: { href: '/p/rota' } }] },
+            { type: 'text', text: ' page' },
+          ],
+        },
+      ],
+    };
+    expect(onChange).toHaveBeenLastCalledWith(linked);
+    editor.commands.setTextSelection(3);
+    await act(async () => root?.render(field(linked)));
+    expect(editor.state.selection.from).toBe(3);
+    expect(editor.getAttributes('link')).toMatchObject({ href: '/p/rota', target: null });
+  });
+
+  it('draws where a link opens from its href', async () => {
+    const link = (text: string, attrs: Record<string, unknown>): JSONContent => ({
+      type: 'text',
+      text,
+      marks: [{ type: 'link', attrs }],
+    });
+    const value: JSONContent = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            link('Site', { href: 'https://example.com' }),
+            { type: 'text', text: ' and ' },
+            link('page', { href: '/p/1', target: '_blank' }),
+          ],
+        },
+      ],
+    };
+    const { textbox } = await render(
+      <RichTextField value={value} onChange={() => undefined} ariaLabel="Notes" />,
+    );
+    const links = [...(textbox?.querySelectorAll('a') ?? [])].map((a) => [
+      a.getAttribute('href'),
+      a.getAttribute('target'),
+      a.getAttribute('rel'),
+    ]);
+    expect(links).toEqual([
+      ['https://example.com', '_blank', 'noopener noreferrer'],
+      ['/p/1', null, null],
+    ]);
+  });
+
   it('links to a picked page', async () => {
     const picker = pageLinkPicker(async () => ({ id: 'page 1', title: 'Rota' }));
     expect(picker.label).toBe('Link to a page');

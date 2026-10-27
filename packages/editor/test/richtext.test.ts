@@ -38,15 +38,24 @@ describe('sanitizeRichText', () => {
     );
   });
 
-  it('keeps only the allowed marks and safe links', () => {
+  it('keeps only the allowed marks and safe links, with just their href', () => {
     const value = doc(
       p(
         text('a', [{ type: 'bold' }, { type: 'link', attrs: { href: 'javascript:alert(1)' } }]),
-        text('b', [{ type: 'link', attrs: { href: '/p/1', target: null, onclick: 'x' } }]),
+        text('b', [{ type: 'link', attrs: { href: '/p/1', target: '_self', onclick: 'x' } }]),
+        text('c', [{ type: 'link', attrs: { href: '//care.example.org', rel: 'opener' } }]),
+        text('d', [{ type: 'link', attrs: { target: '_blank' } }]),
       ),
     );
     expect(sanitizeRichText(value, { marks: ['link'], singleLine: false })).toEqual(
-      doc(p(text('a'), text('b', [{ type: 'link', attrs: { href: '/p/1', target: null } }]))),
+      doc(
+        p(
+          text('a'),
+          text('b', [{ type: 'link', attrs: { href: '/p/1' } }]),
+          text('c', [{ type: 'link', attrs: { href: 'https://care.example.org' } }]),
+          text('d'),
+        ),
+      ),
     );
   });
 

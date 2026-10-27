@@ -2,8 +2,8 @@ import { Extension, Node, type Extensions, type JSONContent } from '@tiptap/core
 import { Fragment, Slice, type Node as PMNode, type Schema } from '@tiptap/pm/model';
 import { Placeholder } from '@tiptap/extensions';
 import { StarterKit } from '@tiptap/starter-kit';
-import { isSafeHref } from './links';
-import { LINK_OPTIONS } from './schema';
+import { safeHref } from './links';
+import { SafeLink } from './schema';
 import { ToolbarKeys } from './toolbar-keys';
 
 export const RICH_TEXT_MARKS = ['bold', 'italic', 'underline', 'strike', 'code', 'link'] as const;
@@ -46,11 +46,9 @@ function cleanMarks(marks: unknown, allowed: readonly RichTextMark[]): JSONConte
       out.push({ type: type as string });
       continue;
     }
-    const attrs = isRecord(mark) && isRecord(mark.attrs) ? mark.attrs : {};
-    if (typeof attrs.href !== 'string' || !isSafeHref(attrs.href)) continue;
-    const target =
-      attrs.target === null || attrs.target === '_blank' ? { target: attrs.target } : {};
-    out.push({ type, attrs: { href: attrs.href, ...target } });
+    // Only a safe href is kept: where a link opens comes from its href when it is drawn.
+    const href = safeHref(isRecord(mark) && isRecord(mark.attrs) ? mark.attrs.href : undefined);
+    if (href !== null) out.push({ type, attrs: { href } });
   }
   return out.length ? out : undefined;
 }
@@ -165,8 +163,9 @@ export function richTextExtensions(
       underline: mark('underline'),
       strike: mark('strike'),
       code: mark('code'),
-      link: marks.includes('link') ? LINK_OPTIONS : false,
+      link: false,
     }),
+    ...(marks.includes('link') ? [SafeLink] : []),
     Placeholder.configure({ placeholder: ({ editor }) => (editor.isEmpty ? placeholder() : '') }),
     ToolbarKeys,
     ...(singleLine ? [SingleLine] : []),
