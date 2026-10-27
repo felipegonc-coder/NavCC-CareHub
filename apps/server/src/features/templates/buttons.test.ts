@@ -25,7 +25,7 @@ import { tplButtonRuns, tplButtons, tplTemplates } from './schema';
 const BASE = '/api/test-buttons';
 const workspaceId = randomUUID();
 
-type FakePage = CorePage & { levels: Map<string, AccessLevel> };
+type FakePage = CorePage & { levels: Map<string, AccessLevel>; markdown?: string };
 const pages = new Map<string, FakePage>();
 const members = new Map<string, { isAdmin: boolean }>();
 const groups = new Map<string, string[]>();
@@ -126,6 +126,7 @@ describe.skipIf(!hasDatabase)('button blocks on Postgres', () => {
       },
       levels: async (_db, userId, ids) =>
         new Map(ids.map((id) => [id, pages.get(id)?.levels.get(userId) ?? 'none'])),
+      markdown: async (_db, pageId) => pages.get(pageId)?.markdown ?? '',
       createRow: async (_tx, input) => {
         checkDatabase(input.databaseId, input.actorUserId);
         if (input.values.status === 'opt-gone') {
@@ -210,6 +211,10 @@ describe.skipIf(!hasDatabase)('button blocks on Postgres', () => {
 
   const press = (user: TestUser, id: string, page: FakePage, extra: object = {}) =>
     call(user, 'POST', `/${id}/press`, { pageId: page.id, ...extra });
+
+  /** A button block as it's kept in a page's Markdown. */
+  const block = (id: string) =>
+    `<!-- carehub:block {"type":"actionButton","attrs":{"buttonId":"${id}"}} -->`;
 
   const meChip = { type: 'templateVariable', attrs: { kind: 'me', offsetDays: 0 } };
   const checklist = {
@@ -381,6 +386,24 @@ describe.skipIf(!hasDatabase)('button blocks on Postgres', () => {
       settings: { label: 'Ask for help', actions: [everyone] },
     });
     expect(relabel.statusCode).toBe(200);
+    // Its message step stays as the Admin left it: no other text, card or recipients, and no
+    // second step like it.
+    const someRole = { userIds: [], groupIds: [], roleIds: [randomUUID()], everyone: false };
+    for (const actions of [
+      [{ ...everyone, message: 'Lunch is here.' }],
+      [{ ...everyone, card: null }],
+      [{ ...everyone, to: someRole }],
+      [everyone, everyone],
+    ]) {
+      const changed = await call(sam, 'PUT', `/${button.id}`, {
+        pageId: qaDesk.id,
+        settings: { label: 'Ask for help', actions },
+      });
+      expect(changed.statusCode).toBe(403);
+      expect(errorOf(changed)).toBe(
+        'Only Admins can change a step that messages Everyone or roles.',
+      );
+    }
     const pressed = (await press(sam, button.id, qaDesk)).json() as PressResponse;
     expect(pressed.messagesSent).toBe(members.size);
     expect(notices[0]).toMatchObject({
@@ -495,10 +518,14 @@ describe.skipIf(!hasDatabase)('button blocks on Postgres', () => {
   it('gives a page copied with Duplicate its own copy of the button, once', async () => {
     const plan = addPage('Shift plan', [[sam, 'full']]);
     const button = await makeButton(sam, plan, { actions: [checklist] });
-    const copy = addPage('Shift plan (copy)', [
-      [sam, 'full'],
-      [riley, 'full'],
-    ]);
+    const copy = addPage(
+      'Shift plan (copy)',
+      [
+        [sam, 'full'],
+        [riley, 'full'],
+      ],
+      { markdown: `${block(button.id)}\n` },
+    );
     // Riley can't open the first page, so they don't get its settings.
     expect((await call(riley, 'GET', `/${button.id}?pageId=${copy.id}`)).statusCode).toBe(404);
     const first = (
@@ -510,6 +537,12 @@ describe.skipIf(!hasDatabase)('button blocks on Postgres', () => {
       await call(riley, 'GET', `/${button.id}?pageId=${copy.id}`)
     ).json() as ButtonResponse;
     expect(again.id).toBe(first.id);
+
+    // A page whose content doesn't hold the block gets no copy, even from someone who can open
+    // the first page.
+    const handover = addPage('Handover', [[sam, 'full']]);
+    expect((await call(sam, 'GET', `/${button.id}?pageId=${handover.id}`)).statusCode).toBe(404);
+    expect((await press(sam, button.id, handover)).statusCode).toBe(404);
   });
 
   it('copies buttons into a template, and from the template into each new page', async () => {
@@ -517,8 +550,6 @@ describe.skipIf(!hasDatabase)('button blocks on Postgres', () => {
     const other = await makeButton(sam, addPage('Other', [[sam, 'full']]), {
       actions: [checklist],
     });
-    const block = (id: string) =>
-      `<!-- carehub:block {"type":"actionButton","attrs":{"buttonId":"${id}"}} -->`;
     const markdown = `Start here\n\n${block(button.id)}\n\n${block(other.id)}\n`;
     const [template] = await test.db
       .insert(tplTemplates)
