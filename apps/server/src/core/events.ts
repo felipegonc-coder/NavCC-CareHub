@@ -14,6 +14,10 @@ import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
  *
  * Names are `<feature>.<thing>.<verb>` (or the short core names in decision 0007, section 2.4).
  * Payloads are IDs plus small facts, never secrets or content. Emit only after the database commit.
+ *
+ * An event says something happened, not who may see it. A handler that shows or sends anything to
+ * people (a notice, a push, a live update) checks each recipient's access when it delivers, and
+ * skips anyone who can't see the page or item now.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface CareHubEvents {}

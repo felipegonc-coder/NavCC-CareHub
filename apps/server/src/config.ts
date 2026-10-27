@@ -1,9 +1,19 @@
+import { isIP } from 'node:net';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 // src/ (source) and dist/ (bundle) sit at the same depth, so this is apps/web/dist in both.
 const defaultWebDistDir = fileURLToPath(new URL('../../web/dist', import.meta.url));
+
+/** An IP address or a CIDR range, such as 172.31.250.2 or 10.0.0.0/8. */
+function isAddressOrRange(entry: string): boolean {
+  const [address = '', bits, ...rest] = entry.split('/');
+  const version = isIP(address);
+  if (version === 0 || rest.length > 0) return false;
+  if (bits === undefined) return true;
+  return /^\d{1,3}$/.test(bits) && Number(bits) <= (version === 4 ? 32 : 128);
+}
 
 const configSchema = z.object({
   PORT: z.coerce.number().int().min(0).max(65_535).default(3000),
@@ -23,6 +33,18 @@ const configSchema = z.object({
   CAREHUB_PUBLIC_URL: z.url({ protocol: /^https?$/ }).optional(),
   /** Secure cookies (only sent over HTTPS). Turn off only for local development over plain HTTP. */
   COOKIE_SECURE: z.stringbool().default(true),
+  /**
+   * The reverse proxy (Caddy) whose X-Forwarded-For, -Proto and -Host headers are believed: an IP
+   * address, a CIDR range or a comma-separated list. Unset: none, so the client is the connection.
+   */
+  TRUST_PROXY: z
+    .string()
+    .transform((value) => value.split(',').map((entry) => entry.trim()))
+    .refine(
+      (entries) => entries.every(isAddressOrRange),
+      'Set TRUST_PROXY to IP addresses or CIDR ranges, separated by commas, such as 172.31.250.2.',
+    )
+    .optional(),
 });
 
 /** Server settings, read from environment variables. */
