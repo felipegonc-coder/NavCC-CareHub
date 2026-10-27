@@ -88,21 +88,21 @@ _Copied from the Notion plan (the source of truth) on 2026-10-26. If they differ
 
 - "Take meeting notes" on any event, or a meeting notes block: agenda, attendees, Zoom link, notes, action items and summary.
 - Private transcription: the speech model runs in your browser, so audio never leaves your computer. Speaker labels. The transcript is private to you.
-- Claude summary (short summary, decisions, action items with owners), off until Nav approves.
+- Claude summary (short summary, decisions, action items with owners), off by default.
 - Shown in the app: tell everyone before recording. Recordings are deleted once the transcript is saved.
-- Later: create Zoom links automatically (needs a Zoom app and Nav's OK), and Teams and Google Meet links.
+- Later: create Zoom links automatically (needs a Zoom app), and Teams and Google Meet links.
 
 ## Claude (Phase 5, built switched off)
 
 - Assistant panel like Notion AI: floating, side panel or full screen. Each person's chats are private. It can read the open page, or search all the pages you can open.
 - Writing help in pages: improve, fix grammar, change tone, shorten, simplify, continue, summarize and draft.
 - Claude fields in databases, for example a summary for each row.
-- Learning help: writing help in blocks, summaries and key points, quiz questions from a lesson, a first draft of a course from a document, and questions about results (needs Nav's OK).
+- Learning help: writing help in blocks, summaries and key points, quiz questions from a lesson, a first draft of a course from a document, and questions about results.
 - An on/off switch for each feature. The API key stays on the server, and nothing runs without it.
 
 ## Learning: Rise + Reach for Customer Care (Phase 4)
 
-Who: Learning builders (Felipe, Meagan), Learning analysts (Laura, Aaron), learners (about 30 agents) and the Care Hub admin (Felipe). Three permissions: build trainings, assign trainings and see training analytics. Full details: PRD: Care Hub Learning (Rise + Reach for Customer Care) (Notion) and Learning feature tracker (Notion).
+Who: Learning builders, Learning analysts, learners and the Care Hub admin. Three permissions: build trainings, assign trainings and see training analytics. Full details: PRD: Care Hub Learning (Rise + Reach for Customer Care) (Notion) and Learning feature tracker (Notion).
 
 ### Studio and blocks
 
@@ -178,14 +178,14 @@ Who: Learning builders (Felipe, Meagan), Learning analysts (Laura, Aaron), learn
 
 ## Needs behind the scenes
 
-- Runs on the ThinkCentre (Ubuntu Server) with one start command, updates itself when a new version is built, and is reachable from anywhere through Tailscale.
-- Handles the whole team (about 30 people) at once, with pages opening in about a second.
+- Runs on the team's own server (Ubuntu Server) with one start command, updates itself when a new version is built, and is reachable from anywhere through Tailscale.
+- Handles about 30 people at once, with pages opening in about a second.
 - Security: passwords stored safely, secure sign-in cookies, permissions checked on the server for every request, uploads checked for type and size, embeds only from approved sites, no custom code blocks, and secrets only in the server's settings file.
-- Privacy: fictional data until Nav approves, Claude off by default, and recordings never leave your computer.
+- Privacy: fictional data while it's being built, Claude off by default, and recordings never leave your computer.
 - Works in Chrome, Edge, Safari and Firefox, on computers, tablets and phones.
 
 ## Go live (Phase 6)
 
-- Put Care Hub on the ThinkCentre, with its own web address through Tailscale.
+- Put Care Hub on the team's server, with its own web address through Tailscale.
 - Import the Learning prototype and Notion exports.
 - Invite the team.
