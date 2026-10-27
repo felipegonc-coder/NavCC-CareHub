@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type HttpMethod, type RequestJson } from '../databases/api';
-import { createFormsClient, DEFAULT_CONFIRMATION, loadFillForm, parseFillForm } from './api';
+import {
+  createFormsClient,
+  DEFAULT_CONFIRMATION,
+  loadFillForm,
+  parseFillForm,
+  publicCoverUrl,
+} from './api';
 import { fillForm, mockFormsClient, NOT_FOUND } from './test-utils';
 
 function fakeRequest(answer: unknown) {
@@ -50,6 +56,7 @@ describe('createFormsClient', () => {
         body: { answers: { 'prop-name': 'Avery Lin' } },
       },
     ]);
+    expect(publicCoverUrl('ab/c')).toBe('/api/forms/public/ab%2Fc/cover');
   });
 
   it('searches people and rows for the pickers', async () => {

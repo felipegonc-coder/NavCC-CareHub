@@ -167,6 +167,11 @@ export function parseFillForm(raw: unknown): FillForm {
 
 const seg = encodeURIComponent;
 
+/** The cover of a form anyone can fill in, for someone not signed in (`/api/files` needs a sign-in). */
+export function publicCoverUrl(code: string): string {
+  return `/api/forms/public/${seg(code)}/cover`;
+}
+
 /** One request through lib/api: the session cookie, JSON and, on changes, the CSRF header. */
 export const apiRequest: RequestJson = <T>(method: HttpMethod, path: string, body?: unknown) => {
   switch (method) {
