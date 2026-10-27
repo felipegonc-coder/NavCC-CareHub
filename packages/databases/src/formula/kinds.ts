@@ -62,6 +62,9 @@ export function propertyType(
       return schema.kindOf(prop) ?? `Property "${prop.name}" has an error.`;
     case 'button':
       return `Property "${prop.name}" is a button, which has no value.`;
+    case 'verification':
+      // Its state as text: "Verified", "Expired" or "Not verified".
+      return TEXT;
   }
 }
 
