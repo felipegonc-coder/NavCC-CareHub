@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { jobsDatabase, layoutProps, PRIORITY, PROPS } from '../test-utils';
 import TableLayout from './layout';
 
@@ -92,6 +92,28 @@ describe('TableLayout selection', () => {
     fireEvent.click(within(bar()).getByRole('button', { name: 'Delete' }));
     expect(props.actions.trashRows).toHaveBeenCalledWith(['row-sink', 'row-heater']);
     expect(screen.queryByRole('toolbar', { name: 'Selected rows' })).toBeNull();
+  });
+
+  it('duplicates the ticked rows, top to bottom, and keeps them ticked', () => {
+    const props = layoutProps();
+    // `duplicateRows` is optional in the view actions for now.
+    const duplicateRows = vi.fn(async () => []);
+    Object.assign(props.actions, { duplicateRows });
+    render(<TableLayout {...props} />);
+    fireEvent.click(tickBox('Annual boiler service'));
+    fireEvent.click(tickBox('Fix kitchen sink leak'));
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Duplicate' }));
+    expect(duplicateRows).toHaveBeenCalledWith(['row-sink', 'row-boiler']);
+    expect(ticked()).toEqual(['row-sink', 'row-boiler']);
+  });
+
+  it('has no Duplicate when the table has no duplicateRows', () => {
+    const props = layoutProps();
+    Object.assign(props.actions, { duplicateRows: undefined });
+    render(<TableLayout {...props} />);
+    fireEvent.click(tickBox('Fix kitchen sink leak'));
+    expect(within(bar()).queryByRole('button', { name: 'Duplicate' })).toBeNull();
+    expect(within(bar()).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
   });
 
   it('sets one property for every ticked row', () => {

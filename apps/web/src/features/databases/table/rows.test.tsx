@@ -23,6 +23,14 @@ const gutterOf = (rowId: string): HTMLElement => {
 const handleOf = (rowId: string, title: string) =>
   within(rowOf(rowId)).getByRole('button', { name: `Row menu for ${title}` });
 const items = () => screen.getAllByRole('menuitem').map((item) => item.textContent);
+/** `duplicateRows` is optional in the view actions for now, so each test says if it's there. */
+const duplicating = (props: { actions: object }) => {
+  const duplicateRows = vi.fn(async () => []);
+  Object.assign(props.actions, { duplicateRows });
+  return duplicateRows;
+};
+const notDuplicating = (props: { actions: object }) =>
+  Object.assign(props.actions, { duplicateRows: undefined });
 
 function tableView(patch: Partial<View> = {}): View {
   const view = jobsDatabase().views[0];
@@ -83,6 +91,7 @@ describe('TableLayout row menu', () => {
   it('opens from the handle without ticking the row: Open, Copy link, Move up and down, Delete', async () => {
     const props = layoutProps();
     const { actions } = props;
+    notDuplicating(props);
     render(<TableLayout {...props} />);
     fireEvent.click(handleOf('row-heater', 'Replace water heater'));
     expect(items()).toEqual(['Open', 'Copy link', 'Move up', 'Move down', 'Delete']);
@@ -114,6 +123,17 @@ describe('TableLayout row menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
     expect(actions.trashRows).toHaveBeenCalledWith(['row-boiler']);
     await waitFor(() => expect(gutterOf('row-drain')).toHaveFocus());
+  });
+
+  it('duplicates the row when the table can, and gives focus back to the row', async () => {
+    const props = layoutProps();
+    const duplicateRows = duplicating(props);
+    render(<TableLayout {...props} />);
+    fireEvent.click(handleOf('row-heater', 'Replace water heater'));
+    expect(items()).toEqual(['Open', 'Duplicate', 'Copy link', 'Move up', 'Move down', 'Delete']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(duplicateRows).toHaveBeenCalledWith(['row-heater']);
+    await waitFor(() => expect(gutterOf('row-heater')).toHaveFocus());
   });
 
   it('copies a link to the row', async () => {
@@ -149,9 +169,9 @@ describe('TableLayout row menu', () => {
   });
 
   it('has no moves in a sorted view, and no handles when read-only', () => {
-    const { unmount } = render(
-      <TableLayout {...layoutProps({ view: tableView({ sorts: byCost }) })} />,
-    );
+    const sorted = layoutProps({ view: tableView({ sorts: byCost }) });
+    notDuplicating(sorted);
+    const { unmount } = render(<TableLayout {...sorted} />);
     fireEvent.click(handleOf('row-drain', 'Unclog bathroom drain'));
     expect(items()).toEqual(['Open', 'Copy link', 'Delete']);
     unmount();
