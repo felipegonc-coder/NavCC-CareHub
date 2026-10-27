@@ -12,6 +12,17 @@ Spec: [page-history-and-trash.md](../plan/specs/page-history-and-trash.md) (chec
 - **Clean-up** (HT-03): the hourly task `history.cleanup` runs in the 3 AM hour (Denver time until workspaces have their own) and deletes unnamed versions older than the workspace's period, counting ages from 3:00 sharp. Then it emits `history.versions.cleaned`.
 - **Deleted pages** (HT-11): `page.deleted` removes their versions.
 
+## Show changes and the preview
+
+- `diffDocs(previous, version)` in `@carehub/extras/history` compares a version with the one before it. Whole blocks are compared first. Blocks of the same type that changed are compared inside: the blocks of a list, quote or table one by one, and the text of a paragraph or heading word by word. A change of marks alone doesn't count as changed text, but its block still shows as changed. `countChanges` gives the number of changes, for "3 changes" in Updates.
+- Labels: `versionLine` ("Today, 3:12 PM · Avery Lin, Sam Ortiz"), `versionDay` (the day groups), `versionDate` ("Oct 20, 3:00 PM"), `versionKindLabel` ("Before Replace all"), `restoreQuestion` and `restoreNote`.
+- `VersionPreview` (`apps/web/src/features/history/`) shows a version read-only. It uses the elements the editor reads when pasting (headings as `<h2>` to `<h4>` with `data-level`, lists, to-dos, quotes, code), so copied blocks keep their formatting (HT-07). With Show changes on (HT-04):
+  - added text is green;
+  - removed text is struck through in red and is never copied;
+  - changed blocks get a bar in the margin;
+  - screen readers hear "added" and "removed".
+    Blocks it can't draw, such as a database, show their name.
+
 ## For other features (`apps/server/src/features/history/index.ts`)
 
 - `saveVersionNow(tx, pageId, { reason, by })` saves a version right away. Call it in the transaction that replaces the content, before the change: a rollback drops the version too. `reason` is `'restore' | 'import' | 'template' | 'replace' | 'accept_all' | 'automation'`; `by` is the person, or null for automations. It returns `{ id, pageId, kind, createdAt }`, or null when the page has no versions (missing, in Trash, a database). Until the page model and the content API are on main it always returns null and runs no queries. In tests, mock `../history` and check the call.
