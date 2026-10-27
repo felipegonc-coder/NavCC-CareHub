@@ -120,8 +120,9 @@ export type ReviewReminderNotice = {
 };
 
 /**
- * The reminder to check a course, with one button that opens it in Studio. It names the course only when the
- * author can open it (`canOpen`, decision 0313).
+ * The reminder to check a course, with one button that opens it in Studio. The title is the same for every
+ * course (notice titles never carry one); the text names the course only when the author can open it
+ * (`canOpen`, decision 0313).
  */
 export function reviewReminderNotice(
   course: { id: string; title: string },
@@ -131,7 +132,7 @@ export function reviewReminderNotice(
   const months = everyMonths === 1 ? 'a month' : `${everyMonths} months`;
   const named = `“${course.title.trim() || 'Untitled course'}”`;
   return {
-    title: options.canOpen ? `Time to check ${named}` : 'Time to check a course',
+    title: 'Time to check a course',
     text: `It's been ${months} since ${options.canOpen ? named : 'one of your courses'} was published or last checked. Make sure it's still right, and publish any changes.`,
     buttons: [
       {

@@ -124,7 +124,7 @@ describe('review links and comments', () => {
   it('names the course in the reminder only to authors who can open it', () => {
     const course = { id: 'course-1', title: 'Calls with care' };
     expect(reviewReminderNotice(course, 12, { canOpen: true })).toEqual({
-      title: 'Time to check “Calls with care”',
+      title: 'Time to check a course',
       text: "It's been 12 months since “Calls with care” was published or last checked. Make sure it's still right, and publish any changes.",
       buttons: [{ label: 'Open in Studio', href: '/learning/studio/courses/course-1' }],
     });
