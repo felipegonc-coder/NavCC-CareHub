@@ -137,7 +137,7 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 
 ### 3.5 Text formatting and links
 
-- **Formatting:** bold, italic, underline, strikethrough, inline code, text color, background color, link, inline equation and comment. Selecting text shows a toolbar: Turn into ▾, Link, Comment, B, I, U, S, Code, Equation, Color ▾ and "…" (Copy link to block, Mention, Ask Claude in Phase 5). Inline code ignores other formatting.
+- **Formatting:** bold, italic, underline, strikethrough, inline code, text color, background color, link, inline equation and comment. Selecting text shows a toolbar: Turn into ▾, Link, Comment, B, I, U, S, Code, Equation, Color ▾ and "…" (Copy link to block, Mention, Ask Claude when Writing help is on, as in Claude features). Inline code ignores other formatting.
 - **Links:** to web addresses (http, https, mailto and tel only; anything else is refused) or to Care Hub pages and blocks. Ctrl+K with text selected opens the link editor: paste an address, or type to search pages. Hovering a link shows its address with Copy, Edit and Remove. Clicking opens it: web links in a new tab, Care Hub links in the same tab (Ctrl-click: new tab).
 - **Auto-format while typing:** `**bold**`, `*italic*` or `_italic_`, `~strike~`, text between two backticks (code), and arrows and dashes: `->` becomes →, `<-` ←, `<->` ↔, `=>` ⇒, `--` — . Ctrl+Z right after undoes it.
 
