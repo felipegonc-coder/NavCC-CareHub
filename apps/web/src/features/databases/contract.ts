@@ -154,7 +154,10 @@ export interface RowPlace {
   toSubGroupKey?: string;
 }
 
-/** Everything a layout may change. Each one shows at once and rolls back if the server refuses. */
+/**
+ * Everything a layout may change. Each change shows at once. If the server refuses, it rolls back,
+ * the shell says why in a toast, and the promise rejects with the error (nothing more to show).
+ */
 export interface ViewActions {
   /** Opens the row where the view says ("Open pages in"), or in `mode`. */
   openRow(rowId: Id, mode?: OpenMode): void;
@@ -162,11 +165,18 @@ export interface ViewActions {
   createRow(input?: NewRow): Promise<Row>;
   /** Changed properties only. A null value clears it; the Name property's value is the title. */
   updateValues(rowId: Id, values: Partial<Record<Id, unknown>>): Promise<Row>;
-  /** Moves the rows to Trash (the shell offers Undo). */
+  /** Moves the rows to Trash; the shell offers Undo for 8 seconds. */
   trashRows(rowIds: readonly Id[]): Promise<void>;
-  /** Manual order and moves between groups (the shell changes the grouped value). */
+  /**
+   * Manual order, and moves between groups: the shell writes the value of the group (and lane) the
+   * row lands in. A group that can't set a value (dates, formulas, "Rows you can't open") keeps the
+   * row where it was, and sorted views keep their order.
+   */
   moveRow(rowId: Id, place: RowPlace): Promise<void>;
-  /** Saves view settings for everyone (only with edit_views; otherwise use setOverride). */
+  /**
+   * View settings. With edit_views they're saved for everyone; for anyone else the filter, sorts
+   * and grouping become "Changed for you only" (as setOverride) and the rest is left out.
+   */
   updateView(patch: Partial<View>): Promise<void>;
   /** "Changed for you only": filter, sorts or grouping on top of the saved view. Never saved. */
   setOverride(override: ViewOverride | null): void;
@@ -179,6 +189,10 @@ export interface LayoutProps {
   meta: DatabaseMeta;
   /** The saved view with the viewer's "Changed for you only" override applied. */
   view: View;
+  /**
+   * Table, list, gallery and feed layouts always get rows: without any, the shell shows "No rows
+   * yet." or "No rows match." instead. The other layouts draw their frame without rows.
+   */
   data: ViewData;
   viewer: Viewer;
   actions: ViewActions;
