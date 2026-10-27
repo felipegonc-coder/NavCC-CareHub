@@ -21,6 +21,9 @@ COPY --from=manifests /out/ ./
 # commit, once the repo bot has updated the lockfile.
 RUN npm ci --ignore-scripts
 COPY . .
+# The web app's build ID (see apps/web/vite.config.ts). Same build arg as the runtime stage below:
+# the collab server refuses pages to a tab from another build.
+ARG CAREHUB_VERSION=0.0.0-dev
 RUN npm run build
 RUN test -f apps/server/dist/index.js && test -f apps/web/dist/index.html \
  && mkdir -p /app/apps/server /app/apps/web \

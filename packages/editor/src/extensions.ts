@@ -14,11 +14,17 @@ import { UndoShortcut } from './undo-shortcut';
 
 export const DEFAULT_PLACEHOLDER = "Type '/' for commands";
 
-/** Only plain CSS color syntax, so another person's color can't inject styles. */
-const safeColor = (color: unknown) =>
-  typeof color === 'string' && /^(#[\da-f]{3,8}|(rgb|hsl)a?\([\d\s.,%/]+\))$/i.test(color)
-    ? color
-    : 'currentColor';
+/** Design kit color names, like `blue`: the collab server picks one for each person. */
+const COLOR_NAME = /^(gray|brown|orange|yellow|green|blue|purple|pink|red)$/;
+/** Plain CSS color syntax only. */
+const CSS_COLOR = /^(#[\da-f]{3,8}|(rgb|hsl)a?\([\d\s.,%/]+\))$/i;
+
+/** A color name or a plain CSS color, so another person's color can't inject styles. */
+const safeColor = (color: unknown) => {
+  if (typeof color !== 'string') return 'currentColor';
+  if (COLOR_NAME.test(color)) return `rgb(var(--ch-${color}-text))`;
+  return CSS_COLOR.test(color) ? color : 'currentColor';
+};
 
 /** Another person's caret, with their name. Built from text nodes only (no HTML). */
 export function renderCaret(user: Record<string, unknown>): HTMLElement {
