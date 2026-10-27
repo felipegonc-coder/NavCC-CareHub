@@ -41,6 +41,7 @@ These follow the 0007 names. Until one is on main, build against a stand-in in y
 - **Databases** (`features/databases/api.ts`):
   - `readRowText(db, { userId, rowId, propertyIds })`, `createRow`, `updateRows`, `createRows(tx, { databaseId, rows, actorUserId, source: 'import' })` and `exportViewCsv(db, { userId, databaseId, viewId })`.
   - `createDatabase(tx, definition)` and `duplicateDatabase(tx, { databaseId, parentId, includeRows, by })`.
+  - Knowledge base: `wiki: boolean` on DatabaseMeta (false unless set; `createDatabase` takes `wiki: true`, and only people with full access change it). Drafts (KB-03) use `registerRowAccessLimiter('wiki', limiter)` (decision 0200, #238), called once at startup. `limiter({ databaseId, row: { id, values, createdBy }, properties, userId, level })` returns an access level. It's synchronous with no I/O and can only lower `level`. It runs after the row rules on wiki databases, so drafts are hidden in views, counts, search, links, mentions, backlinks and notices, and direct requests get a 403. We decide what Draft, Published and owner mean (the owner's Person value is in `row.values`); an editor is `level` edit or higher.
   - Packages: `@carehub/databases/buttons`, `/templates`, `/csv`, and `/xlsx` (after the #212 fix).
   - The rows builder W2-2 owns the server functions.
 
