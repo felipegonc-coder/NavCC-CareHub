@@ -15,7 +15,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint . --max-warnings=0",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test -w packages --if-present && DEBUG_PRINT_LIMIT=1500 npm run test -w apps --if-present",
     "build": "npm run build --workspaces --if-present",
     "e2e": "npm run e2e --workspaces --if-present",
     "format": "prettier --write .",
