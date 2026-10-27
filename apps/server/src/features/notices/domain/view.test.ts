@@ -29,10 +29,8 @@ const coachingPlanCard: PageCardInfo = {
 };
 const standUp: EventCardInfo = {
   title: 'Weekly stand-up',
-  start: '2026-11-02T14:00:00.000Z',
-  end: '2026-11-02T14:30:00.000Z',
-  allDay: false,
-  href: '/calendar?event=evt_42',
+  when: 'Mon, Nov 2 · 9:00–9:30 AM',
+  href: '/calendar?event=evt_42&occurrence=2026-11-02',
 };
 
 function lookups(
@@ -118,7 +116,7 @@ describe('viewCard', () => {
       type: 'event',
       state: 'locked',
     });
-    expect(viewCard(card, lookups([], [['evt_42', 'deleted']]))).toStrictEqual({
+    expect(viewCard(card, lookups([], [['evt_42|', 'deleted']]))).toStrictEqual({
       type: 'event',
       state: 'deleted',
     });
@@ -150,8 +148,8 @@ describe('collectCardRefs', () => {
   });
 
   it('keys events by ID and occurrence', () => {
-    expect(eventCardKey({ eventId: 'evt_42' })).toBe('evt_42');
-    expect(eventCardKey({ eventId: 'evt_42', occurrenceStart: null })).toBe('evt_42');
+    expect(eventCardKey({ eventId: 'evt_42' })).toBe('evt_42|');
+    expect(eventCardKey({ eventId: 'evt_42', occurrenceStart: null })).toBe('evt_42|');
     expect(eventCardKey({ eventId: 'evt_42', occurrenceStart: '2026-11-02' })).toBe(
       'evt_42|2026-11-02',
     );

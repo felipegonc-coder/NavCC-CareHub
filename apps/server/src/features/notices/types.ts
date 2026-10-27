@@ -1,8 +1,38 @@
 // The notices contract (decision 0007, section 4.4). Other lanes code against these names: keep
 // them exactly as they are and only ever add optional fields.
 
-/** What kind of notice it is. Each kind has its own default icon in the chat. */
-export const NOTICE_KINDS = ['reminder', 'alert', 'mention', 'comment', 'automation'] as const;
+/**
+ * What kind of notice it is. Each kind has its own default icon in the chat, and the kind decides
+ * which filter chip shows it (domain/filters.ts):
+ * - `reminder`: a reminder is due.
+ * - `alert`: something needs the person's attention, such as a sign-in from a new device.
+ * - `mention`: someone mentioned the person in a page or comment.
+ * - `comment`: a new comment on a page the person follows.
+ * - `automation`: an automation ran, or failed.
+ * - `reply`: a reply in a comment thread the person is in.
+ * - `suggestion`: a suggested edit on a page the person follows.
+ * - `suggestion_accepted`, `suggestion_rejected`: what happened to the person's suggestion.
+ * - `edit_summary`: a summary of recent edits to a page the person follows.
+ * - `shared`: a page was shared with the person.
+ * - `access_request`: someone asked for access to a page the person can share.
+ * - `import`, `export`: an import or export the person started has finished, or failed.
+ */
+export const NOTICE_KINDS = [
+  'reminder',
+  'alert',
+  'mention',
+  'comment',
+  'automation',
+  'reply',
+  'suggestion',
+  'suggestion_accepted',
+  'suggestion_rejected',
+  'edit_summary',
+  'shared',
+  'access_request',
+  'import',
+  'export',
+] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
@@ -69,12 +99,23 @@ export interface SendNoticeInput {
    * that notice is updated in place (new content, unread again, moved to latest, count + 1).
    */
   groupKey?: string;
+  /**
+   * Makes retries safe: when this person already got a notice with this key in this workspace,
+   * nothing is added and the result has that notice's ID with `duplicate: true`. A key lasts as
+   * long as its notice. For example `reminders:<reminderId>:<dueAt>`.
+   */
+  idempotencyKey?: string;
 }
 
 export interface SendNoticeResult {
+  /** The notice's ID; empty when it was dropped. */
   noticeId: string;
   /** True when a recent notice with the same group key was updated instead of adding one. */
   grouped: boolean;
+  /** Set when a notice with the same idempotency key was already sent: nothing changed. */
+  duplicate?: true;
+  /** Set when the person isn't in the workspace (any more): nothing was saved. */
+  dropped?: true;
 }
 
 export type SendNotice = (input: SendNoticeInput) => Promise<SendNoticeResult>;
@@ -136,10 +177,8 @@ export type NoticeCardView =
       occurrenceStart: string | null;
       href: string;
       title: string;
-      /** ISO instant, or `YYYY-MM-DD` when `allDay`. */
-      start: string;
-      end: string | null;
-      allDay: boolean;
+      /** When it happens, worded by Calendar for this reader, such as "Tue, Oct 28 · 3:00 PM". */
+      when: string | null;
     }
   /** "🔒 A page you can't open" or "This page was deleted": no ID, title or anything else. */
   | { type: 'page' | 'event'; state: 'locked' | 'deleted' };
@@ -167,4 +206,24 @@ export interface NoticeView {
   createdAt: string;
   latestAt: string;
   read: boolean;
+}
+
+/** GET /api/notices: one page of the chat, newest first. */
+export interface NoticeListResponse {
+  notices: NoticeView[];
+  /** Pass it as `before` to get the next, older page; null when there's none. */
+  nextCursor: number | null;
+  unread: number;
+}
+
+/** GET /api/notices/unread, and what the mark-as-read routes return. */
+export interface NoticeUnreadResponse {
+  unread: number;
+}
+
+/** POST /api/notices/:id/actions. */
+export interface NoticeActionResponse {
+  /** The handler's confirmation, such as "Snoozed for 1 hour". */
+  message: string | null;
+  unread: number;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SendNoticeInput } from '../types';
+import { NOTICE_KINDS, type SendNoticeInput } from '../types';
 import { isRelativeHref, NOTICE_LIMITS, NoticeInputError, parseSendNoticeInput } from './validate';
 
 // Care Team Demo, Avery Lin, Sam Ortiz and the "Coaching plan – Q4" page.
@@ -45,6 +45,7 @@ describe('parseSendNoticeInput', () => {
       card: null,
       buttons: [],
       groupKey: null,
+      idempotencyKey: null,
     });
   });
 
@@ -72,8 +73,15 @@ describe('parseSendNoticeInput', () => {
         { label: 'Done', action: 'reminders.done', value: 'r-1' },
       ],
       groupKey: `comments:${coachingPlan}`,
+      idempotencyKey: 'reminders:r-1:2026-11-02T09:00',
     };
     expect(parseSendNoticeInput(input)).toEqual(input);
+  });
+
+  it('accepts every kind', () => {
+    for (const kind of NOTICE_KINDS) {
+      expect(parseSendNoticeInput({ ...minimal, kind }).kind).toBe(kind);
+    }
   });
 
   it('accepts event cards, with or without one occurrence', () => {
@@ -89,10 +97,17 @@ describe('parseSendNoticeInput', () => {
   });
 
   it('treats blank optional text as absent', () => {
-    const notice = parseSendNoticeInput({ ...minimal, icon: ' ', text: '', groupKey: '  ' });
+    const notice = parseSendNoticeInput({
+      ...minimal,
+      icon: ' ',
+      text: '',
+      groupKey: '  ',
+      idempotencyKey: '',
+    });
     expect(notice.icon).toBeNull();
     expect(notice.text).toBeNull();
     expect(notice.groupKey).toBeNull();
+    expect(notice.idempotencyKey).toBeNull();
   });
 
   it('allows text up to the limits', () => {
@@ -102,8 +117,10 @@ describe('parseSendNoticeInput', () => {
       title: 't'.repeat(NOTICE_LIMITS.title),
       text: 'x'.repeat(NOTICE_LIMITS.text),
       groupKey: 'k'.repeat(NOTICE_LIMITS.groupKey),
+      idempotencyKey: 'i'.repeat(NOTICE_LIMITS.idempotencyKey),
     });
     expect(notice.text).toHaveLength(NOTICE_LIMITS.text);
+    expect(notice.idempotencyKey).toHaveLength(NOTICE_LIMITS.idempotencyKey);
   });
 
   const rejected: [name: string, change: Record<string, unknown>, path: string][] = [
@@ -115,6 +132,11 @@ describe('parseSendNoticeInput', () => {
     ['a title over the limit', { title: 't'.repeat(NOTICE_LIMITS.title + 1) }, 'title'],
     ['text over the limit', { text: 'x'.repeat(NOTICE_LIMITS.text + 1) }, 'text'],
     ['a bad actor ID', { actorUserId: 'sam' }, 'actorUserId'],
+    [
+      'an idempotency key over the limit',
+      { idempotencyKey: 'i'.repeat(NOTICE_LIMITS.idempotencyKey + 1) },
+      'idempotencyKey',
+    ],
     ['a fourth button', { buttons: Array.from({ length: 4 }, () => open) }, 'buttons'],
     [
       'a link to another site',

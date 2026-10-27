@@ -39,10 +39,8 @@ export interface PageCardInfo {
 /** What a reader who can open the event sees on its card (from the Calendar feature). */
 export interface EventCardInfo {
   title: string;
-  /** ISO instant, or `YYYY-MM-DD` when `allDay`. */
-  start: string;
-  end: string | null;
-  allDay: boolean;
+  /** When it happens, worded for this reader, such as "Tue, Oct 28 · 3:00 PM". */
+  when: string | null;
   href: string;
 }
 
@@ -62,9 +60,12 @@ export interface EventCardRef {
   occurrenceStart: string | null;
 }
 
-/** Event IDs never contain '|', so this can't mix up an event with another's occurrence. */
+/**
+ * `<eventId>|<occurrenceStart>`, or `<eventId>|` for the whole event. Event IDs never contain
+ * '|', so one event's key can't be mistaken for another's.
+ */
 export function eventCardKey(card: { eventId: string; occurrenceStart?: string | null }): string {
-  return card.occurrenceStart ? `${card.eventId}|${card.occurrenceStart}` : card.eventId;
+  return `${card.eventId}|${card.occurrenceStart ?? ''}`;
 }
 
 /** The pages and events these notices' cards point at, each once. */
@@ -116,9 +117,7 @@ export function viewCard(card: NoticeCard | null, lookups: CardLookups): NoticeC
     occurrenceStart: card.occurrenceStart ?? null,
     href: event.href,
     title: event.title,
-    start: event.start,
-    end: event.end,
-    allDay: event.allDay,
+    when: event.when,
   };
 }
 
