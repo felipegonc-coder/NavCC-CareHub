@@ -97,7 +97,9 @@ describe('PagesSidebar', () => {
   it('shows each space, then Private; Shared stays hidden while empty', async () => {
     renderSidebar();
     const spacesSection = await screen.findByRole('group', { name: 'Spaces' });
-    expect(within(spacesSection).getByRole('button', { name: 'General' })).toHaveAttribute(
+    const general = within(spacesSection).getByRole('group', { name: 'General' });
+    expect(within(general).getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    expect(within(general).getByRole('button', { name: 'General' })).toHaveAttribute(
       'aria-expanded',
       'true',
     );
