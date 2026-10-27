@@ -3,7 +3,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations } from '../../../db/migrate';
 import { createTestDatabase, hasDatabase } from '../../../testing';
-import { learningCourses, learningCourseVersions } from './schema';
+import { learningBlockTemplates, learningCourses, learningCourseVersions } from './schema';
 
 describe.skipIf(!hasDatabase)('Learning course tables', () => {
   let pool: pg.Pool;
@@ -22,7 +22,7 @@ describe.skipIf(!hasDatabase)('Learning course tables', () => {
   });
 
   it('are created exactly as the Drizzle definitions describe them', async () => {
-    for (const table of [learningCourses, learningCourseVersions]) {
+    for (const table of [learningCourses, learningCourseVersions, learningBlockTemplates]) {
       const config = getTableConfig(table);
       const { rows } = await pool.query<{
         name: string;
