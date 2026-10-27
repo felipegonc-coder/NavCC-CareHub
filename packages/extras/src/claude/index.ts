@@ -104,3 +104,11 @@ export const CLAUDE_ERRORS: Readonly<Record<ClaudeErrorReason, ClaudeErrorInfo>>
     message: "Claude's answer couldn't be used. Try again.",
   },
 };
+
+export {
+  MEETING_SUMMARY_LIMITS,
+  meetingActionItemSchema,
+  meetingSummarySchema,
+  type MeetingActionItem,
+  type MeetingSummary,
+} from './meeting';

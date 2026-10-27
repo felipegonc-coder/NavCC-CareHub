@@ -1,5 +1,6 @@
 import type { Db, Tx } from '../../../db';
 import { readClaudeSettings, type ClaudeSettings } from './settings';
+import { getWorkspaceSetting } from './workspace-settings';
 
 /** All the client ever logs: Anthropic's status (0 when nothing came back) and an error type. */
 export interface ClaudeLogDetails {
@@ -34,11 +35,12 @@ export interface ClaudeRuntime {
   now: () => Date;
 }
 
-// stand-in: workspace settings (S1's 1c) and roles (#55) aren't on main yet. Until the Settings →
-// Claude PR binds the real checks, every switch reads as off and nobody has claude.use, so nothing
+// The switches and the OK are what Admins save in Settings → Claude (server/workspace-settings.ts).
+// stand-in: roles (#55) aren't on main yet. Until they're bound, nobody has claude.use, so nothing
 // is ever sent.
 const standInAccess: ClaudeAccess = {
-  isSettingOn: async () => false,
+  isSettingOn: async (db, workspaceId, key) =>
+    (await getWorkspaceSetting(db, workspaceId, key)) === true,
   canUseClaude: async () => false,
 };
 
@@ -64,8 +66,9 @@ export function claudeRuntime(): ClaudeRuntime {
 }
 
 /**
- * Replaces parts of Claude's runtime: the app binds its log, the Settings → Claude PR binds the real
- * access checks, the page model binds `pages`, and tests bind fakes. The returned function puts back what was there before.
+ * Replaces parts of Claude's runtime: the app binds its log, the roles PR binds canUseClaude, the
+ * page model binds `pages`, and tests bind fakes. The returned function puts back what was there
+ * before.
  */
 export function configureClaude(next: Partial<ClaudeRuntime>): () => void {
   const previous = current;

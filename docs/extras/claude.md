@@ -14,15 +14,19 @@ A request goes out only when all of these hold:
 4. The person has `claude.use`. Guests never do.
 5. The person can open every page and row whose text is sent.
 
-Switch and approval changes go to the Security log (`logSecurityEvent`).
+Switch and approval changes go to the Security log (`logSecurityEvent`; for now the app log, see below).
 
 ## Server API (`apps/server/src/features/claude/index.ts`)
 
-- `isClaudeFeatureOn(db, workspaceId, feature): Promise<boolean>` checks the key, the approval and the switch.
+- `isClaudeFeatureOn(db, workspaceId, feature): Promise<boolean>` checks the key, the approval and the switch. `claudeFeaturesOn(db, workspaceId)` does it for every feature at once.
 - `askClaude(db, { workspaceId, userId, feature, system, instruction, documents?, selection?, maxTokens? }): Promise<{ text }>`
 - `askClaudeJson(db, { ...the same, schema }): Promise<{ data }>` asks for JSON and checks it with the caller's zod schema. If it doesn't match, it throws `bad_output`.
 - `ClaudeError` has `reason` (`ClaudeErrorReason`) and plain-words `message`. Routes answer `CLAUDE_ERRORS[reason]` with `details: { reason }`.
-- `summarizeMeeting(db, { userId, workspaceId, notesPageId, agenda, notes, actionItems, attendees, transcript? })` is for Meetings. Its result goes to nobody who can't open the notes.
+- `summarizeMeeting(db, { userId, workspaceId, notesPageId, agenda, notes, actionItems, attendees, transcript? }): Promise<MeetingSummary>` is for Meetings.
+  - `MeetingSummary` is `{ summary, decisions: string[], actionItems: { text, owner?, due? }[] }`, checked with `meetingSummarySchema` from `@carehub/extras/claude`. `due` is YYYY-MM-DD; an owner or date Claude can't give properly is left out.
+  - It's plain text: show it as text, never as HTML.
+  - The person must be able to open the notes page, and the result goes to nobody who can't open the notes.
+  - A long transcript is cut to fit; the agenda and notes always go in whole.
 - `fillClaudeFields(db, { userId, databaseId, propertyId, rowIds })` is for the Databases field type, once it lands.
 
 The `documents` are `{ title, text }` pairs the **server** loaded by ID after the access check. A caller never passes text a client says came from a page; only the person's own selection comes from the client. The model and the largest `max_tokens` are set on the server. `maxTokens` can only lower that limit for one feature.
@@ -34,7 +38,27 @@ The numbers (core PR 1):
 - The monthly cap counts the calendar month in America/Denver.
 - Every request sent is a row in `claude_usage`, failures included. Refusals before sending aren't.
 
-Until Settings → Claude binds the real checks with `configureClaude`, every switch reads as off and nobody has `claude.use`, so nothing is sent. Tests bind fakes the same way and put the old ones back with the function `configureClaude` returns.
+The switches and the OK are what Admins save in Settings → Claude. Until the roles PR (#55) binds `canUseClaude` with `configureClaude`, nobody has `claude.use`, so nothing is sent. Until the page model (#49) binds `pages`, no page counts as open. Tests bind fakes the same way and put the old ones back with the function `configureClaude` returns.
+
+## Settings → Claude (`/api/claude`)
+
+Every route needs a signed-in person (401 otherwise). The shapes are in `@carehub/extras/claude/settings`.
+
+- `GET /status` answers `ClaudeStatus`, `{ on: { writing_help, assistant, fields, meeting_summary, learning_help } }`: what the person can use in their workspace now (the key, the OK, the switch and `claude.use`). The web app asks every 5 seconds and hides what's off, so a feature switched off disappears within 5 seconds.
+- `GET /settings` answers `ClaudeSettingsView`, for the workspace's Admins only (403 for anyone else):
+  - `keySet` says whether the server has the key. The key itself never leaves the server.
+  - `model`, `navApproved`, `switches`, and `chatRetentionDays`: null for kept until deleted (CL-D3), or 30, 90 or 365.
+  - `usage`: `month` (YYYY-MM in America/Denver), `requests`, `monthlyRequests` and `byFeature`.
+- `PUT /settings` takes `ClaudeSettingsUpdate`, also Admins only: any of `navApproved`, some or all `switches`, and `chatRetentionDays`. Anything else is 400 `invalid`.
+  - Only what changed is saved, in one transaction.
+  - Each change is one security log line, `{ event: 'claude.setting_changed', workspaceId, userId, key, value }`.
+  - It answers with the new `ClaudeSettingsView`.
+
+Stand-ins until other lanes land (core PR 3):
+
+- **Workspace settings (accounts 1c):** they're kept in `claude_settings`, through `getWorkspaceSetting` and `setWorkspaceSetting` with the names 1c will use. A missing row means off. A later migration moves the rows across.
+- **Members (#55):** until the roles PR calls `bindClaudeMembers(lookup)`, nobody is a member, so the status is all off and the settings answer 403.
+- **Security log (S2):** until `logSecurityEvent` lands, the lines go to the app log under `security`.
 
 ## Security rules (security reviewer, Oct 27)
 
