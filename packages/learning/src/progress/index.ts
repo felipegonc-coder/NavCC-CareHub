@@ -2,7 +2,33 @@
 // See the B3 section of docs/learning/PLAN.md.
 export { ProgressEventSchema } from './schema';
 export type { NewProgressEvent, ProgressEvent, ProgressEventType } from './schema';
-export { MAX_ACTIVE_SECONDS_PER_EVENT, reduceProgress } from './reduce';
+export { MAX_ACTIVE_SECONDS_PER_EVENT, checkProgressEvents, reduceProgress } from './reduce';
+export type { CheckedProgressEvents } from './reduce';
+export {
+  LearnerCourseStateSchema,
+  MAX_EVENTS_PER_LEARNER_COURSE,
+  MAX_EVENTS_PER_REQUEST,
+  ProgressEventsRequestSchema,
+  ProgressEventsResponseSchema,
+  ProgressNoteRequestSchema,
+  QuizAttemptStartRequestSchema,
+  progressEventsReply,
+} from './api';
+export type {
+  ProgressEventsRequest,
+  ProgressEventsResponse,
+  ProgressNoteRequest,
+  QuizAttemptStartRequest,
+} from './api';
+export { quizAttemptStart, quizSubmissionTime } from './attempts';
+export type { QuizAttemptStart } from './attempts';
+export { courseUpdateFor, withManualCompletion } from './updates';
+export type {
+  CourseUpdate,
+  CourseUpdateNotice,
+  CourseUpdateNotify,
+  ManualCompletion,
+} from './updates';
 export { canCompleteLesson, nextLesson, visibleBlocks } from './gating';
 export type { CanCompleteLesson, LessonBlocker } from './gating';
 export type {

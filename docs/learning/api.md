@@ -19,12 +19,12 @@ analytics = `learning.analytics` (managers see their own teams).
 | B1 | POST `/studio/courses/:id/duplicate`, `/archive`, `/unarchive` | build | → CourseSummary |
 | B1 | GET `/studio/examples`; GET, POST `/studio/block-templates`, DELETE `/studio/block-templates/:id` | build | example courses to copy; { name, blocks } |
 | B1 | GET `/catalog?q=&topic=` | anyone | → CatalogEntry[] (live, listed, not archived) |
-| B1 | GET `/courses/:id` | anyone | → { course (the version of the learner's latest run, else live, 0311; learner view: `learnerCourse(course)` removes graded quiz questions and bank-draw copies, decision 0302), version } (hidden courses open by link; drafts never) |
+| B1 | GET `/courses/:id` | anyone | → { course (the version of the learner's latest run, else live, 0311; learner view: `learnerCourse(course)` removes the questions and bank-draw copies of every quiz lesson, surveys too, and adds `questionCount`, decisions 0302 and 0314), version } (hidden courses open by link; drafts never) |
 | B1 | POST, GET `/studio/courses/:id/review-links`, DELETE `/studio/review-links/:linkId` | build | → { id, url, expiresAt } (url `/learning/review#<token>`, token shown once) / list without tokens; DELETE stops sharing |
 | B1 | GET `/review`, POST `/review/comments` (token in the `X-Review-Token` header, 0309) | signed in, with the link | → { course (draft), comments } / { lessonId, blockId?, body } → Comment |
 | B1 | GET `/studio/courses/:id/comments` (+ `.csv`), PATCH `/studio/comments/:id` | build | → Comment[] / { resolved } |
 | B3 | GET `/courses/:id/progress`, POST `/courses/:id/events` | the learner | → LearnerCourseState / { events } → { state, rejected } (idempotent by event id) |
-| B3 | POST `/courses/:id/quizzes/:lessonId/attempts` | the learner | → { attemptId, questions: QuizPaperQuestion[] } (the server plans the attempt with its own seed, records quiz_attempt_started and sends the question paper with no answers; browsers never send quiz_attempt_started; decision 0302) |
+| B3 | POST `/courses/:id/quizzes/:lessonId/attempts` | the learner | → { attemptId, questions: QuizPaperQuestion[] } (the server plans the attempt with its own seed, records quiz_attempt_started and sends the question paper with no answers; browsers never send quiz_attempt_started; decisions 0302 and 0314) |
 | B3 | POST `/people/:personId/courses/:courseId/reset`, `.../complete` | assign (0312) | { note? } → state |
 | B3 | GET `/certificates`, GET `/certificates/:id` | the learner, analytics | → Certificate[] / Certificate |
 | B3 | GET `/paths/:id`; GET, POST `/studio/paths`, GET, PUT, DELETE `/studio/paths/:id` | anyone / build | → { path, progress } / LearningPath |

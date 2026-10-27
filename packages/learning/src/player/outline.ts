@@ -1,4 +1,5 @@
-import type { Course, Id, Lesson } from '../format/index';
+import type { Id } from '../format/index';
+import type { PlayerCourse, PlayerLesson } from './course';
 import { lessonHref } from './links';
 
 /** A lesson's state in the outline. The progress module decides it; "locked" happens only when lessons are in order. */
@@ -18,7 +19,7 @@ export type OutlineRow = {
   number: number;
   title: string;
   icon?: string;
-  kind: Lesson['kind'];
+  kind: PlayerLesson['kind'];
   status: OutlineLessonStatus;
   /** The status in plain words, for screen readers and tooltips. */
   statusText: string;
@@ -43,7 +44,7 @@ const STATUS_TEXT: Readonly<Record<OutlineLessonStatus, string>> = {
  * locked lessons, the reason in plain words (for example `Finish "Escalations" first.`).
  */
 export function courseOutline(
-  course: Pick<Course, 'id' | 'lessons' | 'settings'>,
+  course: Pick<PlayerCourse, 'id' | 'lessons' | 'settings'>,
   progress?: OutlineProgress | null,
   currentLessonId?: Id,
 ): CourseOutline {
@@ -51,7 +52,7 @@ export function courseOutline(
     (progress?.lessons ?? []).map((entry) => [entry.lessonId, entry.status] as const),
   );
   const inOrder = course.settings.lessonOrder === 'sequential';
-  let firstUnfinished: Lesson | undefined;
+  let firstUnfinished: PlayerLesson | undefined;
   let completed = 0;
   const rows = course.lessons.map((lesson, index): OutlineRow => {
     const blocker = firstUnfinished;
@@ -81,7 +82,7 @@ export function courseOutline(
 }
 
 /** The lesson before `lessonId` in the course, for the Previous button; null for the first lesson or an unknown id. */
-export function previousLessonId(course: Pick<Course, 'lessons'>, lessonId: Id): Id | null {
+export function previousLessonId(course: Pick<PlayerCourse, 'lessons'>, lessonId: Id): Id | null {
   const index = course.lessons.findIndex((lesson) => lesson.id === lessonId);
   return index > 0 ? (course.lessons[index - 1]?.id ?? null) : null;
 }

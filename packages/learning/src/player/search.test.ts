@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Course } from '../format/index';
+import { learnerCourse } from '../quiz/index';
 import {
   buildCourseSearchIndex,
   searchCourse,
@@ -130,6 +131,13 @@ describe('searchCourse', () => {
   it('searches quiz lessons by title and intro', () => {
     expect(places('check your knowledge')).toEqual(['l-quiz']);
     expect(places('five questions')).toEqual(['l-quiz']);
+  });
+
+  it('finds the same in the learner view, whose quiz lessons have no questions', () => {
+    const learner = learnerCourse(helpDesk);
+    for (const query of ['five questions', 'refund', 'escalat']) {
+      expect(searchCourse(learner, query)).toEqual(searchCourse(helpDesk, query));
+    }
   });
 
   it('ignores punctuation at the edges of words and repeated words', () => {

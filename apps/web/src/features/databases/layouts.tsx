@@ -11,7 +11,7 @@ export type LayoutComponent =
  * that takes LayoutProps, so parallel pull requests never edit the same lines.
  */
 export const LAYOUTS: Record<ViewLayout, LayoutComponent> = {
-  table: lazy(() => import('./shell/not-built')),
+  table: lazy(() => import('./table/layout')),
 
   board: lazy(() => import('./shell/not-built')),
 

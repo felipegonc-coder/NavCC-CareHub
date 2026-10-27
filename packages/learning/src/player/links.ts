@@ -1,5 +1,6 @@
-import type { ButtonTarget, Course, Id, Link } from '../format/index';
+import type { ButtonTarget, Id, Link } from '../format/index';
 import { ID_PATTERN, LinkUrlSchema } from '../format/index';
+import type { PlayerCourse } from './course';
 
 /**
  * Where a rich-text link or a button goes. `external` is an https: or mailto: address (https opens in a new tab),
@@ -50,7 +51,7 @@ export function blockIdFromHash(hash: string): Id | null {
  * lesson link whose block is gone still opens the lesson; a link to a lesson that is gone is `broken`.
  */
 export function linkTarget(
-  course: Pick<Course, 'id' | 'lessons'>,
+  course: Pick<PlayerCourse, 'id' | 'lessons'>,
   link: Link | ButtonTarget,
 ): LinkTarget {
   switch (link.kind) {

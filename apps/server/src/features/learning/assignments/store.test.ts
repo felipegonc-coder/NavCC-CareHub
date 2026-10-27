@@ -136,7 +136,15 @@ describe.skipIf(!hasDatabase)('assignmentStore', () => {
     );
     expect(ids(await store.list(workspace, { userId: tara }))).toEqual(ids([direct, group]));
     expect(ids(await store.list(workspace, { userId: omar }))).toEqual(ids([group, other]));
+    expect(ids(await store.list(workspace, { pathId: 'new-starters' }))).toEqual(ids([group]));
     expect(await store.insert([])).toEqual([]);
+  });
+
+  it('keeps the createdAt it is given, so the rows of one path assignment match', async () => {
+    const store = assignmentStore(server.db);
+    const createdAt = new Date('2026-10-20T15:30:00.000Z');
+    const [row] = await store.insert([{ ...base, workspaceId: otherWorkspace, createdAt }]);
+    expect(row?.createdAt).toEqual(createdAt);
   });
 
   it("keeps each person's first day, and drops it with the assignment", async () => {
@@ -152,9 +160,21 @@ describe.skipIf(!hasDatabase)('assignmentStore', () => {
     expect(learners.sort((a, b) => a.since.localeCompare(b.since))).toEqual([tarasDay, omarsDay]);
     expect(await store.learners([])).toEqual([]);
 
-    expect(await store.remove(otherWorkspace, row.id)).toBe(false);
-    expect(await store.remove(workspace, row.id)).toBe(true);
-    expect(await store.remove(workspace, row.id)).toBe(false);
+    expect(await store.remove(otherWorkspace, row.id)).toBe(null);
+    expect(await store.remove(workspace, row.id)).toEqual(row);
+    expect(await store.remove(workspace, row.id)).toBe(null);
     expect(await store.learners([row.id])).toEqual([]);
+  });
+
+  it('sets a due date in its own workspace only, clearing the number of days', async () => {
+    const store = assignmentStore(server.db);
+    const [row] = await store.insert([
+      { ...base, courseId: 'night-checks', dueDate: null, dueInDays: 7 },
+    ]);
+    if (!row) throw new Error('Not added');
+    expect(await store.setDueDate(otherWorkspace, row.id, '2026-10-01')).toBe(null);
+    const changed = { ...row, dueDate: '2026-10-01', dueInDays: null };
+    expect(await store.setDueDate(workspace, row.id, '2026-10-01')).toEqual(changed);
+    expect(await store.list(workspace, { courseId: 'night-checks' })).toEqual([changed]);
   });
 });

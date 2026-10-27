@@ -26,8 +26,9 @@ const event = <T extends string, S extends z.ZodRawShape>(type: T, shape: S) =>
   z.strictObject({ type: z.literal(type), ...shape });
 
 /**
- * One thing a learner did, sent by the player. `id` is made by the client and used to drop
- * duplicates; `at` is when it happened. The server re-checks everything (see reduceProgress).
+ * One thing a learner did, sent by the player (quiz_attempt_started is the server's own, see
+ * quizAttemptStart). `id` is made by the client and used to drop duplicates; `at` is when it
+ * happened. The server re-checks everything (see reduceProgress).
  */
 export const ProgressEventSchema = z.discriminatedUnion('type', [
   event('lesson_opened', inLesson),
@@ -35,14 +36,20 @@ export const ProgressEventSchema = z.discriminatedUnion('type', [
   event('time_active', { ...inLesson, seconds: z.number().positive() }),
   /** A continue, process, flashcards or sorting block was finished. */
   event('block_completed', inBlock),
-  event('knowledge_check_answered', { ...inBlock, response: QuestionResponseSchema }),
+  /**
+   * Practice only: whether the player found the answer right. The answer itself stays in the
+   * browser, so a queued event never holds typed text (decision 0310).
+   */
+  event('knowledge_check_answered', { ...inBlock, correct: z.boolean() }),
   /** Every choice made, from the start scene to an ending or a lesson jump. */
   event('scenario_finished', {
     ...inBlock,
     choiceIds: z.array(IdSchema).max(MAX_SCENARIO_CHOICES),
   }),
   event('lesson_completed', inLesson),
+  /** Recorded by the server when it starts an attempt; refused from a browser (server_only). */
   event('quiz_attempt_started', { ...inLesson, plan: AttemptPlanEventSchema }),
+  /** Posted at once, never queued: a quiz needs a connection. */
   event('quiz_attempt_submitted', {
     ...inLesson,
     attemptId: IdSchema,
