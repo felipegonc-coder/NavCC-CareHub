@@ -17,7 +17,7 @@ import {
   type TestUser,
 } from '../../testing';
 import { bindCommentPages } from '../comments/pages';
-import { drainJobsForTest } from '../jobs/testing';
+import { drainJobsForTest, pauseJobsForTest } from '../jobs/testing';
 import { bindMemoryNotices, type MemoryNoticeStore } from '../notices/testing';
 import type { MentionCreatedEvent } from './index';
 import { mentions } from './schema';
@@ -288,13 +288,20 @@ describe.skipIf(!hasDatabase)('mentions on Postgres', () => {
   });
 
   it('sends nothing for a comment deleted before its notice goes', async () => {
-    const pageId = teamPage();
-    const posted = await call(sam, 'POST', '/api/comments', { pageId, text: `<@${kai.id}> look` });
-    const { id: commentId } = posted.json() as CreateCommentResponse;
-    await test.app.events.settled();
-    expect((await call(sam, 'DELETE', `/api/comments/${commentId}`)).statusCode).toBe(204);
-    await drainJobsForTest();
-    expect(noticesOn(kai, pageId)).toEqual([]);
+    // The notice is due at once, so hold the app's runner until the comment is deleted.
+    const resume = await pauseJobsForTest();
+    try {
+      const pageId = teamPage();
+      const text = `<@${kai.id}> look`;
+      const posted = await call(sam, 'POST', '/api/comments', { pageId, text });
+      const { id: commentId } = posted.json() as CreateCommentResponse;
+      await test.app.events.settled();
+      expect((await call(sam, 'DELETE', `/api/comments/${commentId}`)).statusCode).toBe(204);
+      await drainJobsForTest();
+      expect(noticesOn(kai, pageId)).toEqual([]);
+    } finally {
+      await resume();
+    }
   });
 
   it('tells the @ menu who can open the page', async () => {
