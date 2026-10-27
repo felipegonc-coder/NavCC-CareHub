@@ -1,6 +1,7 @@
 // Database routes at /api/databases (decision 0200): create a database, read it as the person may
-// see it, and change its settings. Settings writes send `version`, lock the database's row, and
-// answer like GET /:id with the new version.
+// see it, and change its settings; the property routes (property-routes.ts) register here too.
+// Settings writes send `version`, lock the database's row, and answer like GET /:id with the new
+// version.
 import {
   LIMITS,
   newDatabaseSchema,
@@ -12,38 +13,21 @@ import {
   type Property,
   type View,
 } from '@carehub/databases';
-import { atLeast, can, databasePageAccess, type DbAction } from '@carehub/databases/access';
-import { parseRequest, type RequestResult } from '@carehub/databases/schemas';
+import { atLeast, databasePageAccess, type DbAction } from '@carehub/databases/access';
+import { parseRequest } from '@carehub/databases/schemas';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { httpError } from '../../core/errors';
 import { getAccessForPages, pageAccessOf } from '../pages';
 import { DATABASE_MESSAGES, forbidden, invalid, invalidRequest, notFound } from './errors';
-import { databaseMeta, mentionedPageIds, type DatabaseAnswer } from './meta';
+import { accept, allow as allowAction, answerFor, signedIn } from './http';
 import { createDatabasePage, loadPagePlace } from './pages';
+import { registerPropertyRoutes } from './property-routes';
 import type { DatabaseRecord, DatabaseSettings } from './record';
 import {
   databaseSettingsRequest,
   newDatabaseRequest,
   type DatabaseSettingsRequest,
 } from './requests';
-import {
-  changeDatabase,
-  insertDatabase,
-  loadDatabase,
-  loadPropertyViewer,
-  loadRelatedProperties,
-} from './store';
-
-/** The checked body, or 400 with the fixed message. */
-function accept<T>(result: RequestResult<T>): T {
-  if (!result.ok) throw invalidRequest();
-  return result.value;
-}
-
-function signedIn(request: FastifyRequest): { id: string } {
-  if (!request.user) throw httpError(401, 'signed_out');
-  return request.user;
-}
+import { changeDatabase, insertDatabase, loadDatabase } from './store';
 
 /** A two-way relation pair inside one database, named as given (or "Name 2" when taken). */
 function relationPair(
@@ -82,11 +66,7 @@ function settingsChanges(
   input: DatabaseSettingsRequest,
   access: DatabaseGrant,
 ): Partial<DatabaseSettings> {
-  const allow = (action: DbAction) => {
-    if (can(action, access, { locked: current.locked })) return;
-    const lockedOut = current.locked && can(action, access, { locked: false });
-    throw lockedOut ? forbidden(DATABASE_MESSAGES.locked) : forbidden();
-  };
+  const allow = (action: DbAction) => allowAction(action, access, current.locked);
   const changes: Partial<DatabaseSettings> = {};
   let properties = current.properties;
 
@@ -163,23 +143,8 @@ function settingsChanges(
 }
 
 export default async function databaseRoutes(app: FastifyInstance) {
-  /** The database as this person may see it, with its version (GET /:id and every settings write). */
-  async function answer(
-    request: FastifyRequest,
-    record: DatabaseRecord,
-    access: DatabaseGrant,
-  ): Promise<DatabaseAnswer> {
-    const user = signedIn(request);
-    const [viewer, related] = await Promise.all([
-      loadPropertyViewer(app.db, user.id, record.workspaceId),
-      loadRelatedProperties(app.db, record.properties),
-    ]);
-    const mentioned = mentionedPageIds(record);
-    const levels =
-      mentioned.length > 0 ? await getAccessForPages(app.db, user.id, mentioned) : null;
-    const openablePages = new Set(mentioned.filter((id) => atLeast(levels?.get(id), 'view')));
-    return databaseMeta({ record, access, viewer, related, openablePages });
-  }
+  const answer = (request: FastifyRequest, record: DatabaseRecord, access: DatabaseGrant) =>
+    answerFor(app.db, request, record, access);
 
   // A new database under a page the person can edit: its page, a Name property and a Table view.
   app.post('/', async (request, reply) => {
@@ -227,4 +192,6 @@ export default async function databaseRoutes(app: FastifyInstance) {
     );
     return answer(request, record, page.level);
   });
+
+  registerPropertyRoutes(app);
 }
