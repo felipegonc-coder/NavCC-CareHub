@@ -1,21 +1,21 @@
 import {
   courseHref,
   courseOutline,
-  linkTarget,
   playerSidebar,
   type Course,
-  type Link as CourseLink,
   type Id,
   type LearnerCourseState,
   type NewProgressEvent,
 } from '@carehub/learning';
 import { IconButton, cn, useMediaQuery } from '@carehub/ui';
 import { Menu, PanelLeft, PanelLeftClose, X } from 'lucide-react';
-import { useCallback, useId, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { useId, useState } from 'react';
+import { Link } from 'react-router';
 import type { BlockViewMode } from '../blocks/registry';
 import { LessonView } from './LessonView';
 import { Outline } from './Outline';
+import { outlinePercent, ProgressBar } from './ProgressBar';
+import { useFollowLink } from './useFollowLink';
 
 export type PlayerProps = {
   course: Course;
@@ -31,23 +31,13 @@ const PHONE = '(max-width: 767px)';
 
 /** The course player: the outline (a sidebar, or a menu on phones) and the open lesson. */
 export function Player({ course, state, lessonId, mode, emit }: PlayerProps) {
-  const navigate = useNavigate();
   const outlineId = useId();
   const narrow = useMediaQuery(PHONE);
   const [userOpen, setUserOpen] = useState<boolean>();
   const sidebar = playerSidebar(course.settings.sidebar, { narrow, userOpen });
   const outline = courseOutline(course, state, lessonId);
-
-  const go = useCallback(
-    (link: CourseLink) => {
-      const target = linkTarget(course, link);
-      if (target.kind === 'lesson' || target.kind === 'page') navigate(target.href);
-      else if (target.kind === 'broken') return;
-      else if (target.newTab) window.open(target.href, '_blank', 'noopener,noreferrer');
-      else window.location.assign(target.href);
-    },
-    [course, navigate],
-  );
+  const percent = outlinePercent(outline);
+  const go = useFollowLink(course);
 
   const lesson = course.lessons.find((candidate) => candidate.id === lessonId);
   const row = outline.rows.find((candidate) => candidate.lessonId === lessonId);
@@ -72,10 +62,19 @@ export function Player({ course, state, lessonId, mode, emit }: PlayerProps) {
         )}
         <Link
           to={courseHref(course.id)}
-          className="min-w-0 truncate px-2 py-3 text-small font-medium text-fg hover:underline"
+          className={cn(
+            'min-w-0 flex-1 truncate px-2 py-3 text-small font-medium text-fg',
+            'hover:underline',
+          )}
         >
           {course.title}
         </Link>
+        <div className="flex shrink-0 items-center gap-2 pr-2">
+          <span aria-hidden className="text-small text-muted">
+            {percent}%
+          </span>
+          <ProgressBar percent={percent} label="Course progress" className="w-16 md:w-32" />
+        </div>
       </header>
       <div className="relative flex flex-1">
         {sidebar.kind !== 'none' && (

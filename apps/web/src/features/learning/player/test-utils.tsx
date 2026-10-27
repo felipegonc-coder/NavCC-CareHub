@@ -8,8 +8,9 @@ import {
   type NewProgressEvent,
   type ProgressEvent,
 } from '@carehub/learning';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
-import { useState } from 'react';
+import { useState, type ReactElement } from 'react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import { vi } from 'vitest';
 import { withPending } from './pending';
@@ -92,4 +93,68 @@ export function renderPlayer(course: Course, state: LearnerCourseState, lessonId
     </MemoryRouter>,
   );
   return { ...view, emit };
+}
+
+const reply = (status: number, data: unknown) =>
+  new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+
+const ERRORS: Record<number, { code: string; message: string }> = {
+  400: { code: 'invalid', message: 'Check the link, then try again.' },
+  403: { code: 'forbidden', message: "You don't have access to this." },
+  404: { code: 'not_found', message: 'This was deleted, or the link is wrong.' },
+};
+const failure = (status: number) => reply(status, { error: ERRORS[status] });
+
+type Call = { method: string; url: string; events: ProgressEvent[] };
+
+/**
+ * A fake Learning API on `fetch` for one course: the live course, the learner's state and the
+ * events they send, applied as the server would. `server.course` is the status of the course call
+ * (try 403, 404 or 400); `server.offline` makes sending events fail.
+ */
+export function serveCourse(
+  course: Course,
+  state: LearnerCourseState,
+  options: { course?: number; offline?: boolean } = {},
+) {
+  const server = { course: 200, offline: false, ...options };
+  const api = `/api/learning/courses/${course.id}`;
+  let current = state;
+  const calls: Call[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+    calls.push({ method, url, events: body.events ?? [] });
+    if (method === 'GET' && url === api) {
+      if (server.course !== 200) return failure(server.course);
+      return reply(200, { course, version: 3 });
+    }
+    if (method === 'GET' && url === `${api}/progress`) return reply(200, current);
+    if (method === 'POST' && url === `${api}/events`) {
+      if (server.offline) throw new TypeError('Failed to fetch');
+      current = withPending(course, current, body.events);
+      return reply(200, { state: current, rejected: [] });
+    }
+    return failure(404);
+  });
+  const sent = () => calls.filter((call) => call.method === 'POST').flatMap((call) => call.events);
+  return { server, calls, sent };
+}
+
+/** Shows the screen for `path` from `routes` (by route) in a memory router, as in the app. */
+export function renderRoute(path: string, routes: Record<string, ReactElement>) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          {Object.entries(routes).map(([route, element]) => (
+            <Route key={route} path={route} element={element} />
+          ))}
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return client;
 }

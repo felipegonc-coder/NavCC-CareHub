@@ -34,6 +34,10 @@ describe('Player', () => {
     expect(
       within(outline).getByRole('link', { name: '2. During the call, Locked' }),
     ).toHaveAttribute('title', 'Finish "Before the call" first.');
+    expect(screen.getByRole('progressbar', { name: 'Course progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '0',
+    );
   });
 
   it('hides what follows a continue block until it is passed, then moves to it', () => {
@@ -61,6 +65,10 @@ describe('Player', () => {
     expect(emit).toHaveBeenCalledWith({ type: 'lesson_opened', lessonId: 'calls-during' });
     const outline = screen.getByRole('navigation', { name: 'Course outline' });
     expect(within(outline).getByText('1 of 4 lessons completed')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Course progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '25',
+    );
     expect(
       within(outline).getByRole('link', { name: '1. Before the call, Completed' }),
     ).toBeInTheDocument();

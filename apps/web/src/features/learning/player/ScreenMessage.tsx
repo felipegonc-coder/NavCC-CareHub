@@ -41,6 +41,18 @@ export function MyLearningLink() {
   );
 }
 
+/** A course that doesn't exist, was never published, or a link with a bad course id. */
+export function CourseNotFound() {
+  return (
+    <ScreenMessage
+      title="Course not found"
+      text="Check the link, or find the course in My learning."
+    >
+      <MyLearningLink />
+    </ScreenMessage>
+  );
+}
+
 type LoadFailedProps = {
   error: unknown;
   /** What didn't load, for the heading: "course", "lesson". */
@@ -62,16 +74,7 @@ export function LoadFailed({ error, what, retry }: LoadFailedProps) {
       />
     );
   }
-  if (status === 404) {
-    return (
-      <ScreenMessage
-        title="Course not found"
-        text="Check the link, or find the course in My learning."
-      >
-        <MyLearningLink />
-      </ScreenMessage>
-    );
-  }
+  if (status === 404) return <CourseNotFound />;
   return (
     <ScreenMessage
       title={`This ${what} didn't load`}

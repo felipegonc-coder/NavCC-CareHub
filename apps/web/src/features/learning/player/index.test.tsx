@@ -1,12 +1,9 @@
-import { courseHref, type LearnerCourseState, type ProgressEvent } from '@carehub/learning';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { courseHref, type LearnerCourseState } from '@carehub/learning';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { progressKey } from './data';
 import { PlayerScreen } from './index';
-import { withPending } from './pending';
-import { inOrder, learner, lessonPath } from './test-utils';
+import { inOrder, learner, lessonPath, renderRoute, serveCourse } from './test-utils';
 
 const API = `/api/learning/courses/${inOrder.id}`;
 const READY = 'Ready means record open, notes read, headset on.';
@@ -18,61 +15,11 @@ const start = learner(inOrder, {
   'calls-quiz': locked,
 });
 
-type Call = { method: string; url: string; events: ProgressEvent[] };
+const serve = (options?: { course?: number; offline?: boolean }) =>
+  serveCourse(inOrder, start, options);
 
-const reply = (status: number, data: unknown) =>
-  new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
-
-const ERRORS: Record<number, { code: string; message: string }> = {
-  400: { code: 'invalid', message: 'Check the link, then try again.' },
-  403: { code: 'forbidden', message: "You don't have access to this." },
-  404: { code: 'not_found', message: 'This was deleted, or the link is wrong.' },
-};
-const failure = (status: number) => reply(status, { error: ERRORS[status] });
-
-/**
- * A fake Learning API for the sample course: the live course, the learner's state and the events
- * they send, applied as the server would. `server.course` is the status of the course call (try
- * 403, 404 or 400); `server.offline` makes sending events fail.
- */
-function serve(options: { course?: number; offline?: boolean } = {}) {
-  const server = { course: 200, offline: false, ...options };
-  let state: LearnerCourseState = start;
-  const calls: Call[] = [];
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    const url = String(input);
-    const method = init?.method ?? 'GET';
-    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
-    calls.push({ method, url, events: body.events ?? [] });
-    if (method === 'GET' && url === API) {
-      if (server.course !== 200) return failure(server.course);
-      return reply(200, { course: inOrder, version: 3 });
-    }
-    if (method === 'GET' && url === `${API}/progress`) return reply(200, state);
-    if (method === 'POST' && url === `${API}/events`) {
-      if (server.offline) throw new TypeError('Failed to fetch');
-      state = withPending(inOrder, state, body.events);
-      return reply(200, { state, rejected: [] });
-    }
-    return failure(404);
-  });
-  const sent = () => calls.filter((call) => call.method === 'POST').flatMap((call) => call.events);
-  return { server, calls, sent };
-}
-
-function renderScreen(path: string) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/learning/courses/:courseId/lessons/:lessonId" element={<PlayerScreen />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-  return client;
-}
+const renderScreen = (path: string) =>
+  renderRoute(path, { '/learning/courses/:courseId/lessons/:lessonId': <PlayerScreen /> });
 
 afterEach(() => {
   vi.restoreAllMocks();
