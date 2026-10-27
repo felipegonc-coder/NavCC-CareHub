@@ -189,7 +189,7 @@ export async function changeDatabase(
 /** Adds the db_databases row for a new database page (createDatabasePage made the page). */
 export async function insertDatabase(
   tx: Executor,
-  input: { id: string; workspaceId: string } & Partial<DatabaseSettings>,
+  input: { id: string; workspaceId: string; nextUniqueNumber?: number } & Partial<DatabaseSettings>,
 ): Promise<void> {
   const { id, workspaceId, ...settings } = input;
   await tx.insert(dbDatabases).values({ pageId: id, workspaceId, ...settings });

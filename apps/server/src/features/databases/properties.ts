@@ -9,6 +9,9 @@ import {
   findPropertyByName,
   isStoredType,
   newId,
+  newProperty,
+  relationConfig,
+  uniqueViewName,
   type Id,
   type Property,
   type PropertyAccess,
@@ -201,6 +204,25 @@ export function checkedConfig(prop: Property, own: Own, related: RelatedDatabase
       break;
   }
   return checked;
+}
+
+/** A two-way relation pair inside one database, named as given (or "Name 2" when taken). */
+export function relationPair(
+  databaseId: Id,
+  existing: readonly Property[],
+  names: readonly [string, string],
+  firstIsSingle: boolean,
+): [Property, Property] {
+  const taken = existing.map((p) => p.name);
+  const firstName = uniqueViewName(names[0], taken);
+  const first = newProperty(firstName, relationConfig(databaseId));
+  const second = newProperty(
+    uniqueViewName(names[1], [...taken, firstName]),
+    relationConfig(databaseId),
+  );
+  first.config = { ...first.config, single: firstIsSingle, twoWayPropertyId: second.id };
+  second.config = { ...second.config, twoWayPropertyId: first.id };
+  return [first, second];
 }
 
 /** Where a new property shows in one view ("Insert left or right"): after this column. */
