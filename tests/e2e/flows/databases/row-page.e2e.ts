@@ -78,31 +78,36 @@ test.describe('Databases: row pages', () => {
     });
   });
 
-  test("DB-09 Sam's Status change shows within 2 seconds in the side panel and the full page", async ({
-    page,
-    browser,
-  }) => {
-    await signInAs(page, 'editor');
-    const t = await ticket(page);
-    const sam = await signedInPage(browser, 'admin');
-    const screen = new DatabaseScreen(page, t.database.id);
-    const rowPage = new RowPage(page);
-    await screen.open();
+  test.describe('with live updates', () => {
+    needs('liveUpdates');
 
-    await test.step('In the side panel', async () => {
-      const panel = await screen.openRow(t.row.id, t.title);
-      await expect(panel.getByText('To do', { exact: true })).toBeVisible();
-      await t.set(sam, 'Doing');
-      await expect(panel.getByText('Doing', { exact: true })).toBeVisible({ timeout: 2_000 });
-    });
+    test("DB-09 Sam's Status change shows within 2 seconds in the side panel and the full page", async ({
+      page,
+      browser,
+    }) => {
+      await signInAs(page, 'editor');
+      const t = await ticket(page);
+      // Avery stands in for Sam (spec); any member who can edit gives the same result.
+      const sam = await signedInPage(browser, 'admin');
+      const screen = new DatabaseScreen(page, t.database.id);
+      const rowPage = new RowPage(page);
+      await screen.open();
 
-    await test.step('On the full page', async () => {
-      const main = await rowPage.openFullPage(t.title, t.row.id);
-      await expect(main.getByText('Doing', { exact: true })).toBeVisible();
-      await t.set(sam, 'Done');
-      await expect(main.getByText('Done', { exact: true })).toBeVisible({ timeout: 2_000 });
+      await test.step('In the side panel', async () => {
+        const panel = await screen.openRow(t.row.id, t.title);
+        await expect(panel.getByText('To do', { exact: true })).toBeVisible();
+        await t.set(sam, 'Doing');
+        await expect(panel.getByText('Doing', { exact: true })).toBeVisible({ timeout: 2_000 });
+      });
+
+      await test.step('On the full page', async () => {
+        const main = await rowPage.openFullPage(t.title, t.row.id);
+        await expect(main.getByText('Doing', { exact: true })).toBeVisible();
+        await t.set(sam, 'Done');
+        await expect(main.getByText('Done', { exact: true })).toBeVisible({ timeout: 2_000 });
+      });
+      await sam.context().close();
     });
-    await sam.context().close();
   });
 
   test("DB-09 a viewer opens the row as a page but can't change it (403)", async ({

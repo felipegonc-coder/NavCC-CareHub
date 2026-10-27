@@ -120,7 +120,16 @@ async function userIdOf(page: Page): Promise<string> {
 // tomorrow, and Eli's calendar shows it on tonight's Denver date at its Denver time.
 test.describe('Form response → automation → calendar', () => {
   onlyIn('desktop-light');
-  needs('signIn', 'pages', 'databases', 'forms', 'automations', 'notices', 'calendar');
+  needs(
+    'signIn',
+    'pages',
+    'databases',
+    'forms',
+    'automations',
+    'notices',
+    'calendar',
+    'liveUpdates',
+  );
 
   test('FLOW-02 a Callback request makes one row, one 🔔 message to its owner within 10 seconds, and a calendar item at its time', async ({
     page,
@@ -150,6 +159,7 @@ test.describe('Form response → automation → calendar', () => {
     const caller = uniqueName('Fictional QA caller');
     const late = lateTonight();
     const eli = await signedInPage(browser, 'editor');
+    // Val stands in for Riley (spec); any member who can submit the form gives the same result.
     const riley = await signedInPage(browser, 'viewer');
     const chat = new CareHubChat(eli);
     const calendar = new CalendarScreen(eli);
@@ -179,6 +189,7 @@ test.describe('Form response → automation → calendar', () => {
           [name.id]: caller,
           [reason.id]: value.text('Fictional QA question about a bill'),
           [callbackAt.id]: { start: late.toISOString(), end: null, hasTime: true },
+          // Eli is the new row's owner (the spec names none); any member picked gets the message.
           [owner.id]: [await userIdOf(eli)],
         });
         expect(response.ok()).toBe(true);

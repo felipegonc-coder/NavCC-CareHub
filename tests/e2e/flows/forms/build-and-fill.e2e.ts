@@ -84,6 +84,7 @@ test.describe('Forms: building and filling in', () => {
     ]);
     const note = uniqueName('Fictional QA note');
 
+    // Eli stands in for Avery (spec); any member who can submit gives the same result.
     await test.step('Eli picks High, types a note and submits', async () => {
       const eli = await signedInPage(browser, 'editor');
       const fill = new FormFill(eli, formTitle(database, form));

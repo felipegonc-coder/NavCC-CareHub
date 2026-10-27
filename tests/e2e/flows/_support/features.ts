@@ -30,6 +30,9 @@ export const onMain = {
   /** Live co-editing: two people in one page, names and cursors. */
   coEditing: false,
 
+  /** Live updates and jobs in app.ts (#288): others' changes show without a reload. */
+  liveUpdates: false,
+
   /** Sharing: the share dialog, access levels, guests and share links. */
   sharing: false,
 

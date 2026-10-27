@@ -64,6 +64,7 @@ test.describe('Forms: links, access and kept answers', () => {
   onlyIn('desktop-light');
   needs('signIn', 'pages', 'databases', 'forms');
 
+  // FM-08's non-member case isn't here: the seed has no signed-in person outside the workspace.
   test('FM-08 responses off, a changed link, and signed out', async ({ page, browser }) => {
     await signInAs(page, 'admin');
     const { database, notes, form } = await makeNoteForm(page, 'team');

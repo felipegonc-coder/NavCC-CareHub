@@ -12,38 +12,42 @@ import { formula, prop } from './formula-data.js';
 import { FormulaEditor } from './formula-editor.js';
 
 // Formulas spec: FX-02 and FX-04. Sam, who changes the Score in FX-02, isn't a seeded person:
-// Avery (the seeded admin) stands in for him. They wait on `formulas` and on `databases`, whose
-// table shows the results.
+// Avery (the seeded admin) stands in for him.
 
 test.describe('Formulas: live results and the editor', () => {
   onlyIn('desktop-light');
   needs('signIn', 'pages', 'databases', 'formulas');
 
-  test('FX-02 if(prop("Score") >= 90, "Pass", "Review") shows Review, then Pass within 2 seconds of Sam changing Score', async ({
-    page,
-    browser,
-  }) => {
-    await signInAs(page, 'editor');
-    const database = await makeDatabase(page);
-    const score = await addProperty(page, database.id, 'Score', config.number());
-    const result = await addProperty(
-      page,
-      database.id,
-      'Result',
-      formula(`if(${prop(score)} >= 90, "Pass", "Review")`, 'text'),
-    );
-    const row = await addRow(page, database.id, uniqueName('Fictional QA review Blue Pine'), {
-      [score.id]: value.number(85),
-    });
-    const sam = await signedInPage(browser, 'admin');
-    const screen = new DatabaseScreen(page, database.id);
-    await screen.open();
-    await expect(screen.cell(row.id, result.id)).toHaveText('Review');
+  test.describe('with live updates', () => {
+    needs('liveUpdates');
 
-    await updateRow(sam, database.id, row.id, { [score.id]: value.number(95) });
-    await expect(screen.cell(row.id, result.id)).toHaveText('Pass', { timeout: 2_000 });
-    await expect(screen.cell(row.id, score.id)).toHaveText('95');
-    await sam.context().close();
+    test('FX-02 if(prop("Score") >= 90, "Pass", "Review") shows Review, then Pass within 2 seconds of Sam changing Score', async ({
+      page,
+      browser,
+    }) => {
+      await signInAs(page, 'editor');
+      const database = await makeDatabase(page);
+      const score = await addProperty(page, database.id, 'Score', config.number());
+      const result = await addProperty(
+        page,
+        database.id,
+        'Result',
+        formula(`if(${prop(score)} >= 90, "Pass", "Review")`, 'text'),
+      );
+      const row = await addRow(page, database.id, uniqueName('Fictional QA review Blue Pine'), {
+        [score.id]: value.number(85),
+      });
+      // Avery stands in for Sam (spec); any member who can edit gives the same result.
+      const sam = await signedInPage(browser, 'admin');
+      const screen = new DatabaseScreen(page, database.id);
+      await screen.open();
+      await expect(screen.cell(row.id, result.id)).toHaveText('Review');
+
+      await updateRow(sam, database.id, row.id, { [score.id]: value.number(95) });
+      await expect(screen.cell(row.id, result.id)).toHaveText('Pass', { timeout: 2_000 });
+      await expect(screen.cell(row.id, score.id)).toHaveText('95');
+      await sam.context().close();
+    });
   });
 
   test('FX-04 a missing bracket shows its line and message, Text + Number suggests format(), and Done stays off until it is fixed', async ({
