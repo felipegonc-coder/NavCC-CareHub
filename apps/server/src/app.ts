@@ -74,7 +74,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: forms
 
-  // feature: messages
+  await app.register(import('./features/messages/routes'), { prefix: '/api/messages' });
 
   // feature: notices
 
