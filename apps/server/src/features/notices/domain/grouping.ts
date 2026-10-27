@@ -26,13 +26,9 @@ export function planNotice(candidate: GroupCandidate | null, now: Date): NoticeP
 }
 
 /**
- * The text the store hashes into a transaction-level advisory lock, so two notices with the same
- * key for the same person can't both be added at the same moment.
+ * The text the store hashes into a transaction-level advisory lock, so notices for the same chat
+ * are saved one at a time: two can't both start a group, or both claim an idempotency key.
  */
-export function groupLockKey(notice: {
-  workspaceId: string;
-  userId: string;
-  groupKey: string;
-}): string {
-  return `notices:${notice.workspaceId}:${notice.userId}:${notice.groupKey}`;
+export function chatLockKey(chat: { workspaceId: string; userId: string }): string {
+  return `notices:${chat.workspaceId}:${chat.userId}`;
 }

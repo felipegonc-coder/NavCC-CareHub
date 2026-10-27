@@ -26,6 +26,11 @@ following come in the next pull requests.
 - Other features: `listComments(db, userId, pageId, { limit?, status? })` from `index.ts` (none
   without Can view), and the events `comment.created { commentId, threadId, pageId, workspaceId, by,
 newThread }` and `comment.edited` (the same without `newThread`), emitted after the commit.
+- Live editing: `mayRemoveThreads(db, userId, pageId, threadIds)` from `index.ts` says whether a
+  connection that can only comment may take those threads' marks off the text. Only as far as the
+  person could remove the threads: each one still on the page has no comments left but theirs, or
+  they have Full access. IDs that aren't threads on the page are fine, since a deleted thread's mark
+  comes off after it's gone.
 
 ## Stand-ins
 

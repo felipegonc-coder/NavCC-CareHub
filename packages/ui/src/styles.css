@@ -36,6 +36,29 @@
   }
 }
 
+/*
+ * Phones (under `md`, like the `max-md:` classes): menus, popovers and select lists open as
+ * bottom sheets (`bottomSheetClasses` in components/classes.ts). Radix places each one with
+ * inline styles on the element around it; there, that element sits along the bottom edge
+ * instead, as wide as the screen, over a dimmed page that closes the sheet when tapped.
+ * A submenu (`data-sheet="stacked"`) opens over its menu without dimming it again.
+ */
+@media not all and screen(md) {
+  :has(> [data-sheet]) {
+    inset: auto 0 0 !important;
+    min-width: 0 !important;
+    transform: none !important;
+    will-change: auto !important;
+  }
+  :has(> [data-sheet]:not([data-sheet='stacked']))::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-color: rgb(var(--ch-overlay) / 0.5);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
