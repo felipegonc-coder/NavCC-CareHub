@@ -149,7 +149,7 @@ class Checker {
       case 'unary': {
         if (node.op === 'not') return this.call(this.def('not'), [node.operand], at, scope);
         const operand = this.check(node.operand, scope);
-        if (!fitsKind(operand.type, 'number')) reject('- needs numbers.', at);
+        if (!fitsKind(operand.type, 'number')) reject('- needs numbers', at);
         return { op: 'neg', operand, type: NUMBER, ...at };
       }
       case 'binary':
@@ -186,6 +186,7 @@ class Checker {
     const right = this.check(node.right, scope);
     const lt = left.type;
     const rt = right.type;
+    // Operator messages are written as the spec writes "+ needs numbers or text": no period.
     if (op === '+') {
       const text = lt.kind === 'text' || rt.kind === 'text';
       if (text && fitsKind(lt, 'text') && fitsKind(rt, 'text')) {
@@ -195,19 +196,19 @@ class Checker {
       if (!text && fitsKind(lt, 'number') && fitsKind(rt, 'number')) {
         return { op: 'add', left, right, text: false, type: NUMBER, ...at };
       }
-      reject('+ needs numbers or text.', at);
+      reject('+ needs numbers or text', at);
     }
     if (op === '>' || op === '>=' || op === '<' || op === '<=') {
       if (lt.kind !== 'empty' && rt.kind !== 'empty' && lt.kind !== rt.kind) {
         reject(`${typeName(lt)} and ${typeName(rt)} can't be compared.`, at);
       }
       if (!ORDERED.has(lt.kind) || !ORDERED.has(rt.kind)) {
-        reject(`${node.opText} needs numbers, text or dates.`, at);
+        reject(`${node.opText} needs numbers, text or dates`, at);
       }
       return { op: 'compare', cmp: op, left, right, type: BOOLEAN, ...at };
     }
     if (!fitsKind(lt, 'number') || !fitsKind(rt, 'number'))
-      reject(`${node.opText} needs numbers.`, at);
+      reject(`${node.opText} needs numbers`, at);
     const def = this.def(ARITHMETIC.get(op) ?? 'subtract');
     return { op: 'call', def, args: [left, right], slots: null, type: NUMBER, ...at };
   }
