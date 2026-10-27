@@ -1,6 +1,6 @@
 # Browser tests (Playwright, Chromium only), see tests/e2e/README.md. They cost CI minutes, so
-# they run only on request (the label "e2e" or "e2e-linux" on a pull request, or by hand) and
-# nightly on main after new commits. The quick checks are in ci.yml.
+# they run only on request (the label "e2e" on a pull request, or by hand) and nightly on main
+# after new commits. The quick checks are in ci.yml.
 #
 # Two jobs (decision 0011, issue #8): "e2e" installs, builds and tests the code with a read-only
 # token and uploads the results; "publish" holds the write permissions, runs none of the code and
@@ -17,7 +17,7 @@ on:
 # One run per branch: a new request cancels the running one. Events for other labels land in a
 # group of their own, so adding another label does not cancel a run.
 concurrency:
-  group: e2e-${{ github.head_ref || github.ref_name }}-${{ github.event_name != 'pull_request' || github.event.label.name == 'e2e' || github.event.label.name == 'e2e-linux' }}
+  group: e2e-${{ github.head_ref || github.ref_name }}-${{ github.event_name != 'pull_request' || github.event.label.name == 'e2e' }}
   cancel-in-progress: true
 
 permissions:
@@ -29,11 +29,8 @@ jobs:
     # Only pull requests from branches of this repository: code from forks never runs here.
     if: >-
       github.event_name != 'pull_request' ||
-      ((github.event.label.name == 'e2e' || github.event.label.name == 'e2e-linux') &&
+      (github.event.label.name == 'e2e' &&
       github.event.pull_request.head.repo.full_name == github.repository)
-    # When the Mac runner is online (decision 0006), the label "e2e" moves to it by changing only
-    # this line; "e2e-linux" keeps ubuntu-latest. The steps work on both: no sudo, no system
-    # packages, and nothing written outside the job's folder and $RUNNER_TEMP.
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,7 +40,6 @@ jobs:
         shell: bash # bash -eo pipefail, so "| tee" keeps the exit code
     outputs:
       run: ${{ steps.gate.outputs.run }}
-      runner: ${{ steps.gate.outputs.runner }}
     env:
       # The throwaway database that tests/e2e/ci/postgres.mjs starts, only on 127.0.0.1.
       DATABASE_URL: postgres://carehub@127.0.0.1:55432/carehub
@@ -53,15 +49,20 @@ jobs:
     # Every step that can fail has an id and keeps its output in $RUNNER_TEMP/ci-logs/<id>.log, so
     # the report can show the end of the log.
     steps:
+      # Depth 2: on a pull request, the merge commit and both its parents, so the gate step can
+      # compare it with the base branch without fetching (and so without a token).
       - name: Check out
         id: checkout
         uses: actions/checkout@v5
         with:
           persist-credentials: false
+          fetch-depth: 2
 
-      # Also keeps npm, Playwright and temporary files in $RUNNER_TEMP, which the runner empties
-      # after each job.
-      - name: Skip the nightly run when main has no new commits
+      # Skips the nightly run when main has no new commits. On a pull request that changes only
+      # files in tests/e2e/flows/ or docs/testing/, only the changed tests run (--only-changed
+      # against origin/<base branch>, which points to the merge commit's first parent). Also keeps
+      # npm, Playwright and temporary files in $RUNNER_TEMP, which the runner empties after each job.
+      - name: Decide what runs
         id: gate
         run: |
           mkdir -p "$RUNNER_TEMP/ci-logs" "$RUNNER_TEMP/home" "$RUNNER_TEMP/tmp"
@@ -71,7 +72,6 @@ jobs:
             echo "npm_config_cache=$RUNNER_TEMP/npm-cache"
             echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/ms-playwright"
           } >> "$GITHUB_ENV"
-          echo "runner=$RUNNER_OS $RUNNER_ARCH, $RUNNER_ENVIRONMENT" >> "$GITHUB_OUTPUT"
           age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
           if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$age" -gt 86400 ]; then
             echo "No commit on main in the last 24 hours, so there is nothing new to test."
@@ -79,6 +79,16 @@ jobs:
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
+          only_changed=false
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git update-ref "refs/remotes/origin/$GITHUB_BASE_REF" HEAD^1
+            changed=$(git diff --name-only --no-renames HEAD^1 HEAD)
+            if [ -n "$changed" ] && ! grep -qvE '^(tests/e2e/flows|docs/testing)/' <<< "$changed"; then
+              only_changed=true
+              echo "Only files in tests/e2e/flows/ or docs/testing/ changed, so only the changed tests run."
+            fi
+          fi
+          echo "only-changed=$only_changed" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         id: setup-node
@@ -120,14 +130,6 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: npm run build 2>&1 | tee "$RUNNER_TEMP/ci-logs/build.log"
 
-      - name: Make a throwaway session secret
-        id: secret
-        if: steps.gate.outputs.run == 'true'
-        run: |
-          secret=$(openssl rand -hex 32)
-          echo "::add-mask::$secret"
-          echo "SESSION_SECRET=$secret" >> "$GITHUB_ENV"
-
       # Fictional people and data for the screens, once the server has the seed command.
       - name: Seed the database
         id: seed
@@ -143,7 +145,8 @@ jobs:
         id: server
         if: steps.gate.outputs.run == 'true'
         run: |
-          PORT=38080 HOST=127.0.0.1 nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server-output.log" 2>&1 &
+          NODE_ENV=production CAREHUB_PUBLIC_URL=$E2E_BASE_URL PORT=38080 HOST=127.0.0.1 \
+            nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server-output.log" 2>&1 &
           pid=$!
           echo "$pid" > "$RUNNER_TEMP/server.pid"
           for _ in $(seq 60); do
@@ -169,7 +172,7 @@ jobs:
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}-chromium-headless-shell
 
       # Only the browser, no system packages: GitHub's Ubuntu image already has Chromium's
-      # libraries, and macOS needs none.
+      # libraries.
       - name: Install Chromium
         id: browser
         if: steps.gate.outputs.run == 'true'
@@ -178,8 +181,13 @@ jobs:
       - name: Run the browser tests
         id: e2e
         if: steps.gate.outputs.run == 'true'
+        env:
+          ONLY_CHANGED: ${{ steps.gate.outputs.only-changed }}
         run: |
-          if npm run e2e 2>&1 | tee "$RUNNER_TEMP/ci-logs/e2e.log"; then exit 0; fi
+          # -w: npm run e2e at the root would take --only-changed as an npm setting.
+          args=()
+          if [ "$ONLY_CHANGED" = true ]; then args=(-w tests/e2e -- "--only-changed=origin/$GITHUB_BASE_REF"); fi
+          if npm run e2e "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/ci-logs/e2e.log"; then exit 0; fi
           { echo; echo 'End of the server output:'; tail -n 30 "$RUNNER_TEMP/server-output.log"; } \
             | tee -a "$RUNNER_TEMP/ci-logs/e2e.log"
           exit 1
@@ -212,8 +220,9 @@ jobs:
           node tests/e2e/ci/report.mjs > "$RUNNER_TEMP/e2e-summary.md"
           { echo '### Browser tests'; echo; cat "$RUNNER_TEMP/e2e-summary.md"; } >> "$GITHUB_STEP_SUMMARY"
 
-      # The report (passed or failed, the summary, the end of each failed step's log) and the
-      # screenshots go into the artifact e2e-results, which the publish job posts. No token here.
+      # The report (passed or failed, the summary, the end of each failed step's log), the
+      # screenshots and Playwright's results.json (every test's status) go into the artifact
+      # e2e-results, which the publish job posts. No token here.
       - name: Write the report
         id: report
         if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
@@ -230,6 +239,7 @@ jobs:
           shopt -s nullglob
           files=(tests/e2e/screenshots/*.png)
           if [ ${#files[@]} -gt 0 ]; then cp "${files[@]}" "$RUNNER_TEMP/e2e-results/screenshots/"; fi
+          if [ -f tests/e2e/test-results/results.json ]; then cp tests/e2e/test-results/results.json "$RUNNER_TEMP/e2e-results/"; fi
 
       - name: Upload the results
         if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
@@ -269,7 +279,8 @@ jobs:
           path: ${{ runner.temp }}/e2e-results
 
       # One commit without parents on ci-screenshots; each run replaces only its own folder
-      # (pr-<number>, or the branch name). Only git objects are written, from $RUNNER_TEMP.
+      # (pr-<number>, or the branch name, so main/ for nightly runs) with the screenshots and
+      # results.json. Only git objects are written, from $RUNNER_TEMP.
       - name: Push the screenshots
         id: push
         continue-on-error: true
@@ -290,7 +301,15 @@ jobs:
               echo "::warning::Skipped a file that is not a screenshot of up to 10 MB: ${name//[^A-Za-z0-9._-]/?}"
             fi
           done
-          if [ ! -s "$list" ]; then echo 'There are no screenshots.'; exit 0; fi
+          # Playwright's JSON report, if it is a regular file of valid JSON up to 20 MB.
+          json="$RESULTS/results.json"
+          results=false
+          if [[ -f $json && ! -L $json ]] && [ "$(wc -c < "$json")" -le 20971520 ] && jq -e 'type == "object"' "$json" > /dev/null 2>&1; then
+            results=true
+          elif [ -e "$json" ]; then
+            echo '::warning::Skipped results.json: not a JSON file of up to 20 MB.'
+          fi
+          if [ ! -s "$list" ] && [ "$results" = false ]; then echo 'There are no screenshots or results.'; exit 0; fi
 
           if [ -n "$PR_NUMBER" ]; then folder="pr-$PR_NUMBER"; else folder=${REF_NAME//[^A-Za-z0-9._-]/-}; fi
           branch=ci-screenshots
@@ -305,9 +324,13 @@ jobs:
           export GIT_COMMITTER_NAME=$GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL=$GIT_AUTHOR_EMAIL
           remote="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
 
-          files=$(while read -r name; do
-            printf '100644 blob %s\t%s\n' "$(git hash-object -w -- "$RESULTS/screenshots/$name")" "$name"
-          done < "$list" | git mktree)
+          files=$(
+            while read -r name; do
+              printf '100644 blob %s\t%s\n' "$(git hash-object -w -- "$RESULTS/screenshots/$name")" "$name"
+            done < "$list"
+            if [ "$results" = true ]; then printf '100644 blob %s\tresults.json\n' "$(git hash-object -w -- "$json")"; fi
+          )
+          files=$(printf '%s\n' "$files" | sed '/^$/d' | git mktree)
           for attempt in 1 2 3; do
             old='' others=''
             if git fetch --quiet --depth=1 "$remote" "+refs/heads/$branch:refs/remotes/origin/$branch" 2> /dev/null; then
@@ -318,7 +341,7 @@ jobs:
             commit=$(git commit-tree "$tree" -m "Screenshots for $folder")
             if git push --quiet --force-with-lease="refs/heads/$branch:$old" "$remote" "$commit:refs/heads/$branch"; then
               { echo "sha=$commit"; echo "folder=$folder"; } >> "$GITHUB_OUTPUT"
-              echo "Pushed $(wc -l < "$list") screenshots to $branch/$folder."
+              echo "Pushed $(wc -l < "$list") screenshots (results.json: $results) to $branch/$folder."
               exit 0
             fi
             echo "Pushing to $branch failed (attempt $attempt of 3)."
@@ -331,7 +354,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESULTS: ${{ runner.temp }}/e2e-results
           E2E_RESULT: ${{ needs.e2e.result }}
-          RUNNER_TEXT: ${{ needs.e2e.outputs.runner }}
           SHA: ${{ steps.push.outputs.sha }}
           FOLDER: ${{ steps.push.outputs.folder }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -354,8 +376,7 @@ jobs:
           # its full size. Rows that would make the comment too long are left out.
           list="$RUNNER_TEMP/screenshots.txt"
           if [ -s "$list" ]; then
-            runner=${RUNNER_TEXT//[^A-Za-z0-9 ,._-]/}
-            printf '\n**Screenshots** from %s (desktop 1280×800, phone 390×844)\n\n' "${runner:-the test runner}" >> "$body"
+            printf '\n**Screenshots** (desktop 1280×800, phone 390×844)\n\n' >> "$body"
             if [ -z "$SHA" ]; then
               echo 'The screenshots could not be published; see the run.' >> "$body"
             else

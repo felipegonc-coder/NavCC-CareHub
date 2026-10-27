@@ -60,7 +60,14 @@ export default defineConfig({
           command: 'node apps/server/dist/index.js',
           cwd: fileURLToPath(new URL('../..', import.meta.url)),
           url: `${baseURL}/api/health`,
-          env: { PORT: port, HOST: '127.0.0.1' },
+          // As in CI: production mode, which needs the public address. DATABASE_URL comes from
+          // your environment.
+          env: {
+            PORT: port,
+            HOST: '127.0.0.1',
+            NODE_ENV: 'production',
+            CAREHUB_PUBLIC_URL: baseURL,
+          },
           timeout: 60_000,
           reuseExistingServer: false,
           stdout: 'pipe',

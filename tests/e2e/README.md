@@ -60,15 +60,16 @@ Browser tests cost CI minutes, so they do not run on every push
 3. The run writes one comment on the pull request, separate from the quick checks' comment, and
    updates it on later runs: "Browser tests passed" or "failed on <commit>", the counts, the
    failed checks, on failure the end of the failed step's log (for the tests also the end of the
-   server output), and a table with the screenshots (linked to full size) that names the runner
-   that made them. On failure the Playwright report is also uploaded as the artifact
-   `playwright-report`.
+   server output), and a table with the screenshots (linked to full size). On failure the
+   Playwright report is also uploaded as the artifact `playwright-report`.
 4. Put the result and the link to that comment in your pull request description, for example
    `Browser tests: passed (run 1 of 2), screenshots: <link to the comment>`.
 
-For now `e2e` runs on GitHub's Ubuntu runner. Once the Mac runner is online (decision 0006), `e2e`
-runs on the Mac and the label `e2e-linux` runs the same tests on `ubuntu-latest`, for example when
-the Mac is offline. Both labels count towards the 2 runs. Pull requests from forks never run them.
+The runs use GitHub's Ubuntu runner. Pull requests from forks never run them.
+
+When every file a pull request changes is in `tests/e2e/flows/` or `docs/testing/`, the run uses
+`--only-changed=origin/<base branch>`: only the test files that changed, or that import a changed
+file, run (none for a docs-only change). Any other changed file means the full run.
 
 ### What a run does
 
@@ -79,14 +80,16 @@ Two jobs, so that no code from a pull request or its dependencies gets a token t
   with `npm ci --ignore-scripts` (`npm install --ignore-scripts` when `package-lock.json` is out
   of date), starts PostgreSQL from the npm package `embedded-postgres`
   ([`ci/postgres.mjs`](ci/postgres.mjs)), builds, runs `node apps/server/dist/cli.js seed` (once
-  the server has that command), starts the server on port 38080, installs Chromium and runs the
-  tests. npm, Playwright, the database and temporary files stay in `$RUNNER_TEMP`, and the server
-  and PostgreSQL are stopped even when a step fails. The report and the screenshots are uploaded
-  as the artifact `e2e-results` (kept 7 days).
+  the server has that command), starts the server on port 38080 with `NODE_ENV=production` and
+  `CAREHUB_PUBLIC_URL` set to that address, installs Chromium and runs the tests. npm,
+  Playwright, the database and temporary files stay in `$RUNNER_TEMP`, and the server and
+  PostgreSQL are stopped even when a step fails. The report, the screenshots and Playwright's
+  `test-results/results.json` are uploaded as the artifact `e2e-results` (kept 7 days).
 - **Publish the results** always runs on GitHub's Ubuntu runner and is the only job that can
   write. It checks out nothing and runs no npm: it downloads `e2e-results`, checks the file names
-  and sizes, pushes the screenshots to the branch `ci-screenshots`, one folder per pull request
-  (`pr-12/`), and writes the comment. That branch has a single commit and is rewritten on every
+  and sizes, pushes the screenshots and `results.json` (every test's status) to the branch
+  `ci-screenshots`, one folder per pull request (`pr-12/`, and `main/` for the nightly run), and
+  writes the comment. That branch has a single commit and is rewritten on every
   run; do not base work on it.
 
 The workflow also runs every night at 01:00 UTC on `main` when `main` had a commit in the last
@@ -101,8 +104,10 @@ npm run build                       # the tests start apps/server/dist/index.js 
 npm run e2e                         # fewer: npm run e2e -w tests/e2e -- --project phone-dark -g home
 ```
 
-To test a server that is already running (for example one with a seeded database), set its
-address: `E2E_BASE_URL=http://localhost:3000`. A throwaway database like the one in CI:
+The server needs PostgreSQL in `DATABASE_URL`; the tests start it with `NODE_ENV=production` and
+`CAREHUB_PUBLIC_URL` set to its address, as in CI. To test a server that is already running (for
+example one with a seeded database), set its address: `E2E_BASE_URL=http://localhost:3000`. A
+throwaway database like the one in CI:
 
 ```sh
 export DATABASE_URL=postgres://carehub@127.0.0.1:55432/carehub
