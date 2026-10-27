@@ -445,7 +445,7 @@ function dateTest(
   return (d) => d.start <= range.end && d.end >= range.start;
 }
 
-/** The state each Verification condition looks for. */
+/** The state each Verification condition looks for, at the viewer's moment. */
 const VERIFICATION_OP_STATES: Partial<Record<FilterOp, VerificationState>> = {
   is_verified: 'verified',
   is_expired: 'expired',
@@ -543,7 +543,7 @@ function compileCondition(c: FilterCondition, ctx: EvalContext, today: CalendarD
     }
     case 'verification': {
       const want = VERIFICATION_OP_STATES[c.op];
-      return (row) => verificationState(read(row)) === want;
+      return (row) => verificationState(read(row), ctx.viewer) === want;
     }
     default:
       return null;

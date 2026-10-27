@@ -611,7 +611,7 @@ export function formatValue(
       return '';
     case 'verification': {
       const by = isVerificationValue(value) ? personName(value.verifiedBy, ctx, exp) : undefined;
-      return verificationText(value, by);
+      return verificationText(value, ctx.viewer, by);
     }
   }
 }
