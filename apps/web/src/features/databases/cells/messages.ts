@@ -102,3 +102,16 @@ export const PROPERTY_TEXT = {
   restore: 'Restore',
   restoreNamed: (name: string) => `Restore ${name}`,
 } as const;
+
+/** Words in Edit property. */
+export const SETTINGS_TEXT = {
+  title: 'Edit property',
+  description: 'Description',
+  type: 'Type',
+  rowPage: 'On row pages',
+  rowPageChoices: {
+    always: 'Always show',
+    hide_when_empty: 'Hide when empty',
+    always_hide: 'Always hide',
+  },
+} as const;

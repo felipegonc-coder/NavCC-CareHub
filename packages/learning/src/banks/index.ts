@@ -3,6 +3,7 @@
 export * from './api';
 export * from './bank';
 export * from './draws';
+export * from './edit';
 export * from './import';
 export * from './problems';
 export * from './survey';
