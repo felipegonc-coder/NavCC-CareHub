@@ -66,6 +66,7 @@ test.describe('Templates: template variables', () => {
         await asAvery.open();
         await expect(asAvery.cell(eliRow, owner.id)).toContainText(eli);
         await fromTemplate(asAvery);
+        await expect(asAvery.rows()).toHaveCount(2);
         // Avery's row is the one that isn't Eli's, wherever the table puts it.
         const ids = await asAvery
           .rows()
