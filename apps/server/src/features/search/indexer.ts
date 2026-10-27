@@ -28,6 +28,18 @@ const clean = (text: string) => text.replaceAll('\u0000', '').slice(0, MAX_TEXT_
 
 export const uuidArray = (ids: readonly string[]) => sql`${sql.param([...ids])}::uuid[]`;
 
+/** A timestamp as exact ISO text: JavaScript dates drop microseconds, so cursors would slip. */
+export const exactTime = (column: string) =>
+  sql.raw(`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`);
+
+let queue: Promise<unknown> = Promise.resolve();
+/** One indexing run at a time, so a run that read older text never overwrites a newer one. */
+function serially<T>(work: () => Promise<T>): Promise<T> {
+  const run = queue.then(work, work);
+  queue = run.catch(() => undefined);
+  return run;
+}
+
 /** The page IDs in an event payload (`pageId`, `pageIds`), ignoring anything else. */
 export function pageIdsOf(payload: unknown): string[] {
   if (typeof payload !== 'object' || payload === null) return [];
@@ -38,22 +50,18 @@ export function pageIdsOf(payload: unknown): string[] {
 
 interface StoredDoc {
   markdown: string;
-  textUpdatedAt: Date | null;
+  /** page_docs.text_updated_at, exact. */
+  seenAt: string;
 }
 
 // stand-in: getPageContent and the event page.contentSaved (S4, #200) replace reading page_docs.
 async function readDocs(db: Db | Tx, pageIds: readonly string[]): Promise<Map<string, StoredDoc>> {
   if (pageIds.length === 0) return new Map();
-  const { rows } = await db.execute<{ page_id: string; markdown: string; text_updated_at: Date }>(
-    sql`SELECT page_id, markdown, text_updated_at FROM page_docs
+  const { rows } = await db.execute<{ page_id: string; markdown: string; seen_at: string }>(
+    sql`SELECT page_id, markdown, ${exactTime('text_updated_at')} AS seen_at FROM page_docs
         WHERE page_id = ANY(${uuidArray(pageIds)})`,
   );
-  return new Map(
-    rows.map((row) => [
-      row.page_id,
-      { markdown: row.markdown, textUpdatedAt: row.text_updated_at },
-    ]),
-  );
+  return new Map(rows.map((row) => [row.page_id, { markdown: row.markdown, seenAt: row.seen_at }]));
 }
 
 function headingsOf(markdown: string): string {
@@ -87,7 +95,7 @@ async function writeEntry(db: Db, page: IndexPage, doc: StoredDoc | undefined): 
       setweight(${vector(fold(title))}, 'A') || setweight(${vector(headings)}, 'B')
         || ${vector(text)},
       ${page.createdBy}, ${page.createdAt}, ${page.updatedBy}, ${page.updatedAt},
-      ${page.archivedAt}, ${page.trashed ? sql`now()` : null}, ${doc?.textUpdatedAt ?? null}, now())
+      ${page.archivedAt}, ${page.trashed ? sql`now()` : null}, ${doc?.seenAt ?? null}::timestamptz, now())
     ON CONFLICT (page_id) DO UPDATE SET workspace_id = excluded.workspace_id,
       space_id = excluded.space_id, parent_id = excluded.parent_id,
       ancestor_ids = excluded.ancestor_ids, kind = excluded.kind, title = excluded.title,
@@ -115,22 +123,25 @@ async function writeEntry(db: Db, page: IndexPage, doc: StoredDoc | undefined): 
 export async function indexPages(db: Db, pageIds: Iterable<string>): Promise<void> {
   const ids = [...new Set(pageIds)];
   for (let at = 0; at < ids.length; at += BATCH) {
-    const chunk = ids.slice(at, at + BATCH);
-    const found = await searchPages().getPagesForIndex(db, chunk);
-    const gone = chunk.filter((id) => !found.has(id));
-    if (gone.length > 0) {
-      await db.execute(sql`DELETE FROM search_entries WHERE page_id = ANY(${uuidArray(gone)})`);
-    }
-    const docs = await readDocs(db, [...found.keys()]);
-    let failed: unknown;
-    for (const page of found.values()) {
-      // One page that can't be read doesn't hold up the others.
-      await writeEntry(db, page, docs.get(page.id)).catch((error: unknown) => {
-        failed ??= error;
-      });
-    }
-    if (failed !== undefined) throw failed;
+    await serially(() => indexChunk(db, ids.slice(at, at + BATCH)));
   }
+}
+
+async function indexChunk(db: Db, chunk: string[]): Promise<void> {
+  const found = await searchPages().getPagesForIndex(db, chunk);
+  const gone = chunk.filter((id) => !found.has(id));
+  if (gone.length > 0) {
+    await db.execute(sql`DELETE FROM search_entries WHERE page_id = ANY(${uuidArray(gone)})`);
+  }
+  const docs = await readDocs(db, [...found.keys()]);
+  let failed: unknown;
+  for (const page of found.values()) {
+    // One page that can't be read doesn't hold up the others.
+    await writeEntry(db, page, docs.get(page.id)).catch((error: unknown) => {
+      failed ??= error;
+    });
+  }
+  if (failed !== undefined) throw failed;
 }
 
 /** The pages and everything under them that the index knows. */
@@ -144,19 +155,23 @@ export async function subtreeIds(db: Db | Tx, pageIds: readonly string[]): Promi
 }
 
 /** Moved to Trash: gone from results at once, with everything under it. */
-export async function markTrashed(db: Db | Tx, pageIds: readonly string[]): Promise<void> {
+export async function markTrashed(db: Db, pageIds: readonly string[]): Promise<void> {
   if (pageIds.length === 0) return;
   const ids = uuidArray(pageIds);
-  await db.execute(sql`
-    UPDATE search_entries SET trashed_at = now()
-    WHERE (page_id = ANY(${ids}) OR ancestor_ids && ${ids}) AND trashed_at IS NULL`);
+  await serially(() =>
+    db.execute(sql`
+      UPDATE search_entries SET trashed_at = now()
+      WHERE (page_id = ANY(${ids}) OR ancestor_ids && ${ids}) AND trashed_at IS NULL`),
+  );
 }
 
 /** Deleted for good: leaves the index, with everything under it. */
-export async function removeFromIndex(db: Db | Tx, pageIds: readonly string[]): Promise<void> {
+export async function removeFromIndex(db: Db, pageIds: readonly string[]): Promise<void> {
   if (pageIds.length === 0) return;
   const ids = uuidArray(pageIds);
-  await db.execute(
-    sql`DELETE FROM search_entries WHERE page_id = ANY(${ids}) OR ancestor_ids && ${ids}`,
+  await serially(() =>
+    db.execute(
+      sql`DELETE FROM search_entries WHERE page_id = ANY(${ids}) OR ancestor_ids && ${ids}`,
+    ),
   );
 }

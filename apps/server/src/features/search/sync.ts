@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../../db';
 import {
+  exactTime,
   indexPages,
   markTrashed,
   pageIdsOf,
@@ -12,14 +13,15 @@ import {
   subtreeIds,
   uuidArray,
 } from './indexer';
-import { searchPages } from './pages';
+import { hasPageModel, searchPages } from './pages';
 
 const POLL_MS = 2000;
 /** Saves that commit a little late are still picked up. */
 const OVERLAP = "interval '30 seconds'";
 
 export interface ContentCursor {
-  at: Date;
+  /** Exact ISO time (exactTime). */
+  at: string;
   pageId: string;
 }
 
@@ -27,18 +29,18 @@ const FIRST_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Where content polling starts: just before the newest text the index has read. */
 export async function contentCursorStart(db: Db): Promise<ContentCursor> {
-  const { rows } = await db.execute<{ at: Date }>(
-    sql.raw(`SELECT coalesce(max(text_seen_at), now()) - ${OVERLAP} AS at FROM search_entries`),
-  );
-  return { at: rows[0]?.at ?? new Date(), pageId: FIRST_ID };
+  const { rows } = await db.execute<{ at: string }>(sql`
+    SELECT ${exactTime(`(coalesce(max(text_seen_at), now()) - ${OVERLAP})`)} AS at
+    FROM search_entries`);
+  return { at: rows[0]?.at ?? new Date().toISOString(), pageId: FIRST_ID };
 }
 
 /** Indexes pages whose text changed after the cursor; returns the new cursor. */
 export async function syncContent(db: Db, cursor: ContentCursor): Promise<ContentCursor> {
   // stand-in: the event page.contentSaved (S4) replaces this polling.
-  const { rows } = await db.execute<{ page_id: string; text_updated_at: Date }>(sql`
-    SELECT page_id, text_updated_at FROM page_docs
-    WHERE (text_updated_at, page_id) > (${cursor.at}, ${cursor.pageId}::uuid)
+  const { rows } = await db.execute<{ page_id: string; at: string }>(sql`
+    SELECT page_id, ${exactTime('text_updated_at')} AS at FROM page_docs
+    WHERE (text_updated_at, page_id) > (${cursor.at}::timestamptz, ${cursor.pageId}::uuid)
     ORDER BY text_updated_at, page_id LIMIT 200`);
   const late = await db.execute<{ page_id: string }>(sql`
     SELECT d.page_id FROM page_docs d JOIN search_entries e ON e.page_id = d.page_id
@@ -49,7 +51,7 @@ export async function syncContent(db: Db, cursor: ContentCursor): Promise<Conten
     [...rows, ...late.rows].map((row) => row.page_id),
   );
   const last = rows[rows.length - 1];
-  return last ? { at: last.text_updated_at, pageId: last.page_id } : cursor;
+  return last ? { at: last.at, pageId: last.page_id } : cursor;
 }
 
 /** Indexes the pages the page model has and the index doesn't. */
@@ -111,6 +113,8 @@ export function startSearchSync(app: FastifyInstance): void {
   let running: Promise<unknown> | undefined;
   let cursor: ContentCursor | undefined;
   const tick = () => {
+    // stand-in: with no page model there's nothing to index, so other features' tests see no queries.
+    if (!hasPageModel()) return;
     running ??= safely('content sync', async () => {
       cursor ??= await contentCursorStart(db);
       cursor = await syncContent(db, cursor);

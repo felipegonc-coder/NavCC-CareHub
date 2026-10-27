@@ -69,6 +69,11 @@ export function searchPages(): SearchPages {
   return pages;
 }
 
+/** Whether a page model is bound; until then there's nothing to index or poll. */
+export function hasPageModel(): boolean {
+  return pages !== nothing;
+}
+
 /** The person's membership in the current workspace. */
 export interface SearchMember {
   workspaceId: string;

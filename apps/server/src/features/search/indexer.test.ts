@@ -196,7 +196,9 @@ describe.skipIf(!hasDatabase)('the search index on Postgres', () => {
     const cursor = await contentCursorStart(test.db);
     await setText(id, 'Open on Saturday.');
     const next = await syncContent(test.db, cursor);
-    expect(next.at.getTime()).toBeGreaterThan(cursor.at.getTime());
+    expect(next.at > cursor.at).toBe(true);
+    // The cursor is exact, so nothing is read twice.
+    expect(await syncContent(test.db, next)).toEqual(next);
     expect(await matching('saturday')).toEqual(['Holiday hours']);
     expect(await matching('monday')).toEqual([]);
 
