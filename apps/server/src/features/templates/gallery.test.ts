@@ -31,7 +31,7 @@ const pages = new Map<string, FakePage>();
 const members = new Map<string, { isAdmin: boolean; permissions: string[] }>();
 const supportMembers = new Set<string>();
 const privateSpaces = new Map<string, string>();
-const versions: string[] = [];
+const versions: { pageId: string; reason: string; by: string | null }[] = [];
 const copiedDatabases: {
   databaseId: string;
   parentId: string;
@@ -158,8 +158,9 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
         const page = pages.get(pageId);
         if (page) page.markdown = markdown;
       },
-      saveVersionNow: async (_tx, pageId) => {
-        versions.push(pageId);
+      saveVersionNow: async (_tx, pageId, options) => {
+        versions.push({ pageId, ...options });
+        return null;
       },
       duplicateDatabase: async (_tx, input) => {
         copiedDatabases.push(input);
