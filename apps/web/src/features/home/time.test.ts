@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isStillOn, upcomingDay, upcomingTime } from './time';
+import { chatTime, isStillOn, reminderDue, upcomingDay, upcomingTime } from './time';
 
 // 12:00 noon in Denver on Tue, Oct 27 2026 (UTC-6).
 const NOW = new Date('2026-10-27T18:00:00.000Z');
@@ -62,5 +62,38 @@ describe('upcomingTime', () => {
       upcomingTime(timed('2026-10-27T18:00:00.000Z', '2026-10-27T19:00:00.000Z'), NOW, prefs),
     ).toBe('Now');
     expect(upcomingTime(allDay('2026-10-27', '2026-10-28'), NOW, prefs)).toBe('All day');
+  });
+});
+
+describe('reminderDue', () => {
+  it('says Today, Tomorrow or Yesterday with the time where the person is', () => {
+    expect(reminderDue('2026-10-27T21:00:00.000Z', NOW, prefs)).toBe('Today, 3:00 PM');
+    expect(reminderDue('2026-10-28T15:00:00.000Z', NOW, prefs)).toBe('Tomorrow, 9:00 AM');
+    expect(reminderDue('2026-10-26T15:00:00.000Z', NOW, prefs)).toBe('Yesterday, 9:00 AM');
+    expect(reminderDue('2026-10-28T15:00:00.000Z', NOW, { ...prefs, use24h: true })).toBe(
+      'Tomorrow, 09:00',
+    );
+    // 11:00 PM on Oct 27 in Denver is already Oct 28 in New York.
+    const late = '2026-10-28T05:00:00.000Z';
+    expect(reminderDue(late, NOW, prefs)).toBe('Today, 11:00 PM');
+    expect(reminderDue(late, NOW, { timeZone: 'America/New_York', use24h: false })).toBe(
+      'Tomorrow, 1:00 AM',
+    );
+  });
+
+  it('gives the weekday and date further out, and the year when it is another year', () => {
+    expect(reminderDue('2026-11-02T16:00:00.000Z', NOW, prefs)).toBe('Mon, Nov 2, 9:00 AM');
+    expect(reminderDue('2027-01-04T16:00:00.000Z', NOW, prefs)).toBe('Mon, Jan 4, 2027, 9:00 AM');
+  });
+});
+
+describe('chatTime', () => {
+  it('gives the time today, then Yesterday, the weekday within a week, then the date', () => {
+    expect(chatTime('2026-10-27T15:05:00.000Z', NOW, prefs)).toBe('9:05 AM');
+    expect(chatTime('2026-10-27T15:05:00.000Z', NOW, { ...prefs, use24h: true })).toBe('09:05');
+    expect(chatTime('2026-10-27T05:00:00.000Z', NOW, prefs)).toBe('Yesterday');
+    expect(chatTime('2026-10-21T18:00:00.000Z', NOW, prefs)).toBe('Wed');
+    expect(chatTime('2026-10-20T18:00:00.000Z', NOW, prefs)).toBe('Oct 20');
+    expect(chatTime('2025-12-24T18:00:00.000Z', NOW, prefs)).toBe('Dec 24, 2025');
   });
 });
