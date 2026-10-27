@@ -39,7 +39,8 @@ const summary = await pushToUser(
 `pushToUser` builds the notification with the person's "Show message text" setting and sends it to
 each of their browsers. It deletes subscriptions that expired or that the push service says are
 gone, marks the others as used, and logs failures without the payload, endpoint or keys. It
-answers `{ sent, removed, failed }`. While push is off it sends nothing.
+answers `{ sent, removed, failed }`. While push is off, or while the person paused notifications,
+it sends nothing.
 
 Use one tag per chat, so a chat's newer notification replaces the older one, and
 `{ urgency: 'high' }` for reminders. `sendPush` sends to one browser, for anything else.
@@ -93,9 +94,11 @@ used most recently.
 time can't pause for longer.
 
 `pause` is `{ until }` while notifications are paused, with `until` an ISO instant, or null when it
-lasts until they're turned back on. It's null when not paused, and once `until` has passed. Notices
-still arrive in the 🔔 chat; `activePause` (in `index.ts`) tells other features whether a pause is
-on.
+lasts until they're turned back on. It's null when not paused, and once `until` has passed.
+
+While a pause is on, `pushToUser` sends nothing. "Send a test notification" still sends, with
+`{ evenIfPaused: true }`, because the person asked for it. Notices still arrive in the 🔔 chat;
+`activePause` (in `index.ts`) tells other features whether a pause is on.
 
 ## Tables
 

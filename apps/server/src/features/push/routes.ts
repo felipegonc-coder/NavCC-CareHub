@@ -150,7 +150,7 @@ const pushRoutes: FastifyPluginAsync<PushRoutesOptions> = async (app, options) =
     for (const [id, at] of lastTests) if (time - at >= TEST_COOLDOWN_MS) lastTests.delete(id);
     lastTests.set(userId, time);
     const runtime = { store, config, fetch: options.fetch ?? fetch, now, log: request.log };
-    return pushToUser(runtime, userId, TEST_NOTICE, { urgency: 'high' });
+    return pushToUser(runtime, userId, TEST_NOTICE, { urgency: 'high', evenIfPaused: true });
   });
 
   app.get('/preferences', async (request) => {

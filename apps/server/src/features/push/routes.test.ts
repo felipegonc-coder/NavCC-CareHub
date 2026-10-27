@@ -273,6 +273,14 @@ describe('/api/push/pause', () => {
     expect(await pauseOf(avery)).toBeNull();
   });
 
+  it('still sends the test notification, which the person asked for', async () => {
+    await build();
+    await subscribe(avery, createTestSubscription());
+    await call('PUT', '/pause', avery, { ends: 'when_turned_on' });
+    const response = await call('POST', '/test', avery);
+    expect(response.json()).toEqual({ sent: 1, removed: 0, failed: 0 });
+  });
+
   it('refuses other lengths, and settings changes leave a pause alone', async () => {
     await build();
     for (const body of [{ ends: 'forever' }, { until: '2026-10-27T16:00:00.000Z' }, {}]) {
