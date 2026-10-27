@@ -8,7 +8,9 @@ import {
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, hasDatabase, type TestApp } from '../../../testing';
+import { seedCourse } from '../courses/service';
 import { errorReply } from '../errors';
+import { learningProgress } from '../progress/schema';
 import { isLearningEnabled } from '../public';
 import learningRoutes from '../routes';
 import { sendReminders } from './reminders';
@@ -228,7 +230,7 @@ describe.skipIf(!hasDatabase)('Learning assignments API on Postgres', () => {
       await assignmentStore(server.db).insert([
         {
           workspaceId,
-          courseId: calls.id,
+          courseId: privacy.id,
           pathId: null,
           userIds: [PEOPLE.tara.id],
           groupIds: [],
@@ -241,10 +243,10 @@ describe.skipIf(!hasDatabase)('Learning assignments API on Postgres', () => {
     );
     expect((await call('tara', 'GET', '/assignments')).json()).toEqual(FORBIDDEN);
     expect((await call('trainer', 'GET', '/assignments')).json()).toMatchObject([
-      { id: row.id, courseId: calls.id, courseTitle: null, people: [PEOPLE.tara.id] },
+      { id: row.id, courseId: privacy.id, courseTitle: null, people: [PEOPLE.tara.id] },
     ]);
-    // No course is live on main until the courses server lands, so none can be assigned or shown.
-    const assign = { target: { type: 'course', id: calls.id }, people: [PEOPLE.tara.id] };
+    // A course that was never published can't be assigned, and My learning leaves it out.
+    const assign = { target: { type: 'course', id: privacy.id }, people: [PEOPLE.tara.id] };
     expect((await call('trainer', 'POST', '/assignments', assign)).json()).toEqual(NOT_FOUND);
     expect((await call('tara', 'GET', '/me')).json()).toEqual({
       continue: [],
@@ -255,6 +257,38 @@ describe.skipIf(!hasDatabase)('Learning assignments API on Postgres', () => {
 
     expect((await call('trainer', 'DELETE', `/assignments/${row.id}`)).statusCode).toBe(204);
     expect((await call('trainer', 'GET', '/assignments')).json()).toEqual([]);
+  });
+
+  it('assigns a published course and reads progress from the progress tables', async () => {
+    // Published by the courses server (B1); the progress row is the one B3's progress server keeps.
+    await seedCourse(server.db, { userId: PEOPLE.trainer.id, workspaceId }, calls);
+    const assign = { target: { type: 'course', id: calls.id }, people: [PEOPLE.tara.id] };
+    const made = await call('trainer', 'POST', '/assignments', assign);
+    expect(made.statusCode).toBe(201);
+    expect((await call('trainer', 'GET', '/assignments')).json()).toMatchObject([
+      { courseId: calls.id, courseTitle: calls.title, people: [PEOPLE.tara.id] },
+    ]);
+    const entry = { courseId: calls.id, title: calls.title, assigned: true };
+    expect((await call('tara', 'GET', '/me')).json()).toMatchObject({
+      continue: [],
+      assigned: [{ ...entry, status: 'not_started', progressPercent: 0 }],
+    });
+
+    const at = new Date();
+    await server.db.insert(learningProgress).values({
+      workspaceId,
+      learnerId: PEOPLE.tara.id,
+      courseId: calls.id,
+      version: 1,
+      status: 'in_progress',
+      percentComplete: 50,
+      startedAt: at,
+      lastActivityAt: at,
+    });
+    expect((await call('tara', 'GET', '/me')).json()).toMatchObject({
+      continue: [{ ...entry, status: 'in_progress', progressPercent: 50 }],
+      assigned: [],
+    });
   });
 });
 
