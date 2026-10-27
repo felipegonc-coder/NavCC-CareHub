@@ -7,12 +7,15 @@ import { BlockEditorFor, blockEditors } from './registry';
 const course = createCourse({ type: 'standard', title: 'Hand hygiene' });
 const paragraph: Block = { id: 'b1', type: 'paragraph', text: [{ runs: [{ text: 'Hello' }] }] };
 
+const realParagraphEditor = blockEditors.paragraph;
 afterEach(() => {
-  delete blockEditors.paragraph;
+  if (realParagraphEditor) blockEditors.paragraph = realParagraphEditor;
+  else delete blockEditors.paragraph;
 });
 
 describe('block editor registry', () => {
   it('shows a short note for a block type whose editor has not landed', () => {
+    delete blockEditors.paragraph;
     render(<BlockEditorFor block={paragraph} onChange={() => {}} course={course} lessonId="l1" />);
     expect(screen.getByText("This block can't be edited here yet.")).toBeInTheDocument();
   });
