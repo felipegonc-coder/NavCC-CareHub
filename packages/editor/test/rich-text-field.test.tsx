@@ -82,6 +82,7 @@ describe('RichTextField', () => {
       />,
     );
     expect(textbox?.querySelector('p')?.getAttribute('data-placeholder')).toBe('Add notes');
+    expect(textbox?.getAttribute('aria-placeholder')).toBe('Add notes');
   });
 
   it('has only the marks you allow', async () => {

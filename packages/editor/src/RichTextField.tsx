@@ -2,14 +2,8 @@ import type { JSONContent } from '@tiptap/core';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { useEffect, useMemo, useRef } from 'react';
 import { pageHref } from './links';
-import {
-  RICH_TEXT_MARKS,
-  flattenSlice,
-  richTextExtensions,
-  sanitizeRichText,
-  toSingleLine,
-  type RichTextMark,
-} from './richtext';
+import { flattenSlice, richTextExtensions, toSingleLine } from './richtext';
+import { RICH_TEXT_MARKS, sanitizeRichText, type RichTextMark } from './richtext-value';
 import { SelectionToolbar } from './Toolbar';
 import type { LinkPicker } from './types';
 import './styles.css';
@@ -80,10 +74,12 @@ export function RichTextField({
       'aria-multiline': String(!singleLine),
       ...(id ? { id } : {}),
       ...(ariaDescribedBy ? { 'aria-describedby': ariaDescribedBy } : {}),
+      // Screen readers don't reliably read the placeholder drawn by CSS.
+      ...(placeholder ? { 'aria-placeholder': placeholder } : {}),
       ...(readOnly ? { 'aria-readonly': 'true' } : {}),
       class: 'ch-editor',
     }),
-    [ariaLabel, singleLine, id, ariaDescribedBy, readOnly],
+    [ariaLabel, singleLine, id, ariaDescribedBy, placeholder, readOnly],
   );
 
   const editor = useEditor(
@@ -135,7 +131,9 @@ export function RichTextField({
   return (
     <div className="ch-richtext" data-readonly={readOnly ? '' : undefined}>
       <EditorContent editor={editor} />
-      {!readOnly && <SelectionToolbar editor={editor} linkPickers={pickers} />}
+      {!readOnly && options.marks.length > 0 && (
+        <SelectionToolbar editor={editor} linkPickers={pickers} />
+      )}
     </div>
   );
 }

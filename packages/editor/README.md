@@ -12,7 +12,8 @@ import { BlockEditor } from '@carehub/editor';
   y-websocket; anything with `awareness`) and the `user` to show carets and selections with names.
 - `BlockEditor` imports its own content styles, built on the `@carehub/ui` tokens for colors,
   sizes and type (`--ch-*`).
-- `@carehub/editor/schema` has the page schema with no UI (no DOM, no React) for the server.
+- `@carehub/editor/schema` has the page schema with no UI (no DOM, no React) for the server,
+  and `sanitizeRichText` for rich text field values.
 
 ## Props
 
@@ -112,13 +113,18 @@ const [description, setDescription] = useState<JSONContent>({ type: 'doc', conte
 ```
 
 - `value` is Tiptap JSON. Whatever it holds, the field shows (and `onChange` sends) only
-  paragraphs of text and hard breaks with the allowed marks and safe links. `sanitizeRichText`
-  does the same cleanup, for example on the server before saving.
+  paragraphs of text and hard breaks with the allowed marks and safe links; anything nested more
+  than 64 levels deep is dropped. `sanitizeRichText` does the same cleanup, for example on the
+  server before saving (from `@carehub/editor/schema` there).
 - A link keeps only its `href`, through `safeHref` (`//host` becomes `https://host`). Where it
   opens comes from the href when it's drawn, as in the page editor.
 - `singleLine`: Enter adds nothing, and pasted or dropped lines join with spaces.
-- Also `placeholder`, `autoFocus`, `readOnly`, `id`, `ariaDescribedBy` (for a field label and
-  hint) and `linkPickers`. Changing `marks` or `singleLine` makes a new editor.
+- `ariaLabel` names the text box, so make it match the visible label: a `<label htmlFor>` doesn't
+  name or focus a contenteditable. `id` goes on the text box, as a target for other elements'
+  `aria-labelledby` or `aria-describedby`; `ariaDescribedBy` points to a hint.
+- Also `placeholder` (also given as `aria-placeholder`), `autoFocus`, `readOnly` and
+  `linkPickers`. With no `marks`, selecting text shows no toolbar. Changing `marks` or
+  `singleLine` makes a new editor.
 
 ## Lane blocks and extension points (shared contract, see docs/decisions/0007)
 
@@ -169,7 +175,8 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
 - Links keep only `http`, `https`, `mailto`, `tel` and relative hrefs (like `/p/<pageId>`); other
   schemes are dropped when typed, pasted or loaded from HTML, and never drawn as an href, even when
   another client sends one. A href starting with `//` goes to another site, so it is only kept as
-  `https://...`. `safeHref(href)` gives the href to use, or null.
+  `https://...`. `safeHref(href)` gives the href to use, or null. It trims spaces and invisible
+  characters (like U+00A0 and U+200B) and reads the scheme without them.
 - Where a link opens comes from its href each time it is drawn, never from a stored or pasted
   `target` or `rel`: other sites open in a new tab with `rel="noopener noreferrer"`; Care Hub,
   `mailto` and `tel` links open in the same tab.

@@ -2,13 +2,9 @@
 import { getSchema, type JSONContent } from '@tiptap/core';
 import { Fragment, Slice } from '@tiptap/pm/model';
 import { describe, expect, it } from 'vitest';
-import {
-  RICH_TEXT_MARKS,
-  flattenSlice,
-  richTextExtensions,
-  sanitizeRichText,
-  toSingleLine,
-} from '../src/richtext';
+import { flattenSlice, richTextExtensions, toSingleLine } from '../src/richtext';
+import { RICH_TEXT_MARKS, sanitizeRichText } from '../src/richtext-value';
+import { sanitizeRichText as sanitizeFromSchema } from '../src/schema';
 
 const all = { marks: RICH_TEXT_MARKS, singleLine: false };
 const text = (value: string, marks?: JSONContent['marks']): JSONContent =>
@@ -59,6 +55,12 @@ describe('sanitizeRichText', () => {
     );
   });
 
+  it('drops a link that is only safe before its href is trimmed', () => {
+    const href = '\u00a0javascript:alert(document.cookie)';
+    const value = doc(p(text('Rota', [{ type: 'link', attrs: { href } }])));
+    expect(sanitizeRichText(value, all)).toEqual(doc(p(text('Rota'))));
+  });
+
   it('puts everything on one line for single-line fields', () => {
     const value = doc(p(text('One'), { type: 'hardBreak' }, text('two')), p(), p(text('three')));
     expect(sanitizeRichText(value, { marks: RICH_TEXT_MARKS, singleLine: true })).toEqual(
@@ -73,6 +75,27 @@ describe('sanitizeRichText', () => {
     },
   );
 
+  it('drops what is nested too deep, instead of running out of stack', () => {
+    let block: JSONContent = p(text('Deep'));
+    let span: JSONContent = text('deep');
+    for (let level = 0; level < 5000; level += 1) {
+      block = { type: 'blockquote', content: [block] };
+      span = { type: 'span', content: [span] };
+    }
+    expect(sanitizeRichText(doc(p(text('Top'), span), block), all)).toEqual(doc(p(text('Top'))));
+  });
+
+  it('keeps every line of a list nested 20 levels deep', () => {
+    let item: JSONContent = { type: 'listItem', content: [p(text('20'))] };
+    for (let level = 19; level >= 1; level -= 1) {
+      const inside: JSONContent = { type: 'bulletList', content: [item] };
+      item = { type: 'listItem', content: [p(text(String(level))), inside] };
+    }
+    const value = doc({ type: 'bulletList', content: [item] });
+    const lines = sanitizeRichText(value, all).content?.map((line) => line.content?.[0]?.text);
+    expect(lines).toEqual(Array.from({ length: 20 }, (_, index) => String(index + 1)));
+  });
+
   it('splits stored line breaks into hard breaks and joins text with the same marks', () => {
     expect(sanitizeRichText(doc(p(text('a\nb'), text('c'))), all)).toEqual(
       doc(p(text('a'), { type: 'hardBreak' }, text('bc'))),
@@ -85,6 +108,12 @@ describe('single-line paste', () => {
 
   it('joins pasted lines with spaces', () => {
     expect(toSingleLine('one\r\n  two\n\nthree ')).toBe('one two three ');
+  });
+
+  it('leaves spaces without a line break as they are, also long runs of them', () => {
+    expect(toSingleLine('a \t\u00a0b \n\t c')).toBe('a \t\u00a0b c');
+    const spaces = ' '.repeat(40_000);
+    expect(toSingleLine(`a${spaces}b`)).toBe(`a${spaces}b`);
   });
 
   it('flattens pasted blocks into one line, keeping marks', () => {
@@ -114,5 +143,22 @@ describe('richTextExtensions', () => {
     const schema = getSchema(richTextExtensions({ marks: ['bold', 'link'], singleLine: false }));
     expect(Object.keys(schema.marks).sort()).toEqual(['bold', 'link']);
     expect(Object.keys(schema.nodes).sort()).toEqual(['doc', 'hardBreak', 'paragraph', 'text']);
+  });
+});
+
+// The server loads `@carehub/editor/schema`, so what it gets from there needs no React or styles.
+// (Vite needs the glob options written out.)
+const valueFile = import.meta.glob('../src/richtext-value.ts', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+
+describe('@carehub/editor/schema', () => {
+  it('has sanitizeRichText, from a file that imports no React or styles', () => {
+    expect(sanitizeFromSchema).toBe(sanitizeRichText);
+    const source = Object.values(valueFile)[0] ?? '';
+    const imports = [...source.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*['"]([^'"]+)['"]/g)];
+    expect(imports.map((match) => match[1])).toEqual(['@tiptap/core', './links']);
   });
 });

@@ -1,17 +1,29 @@
 const SAFE_SCHEMES = new Set(['http', 'https', 'mailto', 'tel']);
 const SCHEME = /^([a-z][a-z\d+.-]*):/i;
 
-/** Spaces and control characters, which browsers skip when they read a URL. */
-function isBlank(char: string): boolean {
-  const code = char.charCodeAt(0);
-  return code <= 0x20 || code === 0x7f;
-}
+/**
+ * Spaces, control characters and invisible characters (like U+00A0, U+200B, U+2028, U+3164 and
+ * U+FEFF). Browsers skip some of them when they read a URL, and other programs may skip others,
+ * so links are checked without any of them.
+ */
+const BLANK = /^[\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]$/u;
+const isBlank = (char: string) => BLANK.test(char);
 
-/** Removes spaces and control characters, which browsers skip when they read a URL scheme. */
+/** Removes every blank character, so none can hide a scheme (like `java\u200bscript:`). */
 function compact(value: string): string {
   let out = '';
   for (const char of value) if (!isBlank(char)) out += char;
   return out;
+}
+
+/** `value` without blank characters at the start and end. */
+function trimBlanks(value: string): string {
+  const chars = [...value];
+  let start = 0;
+  let end = chars.length;
+  while (start < end && isBlank(chars[start] ?? '')) start += 1;
+  while (end > start && isBlank(chars[end - 1] ?? '')) end -= 1;
+  return chars.slice(start, end).join('');
 }
 
 /** `//host/path` goes to another site, on the page's own scheme. Browsers read `\` as `/` here. */
@@ -31,20 +43,24 @@ function isUrl(value: string): boolean {
  * The href to use for a link, or null if it isn't safe. Safe are http(s), mailto and tel links,
  * and links inside Care Hub (no scheme, like `/p/123`). A link starting with `//` goes to another
  * site, so it is only allowed as an https link: `//example.com` becomes `https://example.com`.
+ * Blank characters at the ends are dropped, and the scheme is read without the ones inside.
  */
 export function safeHref(href: unknown): string | null {
   if (typeof href !== 'string') return null;
-  const value = compact(href);
+  // The href it checks is the one it returns: blank characters are trimmed first.
+  const raw = trimBlanks(href);
+  const value = compact(raw);
   if (isProtocolRelative(value)) {
+    const chars = [...raw];
     let start = 0;
-    while (start < href.length && isSlashOrBlank(href.charAt(start))) start += 1;
-    const url = `https://${href.slice(start).trim()}`;
+    while (start < chars.length && isSlashOrBlank(chars[start] ?? '')) start += 1;
+    const url = `https://${chars.slice(start).join('')}`;
     return isUrl(url) ? url : null;
   }
   if (!value) return null;
   const scheme = SCHEME.exec(value)?.[1];
   if (scheme !== undefined && !SAFE_SCHEMES.has(scheme.toLowerCase())) return null;
-  return href.trim();
+  return raw;
 }
 
 /** True for http(s), mailto and tel links, links inside Care Hub (like `/p/123`) and `//host`. */
