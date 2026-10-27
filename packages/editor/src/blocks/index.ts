@@ -17,7 +17,7 @@ import { nodes as toggle } from './toggle';
 
 /*
  * The core block catalog, one file per block group. Each group owns only its blocks/<group>.ts
- * (and its "/" entries and views in blocks/<group>.ui.ts); core owns this file and ../schema.ts.
+ * (and, with the "/" menu, blocks/<group>.ui.tsx); core owns this file and ../schema.ts.
  *
  * - Schema only: nodes, marks, attributes, typing rules and shortcuts from @tiptap packages, never
  *   React or app code, because the collab server loads these files too (a test checks this).

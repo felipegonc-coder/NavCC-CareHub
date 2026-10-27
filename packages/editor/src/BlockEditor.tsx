@@ -1,12 +1,10 @@
 import type { AnyExtension } from '@tiptap/core';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type * as Y from 'yjs';
-import { createBlockExtensions } from './extensions';
+import { createBlockExtensions, type NodeViews } from './extensions';
 import { PAGE_FIELD } from './schema';
-import { SlashMenu } from './SlashMenu';
-import { SlashMenuStore } from './slash';
-import type { CollabProvider, EditorUser, NodeViews, SlashItem } from './types';
+import type { CollabProvider, EditorUser } from './types';
 import './styles.css';
 
 export interface BlockEditorProps {
@@ -31,21 +29,13 @@ export interface BlockEditorProps {
    */
   nodeViews?: NodeViews;
   /**
-   * More "/" menu entries, after the blocks' own. An entry with the id of a block (like
-   * `heading1`) replaces it. Can change at any time.
-   */
-  slashItems?: SlashItem[];
-  /**
    * More behavior that isn't a node or mark, like shortcuts or plugins. Read when the editor is
    * created: remount the editor (with a `key`) to change them.
    */
   extensions?: AnyExtension[];
 }
 
-/**
- * The page editor: blocks, the "/" menu and Markdown shortcuts on a Y.Doc, live with a collab
- * provider.
- */
+/** The page editor: blocks and Markdown shortcuts on a Y.Doc, live with a collab provider. */
 export function BlockEditor({
   ydoc,
   field = PAGE_FIELD,
@@ -57,18 +47,11 @@ export function BlockEditor({
   className,
   onReady,
   nodeViews,
-  slashItems,
   extensions,
 }: BlockEditorProps) {
   const awareness = provider?.awareness ?? null;
   const latest = useRef({ placeholder, onReady });
   latest.current = { placeholder, onReady };
-  const userId = user?.id;
-  // The blocks you used last are offered first, per person on this device.
-  const slashMenu = useMemo(
-    () => new SlashMenuStore(userId ? `carehub.editor.recent-blocks.${userId}` : undefined),
-    [userId],
-  );
 
   // A new provider or person makes a new editor; the blocks stay in the Y.Doc.
   const editor = useEditor(
@@ -81,7 +64,6 @@ export function BlockEditor({
         provider: awareness ? { awareness } : null,
         user,
         nodeViews,
-        slashMenu,
         extensions,
         placeholder: () => latest.current.placeholder,
       }),
@@ -102,10 +84,6 @@ export function BlockEditor({
   }, [editor, editable]);
 
   useEffect(() => {
-    slashMenu.setItems(slashItems);
-  }, [slashMenu, slashItems]);
-
-  useEffect(() => {
     if (editor) latest.current.onReady?.(editor);
   }, [editor]);
 
@@ -113,7 +91,6 @@ export function BlockEditor({
   return (
     <div className={className ? `ch-block-editor ${className}` : 'ch-block-editor'}>
       <EditorContent editor={editor} />
-      {editable && <SlashMenu editor={editor} store={slashMenu} />}
     </div>
   );
 }
