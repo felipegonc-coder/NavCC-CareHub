@@ -131,6 +131,20 @@ monthly cap, one usage log split by feature, and one admin page (Settings → Cl
 - Summaries, key points, quiz questions and course drafts use `askClaudeJson` with Learning's own zod schemas, then
   the normal course checks. The reply is untrusted text: no raw HTML, links go through `safeHref`, and nothing is
   saved until the author accepts it.
-- A `ClaudeError` is answered with `CLAUDE_ERRORS[reason]`: its status, code and plain words, plus
-  `details: { reason }`.
+- A `ClaudeError` is answered with the shared client's `claudeHttpError(reason)`: its status, code and plain
+  words, plus `details: { reason }`.
+- Writing help on part of a block passes it as `selection`, cut on the server from the saved block text: the
+  browser sends the block id and where the selection starts and ends in its plain text, never the text itself.
 - The security reviewer reviews every Learning help PR.
+
+## 0316 · Right answers go out only after an attempt, in the paper's ids
+Adds to 0302 and 0314 (B2, B3).
+- B2 adds `paperAnswerKey(quiz, plan)` in `quiz/`: each paper question's right answer as a `QuestionResponse` in
+  the paper's ids (the per-attempt `match-…` and `item-…` ids; choice option and hotspot spot ids stay real).
+  Fill-in blanks get their first accepted answer, hotspots their first right spot. Surveys have none.
+- B3 sends it as `answers` with a submitted attempt's results in the learner's quiz state (the reply to
+  `POST /courses/:id/events` and `GET /courses/:id/progress`), only while `quizStatus(...).revealAnswers` is true.
+  Never while an attempt is open, never in reports or CSVs, and only to the learner. Trainers see right answers in
+  Studio.
+- B2's `QuizLessonView` shows the right answers next to the learner's when `answers` is there; otherwise only right
+  or wrong and the feedback.
