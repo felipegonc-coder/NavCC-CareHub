@@ -111,7 +111,7 @@ describe.skipIf(!hasDatabase)('postgresReminderSources', () => {
     const notices: SendNoticeInput[] = [];
     const reminders = {
       ...postgresReminderSources(server.db),
-      // Live courses come from the courses server (B1, #111); until it is on main, this one.
+      // This course is live without being published first.
       liveCourses: async () => new Map([[course.id, course]]),
       canOpen: async () => false,
       sendNotice: async (notice: SendNoticeInput) => notices.push(notice),

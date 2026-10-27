@@ -8,13 +8,14 @@ import {
   type NewProgressEvent,
   type PlayerCourse,
 } from '@carehub/learning';
-import { IconButton, cn, useMediaQuery } from '@carehub/ui';
+import { IconButton, breakpoints, cn, useMediaQuery } from '@carehub/ui';
 import { Menu, PanelLeft, PanelLeftClose, Search, Type, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { BlockViewMode } from '../blocks/registry';
 import { CourseSearch } from './CourseSearch';
 import { LessonView } from './LessonView';
+import { OfflineNote } from './OfflineNote';
 import { Outline } from './Outline';
 import { outlinePercent, ProgressBar } from './ProgressBar';
 import { TextSizeControl, usePlayerTextSize } from './TextSize';
@@ -27,10 +28,12 @@ export type PlayerProps = {
   lessonId: Id;
   mode: BlockViewMode;
   emit(event: NewProgressEvent): void;
+  /** How many of the learner's steps wait to be sent; a note says so while they can't be. */
+  waiting?: number;
 };
 
-/** The phone layout's width (docs: under 768 px), where the outline becomes a menu. */
-const PHONE = '(max-width: 767px)';
+/** The phone layout, narrower than `md:` (as Tailwind's `max-md:`), where the outline is a menu. */
+const PHONE = `not all and (min-width: ${breakpoints.md})`;
 
 /** The header's tools, each opening a panel under it: search inside the course, and text size. */
 type Tool = 'search' | 'text';
@@ -39,7 +42,7 @@ type Tool = 'search' | 'text';
  * The course player: the outline (a sidebar, or a menu on phones), search inside the course, the
  * text size, and the open lesson.
  */
-export function Player({ course, state, lessonId, mode, emit }: PlayerProps) {
+export function Player({ course, state, lessonId, mode, emit, waiting = 0 }: PlayerProps) {
   const outlineId = useId();
   const toolId = useId();
   const narrow = useMediaQuery(PHONE);
@@ -126,6 +129,7 @@ export function Player({ course, state, lessonId, mode, emit }: PlayerProps) {
           <ProgressBar percent={percent} label="Course progress" className="w-16 md:w-32" />
         </div>
       </header>
+      <OfflineNote waiting={waiting} className="border-b border-border md:px-8" />
       {tool && (
         <div id={toolId} className="border-b border-border px-4 py-4 md:px-8">
           <div className="mx-auto w-full max-w-page">

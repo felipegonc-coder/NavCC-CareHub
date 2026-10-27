@@ -1,4 +1,5 @@
 import type { BlockEditors } from '../registry';
+import { ScenarioEditor } from './ScenarioEditor';
 
-/** Editors for scenario blocks. B2 fills this in; until then the canvas shows a note for them. */
-export const scenarioEditors: BlockEditors = {};
+/** The scenario block's editor (B2). */
+export const scenarioEditors: BlockEditors = { scenario: ScenarioEditor };

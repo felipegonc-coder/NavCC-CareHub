@@ -5,6 +5,7 @@
  */
 import { decodeCsvBytes } from '../csv/decode';
 import { checkCsvSize } from '../csv/parse';
+import { LIMITS } from '../types';
 import { builtInDateStyle, dateStyleOf, type DateStyle } from './numfmt';
 import { XmlError, xmlTokens, type XmlToken } from './xml';
 import {
@@ -20,6 +21,26 @@ import {
 const grouped = new Intl.NumberFormat('en-US');
 const mb = (bytes: number) => `${bytes / (1024 * 1024)} MB`;
 
+/**
+ * What a workbook can make an import read, however small the file (#212): every cell can point to
+ * the same long shared string, so the text is capped where it's built, not by the file size.
+ */
+export const XLSX_LIMITS = {
+  /**
+   * Characters kept of a shared string or a cell: one more than a Text property takes, so a
+   * longer value is still reported as too long.
+   */
+  cellText: LIMITS.text + 1,
+  sharedStrings: 1_000_000,
+  /**
+   * Characters in the cells read from a sheet, each use of a shared string counted: no more than
+   * a CSV file at the 10 MB limit holds.
+   */
+  sheetText: LIMITS.csvBytes,
+  /** Cells read from a sheet, empty ones included: as many as the row and column limits need. */
+  sheetCells: (LIMITS.csvRows + 2) * (LIMITS.csvColumns + 1),
+} as const;
+
 /** Messages for files that can't be read (the CSV limits keep the CSV messages). */
 export const XLSX_ERRORS = {
   notXlsx: "This file isn't an Excel workbook (.xlsx).",
@@ -31,6 +52,9 @@ export const XLSX_ERRORS = {
   partTooBig: `Part of this file is larger than ${mb(ZIP_LIMITS.entryBytes)} once unpacked.`,
   tooBig: `This file is larger than ${mb(ZIP_LIMITS.totalBytes)} once unpacked.`,
   noSheets: 'This file has no sheets.',
+  tooManyStrings: `This file has more than ${grouped.format(XLSX_LIMITS.sharedStrings)} different text values.`,
+  tooMuchText: 'This sheet has more text than Care Hub can import at once.',
+  tooManyCells: 'This sheet has more cells than Care Hub can import at once.',
 } as const;
 
 /** "This file has no sheet named 'Q3 reviews'." */
@@ -85,6 +109,24 @@ export function failureMessage(e: unknown): string {
   throw e;
 }
 
+/**
+ * Raw characters kept of a value before cleanCellText: an _xHHHH_ escape is 7 characters for 1, so
+ * this still gives more than XLSX_LIMITS.cellText.
+ */
+const RAW_TEXT = 8 * XLSX_LIMITS.cellText;
+
+/** `text` added to `to`, keeping at most RAW_TEXT characters. */
+export const appendRaw = (to: string, text: string): string =>
+  to.length >= RAW_TEXT ? to : to + text.slice(0, RAW_TEXT - to.length);
+
+/** At most XLSX_LIMITS.cellText characters, plus one if that would split a surrogate pair. */
+export function clipCellText(s: string): string {
+  const max = XLSX_LIMITS.cellText;
+  if (s.length <= max) return s;
+  const code = s.charCodeAt(max - 1);
+  return s.slice(0, code >= 0xd800 && code <= 0xdbff ? max + 1 : max);
+}
+
 /** Cell text as CSV import gets it: Excel's _x000D_ escapes decoded, CRLF and CR as "\n", no NUL. */
 export function cleanCellText(s: string): string {
   const t = s.includes('_x')
@@ -93,16 +135,19 @@ export function cleanCellText(s: string): string {
   return t.replace(/\r\n?/g, '\n').replaceAll('\u0000', '');
 }
 
-/** Collects the text of a string item (<si> or <is>): its <t> runs, without phonetic guides (<rPh>). */
+/**
+ * Collects the text of a string item (<si> or <is>): its <t> runs, without phonetic guides (<rPh>),
+ * clipped to XLSX_LIMITS.cellText.
+ */
 export class RichText {
-  private readonly parts: string[] = [];
+  private text = '';
   private inText = false;
   private phonetic = 0;
 
   /** Follows one token inside the item. */
   take(tok: XmlToken): void {
     if (tok.kind === 'text') {
-      if (this.inText && this.phonetic === 0) this.parts.push(tok.text);
+      if (this.inText && this.phonetic === 0) this.text = appendRaw(this.text, tok.text);
     } else if (tok.name === 'rPh') {
       if (tok.kind === 'close') this.phonetic = Math.max(0, this.phonetic - 1);
       else if (!tok.selfClosing) this.phonetic++;
@@ -112,7 +157,7 @@ export class RichText {
   }
 
   done(): string {
-    return cleanCellText(this.parts.join(''));
+    return clipCellText(cleanCellText(this.text));
   }
 }
 
@@ -162,11 +207,15 @@ function relationships(
 const ofType = (rels: Map<string, Relationship>, type: string): string | undefined =>
   [...rels.values()].find((r) => r.type.endsWith(`/${type}`))?.target;
 
+/** The shared strings, each clipped; throws XlsxFailure past XLSX_LIMITS.sharedStrings. */
 function sharedStrings(xml: string | null): string[] {
   const out: string[] = [];
   let item: RichText | null = null;
   for (const tok of xml === null ? [] : xmlTokens(xml)) {
     if (tok.kind !== 'text' && tok.name === 'si') {
+      if (out.length >= XLSX_LIMITS.sharedStrings) {
+        throw new XlsxFailure(XLSX_ERRORS.tooManyStrings);
+      }
       if (tok.kind === 'close') {
         out.push(item?.done() ?? '');
         item = null;
