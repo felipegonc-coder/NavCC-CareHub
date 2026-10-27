@@ -1,9 +1,11 @@
-import { expect, needs, onlyIn, signInAs, test } from '../_support/index.js';
+import { expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
+import { makePage } from '../pages/page-data.js';
+import { PageScreen, literally } from '../pages/page-screen.js';
 import { Editor } from './editor-page.js';
 
 // Pages and blocks, sections 3.3 (Nesting), 3.5 (Links) and 6: typing that needs no "/" menu.
 
-test.describe('Editor: nesting and links', () => {
+test.describe('Editor: nesting', () => {
   onlyIn('desktop-light');
   needs('signIn', 'appShell', 'pages', 'editor');
 
@@ -49,30 +51,42 @@ test.describe('Editor: nesting and links', () => {
       await expect.poll(() => left(underText)).toBeGreaterThan(start);
     });
   });
+});
 
-  test('SH-24 Ctrl+K links text to http, https, mailto and tel addresses only; a link opens in a new tab and hovering offers Copy, Edit and Remove', async ({
+test.describe('Editor: links', () => {
+  onlyIn('desktop-light');
+  // The link editor finds Care Hub pages with the same search as everywhere (Search, section 3.1).
+  needs('signIn', 'appShell', 'pages', 'editor', 'search');
+
+  test('PB-40 Ctrl+K links selected text to a web address or a searched Care Hub page; hovering offers Edit and Remove; Care Hub links open in the same tab, web links in a new one', async ({
     page,
   }) => {
     const web = 'https://example.test/fictional-qa';
+    const edited = 'https://example.test/fictional-qa-edited';
+    const target = uniqueName('Fictional QA link target');
     await signInAs(page, 'editor');
+    const targetId = await makePage(page, target);
     await page
       .context()
-      .route(`${web}*`, (route) =>
+      .route('https://example.test/**', (route) =>
         route.fulfill({ contentType: 'text/html', body: '<title>Fictional QA</title>' }),
       );
     const editor = await Editor.onNewPage(page);
     const keys = page.keyboard;
     const linkEditor = page.getByRole('dialog', { name: /link/i });
+    const linkBox = linkEditor.getByRole('combobox').or(linkEditor.getByRole('textbox')).first();
     const link = (text: string) => editor.content.getByRole('link', { name: text });
-    const linkText = async (text: string, address: string) => {
+    /** Types the text, selects it and presses Ctrl+K. */
+    const selectAndLink = async (text: string) => {
       await keys.type(text);
       await keys.press('Shift+Home');
       await keys.press('ControlOrMeta+K');
-      await linkEditor
-        .getByRole('combobox')
-        .or(linkEditor.getByRole('textbox'))
-        .first()
-        .fill(address);
+      await expect(linkBox).toBeVisible();
+    };
+    /** A new line after a block's text. */
+    const newLineAfter = async (text: string) => {
+      await editor.content.getByText(text).click();
+      await keys.press('End');
       await keys.press('Enter');
     };
 
@@ -83,34 +97,65 @@ test.describe('Editor: nesting and links', () => {
         ['Fictional QA phone link', 'tel:+15550100'],
       ];
       for (const [text, address] of links) {
-        await linkText(text, address);
-        await expect(link(text)).toHaveAttribute('href', address);
-        await keys.press('End');
+        await selectAndLink(text);
+        await linkBox.fill(address);
         await keys.press('Enter');
+        await expect(link(text)).toHaveAttribute('href', address);
+        await newLineAfter(text);
       }
     });
 
     await test.step('a javascript: address is refused, and the text stays plain', async () => {
-      await linkText('Fictional QA unsafe link', 'javascript:alert(1)');
+      await selectAndLink('Fictional QA unsafe link');
+      await linkBox.fill('javascript:alert(1)');
+      await keys.press('Enter');
       await expect(link('Fictional QA unsafe link')).toHaveCount(0);
       await expect(editor.content).toContainText('Fictional QA unsafe link');
       if (await linkEditor.isVisible()) await keys.press('Escape');
     });
 
-    await test.step('clicking a web link opens it in a new tab', async () => {
-      const opened = page.waitForEvent('popup');
-      await link('Fictional QA web link').click();
-      await expect(await opened).toHaveURL(web);
+    await test.step('typing a title in the link editor finds the Care Hub page, and picking it links to it', async () => {
+      await newLineAfter('Fictional QA unsafe link');
+      await selectAndLink('Fictional QA page link');
+      await linkBox.fill(target);
+      await linkEditor.getByRole('option', { name: literally(target) }).click();
+      await expect(link('Fictional QA page link')).toHaveAttribute(
+        'href',
+        new RegExp(`/p/${targetId}$`),
+      );
     });
 
-    await test.step('hovering a link shows its address with Copy, Edit and Remove; Remove unlinks it', async () => {
+    await test.step('hovering a link shows its address with Copy, Edit and Remove; Edit changes the address', async () => {
       await link('Fictional QA web link').hover();
       await expect(page.getByText(web, { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Copy' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible();
+      await page.getByRole('button', { name: 'Edit' }).click();
+      await linkBox.fill(edited);
+      await keys.press('Enter');
+      await expect(link('Fictional QA web link')).toHaveAttribute('href', edited);
+    });
+
+    await test.step('clicking a web link opens it in a new tab', async () => {
+      const opened = page.waitForEvent('popup');
+      await link('Fictional QA web link').click();
+      await expect(await opened).toHaveURL(edited);
+    });
+
+    await test.step('Remove unlinks the text and keeps it', async () => {
+      await link('Fictional QA mail link').hover();
       await page.getByRole('button', { name: 'Remove' }).click();
-      await expect(link('Fictional QA web link')).toHaveCount(0);
-      await expect(editor.content).toContainText('Fictional QA web link');
+      await expect(link('Fictional QA mail link')).toHaveCount(0);
+      await expect(editor.content).toContainText('Fictional QA mail link');
+    });
+
+    await test.step('clicking a Care Hub link opens the page in the same tab', async () => {
+      let newTabs = 0;
+      page.context().on('page', () => (newTabs += 1));
+      await link('Fictional QA page link').click();
+      await expect(page).toHaveURL(new RegExp(`/p/${targetId}$`));
+      await new PageScreen(page).expectTitle(target);
+      expect(newTabs).toBe(0);
     });
   });
 });
