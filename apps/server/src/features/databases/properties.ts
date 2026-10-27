@@ -1,5 +1,6 @@
-// Property changes (decision 0200; Databases spec 3.4): what adding, editing, changing the type of,
-// deleting, restoring and duplicating a property does to a database's settings. Pure: the routes in
+// Property changes (decision 0200; Databases spec 3.4): what adding, editing, changing the type of
+// (and undoing that), deleting, restoring and duplicating a property does to a database's settings.
+// Pure: the routes in
 // property-routes.ts load what these need (related databases, rows) and write the values the plans
 // ask for, inside the settings write's transaction.
 import {
@@ -32,7 +33,13 @@ import { rollupDependencies } from '@carehub/databases/rollup';
 import { removeOptionFromRows, type OptionProperty } from '@carehub/databases/options';
 import { normalizeIdPrefix } from '@carehub/databases/unique-id';
 import { DATABASE_MESSAGES, invalid, invalidRequest, notFound } from './errors';
-import type { DatabaseRecord, DatabaseSettings, DeletedProperty } from './record';
+import type {
+  DatabaseRecord,
+  DatabaseSettings,
+  DeletedProperty,
+  TypeChange,
+  TypeChangeSettings,
+} from './record';
 import type { CellWrite } from './store';
 
 /** Messages, word for word. */
@@ -42,6 +49,8 @@ export const PROPERTY_MESSAGES = {
   keepName: "The Name property can't be deleted.",
   copyName: "The Name property can't be duplicated.",
   cantChange: "This property can't change to that type.",
+  addOnly: 'Formulas, rollups, IDs and buttons can only be added as new properties.',
+  cantUndo: "This change can't be undone anymore.",
   formula: 'This formula has a problem. Fix it to save.',
   loop: LOOP_MESSAGE,
   chain: CHAIN_MESSAGE,
@@ -60,6 +69,14 @@ export interface Own {
 }
 
 const DAY_MS = 86_400_000;
+
+/** Types a property is only ever added as: nothing turns into them (Databases spec 3.4). */
+const ADDED_ONLY: ReadonlySet<PropertyConfig['type']> = new Set([
+  'formula',
+  'rollup',
+  'unique_id',
+  'button',
+]);
 
 /** True when another property already has this name (ignoring case and spaces, as formulas do). */
 export function nameTaken(properties: readonly Property[], name: string, exceptId?: Id): boolean {
@@ -325,10 +342,10 @@ export interface EditPlan {
   property: Property;
   /** The type changes: the route runs planConversion over every row (and saves its config). */
   conversion: boolean;
+  /** A type change: the settings it turns off, as they were (kept with it for Undo). */
+  turnedOff: TypeChangeSettings;
   /** Options taken out of a Select, Multi-select or Status: the route clears them from rows. */
   removedOptionIds: Id[];
-  /** The property becomes an ID: the route numbers rows that have no number yet. */
-  numberRows: boolean;
   /** A two-way relation changing type: its partner becomes one-way. */
   partner: { databaseId: Id; propertyId: Id } | null;
   changes: Partial<DatabaseSettings>;
@@ -360,13 +377,26 @@ function forgetProperties(
   return changes;
 }
 
+/** The settings `forgetProperties` turns off, as they were before. */
+function settingsBefore(
+  current: DatabaseRecord,
+  off: Partial<DatabaseSettings>,
+): TypeChangeSettings {
+  const before: TypeChangeSettings = {};
+  if (off.subItems !== undefined) before.subItems = current.subItems;
+  if (off.dependencies !== undefined) before.dependencies = current.dependencies;
+  if (off.rowPageLayout !== undefined) before.rowPageLayout = current.rowPageLayout;
+  return before;
+}
+
 const usedByRule = (current: DatabaseRecord, id: Id): boolean =>
   current.accessRules.some((rule) => rule.propertyId === id);
 
 /**
  * Changing a property: a free name; the Name property keeps its type; another type only where
- * canConvert allows it (the route converts the values); a relation keeps its target and its
- * two-way partner; options taken out are cleared from rows; new settings pass checkedConfig.
+ * canConvert allows it, and never into a Formula, Rollup, ID or Button (the route converts the
+ * values); a relation keeps its target and its two-way partner; options taken out are cleared from
+ * rows; new settings pass checkedConfig.
  */
 export function planEdit(
   current: DatabaseRecord,
@@ -390,8 +420,8 @@ export function planEdit(
     before,
     property,
     conversion: false,
+    turnedOff: {},
     removedOptionIds: [],
-    numberRows: false,
     partner: null,
     changes: {},
   };
@@ -402,16 +432,18 @@ export function planEdit(
     const from = before.config;
     if (next.type !== from.type) {
       if (from.type === 'title' || next.type === 'title') throw invalid(PROPERTY_MESSAGES.oneName);
+      if (ADDED_ONLY.has(next.type)) throw invalid(PROPERTY_MESSAGES.addOnly);
       if (!canConvert(from.type, next.type)) throw invalid(PROPERTY_MESSAGES.cantChange);
       if (usedByRule(current, before.id)) throw invalid(PROPERTY_MESSAGES.usedByRule);
       plan.conversion = true;
-      plan.numberRows = next.type === 'unique_id';
       if (from.type === 'relation' && from.twoWayPropertyId !== null) {
         if (from.targetDatabaseId === current.id) loneId = from.twoWayPropertyId;
         else
           plan.partner = { databaseId: from.targetDatabaseId, propertyId: from.twoWayPropertyId };
       }
-      Object.assign(plan.changes, forgetProperties(current, new Set([before.id])));
+      const off = forgetProperties(current, new Set([before.id]));
+      plan.turnedOff = settingsBefore(current, off);
+      Object.assign(plan.changes, off);
     } else if (next.type === 'relation' && from.type === 'relation') {
       if (
         next.targetDatabaseId !== from.targetDatabaseId ||
@@ -435,6 +467,113 @@ export function planEdit(
   }
   plan.changes.properties = properties;
   return plan;
+}
+
+/**
+ * True when `p` is a relation to this database that is one-way (or already linked to
+ * `propertyId`): the other side a type change left behind, ready to link back on Undo.
+ */
+export function waitsForPartner(p: Property | undefined, databaseId: Id, propertyId: Id): boolean {
+  return (
+    p?.config.type === 'relation' &&
+    p.config.targetDatabaseId === databaseId &&
+    (p.config.twoWayPropertyId === null || p.config.twoWayPropertyId === propertyId)
+  );
+}
+
+/** The settings a type change turned off, back where they're still off and their properties are. */
+function settingsBack(
+  current: DatabaseRecord,
+  propertyId: Id,
+  saved: TypeChangeSettings,
+  properties: readonly Property[],
+): Partial<DatabaseSettings> {
+  const changes: Partial<DatabaseSettings> = {};
+  const here = (...ids: Id[]) =>
+    ids.every((id) => {
+      const p = findProperty(properties, id);
+      return p?.config.type === 'relation' && p.config.targetDatabaseId === current.id;
+    });
+  const sub = saved.subItems;
+  if (sub && current.subItems === null && here(sub.parentPropertyId, sub.childrenPropertyId)) {
+    changes.subItems = sub;
+  }
+  const deps = saved.dependencies;
+  if (
+    deps &&
+    current.dependencies === null &&
+    here(deps.blockedByPropertyId, deps.blockingPropertyId)
+  ) {
+    changes.dependencies = deps;
+  }
+  const at = saved.rowPageLayout?.pinned.indexOf(propertyId) ?? -1;
+  const layout = current.rowPageLayout;
+  if (
+    at >= 0 &&
+    layout &&
+    !layout.pinned.includes(propertyId) &&
+    layout.pinned.length < LIMITS.rowPagePinned
+  ) {
+    const pinned = [...layout.pinned];
+    pinned.splice(Math.min(at, pinned.length), 0, propertyId);
+    changes.rowPageLayout = { ...layout, pinned };
+  }
+  return changes;
+}
+
+export interface UndoTypePlan {
+  /** The property as it comes back. */
+  property: Property;
+  /** The two-way partner in another database to link back to it (the route saves that side). */
+  partner: { databaseId: Id; propertyId: Id } | null;
+  changes: Partial<DatabaseSettings>;
+}
+
+/**
+ * Undoing a type change: the property comes back exactly as it was (a name taken meanwhile gets a
+ * number), with the settings the change turned off where they're still off. A two-way partner left
+ * one-way links back: in this database when it's still waiting, in another when `partnerBack`
+ * says it can; otherwise this side comes back one-way. The route puts the values back.
+ */
+export function planUndoType(
+  current: DatabaseRecord,
+  change: Pick<TypeChange, 'property' | 'settings'>,
+  related: RelatedDatabases,
+  partnerBack: (partner: { databaseId: Id; propertyId: Id }) => boolean = () => false,
+): UndoTypePlan {
+  const id = change.property.id;
+  if (!findProperty(current.properties, id)) throw invalid(PROPERTY_MESSAGES.cantUndo);
+  if (usedByRule(current, id)) throw invalid(PROPERTY_MESSAGES.usedByRule);
+  const property: Property = {
+    ...change.property,
+    name: freeName(current.properties, change.property.name, id),
+  };
+  let partner: UndoTypePlan['partner'] = null;
+  let twinId: Id | null = null;
+  const config = property.config;
+  if (config.type === 'relation' && config.twoWayPropertyId !== null) {
+    const link = { databaseId: config.targetDatabaseId, propertyId: config.twoWayPropertyId };
+    if (link.databaseId !== current.id) {
+      if (partnerBack(link)) partner = link;
+    } else if (
+      link.propertyId === id ||
+      waitsForPartner(findProperty(current.properties, link.propertyId), current.id, id)
+    ) {
+      twinId = link.propertyId;
+    }
+    if (!partner && twinId === null) property.config = { ...config, twoWayPropertyId: null };
+  }
+  const properties = current.properties.map((p): Property => {
+    if (p.id === id) return property;
+    if (p.id !== twinId || p.config.type !== 'relation') return p;
+    return { ...p, config: { ...p.config, twoWayPropertyId: id } };
+  });
+  property.config = checkedConfig(property, { id: current.id, properties }, related);
+  return {
+    property,
+    partner,
+    changes: { ...settingsBack(current, id, change.settings, properties), properties },
+  };
 }
 
 /** Deleted properties still in their 30 days. */
