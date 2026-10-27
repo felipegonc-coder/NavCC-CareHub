@@ -1,12 +1,22 @@
 import type { Reply } from '@carehub/team-calendar-api';
 import type { OccurrenceKey, Override, RepeatRule } from '@carehub/team-repeat';
-import { boolean, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import type { EventFields } from './events/model';
 import type { StoredReply } from './events/items';
+import type { StoredKind } from './layers/model';
 
-// Mirrors migrations/202610271200_calendar_events.sql, the source of truth. Foreign keys to
-// users and workspaces are only in the SQL: other features' tables aren't imported (0007,
-// section 2.2).
+// Mirrors migrations/202610271200_calendar_events.sql and 202610271300_calendar_layers.sql,
+// the source of truth. Foreign keys to users and workspaces are only in the SQL: other
+// features' tables aren't imported (0007, section 2.2).
 
 const at = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -53,4 +63,23 @@ export const calEventPeople = pgTable(
     repliedAt: at('replied_at'),
   },
   (table) => [primaryKey({ columns: [table.eventId, table.userId] })],
+);
+
+export const calLayers = pgTable(
+  'cal_layers',
+  {
+    workspaceId: uuid('workspace_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    id: text('id').notNull(),
+    kind: text('kind').$type<StoredKind>().notNull(),
+    color: text('color').notNull(),
+    on: boolean('is_on').notNull().default(true),
+    order: integer('position').notNull(),
+    databaseId: text('database_id'),
+    propertyId: text('property_id'),
+    viewId: text('view_id'),
+    createdAt: at('created_at').notNull().defaultNow(),
+    updatedAt: at('updated_at').notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.userId, table.id] })],
 );
