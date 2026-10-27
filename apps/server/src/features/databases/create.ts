@@ -6,7 +6,7 @@
 // core's page copy. seedDatabase is the seed's: a database at the top of a space.
 import { randomUUID } from 'node:crypto';
 import type { AccessLevel, Id, Property, Row } from '@carehub/databases';
-import { atLeast } from '@carehub/databases/access';
+import { atLeast, canChangeProperty } from '@carehub/databases/access';
 import { parseRequest } from '@carehub/databases/schemas';
 import { sql } from 'drizzle-orm';
 import type { Tx } from '../../db';
@@ -33,6 +33,7 @@ import { isUuid } from './record';
 import {
   insertDatabase,
   loadDatabase,
+  loadPropertyViewer,
   loadRelatedDatabases,
   loadRows,
   saveRepeatState,
@@ -234,6 +235,7 @@ function planNew(
   def: PlannedDefinition,
   place: { workspaceId: string; spaceId: string },
   related: Map<Id, Property[]>,
+  canChange: (prop: Property) => boolean,
 ): { databaseId: Id; plan: DatabasePlan } {
   const databaseId = randomUUID();
   const plan = planDefinition(def, {
@@ -244,6 +246,7 @@ function planNew(
     rowIds: (def.rows ?? []).map(() => randomUUID()),
     linkCode: newLinkCode,
     related,
+    canChange,
   });
   return { databaseId, plan };
 }
@@ -270,7 +273,9 @@ export async function createDatabase(
   const def = parsed.value;
   const under = await editablePage(tx, def.by, def.parentId);
   const related = await relatedDatabases(tx, def.by, under.workspaceId, def.properties);
-  const { databaseId, plan } = planNew(def, under, related);
+  const viewer = await loadPropertyViewer(tx, def.by, under.workspaceId);
+  const canChange = (prop: Property) => canChangeProperty(prop, viewer, under.level);
+  const { databaseId, plan } = planNew(def, under, related, canChange);
   if (plan.needsFull && !atLeast(under.level, 'full')) throw forbidden();
   await writeDatabase(tx, plan, {
     id: databaseId,
@@ -299,7 +304,7 @@ export async function seedDatabase(
   if (!parsed.ok) throw invalid(DEFINITION_MESSAGES.invalidAt(parsed.path));
   const def = parsed.value;
   const related = await relatedDatabases(tx, def.by, input.workspaceId, def.properties);
-  const { databaseId, plan } = planNew(def, input, related);
+  const { databaseId, plan } = planNew(def, input, related, () => true);
   await writeDatabase(tx, plan, {
     id: databaseId,
     workspaceId: input.workspaceId,

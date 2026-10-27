@@ -47,7 +47,14 @@ import {
 import type { DatabaseRecord, DatabaseSettings } from './record';
 import { pageIdSchema, viewChangeRequest } from './requests';
 import { planNewTemplate } from './templates';
-import { hasOpenFormAccess, planEditView, planNewView, type ViewPatch } from './views';
+import {
+  formCopiedBy,
+  hasOpenFormAccess,
+  planEditView,
+  planNewView,
+  type ViewEditor,
+  type ViewPatch,
+} from './views';
 
 /** In a definition: a relation, or a button step, that points at the database being made. */
 export const THIS_DATABASE = 'this_database';
@@ -253,6 +260,8 @@ export interface DefinitionContext {
   linkCode: () => string;
   /** The databases its relations and buttons point at, and the ones those relate to. */
   related: RelatedDatabases;
+  /** Whether `by` can change this property's values (a form question needs it). */
+  canChange: (prop: Property) => boolean;
 }
 
 const none: ReadonlySet<Id> = new Set();
@@ -431,10 +440,18 @@ function definedViews(
 ): { views: View[]; needsFull: boolean } {
   let current = record;
   let needsFull = false;
+  const editor: ViewEditor = {
+    userId: def.by,
+    hidden: none,
+    canChange: (id) => {
+      const prop = findProperty(record.properties, id);
+      return prop !== undefined && ctx.canChange(prop);
+    },
+  };
   const list: CheckedView[] = def.views && def.views.length > 0 ? def.views : [{ layout: 'table' }];
   for (const v of list) {
     const linkCode = v.layout === 'form' ? ctx.linkCode() : undefined;
-    const made = planNewView(current, { layout: v.layout, name: v.name, linkCode });
+    const made = planNewView(current, { layout: v.layout, name: v.name, linkCode }, editor);
     current = { ...current, views: made.views };
     const patch = Object.fromEntries(
       Object.entries(v.settings ?? {}).filter(([, value]) => value !== undefined),
@@ -443,7 +460,7 @@ function definedViews(
       patch.defaultTemplateId = keyed(keys, patch.defaultTemplateId);
     }
     if (Object.keys(patch).length === 0) continue;
-    const plan = planEditView(current, made.view.id, patch, { userId: def.by, hidden: none });
+    const plan = planEditView(current, made.view.id, patch, editor);
     current = { ...current, views: plan.views };
     if (plan.formAccess || plan.formResponses || hasOpenFormAccess(plan.view)) needsFull = true;
   }
@@ -608,8 +625,8 @@ function copiedProperty(prop: Property, sourceId: Id, ctx: CopyContext): Propert
  * A copy of a database the person can see whole: the same properties, options, views and rules
  * (their ids kept), new template pages and form links, and the rows given. Links between the
  * original's rows point at their copies (links to rows left out are dropped); forms notify no one
- * until people ask; repeating templates run as the person copying. Deleted properties, sharing and
- * page content aren't copied.
+ * until people ask, and their questions are the person copying's; repeating templates run as
+ * them. Deleted properties, sharing and page content aren't copied.
  */
 export function planCopy(source: DatabaseRecord, ctx: CopyContext): DatabasePlan {
   const selfLinks = new Set(
@@ -660,12 +677,8 @@ export function planCopy(source: DatabaseRecord, ctx: CopyContext): DatabasePlan
       else delete copy.defaultTemplateId;
     }
     if (copy.form) {
-      copy.form = {
-        ...copy.form,
-        linkCode: ctx.linkCode(),
-        linkChangedAt: null,
-        notifyUserIds: [],
-      };
+      const fresh = { linkCode: ctx.linkCode(), linkChangedAt: null, notifyUserIds: [] };
+      copy.form = formCopiedBy({ ...copy.form, ...fresh }, ctx.by);
     }
     return copy;
   });

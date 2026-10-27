@@ -20,6 +20,7 @@ describe('the jobs definition', () => {
       rowIds: [1, 2, 3, 4].map((n) => `7a1c0000-0000-4000-8000-00000000020${n}`),
       linkCode: () => 'seedcode',
       related: new Map(),
+      canChange: () => true,
     });
     const [table, board, calendar, form] = plan.settings.views;
     expect(plan.settings.views.map((v) => [v.name, v.layout])).toEqual([
