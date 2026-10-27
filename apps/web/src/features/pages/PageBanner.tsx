@@ -16,44 +16,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { atLeast } from './access';
-import {
-  changePage,
-  deleteForever,
-  pagesKeys,
-  parentInTrash,
-  restoreFromTrash,
-  type PageChange,
-  type PageDetail,
-} from './api';
+import { deleteForever, pagesKeys, parentInTrash, restoreFromTrash, type PageDetail } from './api';
+import { useChangePage } from './change';
 import { stampLabel } from './page';
 import { reasonOf } from './PageHeader';
 import { titleOf } from './PageTree';
 
-/**
- * Changes page `page` on the server, showing `shown` on its screen at once; if the server
- * refuses, the screen goes back and the toast titled `failed` says why.
- */
-export function useChangePage(page: PageDetail) {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  return async (change: PageChange, shown: Partial<PageDetail>, failed: string) => {
-    const key = pagesKeys.page(page.id);
-    await queryClient.cancelQueries({ queryKey: key });
-    const before = queryClient.getQueryData<PageDetail>(key);
-    queryClient.setQueryData<PageDetail>(key, (data) => data && { ...data, ...shown });
-    try {
-      await changePage(page.id, change);
-    } catch (error) {
-      queryClient.setQueryData(key, before);
-      toast({ title: failed, description: reasonOf(error), variant: 'danger' });
-    } finally {
-      void queryClient.invalidateQueries({ queryKey: key });
-    }
-  };
-}
-
 export function PageBanner({ page }: { page: PageDetail }) {
-  const change = useChangePage(page);
+  const change = useChangePage(page.id);
   if (page.deleted) return <TrashBanner page={page} />;
   if (page.archived) {
     return (
