@@ -14,7 +14,8 @@ export const picture = (alt: string, fileId = 'file_1'): Image => ({
 /** Renders an editor with its block kept in state; `latest()` is the block after the last change. */
 export function renderEditor<B extends Block>(
   Editor: (props: EditorProps<B>) => JSX.Element,
-  block: B,
+  block: NoInfer<B>,
+  course: Course = testCourse,
 ) {
   const changes: B[] = [];
   function Harness() {
@@ -22,7 +23,7 @@ export function renderEditor<B extends Block>(
     return (
       <Editor
         block={value}
-        course={testCourse}
+        course={course}
         lessonId="lesson_1"
         onChange={(next) => {
           changes.push(next);
@@ -31,6 +32,6 @@ export function renderEditor<B extends Block>(
       />
     );
   }
-  const view = render(<Harness />);
-  return { ...view, changes, latest: () => changes[changes.length - 1] ?? block };
+  const { container } = render(<Harness />);
+  return { container, changes, latest: (): B => changes[changes.length - 1] ?? block };
 }
