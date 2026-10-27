@@ -95,7 +95,23 @@ describe('withoutDoctype', () => {
     expect(withoutDoctype(`${head}<!DOCTYPE en-export SYSTEM "x.dtd"><en-export/>`)).toBe(
       `${head}<en-export/>`,
     );
+    const pub = `<!DOCTYPE en-export PUBLIC '-//Evernote//Export' "x>y.dtd">\n<en-export/>`;
+    expect(withoutDoctype(pub)).toBe('\n<en-export/>');
     expect(withoutDoctype('<en-export/>')).toBe('<en-export/>');
+  });
+
+  it('leaves every other DOCTYPE for the tokenizer to refuse', () => {
+    for (const text of [
+      '<!DOCTYPE en-export><en-export/>',
+      '<!DOCTYPE en-export SYSTEM "x.dtd" [<!ENTITY a "a">]><en-export/>',
+      '<!-- x --><!DOCTYPE en-export SYSTEM "x.dtd"><en-export/>',
+    ]) {
+      expect(withoutDoctype(text)).toBe(text);
+      expect(thrown(() => readEnex(text)).message).toBe(NOT_ENEX);
+    }
+    const twice = '<!DOCTYPE a SYSTEM "x"><!DOCTYPE b SYSTEM "y"><en-export/>';
+    expect(withoutDoctype(twice)).toBe('<!DOCTYPE b SYSTEM "y"><en-export/>');
+    expect(thrown(() => readEnex(twice)).message).toBe(NOT_ENEX);
   });
 });
 

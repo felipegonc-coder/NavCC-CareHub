@@ -44,17 +44,21 @@ export function enexDate(value: string): string | null {
     : iso;
 }
 
+/** A DOCTYPE that only names a DTD elsewhere (SYSTEM or PUBLIC), with no declarations in it. */
+const EXTERNAL_DOCTYPE =
+  /<!DOCTYPE\s+[A-Za-z_:][\w.:-]*\s+(?:SYSTEM|PUBLIC\s+(?:"[^"]*"|'[^']*'))\s+(?:"[^"]*"|'[^']*')\s*>/y;
+
 /**
  * The export without its `<!DOCTYPE en-export SYSTEM "...">` line, which the tokenizer refuses.
- * Only a reference to Evernote's DTD is cut: a declaration with an internal subset (`[...]`,
- * where entities are defined) stays, so the tokenizer still refuses it.
+ * Only one DOCTYPE is cut, right before the root element, and only one that names a DTD without
+ * declaring anything (no `[...]`, where entities are defined). Any other stays, so the tokenizer
+ * refuses the file. The DTD is never read.
  */
 export function withoutDoctype(text: string): string {
   const start = /^\uFEFF?\s*(?:<\?xml[^>]*\?>\s*)?/.exec(text)?.[0].length ?? 0;
-  if (!text.startsWith('<!DOCTYPE', start)) return text;
-  const end = text.indexOf('>', start);
-  if (end < 0 || text.slice(start, end).includes('[')) return text;
-  return text.slice(0, start) + text.slice(end + 1);
+  EXTERNAL_DOCTYPE.lastIndex = start;
+  const doctype = EXTERNAL_DOCTYPE.exec(text);
+  return doctype ? text.slice(0, start) + text.slice(start + doctype[0].length) : text;
 }
 
 /** Base64 (with line breaks, as Evernote writes it) as bytes, or null when it isn't base64. */
