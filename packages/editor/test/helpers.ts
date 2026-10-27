@@ -3,18 +3,22 @@ import type { Transaction } from '@tiptap/pm/state';
 import { Editor } from '@tiptap/react';
 import * as Y from 'yjs';
 import { createBlockExtensions } from '../src/extensions';
+import type { SlashMenuStore } from '../src/slash';
 
 export const testUser = { id: 'user-1', name: 'Robin Example', color: '#2563eb' };
 
-/** Lets timers and promises run (Yjs binds the editor on a 0 ms timer). */
+/** Lets timers and promises run (Yjs binds on a 0 ms timer, the "/" menu updates async). */
 export const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-export async function createTestEditor(options: { ydoc?: Y.Doc } = {}) {
+export async function createTestEditor(options: { ydoc?: Y.Doc; slashMenu?: SlashMenuStore } = {}) {
   const element = document.createElement('div');
   document.body.append(element);
   const editor = new Editor({
     element,
-    extensions: createBlockExtensions({ ydoc: options.ydoc ?? new Y.Doc() }),
+    extensions: createBlockExtensions({
+      ydoc: options.ydoc ?? new Y.Doc(),
+      slashMenu: options.slashMenu,
+    }),
   });
   await flush();
   return editor;

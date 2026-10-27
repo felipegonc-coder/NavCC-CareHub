@@ -1,14 +1,16 @@
-// Stub screens from the Learning base PR. B8 replaces them; the routes in ../routes.tsx stay as they are.
+import { StudioRoot } from './context';
+import { CourseList } from './courses/CourseList';
 
 /** `/learning/studio`: the courses people build. */
 export function StudioScreen() {
   return (
-    <main className="mx-auto max-w-page px-6 py-16">
-      <title>Care Hub · Studio</title>
-      <h1 className="text-title text-fg">Studio</h1>
-    </main>
+    <StudioRoot>
+      <CourseList />
+    </StudioRoot>
   );
 }
+
+// The editor and the preview are still the base PR's stubs; the next Studio PRs replace them.
 
 /** `/learning/studio/courses/:courseId`: the course editor. */
 export function CourseEditorScreen() {

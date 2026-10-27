@@ -2,6 +2,7 @@ import type { Config } from 'tailwindcss';
 import plugin from 'tailwindcss/plugin';
 import { colorNames, colorVariables, darkColors, lightColors } from './src/palette';
 import {
+  breakpoints,
   fontStacks,
   fontWeights,
   gridColumns,
@@ -49,6 +50,7 @@ const preset = {
   darkMode: 'class',
   theme: {
     extend: {
+      screens: { md: breakpoints.md },
       colors,
       borderColor: { DEFAULT: 'rgb(var(--ch-border))' },
       borderRadius: { ...radii },

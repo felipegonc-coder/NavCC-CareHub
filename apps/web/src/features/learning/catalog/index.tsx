@@ -1,11 +1,13 @@
-// Stub screens from the Learning base PR. B5 replaces them; the routes in ../routes.tsx stay as they are.
+import { LoadFailed, ScreenLoading } from '../player/ScreenMessage';
+import { Catalog } from './Catalog';
+import { useCatalog } from './data';
 
-/** `/learning/catalog`: courses anyone can take. */
+/** `/learning/catalog`: the courses anyone in the workspace can take. */
 export function CatalogScreen() {
-  return (
-    <main className="mx-auto max-w-page px-6 py-16">
-      <title>Care Hub · Catalog</title>
-      <h1 className="text-title text-fg">Catalog</h1>
-    </main>
-  );
+  const catalog = useCatalog();
+  if (!catalog.data) {
+    if (!catalog.error) return <ScreenLoading label="Loading the catalog" />;
+    return <LoadFailed error={catalog.error} what="page" retry={() => void catalog.refetch()} />;
+  }
+  return <Catalog entries={catalog.data} />;
 }

@@ -45,8 +45,10 @@ test.describe('Comments and mentions', () => {
 
 - **Import** `test` and `expect` from `../_support/index.js`, never from `@playwright/test`.
 - **Titles start with the check ID** from the spec or its "Done means" list (`DB-12`, `FM-04`), or
-  a Testing lane ID for checks without one (`DK-01` design kit, `FLOW-01` cross-area flows). One
-  test per check; use `test.step()` for the steps. The ID is how a result reaches the results page.
+  a Testing lane ID for checks without one (`DK-01` design kit, `SH-01` app shell, `FLOW-01`
+  cross-area flows; a new flow takes the next free number, from `FLOW-09`). One test per check; use
+  `test.step()` for the steps. The ID is how a result reaches the results page: an ID the page
+  doesn't list yet gets its own row after the first run.
 - **Projects:** `onlyIn('desktop-light')` by default. Add `phone-light` for phone checks (layout,
   bottom sheets, 44 px touch targets) and the dark projects only for dark-mode checks. The screen
   checks in `tests/e2e/screens.ts` already cover axe and screenshots in all four.
@@ -54,7 +56,8 @@ test.describe('Comments and mentions', () => {
   [`_support/features.ts`](../../tests/e2e/flows/_support/features.ts). Until each one is on
   `main`, the tests are skipped as `fixme` and reported as "Not built yet". Turn a feature's line
   on in the pull request whose tests match that feature on `main`, and say so in the description;
-  the Testing lead runs that pull request's browser tests before merging it.
+  the Testing lead runs that pull request's browser tests before merging it. If a flow needs a
+  feature that has no line yet, ask the Testing lead to add one rather than borrowing a nearby one.
 - **Selectors:** what a person sees: `getByRole`, `getByLabel`, `getByText`, with the names from
   the spec. Never Tailwind classes or DOM structure. Use a `data-testid` only if the screen has one.
 - **Waiting:** web-first assertions (`await expect(locator).toBeVisible()`). No
@@ -77,6 +80,7 @@ test.describe('Comments and mentions', () => {
 | `onlyIn(...projects)`                | Runs the block only in those projects                         |
 | `needs(...features)`, `onMain`       | "Not built yet" until the features are on `main`              |
 | `people`, `signInAs(page, who)`      | The seeded fictional people; signs in through the core helper |
+| `lanePeople`                         | People from a lane's seed (Tara Trainer); sign in by email    |
 | `apiFor(page)`                       | API calls as the signed-in person, with the CSRF header       |
 | `uniqueName(label)`                  | A unique fictional name for this run                          |
 | `shownDate(date)`, `shownTime(date)` | Dates and times as the app shows them                         |

@@ -17,6 +17,23 @@ export interface Screen {
 // <lane>/screens.ts (see README.md), so parallel pull requests never edit the same lines.
 export const screens: Screen[] = [
   { name: 'home', path: '/' },
+  {
+    name: 'shell-menu',
+    path: '/',
+    // Phones: the sidebar's slide-in menu, open. Computers have no menu button; they show the skip
+    // link, which the first Tab reveals.
+    setup: async (page) => {
+      if ((page.viewportSize()?.width ?? 0) < 768) {
+        await page.getByRole('button', { name: 'Open menu' }).click();
+        await page.getByRole('dialog', { name: 'Menu' }).waitFor();
+      } else {
+        await page.getByRole('banner').waitFor();
+        await page.keyboard.press('Tab');
+      }
+    },
+  },
+  { name: 'not-found', path: '/no-such-screen' },
+  { name: 'design', path: '/design' },
 
   ...(await import('./learning/screens.js')).screens, // feature: learning
 
