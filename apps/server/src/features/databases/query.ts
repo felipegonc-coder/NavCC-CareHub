@@ -2,7 +2,7 @@
 // with property access (here and in related databases), row access for every row, "Changed for
 // you only", search and paging, formulas and rollups worked out on the server, and the people the
 // rows show. A view that uses a property the viewer can't see answers only { blocked }.
-import type { Id, View, ViewOverride, Viewer, WeekDay } from '@carehub/databases';
+import type { Id, Property, View, ViewOverride, Viewer, WeekDay } from '@carehub/databases';
 import { atLeast } from '@carehub/databases/access';
 import {
   VIEW_BLOCKED,
@@ -15,8 +15,8 @@ import {
   type ViewQueryInput,
 } from '@carehub/databases/engine';
 import { subItemLines, subItemTree, type SubItemMode } from '@carehub/databases/hierarchy';
-import { makeComputer, requestBudget } from './computed';
-import { loadPeople, peopleShown, personIdsIn, type PersonShown } from './people';
+import { makeComputer, requestBudget, type Computer, type RequestBudget } from './computed';
+import { loadPeople, peopleShown, personIdsIn, type PeopleBook, type PersonShown } from './people';
 import type { DatabaseRecord } from './record';
 import { accessLevels, loadRowCache, loadSchemas } from './row-cache';
 import { loadPropertyViewer, loadRows, type Executor } from './store';
@@ -46,6 +46,20 @@ export interface ViewQuery {
 /** The answer: the engine's, with `people` ({ name, avatarUrl } for everyone the rows show). */
 export type ViewAnswer = ViewQueryBlocked | (ViewQueryData & { people: Record<Id, PersonShown> });
 
+/** A view asked for without search or paging (charts ask that way). */
+export type ViewBase = Omit<ViewQuery, 'search' | 'cursor'>;
+
+/** What one person's answers for a view are worked out from. */
+export interface PreparedQuery {
+  /** The engine's input, without search, cursor or sub-items. */
+  input: ViewQueryInput;
+  computer: Computer;
+  people: PeopleBook;
+  /** The database's properties the viewer sees. */
+  shown: readonly Property[];
+  budget: RequestBudget;
+}
+
 /** Layouts that draw sub-items under their parents; the others show them on their own. */
 const NESTING_LAYOUTS: ReadonlySet<View['layout']> = new Set(['table', 'list', 'timeline']);
 
@@ -53,7 +67,10 @@ const weekDay = (n: number): WeekDay =>
   (Number.isInteger(n) && n >= 0 && n <= 6 ? n : 0) as WeekDay;
 
 /** Sub-items as the view shows them: every line, expanded (screens collapse them). */
-function arrangeFor(record: DatabaseRecord, view: View): ViewQueryInput['arrange'] | undefined {
+export function arrangeFor(
+  record: DatabaseRecord,
+  view: View,
+): ViewQueryInput['arrange'] | undefined {
   const settings = record.subItems;
   if (!settings) return undefined;
   const asked: SubItemMode = view.subItems ?? 'nested';
@@ -76,12 +93,18 @@ function arrangeFor(record: DatabaseRecord, view: View): ViewQueryInput['arrange
     }));
 }
 
-/** Answers a view of the database for one person. */
-export async function answerViewQuery(db: Executor, query: ViewQuery): Promise<ViewAnswer> {
+/**
+ * Everything a view's answers need for one person: property access, the rows and their access,
+ * related rows, people and formulas. { blocked } when the view uses a property they can't see,
+ * before any row is read (the engine checks it again).
+ */
+export async function prepareQuery(
+  db: Executor,
+  query: ViewBase,
+): Promise<PreparedQuery | ViewQueryBlocked> {
   const { record, view, user } = query;
   const who = await loadPropertyViewer(db, user.id, record.workspaceId);
   const schemas = await loadSchemas(db, record, who);
-  // Checked before any row is read; the engine checks it again.
   if (
     usesHiddenProperty(applyOverride(view, query.override), record.properties, schemas.home.visible)
   ) {
@@ -128,17 +151,24 @@ export async function answerViewQuery(db: Executor, query: ViewQuery): Promise<V
     rows: cache.homeRows,
     view,
     override: query.override ?? null,
-    search: query.search ?? null,
-    cursor: query.cursor ?? null,
   };
-  const arrange = arrangeFor(record, view);
+  return { input, computer, people, shown: schemas.home.shown, budget };
+}
+
+/** Answers a view of the database for one person. */
+export async function answerViewQuery(db: Executor, query: ViewQuery): Promise<ViewAnswer> {
+  const prepared = await prepareQuery(db, query);
+  if ('blocked' in prepared) return prepared;
+  const { input, computer, people, shown } = prepared;
+  input.search = query.search ?? null;
+  input.cursor = query.cursor ?? null;
+  const arrange = arrangeFor(query.record, query.view);
   if (arrange) input.arrange = arrange;
   const result = runViewQuery(input);
   if ('blocked' in result) return result;
-  const shownProps = record.properties.filter((p) => schemas.home.visible.has(p.id));
   return {
     ...result,
     timedOut: result.timedOut || computer.timedOut,
-    people: peopleShown(result, shownProps, people),
+    people: peopleShown(result, shown, people),
   };
 }

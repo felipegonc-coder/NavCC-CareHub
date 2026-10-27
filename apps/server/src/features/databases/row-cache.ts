@@ -36,7 +36,7 @@ export interface CachedRow {
 
 /** The rows one query reads. */
 export interface RowCache {
-  /** The query's rows, in the order given, the ones the viewer can open cleaned for them. */
+  /** The query's rows, in the order given; those the viewer can open (all: everyRow) cleaned. */
   homeRows: Row[];
   /** Rows of other databases the viewer can open. */
   rows: ReadonlyMap<Id, CachedRow>;
@@ -140,6 +140,11 @@ export interface RowCacheInput {
   rows: readonly Row[];
   /** The viewer's level on each of those rows. */
   levels: ReadonlyMap<Id, AccessLevel>;
+  /**
+   * Follow the links of every row given, not just the ones the viewer can open (a type change
+   * writes them all). Related rows still need the viewer's access.
+   */
+  everyRow?: boolean;
 }
 
 /**
@@ -151,6 +156,7 @@ export async function loadRowCache(db: Executor, input: RowCacheInput): Promise<
   const { schemas, levels } = input;
   const { home, followed } = schemas;
   const canOpen = (id: Id) => atLeast(levels.get(id), 'view');
+  const follows = (id: Id) => input.everyRow === true || canOpen(id);
   /** Rows that exist: the query's own, and linked ones found. */
   const live = new Set(input.rows.map((r) => r.id));
   const asked = new Set<Id>();
@@ -175,7 +181,7 @@ export async function loadRowCache(db: Executor, input: RowCacheInput): Promise<
   };
 
   let frontier = new Map<Id, Set<Id>>();
-  for (const row of input.rows) if (canOpen(row.id)) linksOf(row, home, frontier);
+  for (const row of input.rows) if (follows(row.id)) linksOf(row, home, frontier);
   for (let round = 0; round < ROUNDS && frontier.size > 0; round++) {
     const next = new Map<Id, Set<Id>>();
     for (const [databaseId, ids] of frontier) {
@@ -217,7 +223,7 @@ export async function loadRowCache(db: Executor, input: RowCacheInput): Promise<
   const mentioned = new Set<Id>();
   const homeText = home.shown.filter((p) => p.config.type === 'text');
   for (const row of input.rows) {
-    if (!canOpen(row.id)) continue;
+    if (!follows(row.id)) continue;
     for (const p of homeText) mentionsIn(row.values[p.id], mentioned);
   }
   for (const { row, databaseId } of rows.values()) {
@@ -232,7 +238,7 @@ export async function loadRowCache(db: Executor, input: RowCacheInput): Promise<
   const openable = new Set([...mentioned].filter((id) => atLeast(known.get(id), 'view')));
 
   const cleaning: Cleaning = { schemas, exists, openable };
-  const homeRows = input.rows.map((row) => (canOpen(row.id) ? cleanRow(row, home, cleaning) : row));
+  const homeRows = input.rows.map((row) => (follows(row.id) ? cleanRow(row, home, cleaning) : row));
   for (const [id, hit] of rows) {
     const schema = schemas.byId.get(hit.databaseId);
     if (schema) rows.set(id, { ...hit, row: cleanRow(hit.row, schema, cleaning) });
