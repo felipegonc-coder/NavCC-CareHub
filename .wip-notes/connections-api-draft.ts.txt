@@ -43,7 +43,7 @@ export type Connection = z.infer<typeof connectionSchema>;
 export const connectionsResponseSchema = z.object({
   connections: z.array(connectionSchema),
   /** Why a way of connecting can't be used on this server, in plain words. Null when it can. */
-  unavailable: z.object({ google: z.string().nullable(), links: z.string().nullable() }),
+  unavailable: z.object({ google: z.string().nullable() }),
 });
 export type ConnectionsResponse = z.infer<typeof connectionsResponseSchema>;
 

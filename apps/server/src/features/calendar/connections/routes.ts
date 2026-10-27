@@ -143,14 +143,13 @@ const connectionRoutes: FastifyPluginAsync<ConnectionRoutesOptions> = async (app
   const findMine = async (ownerId: string, id: string) =>
     (await listConnections(app.db, ownerId)).find((connection) => connection.id === id);
 
-  app.get('/connections', async (request) => {
-    const { ownerId } = viewerOf(request);
-    return {
-      connections: await listConnections(app.db, ownerId),
-      // A plain sentence when a way of connecting isn't set up on this server.
-      unavailable: { google: googleOff ?? null },
-    };
+  /** The person's connections, and a plain sentence for a way of connecting that's off here. */
+  const answer = async (ownerId: string) => ({
+    connections: await listConnections(app.db, ownerId),
+    unavailable: { google: googleOff ?? null },
   });
+
+  app.get('/connections', async (request) => answer(viewerOf(request).ownerId));
 
   app.post('/connections/google', async (request) => {
     const viewer = viewerOf(request);
@@ -231,7 +230,7 @@ const connectionRoutes: FastifyPluginAsync<ConnectionRoutesOptions> = async (app
     });
     await Promise.race([run, waited]);
     clearTimeout(timer);
-    return { connections: await listConnections(app.db, ownerId) };
+    return answer(ownerId);
   });
 
   /** After Remove: ends the Google grant too, unless another connection uses that account. */
