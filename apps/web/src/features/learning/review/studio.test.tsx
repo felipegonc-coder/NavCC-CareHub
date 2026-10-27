@@ -118,7 +118,7 @@ describe('ReviewSharing', () => {
   });
 
   it('says why a link was not made', async () => {
-    const refusal = 'This course has 20 open links. Stop sharing one, then try again.';
+    const refusal = 'This course is shared by 20 review links already. Stop sharing one first.';
     serve({
       [`GET ${API}/courses/${course.id}/review-links`]: () => json(200, []),
       [`POST ${API}/courses/${course.id}/review-links`]: () =>
