@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import { access, mkdir, open, rename, rm } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { access, mkdir, open, rename, rm, statfs } from 'node:fs/promises';
 import path from 'node:path';
-import { Transform, type Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { HEAD_BYTES, type ReadAt } from './detect';
+import type { Piece } from './pictures';
 
 const KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -27,34 +28,47 @@ export function fileStore(root: string) {
     return path.join(root, key.slice(0, 2), key.slice(2, 4), key);
   };
 
+  /** Writes an upload to `tempPath`, measuring and hashing it on the way. */
+  const receive = async (stream: Readable, tempPath: string): Promise<ReceivedFile> => {
+    await mkdir(tmp, { recursive: true, mode: 0o700 });
+    const hash = createHash('sha256');
+    const head: Buffer[] = [];
+    let size = 0;
+    const meter = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        if (size < HEAD_BYTES) head.push(chunk.subarray(0, HEAD_BYTES - size));
+        size += chunk.length;
+        hash.update(chunk);
+        done(null, chunk);
+      },
+    });
+    const output = createWriteStream(tempPath, { flags: 'wx', mode: 0o600 });
+    try {
+      await pipeline(stream, meter, output);
+    } catch (error) {
+      // The file may still be opening: wait until it's closed, so removing it afterwards works.
+      if (!output.closed) await new Promise((resolve) => output.once('close', resolve));
+      throw error;
+    }
+    return { size, sha256: hash.digest('hex'), head: Buffer.concat(head) };
+  };
+
   return {
     pathOf,
     /** Empties tmp, which keeps uploads cut off by a restart. Only one server uses FILES_DIR. */
-    prepare: (): Promise<void> => rm(tmp, { recursive: true, force: true }),
+    async prepare(): Promise<void> {
+      await rm(tmp, { recursive: true, force: true });
+      await mkdir(root, { recursive: true, mode: 0o700 });
+    },
     tempPath: (): string => path.join(tmp, `${randomUUID()}.part`),
-    /** Writes an upload to `tempPath`, measuring and hashing it on the way. */
-    async receive(stream: Readable, tempPath: string): Promise<ReceivedFile> {
-      await mkdir(tmp, { recursive: true, mode: 0o700 });
-      const hash = createHash('sha256');
-      const head: Buffer[] = [];
-      let size = 0;
-      const meter = new Transform({
-        transform(chunk: Buffer, _encoding, done) {
-          if (size < HEAD_BYTES) head.push(chunk.subarray(0, HEAD_BYTES - size));
-          size += chunk.length;
-          hash.update(chunk);
-          done(null, chunk);
-        },
-      });
-      const output = createWriteStream(tempPath, { flags: 'wx', mode: 0o600 });
-      try {
-        await pipeline(stream, meter, output);
-      } catch (error) {
-        // The file may still be opening: wait until it's closed, so removing it afterwards works.
-        if (!output.closed) await new Promise((resolve) => output.once('close', resolve));
-        throw error;
-      }
-      return { size, sha256: hash.digest('hex'), head: Buffer.concat(head) };
+    receive,
+    /** Writes a new file from parts of `source` and new bytes: a picture without its details. */
+    rebuild: (source: string, pieces: readonly Piece[], tempPath: string): Promise<ReceivedFile> =>
+      receive(Readable.from(piecesOf(source, pieces)), tempPath),
+    /** Free space on the disk that holds the files, in bytes. */
+    async freeBytes(): Promise<number> {
+      const stats = await statfs(root);
+      return stats.bavail * stats.bsize;
     },
     /** Reads parts of a file, for example to find its type. Close it when done. */
     async reader(filePath: string): Promise<{ read: ReadAt; close: () => Promise<void> }> {
@@ -86,3 +100,17 @@ export function fileStore(root: string) {
 }
 
 export type FileStore = ReturnType<typeof fileStore>;
+
+async function* piecesOf(source: string, pieces: readonly Piece[]): AsyncGenerator<Buffer> {
+  for (const piece of pieces) {
+    if (Buffer.isBuffer(piece)) yield piece;
+    else if (piece.end > piece.start) {
+      for await (const chunk of createReadStream(source, {
+        start: piece.start,
+        end: piece.end - 1,
+      })) {
+        yield chunk as Buffer;
+      }
+    }
+  }
+}

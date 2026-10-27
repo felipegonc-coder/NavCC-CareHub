@@ -78,7 +78,7 @@ export async function getFiles(
 
 /**
  * Deletes files as part of the caller's transaction, for example with the message they belong to. They're
- * gone at once; their bytes stay on disk until the nightly clean-up, so a rollback keeps them. No access
+ * gone at once; their bytes stay on disk for a day (cleanUpFiles), so a rollback keeps them. No access
  * check. Returns how many were deleted.
  */
 export async function deleteFiles(db: Db | Tx, ids: readonly string[]): Promise<number> {

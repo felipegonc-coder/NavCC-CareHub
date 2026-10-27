@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { access, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readdir, readFile, rm, statfs } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,7 @@ import {
   type TestUser,
 } from '../../testing';
 import { deleteFiles, getFiles, registerFileScope, removeDeletedFiles } from './index';
+import { DETAIL, sampleJpeg } from './pictures/testing';
 import type { RemoteOptions } from './remote';
 import { files } from './schema';
 import { FILE_CSP } from './serve';
@@ -39,10 +40,12 @@ vi.mock('./remote', async (importOriginal: () => Promise<unknown>) => {
 
 const MB = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
-const PNG = Buffer.concat([
-  Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
-  Buffer.alloc(16),
-]);
+/** A grey picture of 1 × 1 pixel. */
+const PNG = Buffer.from(
+  '89504e470d0a1a0a0000000d49484452000000010000000108000000003a7e9b550000000a49444154789c63680000' +
+    '0082008177cd72b60000000049454e44ae426082',
+  'hex',
+);
 
 /** A multipart/form-data body, as a browser sends it. */
 function form(parts: Array<{ name: string; filename?: string; data: Buffer | string }>) {
@@ -168,6 +171,43 @@ describe.skipIf(!hasDatabase)('files', () => {
     const shown = await get(editor, drawing.url);
     expect(shown.headers['content-disposition']).toMatch(/^inline;/);
     expect(shown.headers['content-security-policy']).toBe(FILE_CSP);
+  });
+
+  it('stores photos without their location and camera details, upright (DS-07)', async () => {
+    const photo = sampleJpeg();
+    const uploaded = await upload(editor, photo.file, 'Harbour.jpg');
+    expect(uploaded.statusCode).toBe(201);
+    const body = uploaded.json();
+    expect(body).toMatchObject({ mimeType: 'image/jpeg', size: photo.cleaned.length });
+    expect(body).toMatchObject({ width: photo.width, height: photo.height });
+    const stored = await readFile(await storedPath(body.id));
+    expect(stored.equals(photo.cleaned)).toBe(true);
+    expect(stored.includes(DETAIL)).toBe(false);
+    expect((await get(reader, body.url)).rawPayload.equals(photo.cleaned)).toBe(true);
+    expect(await readdir(path.join(filesDir, 'tmp'))).toEqual([]);
+
+    const damaged = Buffer.concat([photo.file.subarray(0, 4), Buffer.from([0xff, 0xff])]);
+    const refused = await upload(editor, damaged, 'Damaged.jpg');
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toBe(
+      "This picture seems to be damaged, so it wasn't uploaded.",
+    );
+  });
+
+  it('pauses uploads while the disk is almost full (DS-08)', async () => {
+    const { bavail, bsize } = await statfs(filesDir);
+    process.env.FILES_MIN_FREE_MB = String(Math.ceil((bavail * bsize) / MB) + 1024);
+    try {
+      const paused = await upload(editor, 'Fictional notes.', 'notes.txt');
+      expect(paused.statusCode).toBe(507);
+      expect(paused.json().error).toEqual({
+        code: 'too_large',
+        message: 'Uploads are paused because the server is almost full.',
+      });
+    } finally {
+      delete process.env.FILES_MIN_FREE_MB;
+    }
+    expect((await upload(editor, 'Fictional notes.', 'notes.txt')).statusCode).toBe(201);
   });
 
   it('refuses programs by their contents and by their name (DS-06)', async () => {
@@ -415,6 +455,8 @@ describe.skipIf(!hasDatabase)('files', () => {
         size: PNG.length,
         mimeType: 'image/png',
         url: `/api/files/${body.id}`,
+        width: 1,
+        height: 1,
       });
       expect((await get(reader, body.url)).rawPayload.equals(PNG)).toBe(true);
       const [row] = await testApp.db.select().from(files).where(eq(files.id, body.id));

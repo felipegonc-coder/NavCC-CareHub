@@ -11,6 +11,7 @@ import { HttpError, httpError } from '../../core/errors';
 import { registerPeriodicTask } from '../jobs';
 import { detectFileType, hasBlockedEnding, type FileType } from './detect';
 import { cleanFileName, tooLargeMessage, withPictureEnding } from './names';
+import { cleanPicture, PictureError } from './pictures';
 import { downloadRemoteFile, RemoteError, type RemoteFailure } from './remote';
 import { files } from './schema';
 import { canUseFileScope, hasFileScope, type FileScopeContext } from './scopes';
@@ -26,6 +27,8 @@ const WRAPPING_BYTES = 64 * 1024;
 const PROGRAMS = "Programs can't be uploaded.";
 const NO_FILE = 'Choose a file to upload.';
 const CANCELLED = 'The upload was cancelled.';
+const DAMAGED = "This picture seems to be damaged, so it wasn't uploaded.";
+const PAUSED = 'Uploads are paused because the server is almost full.';
 /** Pictures copied from other websites (Pages and blocks, PB-D3). */
 const FROM_URL_MAX_MB = 10;
 /** Copies at once: each holds its picture in memory until it's checked. */
@@ -103,10 +106,50 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     return detectFileType({ ...file, read: reader.read }).finally(reader.close);
   };
 
+  /** Uploads pause while the disk is almost full (Data settings, DS-08). */
+  const checkFreeSpace = async (incoming: number) => {
+    const floor = readFilesSettings(app.log).FILES_MIN_FREE_MB * MB;
+    if (floor > 0 && (await store.freeBytes()) - incoming < floor) {
+      throw httpError(507, 'too_large', PAUSED);
+    }
+  };
+
+  /**
+   * What to keep of a checked file: for pictures, a copy at `cleanPath` without location, camera and
+   * other details (Data settings, DS-07), and the size they're shown at.
+   */
+  const withoutDetails = async (
+    tempPath: string,
+    cleanPath: string,
+    received: ReceivedFile,
+    type: FileType,
+  ) => {
+    const plain = { path: tempPath, file: { ...received, width: null, height: null } };
+    if (type.kind !== 'picture') return plain;
+    const reader = await store.reader(tempPath);
+    const picture = await cleanPicture(type.mimeType, { size: received.size, read: reader.read })
+      .catch((error: unknown) => {
+        throw error instanceof PictureError ? httpError(400, 'invalid', DAMAGED) : error;
+      })
+      .finally(reader.close);
+    if (!picture) return plain;
+    const { width, height, pieces } = picture;
+    if (!pieces) return { path: tempPath, file: { ...received, width, height } };
+    const rebuilt = await store.rebuild(tempPath, pieces, cleanPath);
+    return { path: cleanPath, file: { ...rebuilt, width, height } };
+  };
+
   /** Moves a checked file into place and records it; returns what POST answers. */
   const keepFile = async (
     tempPath: string,
-    file: ReceivedFile & { name: string; type: FileType; feature: string; ctx: FileScopeContext },
+    file: ReceivedFile & {
+      name: string;
+      type: FileType;
+      width: number | null;
+      height: number | null;
+      feature: string;
+      ctx: FileScopeContext;
+    },
   ) => {
     const storageKey = await store.keep(tempPath);
     try {
@@ -120,6 +163,8 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
           name: file.name,
           mimeType: file.type.mimeType,
           size: file.size,
+          width: file.width,
+          height: file.height,
           sha256: file.sha256,
           storageKey,
         })
@@ -144,7 +189,9 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
       throw httpError(413, 'too_large', tooLargeMessage(declared, limitMb));
     }
     if (!request.isMultipart()) throw httpError(400, 'invalid', NO_FILE);
+    await checkFreeSpace(declared);
     const tempPath = store.tempPath();
+    const cleanPath = store.tempPath();
     try {
       const upload = await receiveUpload(request, store, tempPath, limitMb * MB);
       if (upload.truncated) {
@@ -152,9 +199,11 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
       }
       const type = await typeOf(tempPath, upload);
       if (type === 'program') throw httpError(400, 'invalid', PROGRAMS);
-      return reply.code(201).send(await keepFile(tempPath, { ...upload, type, feature, ctx }));
+      const kept = await withoutDetails(tempPath, cleanPath, upload, type);
+      const file = { ...kept.file, name: upload.name, type, feature, ctx };
+      return reply.code(201).send(await keepFile(kept.path, file));
     } finally {
-      await store.remove(tempPath);
+      await Promise.all([store.remove(tempPath), store.remove(cleanPath)]);
     }
   });
 
@@ -165,6 +214,7 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     const { feature, ctx } = await writableScope(request, scope);
     const limitMb = Math.min(FROM_URL_MAX_MB, readFilesSettings(app.log).FILES_MAX_MB);
     if (copies >= MAX_COPIES) throw httpError(429, 'rate_limited', BUSY);
+    await checkFreeSpace(limitMb * MB);
     copies += 1;
     const remote = await downloadRemoteFile(url, { maxBytes: limitMb * MB })
       .catch((error: unknown) => {
@@ -174,6 +224,7 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
         copies -= 1;
       });
     const tempPath = store.tempPath();
+    const cleanPath = store.tempPath();
     try {
       const received = await store.receive(Readable.from([remote.bytes]), tempPath);
       const name = cleanFileName(remote.name || 'picture');
@@ -181,10 +232,11 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
       if (type === 'program' || type.kind !== 'picture') {
         throw httpError(400, 'invalid', NOT_A_PICTURE);
       }
-      const picture = { ...received, name: withPictureEnding(name, type.mimeType), type };
-      return reply.code(201).send(await keepFile(tempPath, { ...picture, feature, ctx }));
+      const kept = await withoutDetails(tempPath, cleanPath, received, type);
+      const picture = { ...kept.file, name: withPictureEnding(name, type.mimeType), type };
+      return reply.code(201).send(await keepFile(kept.path, { ...picture, feature, ctx }));
     } finally {
-      await store.remove(tempPath);
+      await Promise.all([store.remove(tempPath), store.remove(cleanPath)]);
     }
   });
 
@@ -200,7 +252,7 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     },
   });
 
-  // The file is gone at once; the nightly clean-up removes its bytes (Data settings, DS-02).
+  // The file is gone at once; the clean-up removes its bytes a day later (Data settings, DS-02).
   app.delete('/:id', guarded, async (request, reply) => {
     const file = await findFile(request, 'write');
     await deleteFiles(app.db, [file.id]);
