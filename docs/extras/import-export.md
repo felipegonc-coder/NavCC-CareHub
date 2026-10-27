@@ -1,15 +1,15 @@
 # Import and export
 
-Spec: [import-and-export.md](../plan/specs/import-and-export.md) (IE-01 to IE-18). IE-D1: files only, with no live connection to Notion. PDF for Friday is the Print view plus the browser's Save as PDF; a server-made PDF comes later.
+Spec: [import-and-export.md](../plan/specs/import-and-export.md) (IE-01 to IE-18). IE-D1: files only, with no live connection to Notion. PDF is the Print view plus the browser's Save as PDF.
 
 ## Safety
 
-These rules are from the security reviewer and the main lead, Oct 27.
+Every importer and export follows these rules.
 
 - **No new packages:**
   - HTML, Word and Evernote files are parsed in the browser with the native `DOMParser`, with the editor schema as the allowlist.
   - Markdown goes through #198's markdown-it, with HTML off.
-  - A server-side HTML parser (parse5) needs reviewer 1's OK first.
+  - No HTML parser runs on the server (parse5 would be a new package).
 - **ZIP and XML:** read them with #109's reader (`@carehub/databases/xlsx`: `readZip`, `readZipEntry`, `xmlTokens`) and its limits; don't write a second parser.
   - Sizes are enforced while inflating, and the compression ratio is capped.
   - ZIP64 is refused, and entry names are never used as paths.
