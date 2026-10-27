@@ -12,7 +12,10 @@ import type { Db, Tx } from '../db';
 import { learningProgressChanges as changes, learningProgress as progress } from './schema';
 import { NO_PROGRESS, progressKey, runEvents, stateOf, summaryOf, type ProgressRow } from './store';
 
-/** A new live version, just saved (same transaction). `note` is the author's message to learners. */
+/**
+ * A new live version, just saved (same transaction). `note` is the author's message to
+ * learners.
+ */
 export type CoursePublished = {
   workspaceId: string;
   courseId: string;
@@ -95,7 +98,9 @@ export const onCoursePublished = async (db: Db | Tx, published: CoursePublished)
         eq(progress.courseId, courseId),
         ne(progress.version, version),
       ),
-    );
+    )
+    // Locked until the publish commits, so a batch of events arriving meanwhile waits for it.
+    .for('update');
   const course = { id: courseId, title: live.course.title, note };
   const now = new Date();
   for (const row of rows) {
