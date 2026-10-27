@@ -15,7 +15,8 @@ import { NewRowMenu, addRowTemplate, applyTemplate } from './templates-page.js';
 // Templates and buttons, section 3.2: page menu → Apply template on a row that already has values
 // and content. Eli (Editor) makes Tickets, so has Full access on it; the template's values are set
 // through the API (decision 0200) and its content in the template's own row page. The version
-// saved first is Page history and Trash, section 3.1 (Extra versions).
+// saved first is Page history and Trash, section 3.1 (Extra versions). The template's content is
+// checked in a second tab before Eli leaves it, so it has been saved.
 
 /** The row's text, in order: the notes come before the steps when the steps are added at the end. */
 const inOrder = (...texts: string[]) =>
@@ -28,6 +29,7 @@ test.describe('Templates: applying a template to a row', () => {
   test('TB-06 Apply template fills only empty properties unless Replace values is ticked, adds its content at the end and saves a version first', async ({
     page,
   }) => {
+    test.slow(); // The template is opened twice, and the history three times.
     await signInAs(page, 'editor');
     const tickets = await makeDatabase(page, uniqueName('Fictional QA Tickets'));
     const status = await addProperty(
@@ -52,7 +54,7 @@ test.describe('Templates: applying a template to a row', () => {
     const contentNow = () => rowScreen.content.innerText();
     let before = 0;
 
-    await test.step("The template's own row page gets a line of steps", async () => {
+    await test.step("The template's own row page gets a line of steps, saved before Eli leaves", async () => {
       const screen = new DatabaseScreen(page, tickets.id);
       await screen.open();
       const editing = await new NewRowMenu(screen).edit(template.name, tickets.title);
@@ -60,6 +62,16 @@ test.describe('Templates: applying a template to a row', () => {
       await page.keyboard.press('ControlOrMeta+End');
       await page.keyboard.type(steps);
       await expect(editing).toContainText(steps);
+      // Saved: the template shows the steps when it's opened again in a new tab.
+      const tab = await page.context().newPage();
+      try {
+        const again = new DatabaseScreen(tab, tickets.id);
+        await again.open();
+        const reopened = await new NewRowMenu(again).edit(template.name, tickets.title);
+        await expect(reopened).toContainText(steps);
+      } finally {
+        await tab.close();
+      }
     });
 
     await test.step('The ticket, Done with no Priority, gets notes of its own', async () => {
