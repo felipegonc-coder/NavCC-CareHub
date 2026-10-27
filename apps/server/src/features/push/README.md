@@ -3,7 +3,8 @@
 Sends web push notifications, so people hear about messages and reminders when Care Hub isn't
 open (Messages: "Unread and notifications"; Home and reminders: reminders). Built from RFC 8030,
 8291, 8292 and 8188 with `node:crypto` only. It keeps each person's browsers and notification
-settings; sending on new messages and notices comes in a later part.
+settings and sends to all of a person's browsers; sending on new messages and notices comes in a
+later part.
 
 ## Settings
 
@@ -28,41 +29,37 @@ start.
 const push = resolvePushConfig(readSettings(pushSettingsSchema));
 if (!push.enabled) log.info(push.message);
 
-const payload = buildPushPayload(
-  {
-    kind: 'message',
-    title: senderName,
-    body: text,
-    url: `/messages/${chatId}`,
-    tag: `chat:${chatId}`,
-  },
-  { showText: person.showMessageText },
+const summary = await pushToUser(
+  { store: createPostgresPushStore(db), config: push, fetch, log },
+  recipientId,
+  { kind: 'message', from: senderName, text, url: `/messages/${chatId}`, tag: `chat:${chatId}` },
 );
-const outcome = await sendPush({ fetch, vapid: push.vapid }, subscription, payload, {
-  topic: topicFor(`chat:${chatId}`),
-});
 ```
 
-- `delivered`: update the subscription's "last used".
-- `gone`: delete the subscription.
-- `retry`: try again later (after `retryAfterSeconds` when given).
-- `rejected`: drop this message and log `reason` and `detail`. Never log the payload.
+`pushToUser` builds the notification with the person's "Show message text" setting and sends it to
+each of their browsers. It deletes subscriptions that expired or that the push service says are
+gone, marks the others as used, and logs failures without the payload, endpoint or keys. It
+answers `{ sent, removed, failed }`. While push is off it sends nothing.
 
 Use one tag per chat, so a chat's newer notification replaces the older one, and
-`urgency: 'high'` for reminders.
+`{ urgency: 'high' }` for reminders. `sendPush` sends to one browser, for anything else.
 
 ## What a notification may say
 
-Lock screens show it, so `buildPushPayload` keeps it minimal:
+Lock screens show it, so `buildPushPayload` follows the person's "Show message text in
+notifications" setting (MS-07). Off: only who and what kind. On: also the message text, the
+person's own note, and the page, row or event title.
 
-- Title: the sender's name, or a generic word for notices ("Reminder"). Never a page or row
-  title, and never page content.
-- Text: the first 100 characters when "Show message text in notifications" is on; otherwise
-  "New message", "Reminder" or "New notification".
-- Clicking opens `url`, a Care Hub path such as `/messages/<chatId>`.
+| `kind`     | Title                          | Text with message text off                   | Text with it on               |
+| ---------- | ------------------------------ | -------------------------------------------- | ----------------------------- |
+| `message`  | "Avery Lin"                    | "New message"                                | The first 100 characters      |
+| `mention`  | "Avery Lin mentioned you"      | (none)                                       | The title · the text          |
+| `reminder` | "Reminder"                     | (none)                                       | The title · the person's note |
+| `notice`   | Its sender, such as "Learning" | Its generic title, such as "Course assigned" | Also · the title · the text   |
 
-Endpoints must belong to a known push service (`PUSH_SERVICE_HOSTS`), so a crafted subscription
-can't make the server call other addresses.
+A message with only files says "New message", never file names. Texts are one line of at most 100
+characters, without control or text-direction characters. Clicking opens `url`, a Care Hub path
+such as `/messages/<chatId>`.
 
 ## Routes
 
@@ -70,14 +67,15 @@ can't make the server call other addresses.
 `await app.register(import('./features/push/routes'), { prefix: '/api/push' })`. Every route needs a
 signed-in person, and none returns an endpoint or keys.
 
-| Route                                    | What it does                                                                                     |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `GET /key`                               | `{ publicKey }`, or `null` while push is off.                                                    |
-| `GET /subscriptions`                     | The person's browsers: `{ subscriptions: [{ id, device, createdAt, lastUsedAt }] }`.             |
-| `POST /subscriptions`                    | Saves this browser: `PushSubscription.toJSON()`, plus `replaces`. 201, or 409 while push is off. |
-| `DELETE /subscriptions`                  | `{ endpoint }`: turns this browser off. 204.                                                     |
-| `DELETE /subscriptions/:subscriptionId`  | Removes another of the person's browsers. 204, or 404.                                           |
-| `GET /preferences`, `PATCH /preferences` | `{ preferences: { notifyAbout, showText } }`: Settings → Notifications.                          |
+| Route                                    | What it does                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `GET /key`                               | `{ publicKey }`, or `null` while push is off.                                                     |
+| `GET /subscriptions`                     | The person's browsers: `{ subscriptions: [{ id, device, createdAt, lastUsedAt }] }`.              |
+| `POST /subscriptions`                    | Saves this browser: `PushSubscription.toJSON()`, plus `replaces`. 201, or 409 while push is off.  |
+| `DELETE /subscriptions`                  | `{ endpoint }`: turns this browser off. 204.                                                      |
+| `DELETE /subscriptions/:subscriptionId`  | Removes another of the person's browsers. 204, or 404.                                            |
+| `POST /test`                             | Sends a test notification to the person's browsers: `{ sent, removed, failed }`. 429 within 10 s. |
+| `GET /preferences`, `PATCH /preferences` | `{ preferences: { notifyAbout, showText } }`: Settings → Notifications.                           |
 
 A browser is saved only with an https endpoint on a push service in `PUSH_SERVICE_HOSTS` and usable
 keys; `sendPush` checks the endpoint again before every send, follows no redirects and gives up

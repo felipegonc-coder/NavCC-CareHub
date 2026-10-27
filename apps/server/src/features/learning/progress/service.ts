@@ -156,6 +156,8 @@ export async function getProgress(
   const live = await visibleCourse(db, actor, courseId);
   const row = await findProgress(db, learnerOf(actor, courseId));
   if (!row) return stateOf(live.course, undefined, []);
+  // TODO(0316): once B2's paperAnswerKey(quiz, plan) is on main, give each submitted attempt its
+  // `answers` while its quiz's revealAnswers is true: here and in recordEvents, never in reports.
   return stateOf(await runCourse(db, row, live), row, await runEvents(db, row));
 }
 
@@ -192,6 +194,7 @@ export async function recordEvents(
         .where(progressKey(learner));
       await issueCertificate(tx, { ...learner, course, version: row.version, finish: state });
     }
+    // TODO(0316): each submitted attempt's `answers`, as in getProgress.
     return { ...intake.reply, state };
   });
 }

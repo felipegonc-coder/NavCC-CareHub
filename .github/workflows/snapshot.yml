@@ -4,9 +4,11 @@
 # before any change to this file merges.
 name: snapshot
 
+# Every hour and by hand, not after every merge, to save Actions minutes. A run stops at once
+# when the snapshot already holds main's latest commit.
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: '7 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -28,6 +30,11 @@ jobs:
           PART_BYTES: '600000'
         run: |
           set -euo pipefail
+          current=$( (gh api "repos/$GITHUB_REPOSITORY/contents/SOURCE_SHA?ref=snapshot" --jq .content | base64 -d) 2> /dev/null || true)
+          if [ "$current" = "$GITHUB_SHA" ]; then
+            echo "snapshot: already holds ${GITHUB_SHA}"
+            exit 0
+          fi
           # Mask the base64 value itself, so it never shows in the log.
           b64=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)
           echo "::add-mask::$b64"
@@ -49,8 +56,8 @@ jobs:
           cat > README.md <<'EOF'
           # Snapshot of main
 
-          Written by `.github/workflows/snapshot.yml` on every push to main. Don't edit this branch:
-          each run replaces it with a single new commit.
+          Written by `.github/workflows/snapshot.yml` every hour when main has changed. Don't
+          edit this branch: each run replaces it with a single new commit.
 
           - `SOURCE_SHA`: the commit on main that the parts hold.
           - `PARTS`: the part files, in order.

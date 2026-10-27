@@ -20,10 +20,10 @@ function relativeDay(days: number): string {
 }
 
 /**
- * The notice for one assignment reminder on `today`. The course title appears only when `canOpen`
- * is true (the person can open the course now); otherwise the text says "a new course" or "one of
- * your courses" and the button opens My learning, so a notice never names a course the person might
- * not have access to.
+ * The notice for one assignment reminder on `today`, with one button, "Open course" (decision
+ * 0313). The course title appears only when `canOpen` is true (the person can open the course
+ * now); otherwise the text says "a new course" or "one of your courses", so a notice never names a
+ * course the person might not have access to.
  */
 export function assignmentNotice(
   kind: ReminderKind,
@@ -33,9 +33,9 @@ export function assignmentNotice(
   const { today, dueDate, canOpen } = options;
   const days = dueDate === undefined ? undefined : daysBetween(today, dueDate);
   const name = canOpen ? `“${course.title}”` : 'One of your courses';
-  const buttons = canOpen
-    ? [{ label: 'Open course', href: `/learning/courses/${encodeURIComponent(course.id)}` }]
-    : [{ label: 'Open My learning', href: '/learning' }];
+  const buttons = [
+    { label: 'Open course', href: `/learning/courses/${encodeURIComponent(course.id)}` },
+  ];
   switch (kind) {
     case 'assigned': {
       const lead = canOpen

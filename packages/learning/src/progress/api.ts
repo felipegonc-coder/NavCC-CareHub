@@ -125,6 +125,7 @@ const QuizAttemptRecordSchema = z.strictObject({
     percent,
     passed: z.boolean(),
   }),
+  answers: z.record(IdSchema, QuestionResponseSchema).optional(),
 });
 
 const QuizProgressSchema = z.strictObject({

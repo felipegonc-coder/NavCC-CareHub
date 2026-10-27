@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { readSettings } from '../../core/settings';
 import type { JobRunner } from './domain/runner';
 import type { Job, JobProgress, JobStatus, JsonValue } from './domain/types';
 import { jobRunner } from './index';
@@ -15,7 +16,17 @@ export interface JobsRoutesOptions {
   sql?: SqlRunner;
   /** Defaults to the app-wide runner. */
   runner?: JobRunner;
+  /** Adds the test hook below. Defaults to the CAREHUB_TEST_HOOKS setting. */
+  testHooks?: boolean;
+  /** Whether the signed-in user is a site admin. Defaults to `request.user?.isSiteAdmin`. */
+  isSiteAdmin?: (request: FastifyRequest) => boolean | Promise<boolean>;
 }
+
+/** Decision 0007, section 2.3. Only end-to-end test servers set it; never production. */
+const testSettings = z.object({
+  /** "1" adds `POST /api/jobs/test/periodic/:name`. */
+  CAREHUB_TEST_HOOKS: z.enum(['0', '1']).optional(),
+});
 
 /** What the owner sees of a job. */
 export interface JobView {
@@ -49,6 +60,8 @@ export function toJobView(job: Job): JobView {
 }
 
 const params = z.object({ jobId: z.string().min(1).max(100) });
+const taskParams = z.object({ name: z.string().min(1).max(100) });
+const taskBody = z.object({ now: z.iso.datetime({ offset: true }).optional() });
 
 /** Sends the shared error shape, `{ error: { code, message } }`. */
 function sendError(
@@ -103,6 +116,32 @@ const jobsRoutes: FastifyPluginAsync<JobsRoutesOptions> = async (app, options) =
     const job = await ownJob(request, reply);
     if (!job) return reply;
     return { job: toJobView((await runner.cancel(job.id)) ?? job) };
+  });
+
+  const testHooks =
+    options.testHooks ?? readSettings(testSettings, { log: app.log }).CAREHUB_TEST_HOOKS === '1';
+  if (!testHooks) return;
+  const isSiteAdmin =
+    options.isSiteAdmin ?? ((request: FastifyRequest) => request.user?.isSiteAdmin === true);
+
+  /** Test hook: runs a periodic task once now, as if it were `now` (default the current time). */
+  app.post('/test/periodic/:name', async (request, reply) => {
+    if (!(await getUserId(request))) {
+      return sendError(reply, 401, 'signed_out', 'Sign in to continue.');
+    }
+    if (!(await isSiteAdmin(request))) {
+      return sendError(reply, 403, 'forbidden', "You don't have access to this.");
+    }
+    const name = taskParams.safeParse(request.params);
+    const body = taskBody.safeParse(request.body ?? {});
+    if (!body.success) {
+      return sendError(reply, 400, 'invalid', 'Give now as an ISO date and time, or leave it out.');
+    }
+    const now = body.data.now ? new Date(body.data.now) : new Date();
+    if (!name.success || !(await runner.runPeriodicTask(name.data.name, { now }))) {
+      return sendError(reply, 404, 'not_found', 'There is no periodic task with this name.');
+    }
+    return { task: name.data.name, now: now.toISOString() };
   });
 };
 
