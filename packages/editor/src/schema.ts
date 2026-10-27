@@ -1,7 +1,7 @@
 import { getSchema, type AnyExtension, type Extensions } from '@tiptap/core';
-import { TaskItem, TaskList } from '@tiptap/extension-list';
 import type { Schema } from '@tiptap/pm/model';
 import { StarterKit } from '@tiptap/starter-kit';
+import { blockNodes } from './blocks';
 import { laneNodes } from './lanes';
 import { isSafeHref } from './links';
 
@@ -18,15 +18,26 @@ export const LINK_OPTIONS = {
 };
 
 /**
- * The nodes, marks and typing rules of a page, with no UI: the core blocks and every lane's blocks
- * (`lanes/`). Needs no DOM or React, so the collab server loads the same schema as every editor.
- * Undo and redo come from Yjs instead. `extra` is for tests.
+ * The nodes, marks and typing rules of a page, with no UI: the core blocks (`blocks/`) and every
+ * lane's blocks (`lanes/`). Needs no DOM or React, so the collab server loads the same schema as
+ * every editor. Undo and redo come from Yjs instead. `extra` is for tests.
  */
 export function pageExtensions(extra: AnyExtension[] = []): Extensions {
   return [
-    StarterKit.configure({ undoRedo: false, heading: { levels: [1, 2, 3] }, link: LINK_OPTIONS }),
-    TaskList,
-    TaskItem.configure({ nested: true }),
+    // Paragraphs, text, marks and editing basics. Each block group owns its other nodes.
+    StarterKit.configure({
+      undoRedo: false,
+      link: LINK_OPTIONS,
+      blockquote: false,
+      bulletList: false,
+      codeBlock: false,
+      heading: false,
+      horizontalRule: false,
+      listItem: false,
+      listKeymap: false,
+      orderedList: false,
+    }),
+    ...blockNodes,
     ...laneNodes,
     ...extra,
   ];

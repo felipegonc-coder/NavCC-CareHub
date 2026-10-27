@@ -28,6 +28,15 @@ import { BlockEditor } from '@carehub/editor';
 | `nodeViews`   | `{}`               | React views of lane blocks by node name (read on creation).    |
 | `extensions`  | `[]`               | Shortcuts and plugins, not nodes or marks (read on creation).  |
 
+## Block groups
+
+The core block catalog lives in `src/blocks/`, one file per block group (`text`, `lists`, `toggle`,
+`callout`, `colors`, `code`, `table`, `columns`, `tabs`, `math`, `toc`, `synced`, `page`, `media`,
+`embed`), each `export const nodes: AnyExtension[]`. Each group owns only its file; core owns
+`blocks/index.ts` and `schema.ts`. The files hold schema only (nodes, marks, attributes, typing
+rules and shortcuts from `@tiptap` packages, never React), because the server loads them too. The
+"/" menu entries and React views of a group come with the "/" menu, in `blocks/<group>.ui.tsx`.
+
 ## Lane blocks and extension points (shared contract, see docs/decisions/0007)
 
 - **Lane nodes** go in `src/lanes/<lane>.ts` (`export const nodes: AnyExtension[]`). Each lane owns
@@ -67,9 +76,10 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
 ## Document format
 
 - The blocks live in the `Y.Doc` XML fragment `default`.
-- Nodes: `doc`, `paragraph`, `heading` (`level` 1-3), `bulletList`, `orderedList` (`start`),
-  `listItem`, `taskList`, `taskItem` (`checked`), `blockquote`, `codeBlock` (`language`),
-  `horizontalRule`, `hardBreak`, `text`, plus the lane nodes.
+- Nodes: `doc`, `paragraph`, `hardBreak`, `text` (core); `heading` (`level` 1-3) in `text`;
+  `bulletList`, `orderedList` (`start`), `listItem`, `taskList`, `taskItem` (`checked`) in `lists`;
+  `blockquote` and `horizontalRule` in `callout`; `codeBlock` (`language`) in `code`; plus the
+  lane nodes.
 - Marks: `bold`, `italic`, `underline`, `strike`, `code`, `link` (`href`, `target`, `rel`).
 - Links keep only `http`, `https`, `mailto`, `tel` and relative hrefs (like `/p/<pageId>`); other
   schemes are dropped when typed, pasted or loaded from HTML.
