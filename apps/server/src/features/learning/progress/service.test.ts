@@ -264,6 +264,8 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
     expect(finished).not.toBeNull();
     vi.mocked(canSeeCourse).mockImplementation(async (userId: string) => userId !== bo.userId);
     await republish(workspaceId, withSecondLesson(course), 'retake', 'Please take it again.');
+    // Only the notice depends on it: Bo can see the course again, so his new run can be read.
+    vi.mocked(canSeeCourse).mockImplementation(async () => true);
 
     for (const learner of [ada, bo]) {
       expect(await versionOf(learner, course)).toBe(2);
