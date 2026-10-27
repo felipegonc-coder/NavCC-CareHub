@@ -140,7 +140,7 @@ describe.skipIf(!hasDatabase)('row routes', () => {
   beforeAll(async () => {
     ({ app, db, close } = await createTestApp());
     notices = bindMemoryNotices();
-    // Stand-in for W2-1's `db` live topic (#249) until it's in this branch's base.
+    // Stand-in for the `db` live topic that #249 registers, until #249 is in this branch's base.
     registerTopic('db', async ({ userId, topic }) =>
       atLeast(await getPageAccess(db, userId, topic.slice('db:'.length)), 'view'),
     );
