@@ -1,7 +1,5 @@
-import type { ButtonAction, ButtonColor, ButtonWho } from '@carehub/extras/templates/buttons';
 import type { TemplateIcon } from '@carehub/extras/templates/gallery';
 import {
-  type AnyPgColumn,
   bigint,
   boolean,
   integer,
@@ -14,8 +12,8 @@ import {
 } from 'drizzle-orm/pg-core';
 import { users } from '../auth/schema';
 
-// Mirrors migrations/202610271200_templates_gallery.sql and 202610271800_templates_buttons.sql,
-// which are the source of truth (a test compares them).
+// Mirrors migrations/202610271200_templates_gallery.sql, which is the source of truth (a test
+// compares them).
 
 const at = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -82,62 +80,5 @@ export const tplMadeFrom = pgTable('tpl_made_from', {
   usedAt: at('used_at').notNull().defaultNow(),
 });
 
-/** What Undo reverses, step by step (0-based step indexes). */
-export type ButtonRunChange =
-  | {
-      kind: 'row_added';
-      step: number;
-      databaseId: string;
-      rowId: string;
-      /** The values the step set, as read back: Undo leaves the row if they changed since. */
-      after: Record<string, unknown>;
-    }
-  | {
-      kind: 'rows_edited';
-      step: number;
-      databaseId: string;
-      rows: { rowId: string; before: Record<string, unknown>; after: Record<string, unknown> }[];
-    }
-  | { kind: 'messages_sent'; step: number; count: number };
-
-export const tplButtons = pgTable('tpl_buttons', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id').notNull(),
-  pageId: uuid('page_id'),
-  templateId: uuid('template_id').references(() => tplTemplates.id, { onDelete: 'cascade' }),
-  copiedFrom: uuid('copied_from').references((): AnyPgColumn => tplButtons.id, {
-    onDelete: 'set null',
-  }),
-  label: text('label').notNull(),
-  icon: text('icon'),
-  color: text('color').$type<ButtonColor>().notNull().default('default'),
-  who: text('who').$type<ButtonWho>().notNull().default('editors'),
-  actions: jsonb('actions').$type<ButtonAction[]>().notNull().default([]),
-  setByAdmin: boolean('set_by_admin').notNull().default(false),
-  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
-  createdAt: at('created_at').notNull().defaultNow(),
-  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
-  updatedAt: at('updated_at').notNull().defaultNow(),
-});
-
-export const tplButtonRuns = pgTable('tpl_button_runs', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  buttonId: uuid('button_id')
-    .notNull()
-    .references(() => tplButtons.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
-  status: text('status', {
-    enum: ['paused', 'done', 'failed', 'refused', 'cancelled', 'undone'],
-  }).notNull(),
-  nextStep: integer('next_step'),
-  failedStep: integer('failed_step'),
-  reason: text('reason'),
-  changes: jsonb('changes').$type<ButtonRunChange[]>().notNull().default([]),
-  startedAt: at('started_at').notNull().defaultNow(),
-  finishedAt: at('finished_at'),
-});
-
 export type TemplateRow = typeof tplTemplates.$inferSelect;
-export type ButtonRow = typeof tplButtons.$inferSelect;
-export type ButtonRunRow = typeof tplButtonRuns.$inferSelect;
 export type TemplatePageRow = typeof tplTemplatePages.$inferSelect;
