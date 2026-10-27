@@ -16,6 +16,8 @@ import {
 import { PlayerPage } from './player-page.js';
 
 const greet = trueFalse('q1', 'You greet the caller first.', true);
+/** Progress events reach the server in the background, so its answers can lag a moment. */
+const SOON = { timeout: 15_000 };
 const hold = trueFalse('q2', 'You hang up during a hold.', false);
 
 test.describe('Learning: take a course', () => {
@@ -34,15 +36,15 @@ test.describe('Learning: take a course', () => {
       ]);
     });
     const eli = new PlayerPage(await pageFor(browser, 'editor'));
-    await test.step('Eli tries to finish lesson 1 straight away', async () => {
+    await test.step('straight away, Next waits and asks him to stay a little longer', async () => {
       await eli.start(course.id);
       await expect(eli.lessonHeading('Fictional QA greeting')).toBeVisible();
-      if (await eli.nextButton.isEnabled()) await eli.nextButton.click();
-      await expect(eli.main.getByText(/more time/i)).toBeVisible();
-      await expect(eli.lessonHeading('Fictional QA greeting')).toBeVisible();
+      await expect(eli.nextButton).toBeDisabled();
+      await expect(eli.waitHint).toBeVisible();
     });
-    await test.step('once the minimum time has passed, he carries on', async () => {
-      await eli.page.waitForTimeout(6_000); // the minimum time rule itself (PRD 4.1, Rules)
+    await test.step('once he has spent the minimum time, he carries on', async () => {
+      await eli.page.mouse.move(200, 200); // active time counts while he does something
+      await expect(eli.nextButton).toBeEnabled({ timeout: 20_000 });
       await eli.nextButton.click();
       await expect(eli.lessonHeading('Fictional QA holds')).toBeVisible();
     });
@@ -67,7 +69,7 @@ test.describe('Learning: take a course', () => {
       await computer.nextButton.click();
       await expect(computer.lessonHeading('Fictional QA holds')).toBeVisible();
       await expect
-        .poll(async () => (await computer.progress(course.id)).resume?.lessonId)
+        .poll(async () => (await computer.progress(course.id)).resume?.lessonId, SOON)
         .toBe('l2');
       await computer.page.context().close();
     });
@@ -84,7 +86,7 @@ test.describe('Learning: take a course', () => {
       await phone.answerTrueFalse('You greet the caller first.', true);
       await phone.submit();
       await expect(phone.score(100)).toBeVisible();
-      expect((await phone.progress(course.id)).status).toBe('passed');
+      await expect.poll(() => phone.status(course.id), SOON).toBe('passed');
     });
   });
 
@@ -107,7 +109,7 @@ test.describe('Learning: take a course', () => {
       await eli.submit();
       await expect(eli.score(50)).toBeVisible();
       await expect(eli.rightAnswers).toHaveCount(0);
-      expect((await eli.progress(course.id)).status).not.toBe('passed');
+      expect(await eli.status(course.id)).not.toBe('passed');
     });
     await test.step('he tries again and passes: 100%, and now the right answers', async () => {
       await eli.retry.click();
@@ -116,7 +118,7 @@ test.describe('Learning: take a course', () => {
       await eli.submit();
       await expect(eli.score(100)).toBeVisible();
       await expect(eli.rightAnswers.first()).toBeVisible();
-      expect((await eli.progress(course.id)).status).toBe('passed');
+      await expect.poll(() => eli.status(course.id), SOON).toBe('passed');
     });
   });
 
@@ -152,7 +154,7 @@ test.describe('Learning: take a course', () => {
       await eli.startQuiz();
       await eli.answerTrueFalse('first version: greet first.', true);
       await eli.submit();
-      expect((await eli.progress(course.id)).status).toBe('passed');
+      await expect.poll(() => eli.status(course.id), SOON).toBe('passed');
     });
     await test.step('a new learner gets version 2', async () => {
       const casey = new PlayerPage(await pageFor(browser, 'commenter'));
@@ -185,13 +187,14 @@ test.describe('Learning: take a course', () => {
       await eli.main.getByRole('checkbox', { name: statement }).check();
       await eli.main.getByRole('button', { name: /^(confirm|sign|submit|complete)/i }).click();
     });
-    await test.step('the course is complete and shows the day of the sign-off', async () => {
-      const progress = await eli.progress(course.id);
-      expect(progress.status).toBe('completed');
-      const signedAt = new Date(progress.acknowledgedAt ?? '');
+    await test.step('the course is complete, and the sign-off keeps its time', async () => {
+      await expect.poll(() => eli.status(course.id), SOON).toBe('completed');
+      const signedAt = new Date((await eli.progress(course.id)).acknowledgedAt ?? '');
       expect(Math.abs(Date.now() - signedAt.getTime())).toBeLessThan(5 * 60_000);
-      await eli.page.goto(`/learning/courses/${course.id}`);
-      await expect(eli.main.getByText(shownDate(signedAt))).toBeVisible();
+      await eli.page.goto('/learning');
+      const zone = await eli.page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+      const finished = `Completed on ${shownDate(signedAt, zone)}`;
+      await expect(eli.entry(course.title)).toContainText(finished);
     });
   });
 
