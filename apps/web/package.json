@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@carehub/databases": "*",
     "@carehub/shared": "*",
     "@carehub/ui": "*",
     "@tanstack/react-query": "^5",
