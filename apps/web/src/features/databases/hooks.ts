@@ -552,8 +552,8 @@ export interface TypedOptions {
 }
 
 /**
- * Options typed into a Select or Multi-select cell, added to the property (Can edit; Lock structure
- * doesn't stop it). Names the property already has (ignoring case) aren't added again. Options are
+ * Options typed into a Select or Multi-select cell, added to the property (Can edit, and Lock
+ * structure off). Names the property already has (ignoring case) aren't added again. Options are
  * only ever added, so after a 409 it reloads the database and tries once more.
  */
 export function useAddOptions(databaseId: Id) {

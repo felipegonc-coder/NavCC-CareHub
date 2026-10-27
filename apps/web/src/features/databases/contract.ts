@@ -110,7 +110,7 @@ export interface ViewActions {
     newOptions?: Partial<Record<Id, readonly SelectOption[]>>,
   ): Promise<Row>;
   /**
-   * Adds options to a Select or Multi-select property (Can edit; Lock structure doesn't stop it).
+   * Adds options to a Select or Multi-select property (Can edit, and Lock structure off).
    * One whose name the property already has, ignoring case, isn't added again: the answer maps
    * each option's id to the id to save (its own, or the one of that name).
    */

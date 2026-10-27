@@ -228,6 +228,7 @@ export function queryRow(r: Row): QueryRow {
     values: r.values,
     computed: {},
     hiddenLinks: {},
+    color: { row: null, cells: {} },
     createdAt: r.createdAt,
     createdBy: r.createdBy,
     editedAt: r.editedAt,
