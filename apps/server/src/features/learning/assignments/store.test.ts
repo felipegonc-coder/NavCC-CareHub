@@ -136,7 +136,15 @@ describe.skipIf(!hasDatabase)('assignmentStore', () => {
     );
     expect(ids(await store.list(workspace, { userId: tara }))).toEqual(ids([direct, group]));
     expect(ids(await store.list(workspace, { userId: omar }))).toEqual(ids([group, other]));
+    expect(ids(await store.list(workspace, { pathId: 'new-starters' }))).toEqual(ids([group]));
     expect(await store.insert([])).toEqual([]);
+  });
+
+  it('keeps the createdAt it is given, so the rows of one path assignment match', async () => {
+    const store = assignmentStore(server.db);
+    const createdAt = new Date('2026-10-20T15:30:00.000Z');
+    const [row] = await store.insert([{ ...base, workspaceId: otherWorkspace, createdAt }]);
+    expect(row?.createdAt).toEqual(createdAt);
   });
 
   it("keeps each person's first day, and drops it with the assignment", async () => {
@@ -152,9 +160,9 @@ describe.skipIf(!hasDatabase)('assignmentStore', () => {
     expect(learners.sort((a, b) => a.since.localeCompare(b.since))).toEqual([tarasDay, omarsDay]);
     expect(await store.learners([])).toEqual([]);
 
-    expect(await store.remove(otherWorkspace, row.id)).toBe(false);
-    expect(await store.remove(workspace, row.id)).toBe(true);
-    expect(await store.remove(workspace, row.id)).toBe(false);
+    expect(await store.remove(otherWorkspace, row.id)).toBe(null);
+    expect(await store.remove(workspace, row.id)).toEqual(row);
+    expect(await store.remove(workspace, row.id)).toBe(null);
     expect(await store.learners([row.id])).toEqual([]);
   });
 });

@@ -17,25 +17,29 @@ export function memoryAssignmentStore(now: () => Date = () => new Date()): Memor
     learnerRows,
     async insert(newRows) {
       const at = now();
-      const added = newRows.map((row) => ({ ...row, id: randomUUID(), createdAt: at }));
+      const added = newRows.map((row) => ({
+        ...row,
+        id: randomUUID(),
+        createdAt: row.createdAt ?? at,
+      }));
       rows.push(...added);
       return added.map((row) => ({ ...row }));
     },
-    async list(workspaceId, { courseId, userId } = {}) {
+    async list(workspaceId, { courseId, userId, pathId } = {}) {
       return rows.filter(
         (row) =>
           row.workspaceId === workspaceId &&
           (courseId === undefined || row.courseId === courseId) &&
+          (pathId === undefined || row.pathId === pathId) &&
           (userId === undefined || row.userIds.includes(userId) || row.groupIds.length > 0),
       );
     },
     async remove(workspaceId, id) {
       const index = rows.findIndex((row) => row.workspaceId === workspaceId && row.id === id);
-      if (index === -1) return false;
-      rows.splice(index, 1);
-      const kept = learnerRows.filter((learner) => learner.assignmentId !== id);
+      const [removed] = index === -1 ? [] : rows.splice(index, 1);
+      const kept = learnerRows.filter((learner) => learner.assignmentId !== removed?.id);
       learnerRows.splice(0, learnerRows.length, ...kept);
-      return true;
+      return removed ? { ...removed } : null;
     },
     async learners(assignmentIds) {
       return learnerRows.filter((learner) => assignmentIds.includes(learner.assignmentId));
