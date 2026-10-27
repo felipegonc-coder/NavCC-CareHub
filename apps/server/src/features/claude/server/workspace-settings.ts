@@ -1,5 +1,6 @@
 import { and, eq, like, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
+import { users } from '../../auth/schema';
 import { claudeSettings } from '../schema';
 
 // stand-in: getWorkspaceSetting / setWorkspaceSetting from features/workspaces (decision 0007,
@@ -28,6 +29,23 @@ export async function getClaudeSettings(
     .from(claudeSettings)
     .where(and(eq(claudeSettings.workspaceId, workspaceId), like(claudeSettings.key, 'claude.%')));
   return new Map(rows.map((row) => [row.key, row.value]));
+}
+
+// stand-in: the record of changes that 1c's workspace settings keep, once they land.
+/**
+ * Who last changed each `claude.*` setting and when, by key: their name, or null once their account
+ * is gone.
+ */
+export async function claudeSettingChanges(
+  db: Db | Tx,
+  workspaceId: string,
+): Promise<Map<string, { by: string | null; at: Date }>> {
+  const rows = await db
+    .select({ key: claudeSettings.key, by: users.name, at: claudeSettings.updatedAt })
+    .from(claudeSettings)
+    .leftJoin(users, eq(users.id, claudeSettings.updatedBy))
+    .where(and(eq(claudeSettings.workspaceId, workspaceId), like(claudeSettings.key, 'claude.%')));
+  return new Map(rows.map((row) => [row.key, { by: row.by, at: row.at }]));
 }
 
 export async function setWorkspaceSetting(

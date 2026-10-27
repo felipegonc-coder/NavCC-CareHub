@@ -13,7 +13,7 @@ export interface ClaudeLog {
 
 /** What Claude needs from other lanes before anything is sent. */
 export interface ClaudeAccess {
-  /** Whether a workspace setting is on: `claude.navApproved` or a switch such as `claude.writing_help`. */
+  /** Whether a workspace setting is on: a feature's switch, such as `claude.writing_help`. */
   isSettingOn(db: Db | Tx, workspaceId: string, key: string): Promise<boolean>;
   /** Whether the person has `claude.use` in the workspace. Guests never do. */
   canUseClaude(db: Db | Tx, workspaceId: string, userId: string): Promise<boolean>;
@@ -35,7 +35,7 @@ export interface ClaudeRuntime {
   now: () => Date;
 }
 
-// The switches and the OK are what Admins save in Settings → Claude (server/workspace-settings.ts).
+// The switches are what Admins save in Settings → Claude (server/workspace-settings.ts).
 // stand-in: roles (#55) aren't on main yet. Until they're bound, nobody has claude.use, so nothing
 // is ever sent.
 const standInAccess: ClaudeAccess = {
