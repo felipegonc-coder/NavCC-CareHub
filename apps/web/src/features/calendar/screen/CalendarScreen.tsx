@@ -1,3 +1,4 @@
+import { DEFAULT_SETTINGS } from '@carehub/team-calendar-api';
 import {
   DEFAULT_TIME_PREFS,
   datePart,
@@ -20,8 +21,8 @@ import { useShortcuts } from './shortcuts';
 import { TimeGrid } from './TimeGrid';
 import { TopBar, ViewSwitch } from './TopBar';
 
-/** The calendar settings that change the grid, until GET /api/calendar/settings lands. */
-const SETTINGS = { hideWeekends: false, hideDeclined: false, shortcuts: true };
+/** The settings that change the grid: the defaults until the screen loads the person's own. */
+const SETTINGS = DEFAULT_SETTINGS;
 
 /** `/calendar`: Day, Week and Month with the person's items from every layer that's on. */
 export function CalendarScreen() {
