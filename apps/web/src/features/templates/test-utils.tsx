@@ -1,7 +1,12 @@
 // Test helpers for the gallery screens: made-up cards, a fake TemplatesClient and a render
 // helper with the providers and routes the screens need. Nothing here touches the network.
 import type { TemplateCard } from '@carehub/extras/templates/gallery';
-import type { GalleryResponse, TemplatePreviewResponse } from '@carehub/extras/templates/schemas';
+import type {
+  GalleryResponse,
+  SaveTemplateInput,
+  TemplatePreviewResponse,
+  UpdateTemplateInput,
+} from '@carehub/extras/templates/schemas';
 import { ToastProvider } from '@carehub/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
@@ -13,6 +18,7 @@ import { TemplatesClientProvider, type TemplatesClient } from './api';
 export const LAUNCH_ID = '6c1f2f64-5f39-4f6a-9d63-0f1f7b9e2a10';
 export const PAGE_ID = '0b8e7f0e-3d0a-4c1e-8a59-9a7c6f0d4e21';
 export const NEW_PAGE_ID = 'c5d4a3b2-1f0e-4d9c-8b7a-6e5f4d3c2b1a';
+export const NEW_TEMPLATE_ID = '9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a';
 
 export function card(
   fields: Partial<TemplateCard> & Pick<TemplateCard, 'id' | 'name'>,
@@ -62,10 +68,13 @@ export const CARDS: TemplateCard[] = [
   }),
 ];
 
+export const SUPPORT_SPACE_ID = '3e9a1c55-8b2d-4f70-9c1e-5a4b3c2d1e0f';
+
 export const GALLERY: GalleryResponse = {
   templates: CARDS,
   categories: ['Made in this workspace', 'Meetings', 'Projects', 'Knowledge', 'Team', 'Support'],
   canSave: true,
+  spaces: [{ id: SUPPORT_SPACE_ID, name: 'Support' }],
 };
 
 export function previewOf(id: string): TemplatePreviewResponse {
@@ -95,6 +104,21 @@ export function fakeClient(changes: Partial<TemplatesClient> = {}) {
     preview: vi.fn(async (id: string) => previewOf(id)),
     copy: vi.fn(async () => ({ pageId: NEW_PAGE_ID, notCopied: [] as string[] })),
     setHidden: vi.fn(async () => undefined),
+    save: vi.fn(async (input: SaveTemplateInput) =>
+      card({
+        id: NEW_TEMPLATE_ID,
+        kind: 'workspace',
+        name: input.name,
+        category: input.category,
+        by: 'Sam Ortiz',
+        canManage: true,
+      }),
+    ),
+    update: vi.fn(async (id: string, input: UpdateTemplateInput) => ({
+      ...(CARDS.find((item) => item.id === id) ?? CARDS[0]!),
+      ...input,
+    })),
+    remove: vi.fn(async () => undefined),
     ...changes,
   } satisfies TemplatesClient;
 }
