@@ -20,7 +20,7 @@ import { NOT_ENEX, readEnex, TAG_CHARS, type EnexNote, type EnexResource } from 
 import { enmlToHtml, type EnmlAttachment } from './enml';
 
 export interface EvernoteOptions {
-  /** "As a database": a row per note instead of a page per note. */
+  /** "As a database" (the import's `asDatabase` option): a row per note, not a page per note. */
   asDatabase?: boolean;
 }
 
@@ -173,6 +173,12 @@ class NoteWriter {
 
 const noteItem = (note: EnexNote) => `Note "${shortName(note.title || 'Untitled')}"`;
 
+/** A note's created and updated dates, for its page or row. */
+const noteDates = (note: EnexNote) => ({
+  ...(note.created ? { created: note.created } : {}),
+  ...(note.updated ? { updated: note.updated } : {}),
+});
+
 /** The plan for one or more notebooks read from `fileName`. */
 export function evernotePlan(
   notebooks: readonly Notebook[],
@@ -200,7 +206,8 @@ export function evernotePlan(
       for (const note of notebook.notes) {
         const item = noteItem(note);
         const page = { key: out.key('note'), parent: key, title: writer.title(note, item) };
-        out.plan.pages.push({ ...page, content: writer.content(note, item), source: fileName });
+        const content = writer.content(note, item);
+        out.plan.pages.push({ ...page, content, source: fileName, ...noteDates(note) });
       }
     }
     return writer.done();
@@ -222,7 +229,12 @@ export function evernotePlan(
       const values = [tagCell(note.tags, out, item), note.created ?? '', note.updated ?? ''];
       const cells = [writer.title(note, item), ...(many ? [name] : []), ...values];
       out.spend(cells.slice(1).reduce((sum, cell) => sum + cell.length, 0));
-      return { key: out.key('note'), cells, content: writer.content(note, item) };
+      return {
+        key: out.key('note'),
+        cells,
+        content: writer.content(note, item),
+        ...noteDates(note),
+      };
     });
   });
   for (const column of columns) out.spend(column.name.length);
@@ -242,10 +254,7 @@ export function evernotePlan(
  * The Evernote importer, with the Import screen's HTML reader. It reads an .enex file, or a zip
  * of them (a notebook each).
  */
-export function evernoteImporter(
-  htmlToContent: HtmlToContent,
-  options: EvernoteOptions = {},
-): Importer {
+export function evernoteImporter(htmlToContent: HtmlToContent): Importer {
   return {
     source: 'evernote',
     async plan(input) {
@@ -260,7 +269,8 @@ export function evernoteImporter(
       } else {
         notebooks.push({ name: notebookName(input.fileName), notes: readEnex(await input.text()) });
       }
-      return evernotePlan(notebooks, input.fileName, htmlToContent, options);
+      const asDatabase = input.options.asDatabase === true;
+      return evernotePlan(notebooks, input.fileName, htmlToContent, { asDatabase });
     },
   };
 }

@@ -50,8 +50,13 @@ const note = (title: string, extra: Partial<EnexNote> = {}): EnexNote => ({
   ...extra,
 });
 
-function input(fileName: string, text: string, zip: ImportInput['zip'] = null): ImportInput {
-  return { fileName, bytes: utf8(text), text: async () => text, zip };
+function input(
+  fileName: string,
+  text: string,
+  zip: ImportInput['zip'] = null,
+  options: ImportInput['options'] = {},
+): ImportInput {
+  return { fileName, bytes: utf8(text), text: async () => text, zip, options };
 }
 
 async function rejection(promise: Promise<unknown>): Promise<Error> {
@@ -86,6 +91,9 @@ describe('evernoteImporter', () => {
       { key: 'note-1', parent: 'notebook-1', title: 'Intake call', source: 'Visits.enex' },
       { key: 'note-2', parent: 'notebook-1', title: 'Untitled', source: 'Visits.enex' },
     ]);
+    const dates = { created: '2026-03-01T09:00:00Z', updated: '2026-03-02T10:00:00Z' };
+    expect(plan.pages[1]).toMatchObject(dates);
+    expect(plan.pages[0]?.created).toBeUndefined();
     expect(plan.files.map(({ key, name, bytes }) => ({ key, name, bytes }))).toEqual([
       { key: 'file-1', name: 'Attachment.png', bytes: scan.bytes },
       { key: 'file-2', name: 'Intake form.pdf', bytes: form.bytes },
@@ -139,6 +147,20 @@ describe('evernoteImporter', () => {
     );
     expect(error).toBeInstanceOf(ImportFileError);
     expect(error.message).toBe(NOT_ENEX);
+  });
+
+  it('makes a database with the asDatabase option', async () => {
+    const file = enexFile([{ title: 'Intake', body: '' }]);
+    const options = { asDatabase: true };
+    const plan = await evernoteImporter(fakeReader().read).plan(
+      input('Visits.enex', file, null, options),
+    );
+    expect(plan.pages).toEqual([]);
+    expect(plan.databases[0]?.rows[0]).toMatchObject({
+      cells: ['Intake', '', '2026-03-01T09:00:00Z', '2026-03-02T10:00:00Z'],
+      created: '2026-03-01T09:00:00Z',
+      updated: '2026-03-02T10:00:00Z',
+    });
   });
 
   it('passes on what the HTML reader could not bring in', async () => {
