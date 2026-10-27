@@ -10,6 +10,7 @@ import type { PropertyViewer } from '@carehub/databases/access';
 import { nextRuns } from '@carehub/databases/repeat';
 import { eq, sql, type SQL } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
+import { publishTopic } from '../live';
 import { changed, notFound } from './errors';
 import {
   iconText,
@@ -148,13 +149,24 @@ async function lockInOrder(tx: Tx, id: string, alsoLock: readonly string[]) {
 }
 
 /**
+ * Tells the open tabs of these databases that their settings changed: `{ type: 'schema-changed' }`
+ * on `db:<id>` (decision 0200), so they fetch GET /:id again. Only after the commit.
+ */
+export function publishSchemaChanged(databaseIds: readonly string[]): void {
+  for (const id of new Set(databaseIds.map((each) => each.toLowerCase()))) {
+    publishTopic(`db:${id}`, { type: 'schema-changed' });
+  }
+}
+
+/**
  * One settings write: locks the database, checks the version, asks `change` for the new settings
  * (it may throw, or use the transaction for other writes) and saves them with a new version. An
- * empty change saves nothing and keeps the version. Publish events after this resolves (committed).
- * `alsoLock` names other databases `change` will lock too (with lockDatabase): they're locked
- * first, with this one, in id order.
+ * empty change saves nothing and keeps the version. `alsoLock` names other databases `change` will
+ * lock too (with lockDatabase): they're locked first, with this one, in id order. Once committed,
+ * a write that saved tells the open tabs of this database and those (publishSchemaChanged); emit
+ * events after this resolves.
  */
-export function changeDatabase(
+export async function changeDatabase(
   db: Db,
   id: string,
   version: number,
@@ -164,12 +176,14 @@ export function changeDatabase(
   ) => Partial<DatabaseSettings> | Promise<Partial<DatabaseSettings>>,
   options: { alsoLock?: readonly string[] } = {},
 ): Promise<DatabaseRecord> {
-  return db.transaction(async (tx) => {
+  const saved = await db.transaction(async (tx) => {
     const current = await lockInOrder(tx, id, options.alsoLock ?? []);
     checkVersion(current, version);
     const changes = await change(current, tx);
     return Object.keys(changes).length === 0 ? current : saveSettings(tx, current, changes);
   });
+  if (saved.version !== version) publishSchemaChanged([saved.id, ...(options.alsoLock ?? [])]);
+  return saved;
 }
 
 /** Adds the db_databases row for a new database page (createDatabasePage made the page). */

@@ -7,6 +7,7 @@ import {
   propertyAccessSchema,
   propertySchema,
   richTextSchema,
+  rowAccessRulesSchema,
   rowPageLayoutSchema,
   rowTemplateSchema,
   viewSchema,
@@ -133,3 +134,12 @@ export const templateRequest = z.strictObject({
   repeat: template.repeat,
 });
 export type TemplateRequest = z.infer<typeof templateRequest>;
+
+/**
+ * PUT /api/databases/:id/access-rules: every row access rule, in order (up to 10). Rules on
+ * properties the person can't see stay as saved.
+ */
+export const accessRulesRequest = z.strictObject({
+  version: versionSchema,
+  rules: rowAccessRulesSchema,
+});

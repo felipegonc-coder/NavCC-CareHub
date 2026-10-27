@@ -1,8 +1,9 @@
 // Database routes at /api/databases (decision 0200): create a database, read it as the person may
-// see it, and change its settings; the property, view and template routes (property-routes.ts,
-// view-routes.ts, template-routes.ts) register here too.
+// see it, change its settings and its row access rules; the property, view and template routes
+// (property-routes.ts, view-routes.ts, template-routes.ts) register here too.
 // Settings writes send `version`, lock the database's row, and answer like GET /:id with the new
-// version.
+// version; once committed, the database's open tabs hear schema-changed on db:<id>.
+import { isDeepStrictEqual } from 'node:util';
 import {
   LIMITS,
   newDatabaseSchema,
@@ -17,13 +18,23 @@ import {
 import { atLeast, databasePageAccess, type DbAction } from '@carehub/databases/access';
 import { parseRequest } from '@carehub/databases/schemas';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { registerTopic } from '../live';
 import { getAccessForPages, pageAccessOf } from '../pages';
+import { planAccessRules } from './access-rules';
 import { DATABASE_MESSAGES, forbidden, invalid, invalidRequest, notFound } from './errors';
-import { accept, allow as allowAction, answerFor, signedIn } from './http';
+import {
+  accept,
+  allow as allowAction,
+  answerFor,
+  databasePage,
+  hiddenProperties,
+  signedIn,
+} from './http';
 import { createDatabasePage, loadPagePlace } from './pages';
 import { registerPropertyRoutes } from './property-routes';
-import type { DatabaseRecord, DatabaseSettings } from './record';
+import { isUuid, type DatabaseRecord, type DatabaseSettings } from './record';
 import {
+  accessRulesRequest,
   databaseSettingsRequest,
   newDatabaseRequest,
   type DatabaseSettingsRequest,
@@ -157,6 +168,15 @@ export default async function databaseRoutes(app: FastifyInstance) {
   const answer = (request: FastifyRequest, record: DatabaseRecord, access: DatabaseGrant) =>
     answerFor(app.db, request, record, access);
 
+  // Live updates on db:<id> (schema-changed here, rows-changed from the row routes): anyone who
+  // can open the database page may listen.
+  registerTopic('db', async ({ userId, topic }) => {
+    const id = topic.slice('db:'.length);
+    if (!isUuid(id)) return false;
+    const level = (await getAccessForPages(app.db, userId, [id])).get(id);
+    return level !== undefined && level !== 'none';
+  });
+
   // A new database under a page the person can edit: its page, a Name property and a Table view.
   app.post('/', async (request, reply) => {
     const user = signedIn(request);
@@ -201,6 +221,20 @@ export default async function databaseRoutes(app: FastifyInstance) {
     const record = await changeDatabase(app.db, page.pageId, input.version, (current) =>
       settingsChanges(current, input, page.level),
     );
+    return answer(request, record, page.level);
+  });
+
+  // Row access rules: the whole list, Full access only (Lock structure doesn't stop it).
+  app.put('/:id/access-rules', { preHandler: app.requirePageAccess('edit') }, async (request) => {
+    const page = databasePage(request);
+    const user = signedIn(request);
+    const { version, rules } = accept(parseRequest(accessRulesRequest, request.body));
+    const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
+      allowAction('set_row_rules', page.level, current.locked);
+      const hidden = await hiddenProperties(tx, user.id, current);
+      const next = planAccessRules(current, rules, hidden);
+      return isDeepStrictEqual(next, current.accessRules) ? {} : { accessRules: next };
+    });
     return answer(request, record, page.level);
   });
 
