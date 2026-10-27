@@ -34,6 +34,9 @@ CREATE TABLE learning_progress (
   last_activity_at timestamptz,
   -- The lesson the learner opened last, for drop-off reports.
   last_lesson_id text,
+  -- The latest finish (completed or passed) of the learner's earlier runs, kept when a new run
+  -- starts, so that assignments an earlier run finished stay done.
+  previous_finished_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, learner_id, course_id)

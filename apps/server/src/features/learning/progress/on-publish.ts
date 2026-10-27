@@ -6,11 +6,12 @@ import {
 } from '@carehub/learning';
 import { and, eq, ne } from 'drizzle-orm';
 import { sendNotice } from '../../notices';
+import { issueCertificate } from '../certificates/service';
 import { canSeeCourse } from '../courses/access';
 import { getLiveCourse } from '../courses/service';
 import type { Db, Tx } from '../db';
 import { learningProgressChanges as changes, learningProgress as progress } from './schema';
-import { NO_PROGRESS, progressKey, runEvents, stateOf, summaryOf, type ProgressRow } from './store';
+import { newRunOf, progressKey, runEvents, stateOf, summaryOf, type ProgressRow } from './store';
 
 /**
  * A new live version, just saved (same transaction). `note` is the author's message to
@@ -31,6 +32,10 @@ async function move(db: Db | Tx, row: ProgressRow, live: LiveCourse, now: Date):
     .update(progress)
     .set({ ...summaryOf(state), version: live.version, updatedAt: now })
     .where(progressKey(row));
+  // The new version may need less, so the run can finish here.
+  const { workspaceId, learnerId } = row;
+  const { course, version } = live;
+  await issueCertificate(db, { workspaceId, learnerId, course, version, finish: state });
 }
 
 /** Starts the run over on the new version (a retake). The old run's events are kept. */
@@ -40,24 +45,14 @@ async function restart(
   published: CoursePublished,
   now: Date,
 ): Promise<void> {
-  const run = row.run + 1;
-  await db
-    .update(progress)
-    .set({
-      ...NO_PROGRESS,
-      run,
-      runStartedAt: now,
-      version: published.version,
-      markedCompleteAt: null,
-      updatedAt: now,
-    })
-    .where(progressKey(row));
+  const next = newRunOf(row, published.version, now);
+  await db.update(progress).set(next).where(progressKey(row));
   await db.insert(changes).values({
     workspaceId: row.workspaceId,
     learnerId: row.learnerId,
     courseId: row.courseId,
     kind: 'retake',
-    run,
+    run: next.run,
     changedBy: null,
     note: published.note || null,
     changedAt: now,

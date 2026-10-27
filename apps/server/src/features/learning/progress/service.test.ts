@@ -5,15 +5,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { Db } from '../../../db';
 import { createTestApp, hasDatabase, type TestApp } from '../../../testing';
 import { bindMemoryNotices, type MemoryNoticeStore } from '../../notices/testing';
+import { listCertificates } from '../certificates/service';
 import { canSeeCourse } from '../courses/access';
 import * as courses from '../courses/service';
 import { LearningError } from '../errors';
 import { learningProgressChanges as changes } from './schema';
 import * as progress from './service';
 
-vi.mock('../courses/access', () => ({
+vi.mock('../courses/access', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../courses/access')>()),
   canSeeCourse: vi.fn(async () => true),
-  canEditCourse: vi.fn(async () => false),
 }));
 
 // Fictional people and courses only: the microlearning sample, with one content lesson.
@@ -81,10 +82,13 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
     vi.mocked(canSeeCourse).mockImplementation(async () => true);
   });
 
-  /** A new course with the sample's content, published once. */
-  async function newCourse(trainer: courses.Actor): Promise<Course> {
+  /** A new course with the sample's content (changed by `edit`), published once. */
+  async function newCourse(
+    trainer: courses.Actor,
+    edit: (course: Course) => Course = (course) => course,
+  ): Promise<Course> {
     const blank = await courses.createStudioCourse(db, trainer, { type: 'microlearning' });
-    const course: Course = { ...structuredClone(sampleMicrolearningCourse), id: blank.course.id };
+    const course = edit({ ...structuredClone(sampleMicrolearningCourse), id: blank.course.id });
     await courses.saveDraft(db, trainer, course.id, { course, revision: blank.revision });
     await courses.publishCourse(db, trainer, course.id, { notify: 'none' });
     return course;
@@ -144,6 +148,7 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
         activeSeconds: 45,
         attempts: 0,
         lastLessonId: LESSON,
+        previousFinishedAt: null,
       },
     ]);
     expect(await progress.listCourseStates(db, { workspaceId, userIds: [] })).toEqual([]);
@@ -194,7 +199,8 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
     if (!ada || !bo || !cy) throw new Error('Three learners expected.');
     const course = await newCourse(trainer);
     await send(ada, course, [opened()]);
-    await send(bo, course, [opened(), completed()]);
+    const finished = (await send(bo, course, [opened(), completed()])).state.completedAt;
+    expect(finished).not.toBeNull();
     vi.mocked(canSeeCourse).mockImplementation(async (userId: string) => userId !== bo.userId);
     await republish(trainer, withSecondLesson(course), 'retake', 'Please take it again.');
 
@@ -230,9 +236,15 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
     expect(late.rejected).toMatchObject([{ reason: 'restarted' }]);
     expect(late.state.status).toBe('not_started');
     const { workspaceId } = trainer;
-    expect(
-      await progress.listCourseStates(db, { workspaceId, userIds: [bo.userId] }),
-    ).toMatchObject([{ status: 'not_started', completedAt: null, percentComplete: 0 }]);
+    // Bo's earlier finish stays on record for assignments; Ada never finished.
+    const states = await progress.listCourseStates(db, { workspaceId, courseIds: [course.id] });
+    expect(states.find((state) => state.userId === bo.userId)).toMatchObject({
+      status: 'not_started',
+      completedAt: null,
+      percentComplete: 0,
+      previousFinishedAt: finished,
+    });
+    expect(states.find((state) => state.userId === ada.userId)?.previousFinishedAt).toBeNull();
   });
 
   it('keeps runs on their version after "none", until a reset', async () => {
@@ -246,10 +258,8 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
     await republish(trainer, withSecondLesson(course), 'none');
     expect(await versionOf(ada, course)).toBe(1);
     // Measured against version 1, where this was the only lesson.
-    expect((await send(ada, course, [completed()])).state).toMatchObject({
-      status: 'completed',
-      percentComplete: 100,
-    });
+    const done = (await send(ada, course, [completed()])).state;
+    expect(done).toMatchObject({ status: 'completed', percentComplete: 100 });
     expect(noticesFor(ada)).toEqual([]);
 
     const reset = await progress.resetProgress(db, trainer, ada.userId, course.id, 'Mixed up.');
@@ -257,6 +267,12 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
     expect(reset.lessons).toHaveLength(2);
     expect(await versionOf(ada, course)).toBe(2);
     expect((await changesOf(trainer, course)).map((change) => change.kind)).toEqual(['reset']);
+    const { workspaceId } = trainer;
+    expect(
+      await progress.listCourseStates(db, { workspaceId, userIds: [ada.userId] }),
+    ).toMatchObject([
+      { status: 'not_started', completedAt: null, previousFinishedAt: done.completedAt },
+    ]);
   });
 
   it('marks a run complete by hand, keeping the first date', async () => {
@@ -288,7 +304,14 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
     const { workspaceId } = trainer;
     expect(
       await progress.listCourseStates(db, { workspaceId, userIds: [bo.userId] }),
-    ).toMatchObject([{ status: 'completed', completedAt: at.toISOString(), percentComplete: 100 }]);
+    ).toMatchObject([
+      {
+        status: 'completed',
+        completedAt: at.toISOString(),
+        percentComplete: 100,
+        previousFinishedAt: null,
+      },
+    ]);
     const marks = (await changesOf(trainer, course)).map((change) => [
       change.learnerId,
       change.kind,
@@ -297,5 +320,33 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
       change.note,
     ]);
     expect(marks).toEqual([[bo.userId, 'complete', 1, trainer.userId, 'On paper.']]);
+  });
+
+  it('issues a certificate when a run finishes in a course that gives one', async () => {
+    const {
+      trainer,
+      learners: [ada, bo],
+    } = workspace(2);
+    if (!ada || !bo) throw new Error('Two learners expected.');
+    const course = await newCourse(trainer, (sample) => ({
+      ...sample,
+      settings: { ...sample.settings, certificate: { enabled: true, validForMonths: 12 } },
+    }));
+    const certificatesOf = (learner: courses.Actor) =>
+      listCertificates(db, { ...learner, can: () => false }, {});
+
+    await send(ada, course, [opened()]);
+    expect(await certificatesOf(ada)).toEqual([]);
+    const { state } = await send(ada, course, [completed()]);
+    expect(state.status).toBe('completed');
+    await send(ada, course, [event('time_active', { seconds: 20 })]);
+    expect(await certificatesOf(ada)).toMatchObject([
+      { courseId: course.id, courseVersion: 1, completedAt: state.completedAt, status: 'valid' },
+    ]);
+
+    // A completion marked by hand earns it too.
+    const at = new Date(Date.now() - 60_000);
+    await progress.completeProgress(db, trainer, bo.userId, course.id, undefined, at);
+    expect(await certificatesOf(bo)).toMatchObject([{ completedAt: at.toISOString() }]);
   });
 });

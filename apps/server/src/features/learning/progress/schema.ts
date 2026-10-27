@@ -41,6 +41,7 @@ export const learningProgress = pgTable(
     completedAt: maybeAt('completed_at'),
     lastActivityAt: maybeAt('last_activity_at'),
     lastLessonId: text('last_lesson_id'),
+    previousFinishedAt: maybeAt('previous_finished_at'),
     createdAt: at('created_at'),
     updatedAt: at('updated_at'),
   },

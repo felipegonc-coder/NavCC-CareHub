@@ -45,6 +45,36 @@ export const NO_PROGRESS: ProgressSummary = {
   lastLessonId: null,
 };
 
+/** The columns that start a new run. */
+export type NewRun = ProgressSummary &
+  Pick<
+    ProgressRow,
+    'run' | 'runStartedAt' | 'version' | 'markedCompleteAt' | 'previousFinishedAt' | 'updatedAt'
+  >;
+
+const finishOf = (row: ProgressRow): Date | null =>
+  row.status === 'completed' || row.status === 'passed' ? row.completedAt : null;
+
+/**
+ * A new run on `version` from `now` (a reset, a retake or re-certification): nothing done yet and
+ * no completion marked by hand. `previousFinishedAt` becomes the later of its old value and the
+ * ending run's finish, if it finished (completed or passed).
+ */
+export function newRunOf(row: ProgressRow, version: number, now: Date): NewRun {
+  const [before, ending] = [row.previousFinishedAt, finishOf(row)];
+  const previousFinishedAt =
+    before && ending ? (before > ending ? before : ending) : (before ?? ending);
+  return {
+    ...NO_PROGRESS,
+    run: row.run + 1,
+    runStartedAt: now,
+    version,
+    markedCompleteAt: null,
+    previousFinishedAt,
+    updatedAt: now,
+  };
+}
+
 /** Matches one learner's row for a course. */
 export function progressKey({ workspaceId, learnerId, courseId }: Learner) {
   return and(

@@ -10,6 +10,7 @@ import {
   type ProgressEventsResponse,
 } from '@carehub/learning';
 import { and, eq, inArray } from 'drizzle-orm';
+import { issueCertificate } from '../certificates/service';
 import { getCourseVersion, getLiveCourse, type Actor } from '../courses/service';
 import type { Db, Tx } from '../db';
 import { httpError } from '../errors';
@@ -20,8 +21,8 @@ import {
   type ProgressChangeKind,
 } from './schema';
 import {
-  NO_PROGRESS,
   completionOf,
+  newRunOf,
   progressKey,
   runEvents,
   stateOf,
@@ -163,6 +164,7 @@ export async function recordEvents(
         .update(progress)
         .set({ ...summaryOf(state), updatedAt: now })
         .where(progressKey(learner));
+      await issueCertificate(tx, { ...learner, course, version: row.version, finish: state });
     }
     return { ...intake.reply, state };
   });
@@ -186,19 +188,9 @@ export async function resetProgress(
     const learner = { workspaceId: actor.workspaceId, learnerId: personId, courseId };
     const row = await findProgress(tx, learner, true);
     if (!row) return stateOf(live.course, undefined, []);
-    const run = row.run + 1;
-    await tx
-      .update(progress)
-      .set({
-        ...NO_PROGRESS,
-        run,
-        runStartedAt: now,
-        version: live.version,
-        markedCompleteAt: null,
-        updatedAt: now,
-      })
-      .where(progressKey(learner));
-    await recordChange(tx, row, { kind: 'reset', run, by: actor.userId, note }, now);
+    const next = newRunOf(row, live.version, now);
+    await tx.update(progress).set(next).where(progressKey(learner));
+    await recordChange(tx, row, { kind: 'reset', run: next.run, by: actor.userId, note }, now);
     return stateOf(live.course, undefined, []);
   });
 }
@@ -229,6 +221,7 @@ export async function completeProgress(
         .set({ ...summaryOf(state), markedCompleteAt, updatedAt: now })
         .where(progressKey(learner));
       await recordChange(tx, row, { kind: 'complete', run: row.run, by: actor.userId, note }, now);
+      await issueCertificate(tx, { ...learner, course, version: row.version, finish: state });
     }
     return state;
   });
@@ -251,6 +244,12 @@ export type CourseStateRow = {
   attempts: number;
   /** The lesson opened last, or null before any. */
   lastLessonId: string | null;
+  /**
+   * The latest finish (completed or passed) of the learner's earlier runs, before a reset, retake
+   * or re-certification started the current one; null without one. `completedAt` is the current
+   * run's.
+   */
+  previousFinishedAt: IsoDateTime | null;
 };
 
 const isoOf = (at: Date | null): IsoDateTime | null => at?.toISOString() ?? null;
@@ -288,5 +287,6 @@ export async function listCourseStates(
     activeSeconds: row.activeSeconds,
     attempts: row.attempts,
     lastLessonId: row.lastLessonId,
+    previousFinishedAt: isoOf(row.previousFinishedAt),
   }));
 }
