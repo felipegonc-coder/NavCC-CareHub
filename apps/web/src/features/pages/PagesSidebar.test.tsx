@@ -107,6 +107,7 @@ function renderSidebar(responses: Record<string, unknown> = {}) {
         <PagesSidebar />
         <Routes>
           <Route path="/p/:pageId" element={<Opened />} />
+          <Route path="/spaces" element={<p>Browsing spaces</p>} />
           <Route path="*" element={null} />
         </Routes>
       </MemoryRouter>
@@ -115,6 +116,18 @@ function renderSidebar(responses: Record<string, unknown> = {}) {
 }
 
 const section = (name: string) => screen.getByRole('group', { name });
+
+// Two team spaces, General first as the server sends them.
+const twoSpaces = {
+  '/api/spaces': { spaces: [...spaces, { id: 'care', kind: 'closed', name: 'Care team' }] },
+  '/api/spaces/care/tree': { nodes: [node('c1', null, 'Handbook')] },
+};
+
+/** The team spaces in the Spaces section, top to bottom. */
+const spaceNames = () =>
+  within(section('Spaces'))
+    .getAllByRole('heading', { level: 3 })
+    .map((heading) => heading.textContent);
 
 beforeEach(() => {
   api.get.mockReset();
@@ -153,6 +166,61 @@ describe('PagesSidebar', () => {
     expect(
       within(spacesSection).getByRole('button', { name: 'General options' }),
     ).toBeInTheDocument();
+  });
+
+  it("shows the spaces in the person's own order", async () => {
+    renderSidebar({ ...twoSpaces, '/api/me/prefs': { 'sidebar.spaceOrder': ['care', 'general'] } });
+    await screen.findByRole('group', { name: 'Care team' });
+    await waitFor(() => expect(spaceNames()).toEqual(['Care team', 'General']));
+  });
+
+  it('moves a space down with Ctrl+Shift+↓, keeping focus on it, and saves the order', async () => {
+    renderSidebar(twoSpaces);
+    await screen.findByRole('group', { name: 'Care team' });
+    const general = within(section('General')).getByRole('button', { name: 'General' });
+    general.focus();
+    fireEvent.keyDown(general, { key: 'ArrowDown', ctrlKey: true, shiftKey: true });
+    await waitFor(() => expect(spaceNames()).toEqual(['Care team', 'General']));
+    await waitFor(() => expect(general).toHaveFocus());
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith('/api/me/prefs/sidebar.spaceOrder', {
+        value: ['care', 'general'],
+      }),
+    );
+    // It's at the bottom now, so ↓ does nothing more.
+    fireEvent.keyDown(general, { key: 'ArrowDown', ctrlKey: true, shiftKey: true });
+    expect(spaceNames()).toEqual(['Care team', 'General']);
+  });
+
+  it('puts a space dragged onto another just above or below it', async () => {
+    renderSidebar(twoSpaces);
+    const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(await screen.findByRole('button', { name: 'General' }), { dataTransfer });
+    // jsdom has no layout, so the drop lands below the middle of Care team's row.
+    const care = await screen.findByRole('button', { name: 'Care team' });
+    fireEvent.dragOver(care, { dataTransfer });
+    fireEvent.drop(care, { dataTransfer });
+    await waitFor(() => expect(spaceNames()).toEqual(['Care team', 'General']));
+    expect(api.post).not.toHaveBeenCalled(); // no page moved
+  });
+
+  it('opens Browse spaces from the Spaces menu', async () => {
+    renderSidebar();
+    fireEvent.contextMenu(await screen.findByRole('heading', { name: 'Spaces' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Browse spaces' }));
+    expect(await screen.findByText('Browsing spaces')).toBeInTheDocument();
+  });
+
+  it('points to Browse spaces while the person is in no space', async () => {
+    renderSidebar({
+      '/api/spaces': { spaces: [{ id: 'mine', kind: 'personal', name: 'Private', icon: null }] },
+    });
+    const spacesSection = await screen.findByRole('group', { name: 'Spaces' });
+    expect(within(spacesSection).getByText(/Spaces you join show here/)).toBeInTheDocument();
+    expect(within(spacesSection).getByRole('link', { name: 'Browse spaces' })).toHaveAttribute(
+      'href',
+      '/spaces',
+    );
   });
 
   it('leaves Spaces out for someone in no space who may not create one', async () => {

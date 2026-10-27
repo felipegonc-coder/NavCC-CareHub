@@ -95,6 +95,23 @@ describe('SpaceMenu', () => {
     expect(screen.queryByRole('button', { name: 'Team leads options' })).not.toBeInTheDocument();
   });
 
+  it("moves the space up or down in the person's order, where it can go", async () => {
+    const up = vi.fn();
+    show(<SpaceMenu space={leaders} moves={{ up }} />);
+    // Even in a Private space, someone who can't manage it may put it elsewhere in their sidebar.
+    const menu = await openMenu('Team leads');
+    expect(itemsOf(menu)).toEqual(['Move up']);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Move up' }));
+    expect(up).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the order moves apart from Leave', async () => {
+    show(<SpaceMenu space={general} moves={{ up: vi.fn(), down: vi.fn() }} />);
+    const menu = await openMenu('General');
+    expect(itemsOf(menu)).toEqual(['Move up', 'Move down', 'Leave space']);
+    expect(within(menu).getByRole('separator')).toBeInTheDocument();
+  });
+
   it('leaves the space after the confirm', async () => {
     show(<SpaceMenu space={billing} />);
     const dialog = await choose('Billing', 'Leave space', 'Leave “Billing”?');
