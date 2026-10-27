@@ -1,6 +1,7 @@
 import { claudeSettingsUpdateSchema } from '@carehub/extras/claude/settings';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
+import claudeFieldRoutes from './fields-routes';
 import { claudeSettingsView, claudeStatusFor, updateClaudeSettings } from './server/admin';
 import { claudeMemberOf } from './server/members';
 import { configureClaude } from './server/runtime';
@@ -30,6 +31,8 @@ const claudeRoutes: FastifyPluginAsync = async (app) => {
   app.get('/settings', async (request) =>
     claudeSettingsView(app.db, await adminWorkspaceOf(request)),
   );
+
+  await app.register(claudeFieldRoutes, { prefix: '/fields' });
 
   app.put('/settings', async (request) => {
     const workspaceId = await adminWorkspaceOf(request);

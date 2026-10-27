@@ -77,7 +77,8 @@ export function askClaudeJson<T>(db: Db | Tx, input: AskClaudeJsonInput<T>): Pro
 const JSON_ONLY =
   'Answer with one JSON value and nothing else: no words around it and no code fences.';
 
-async function featureRefusal(
+/** Why the feature can't be used in the workspace now (the key, the OK, the switch), or undefined. */
+export async function featureRefusal(
   db: Db | Tx,
   workspaceId: string,
   feature: ClaudeFeature,
