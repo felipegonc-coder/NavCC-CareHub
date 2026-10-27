@@ -15,32 +15,22 @@ function fakeRequest(answer: unknown) {
 const unauthorized = () => new ApiError(401, 'unauthorized', 'Sign in to continue.');
 
 describe('createFormsClient', () => {
-  it('asks for the form behind a link, signed in or on the public route', async () => {
+  it('asks for the form behind a link', async () => {
     const { request, calls } = fakeRequest(fillForm());
     const client = createFormsClient(request);
     const data = await client.getForm('ab/c');
-    await client.getPublicForm('code-123');
     expect(data.form.title).toBe('QA dispute request');
-    expect(calls.map((c) => [c.method, c.path])).toEqual([
-      ['GET', '/api/forms/ab%2Fc'],
-      ['GET', '/api/forms/public/code-123'],
-    ]);
+    expect(calls.map((c) => [c.method, c.path])).toEqual([['GET', '/api/forms/ab%2Fc']]);
   });
 
-  it('sends { answers } to the route the form was opened with', async () => {
+  it('sends the answers as { answers }', async () => {
     const { request, calls } = fakeRequest({ ok: true });
     const client = createFormsClient(request);
-    await client.submitResponse('code-123', { 'prop-name': 'Avery Lin' }, 'member');
-    await client.submitResponse('code-123', { 'prop-name': 'Avery Lin' }, 'public');
+    await client.submitResponse('code-123', { 'prop-name': 'Avery Lin' });
     expect(calls).toEqual([
       {
         method: 'POST',
         path: '/api/forms/code-123/responses',
-        body: { answers: { 'prop-name': 'Avery Lin' } },
-      },
-      {
-        method: 'POST',
-        path: '/api/forms/public/code-123/responses',
         body: { answers: { 'prop-name': 'Avery Lin' } },
       },
     ]);
@@ -98,26 +88,18 @@ describe('parseFillForm', () => {
 describe('loadFillForm', () => {
   it('opens the form for the person signed in', async () => {
     const client = mockFormsClient();
-    await expect(loadFillForm(client, 'code-123')).resolves.toMatchObject({
-      kind: 'form',
-      access: 'member',
-    });
-    expect(client.getPublicForm).not.toHaveBeenCalled();
+    await expect(loadFillForm(client, 'code-123')).resolves.toMatchObject({ kind: 'form' });
+    expect(client.getForm).toHaveBeenCalledWith('code-123');
   });
 
-  it('opens a form anyone can fill in when nobody is signed in', async () => {
+  it('asks to sign in when nobody is signed in', async () => {
     const client = mockFormsClient();
     client.getForm.mockRejectedValue(unauthorized());
-    client.getPublicForm.mockResolvedValue(fillForm({ audience: 'anyone' }, { respondent: null }));
-    await expect(loadFillForm(client, 'code-123')).resolves.toMatchObject({
-      kind: 'form',
-      access: 'public',
-    });
+    await expect(loadFillForm(client, 'code-123')).resolves.toEqual({ kind: 'sign_in' });
   });
 
-  it('asks to sign in when the link is not a form anyone can fill in', async () => {
-    const client = mockFormsClient();
-    client.getForm.mockRejectedValue(unauthorized());
+  it('asks to sign in when the form says so', async () => {
+    const client = mockFormsClient(fillForm({}, { gate: { state: 'sign_in', message: null } }));
     await expect(loadFillForm(client, 'code-123')).resolves.toEqual({ kind: 'sign_in' });
   });
 
@@ -125,6 +107,5 @@ describe('loadFillForm', () => {
     const client = mockFormsClient();
     client.getForm.mockRejectedValue(new ApiError(404, 'not_found', NOT_FOUND));
     await expect(loadFillForm(client, 'code-123')).rejects.toThrow(NOT_FOUND);
-    expect(client.getPublicForm).not.toHaveBeenCalled();
   });
 });

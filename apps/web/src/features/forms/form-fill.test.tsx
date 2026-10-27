@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import type { FormDefinition } from '@carehub/databases';
 import { draftKey } from '@carehub/databases/forms';
 import { ApiError } from '../databases/api';
-import type { FillAccess, FillForm } from './api';
+import type { FillForm } from './api';
 import { FormFill, OFFLINE_TEXT } from './form-fill';
 import {
   fillForm,
@@ -14,15 +14,14 @@ import {
   stubResizeObserver,
   type MockFormsClient,
 } from './test-utils';
-import { PUBLIC_UPLOAD_REFUSED } from './uploads';
 
 function renderFill(
   form: Partial<FormDefinition> = {},
-  { access = 'member', data }: { access?: FillAccess; data?: Partial<FillForm> } = {},
+  { data }: { data?: Partial<FillForm> } = {},
   client: MockFormsClient = mockFormsClient(),
 ) {
   const filled = fillForm(form, data);
-  return renderWithForms(<FormFill data={filled} access={access} code="code-123" />, client);
+  return renderWithForms(<FormFill data={filled} code="code-123" />, client);
 }
 
 const textbox = (name: string) => screen.getByRole('textbox', { name });
@@ -96,11 +95,11 @@ describe('FormFill', () => {
     const status = await screen.findByRole('status');
     expect(status).toHaveTextContent('Thanks! Your response was sent.');
     expect(client.submitResponse).toHaveBeenCalledTimes(1);
-    expect(client.submitResponse).toHaveBeenCalledWith(
-      'code-123',
-      { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing', [IDS.amount]: '12.5' },
-      'member',
-    );
+    expect(client.submitResponse).toHaveBeenCalledWith('code-123', {
+      [IDS.name]: 'Avery Lin',
+      [IDS.category]: 'opt-billing',
+      [IDS.amount]: '12.5',
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Submit another response' }));
     expect(textbox('Your name')).toHaveValue('');
   });
@@ -224,11 +223,10 @@ describe('FormFill', () => {
     expect(client.pickRows).toHaveBeenCalledWith('db-jobs', 'leak');
     fireEvent.click(submitButton());
     await waitFor(() =>
-      expect(client.submitResponse).toHaveBeenCalledWith(
-        'code-123',
-        { [IDS.assignee]: ['user-avery'], [IDS.job]: ['row-leak'] },
-        'member',
-      ),
+      expect(client.submitResponse).toHaveBeenCalledWith('code-123', {
+        [IDS.assignee]: ['user-avery'],
+        [IDS.job]: ['row-leak'],
+      }),
     );
   });
 
@@ -238,49 +236,5 @@ describe('FormFill', () => {
     fireEvent.change(screen.getByLabelText('Photos'), { target: { files: [file] } });
     expect(await screen.findByText('sink.heic')).toBeInTheDocument();
     expect(client.uploadFile).toHaveBeenCalledWith(file, { scope: 'forms:form-1' });
-  });
-});
-
-describe('FormFill for a form anyone can fill in', () => {
-  const questions = [
-    question(IDS.name, 'Your name'),
-    question(IDS.assignee, 'Assigned to'),
-    question(IDS.job, 'Job'),
-    question(IDS.photos, 'Photos'),
-  ];
-  const publicData: Partial<FillForm> = { respondent: null };
-
-  it('never asks Person or Relation questions and says names are not recorded', () => {
-    renderFill({ questions, audience: 'anyone' }, { access: 'public', data: publicData });
-    expect(textbox('Your name')).toBeInTheDocument();
-    expect(screen.queryByRole('combobox')).toBeNull();
-    expect(screen.getByText("Your name isn't recorded with this form.")).toBeInTheDocument();
-  });
-
-  it('takes only the allowed file types and sends its own uploads', async () => {
-    const { client } = renderFill(
-      { questions, audience: 'anyone' },
-      { access: 'public', data: publicData },
-    );
-    const input = screen.getByLabelText('Photos');
-    expect(input.getAttribute('accept')).toContain('.docx');
-    expect(input.getAttribute('accept')).not.toContain('.docm');
-
-    fireEvent.change(input, { target: { files: [new File(['x'], 'macro.docm')] } });
-    expect(screen.getByText(PUBLIC_UPLOAD_REFUSED)).toBeInTheDocument();
-    expect(client.uploadFile).not.toHaveBeenCalled();
-
-    const photo = new File(['leak'], 'sink.png', { type: 'image/png' });
-    fireEvent.change(input, { target: { files: [photo] } });
-    expect(await screen.findByText('sink.png')).toBeInTheDocument();
-    fireEvent.click(submitButton());
-    await waitFor(() =>
-      expect(client.submitResponse).toHaveBeenCalledWith(
-        'code-123',
-        { [IDS.photos]: [{ id: 'file-sink.png', name: 'sink.png', size: 4, mime: 'image/png' }] },
-        'public',
-      ),
-    );
-    expect(window.localStorage.getItem(draftKey('form-1', null))).toBeNull();
   });
 });

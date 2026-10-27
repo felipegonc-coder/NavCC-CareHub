@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
-import { fillForm, mockFormsClient, renderFormPage } from './test-utils';
+import { mockFormsClient, renderFormPage } from './test-utils';
 
 const unauthorized = () => new ApiError(401, 'unauthorized', 'Sign in to continue.');
 
@@ -13,16 +13,7 @@ describe('FormPage', () => {
     await waitFor(() => expect(document.title).toBe('Care Hub · QA dispute request'));
   });
 
-  it('opens a form anyone can fill in when nobody is signed in', async () => {
-    const client = mockFormsClient();
-    client.getForm.mockRejectedValue(unauthorized());
-    client.getPublicForm.mockResolvedValue(fillForm({ audience: 'anyone' }, { respondent: null }));
-    renderFormPage('code-123', client);
-    expect(await screen.findByRole('form', { name: 'QA dispute request' })).toBeInTheDocument();
-    expect(client.getPublicForm).toHaveBeenCalledWith('code-123');
-  });
-
-  it('sends people to sign in when the form needs it', async () => {
+  it('sends people who are signed out to sign in', async () => {
     const client = mockFormsClient();
     client.getForm.mockRejectedValue(unauthorized());
     renderFormPage('code-123', client);

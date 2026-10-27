@@ -16,7 +16,6 @@ import type {
   SelectOption,
 } from '@carehub/databases';
 import { defaultConfig } from '@carehub/databases';
-import { ApiError } from '../databases/api';
 import { FormsClientProvider, type FillForm, type FormsClient } from './api';
 import { FormPage, SIGN_IN_PATH } from './form-page';
 
@@ -164,13 +163,10 @@ export type MockFormsClient = { [K in keyof FormsClient]: Mock<FormsClient[K]> }
 
 export const NOT_FOUND = 'This was deleted, or the link is wrong.';
 
-/** A FormsClient answering from fillForm(); public routes say the link isn't a public form. */
+/** A FormsClient answering from fillForm(). */
 export function mockFormsClient(data: FillForm = fillForm()): MockFormsClient {
   return {
     getForm: vi.fn<FormsClient['getForm']>().mockResolvedValue(data),
-    getPublicForm: vi
-      .fn<FormsClient['getPublicForm']>()
-      .mockRejectedValue(new ApiError(404, 'not_found', NOT_FOUND)),
     submitResponse: vi.fn<FormsClient['submitResponse']>().mockResolvedValue({ ok: true }),
     searchPeople: vi.fn<FormsClient['searchPeople']>().mockResolvedValue([
       { id: 'user-avery', name: 'Avery Lin', email: 'avery@bluepine.example' },
