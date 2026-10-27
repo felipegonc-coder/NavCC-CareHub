@@ -2,13 +2,21 @@
 // files next to them. Settings writes go through changeDatabase (or lockDatabase, checkVersion and
 // saveSettings in one transaction): the database's row is locked with select ... for no key update
 // (so rows can still be added meanwhile), a stale version is refused with 409, and every save bumps
-// the version. Row writes never lock the database row; takeUniqueNumbers is one short update.
+// the version. A write that changes two databases (both sides of a two-way relation) locks them in
+// id order through changeDatabase's alsoLock. Row writes never lock the database row;
+// takeUniqueNumbers is one short update.
 import type { Id, Property, Row, Viewer } from '@carehub/databases';
 import type { PropertyViewer } from '@carehub/databases/access';
 import { eq, sql, type SQL } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
 import { changed, notFound } from './errors';
-import { iconText, isUuid, type DatabaseRecord, type DatabaseSettings } from './record';
+import {
+  iconText,
+  isUuid,
+  type DatabaseRecord,
+  type DatabaseSettings,
+  type TypeChange,
+} from './record';
 import { dbDatabases } from './schema';
 
 /** A database or a transaction. */
@@ -121,9 +129,27 @@ export async function saveSettings(
 }
 
 /**
+ * Locks this database and the others in `alsoLock` in id order, so two writes that lock the same
+ * pair can't deadlock; others that don't exist are skipped. 404 if this one is missing.
+ */
+async function lockInOrder(tx: Tx, id: string, alsoLock: readonly string[]) {
+  const key = id.toLowerCase();
+  const ids = [...new Set([key, ...alsoLock.map((other) => other.toLowerCase())])].sort();
+  let current: DatabaseRecord | null = null;
+  for (const each of ids) {
+    const record = await selectDatabase(tx, each, true);
+    if (each === key) current = record;
+  }
+  if (!current) throw notFound();
+  return current;
+}
+
+/**
  * One settings write: locks the database, checks the version, asks `change` for the new settings
  * (it may throw, or use the transaction for other writes) and saves them with a new version. An
  * empty change saves nothing and keeps the version. Publish events after this resolves (committed).
+ * `alsoLock` names other databases `change` will lock too (with lockDatabase): they're locked
+ * first, with this one, in id order.
  */
 export function changeDatabase(
   db: Db,
@@ -133,9 +159,10 @@ export function changeDatabase(
     current: DatabaseRecord,
     tx: Tx,
   ) => Partial<DatabaseSettings> | Promise<Partial<DatabaseSettings>>,
+  options: { alsoLock?: readonly string[] } = {},
 ): Promise<DatabaseRecord> {
   return db.transaction(async (tx) => {
-    const current = await lockDatabase(tx, id);
+    const current = await lockInOrder(tx, id, options.alsoLock ?? []);
     checkVersion(current, version);
     const changes = await change(current, tx);
     return Object.keys(changes).length === 0 ? current : saveSettings(tx, current, changes);
@@ -290,6 +317,93 @@ export async function copyPropertyValues(
   await tx.execute(sql`
     UPDATE db_rows SET "values" = "values" || jsonb_build_object(${toId}::text, "values" -> ${fromId}::text)
     WHERE database_id = ${databaseId} AND ("values" -> ${fromId}::text) IS NOT NULL`);
+}
+
+/** How long a type change can be undone (the screen offers Undo for 8 seconds; Ctrl+Z longer). */
+export const TYPE_CHANGE_UNDO_MS = 10 * 60_000;
+const UNDO_WINDOW = sql.raw(`interval '${TYPE_CHANGE_UNDO_MS / 1000} seconds'`);
+
+/**
+ * Keeps a type change for Undo and answers its id and when Undo stops working. Prunes up to 100
+ * expired ones (anywhere, skipping any another write holds).
+ */
+export async function keepTypeChange(
+  tx: Executor,
+  databaseId: string,
+  change: Omit<TypeChange, 'id' | 'changedAt'>,
+): Promise<{ id: string; undoUntil: string }> {
+  await tx.execute(sql`
+    DELETE FROM db_type_changes WHERE id IN (
+      SELECT id FROM db_type_changes WHERE changed_at < now() - ${UNDO_WINDOW}
+      LIMIT 100 FOR UPDATE SKIP LOCKED)`);
+  const json = (value: unknown) => sql`${JSON.stringify(value)}::jsonb`;
+  const { rows } = await tx.execute<{ id: string; changed_at: Date | string }>(sql`
+    INSERT INTO db_type_changes (database_id, property_id, changed_by, property, "values", settings)
+    VALUES (${databaseId}, ${change.propertyId}, ${change.changedBy}, ${json(change.property)},
+      ${json(change.values)}, ${json(change.settings)})
+    RETURNING id, changed_at`);
+  const kept = rows[0];
+  if (!kept) throw notFound();
+  const until = Date.parse(instant(kept.changed_at)) + TYPE_CHANGE_UNDO_MS;
+  return { id: kept.id, undoUntil: new Date(until).toISOString() };
+}
+
+type TypeChangeRow = {
+  id: string;
+  property_id: string;
+  changed_by: string;
+  changed_at: Date | string;
+  property: TypeChange['property'];
+  values: TypeChange['values'] | null;
+  settings: TypeChange['settings'] | null;
+};
+
+const toTypeChange = (r: TypeChangeRow): TypeChange => ({
+  id: r.id,
+  propertyId: r.property_id,
+  changedBy: r.changed_by,
+  changedAt: instant(r.changed_at),
+  property: r.property,
+  values: r.values ?? {},
+  settings: r.settings ?? {},
+});
+
+/** A kept type change of this database, or null. No checks: takeTypeChange decides. */
+export async function loadTypeChange(
+  db: Executor,
+  databaseId: string,
+  id: string,
+): Promise<TypeChange | null> {
+  if (!isUuid(databaseId) || !isUuid(id)) return null;
+  const { rows } = await db.execute<TypeChangeRow>(sql`
+    SELECT id, property_id, changed_by, changed_at, property, "values", settings
+    FROM db_type_changes WHERE id = ${id} AND database_id = ${databaseId}`);
+  const row = rows[0];
+  return row ? toTypeChange(row) : null;
+}
+
+/**
+ * Takes a type change out for Undo, when it can still be undone: made by this person, less than
+ * 10 minutes ago, and the newest of its property. Null otherwise.
+ */
+export async function takeTypeChange(
+  tx: Executor,
+  databaseId: string,
+  id: string,
+  userId: string,
+): Promise<TypeChange | null> {
+  if (!isUuid(databaseId) || !isUuid(id) || !isUuid(userId)) return null;
+  const { rows } = await tx.execute<TypeChangeRow>(sql`
+    DELETE FROM db_type_changes c
+    WHERE c.id = ${id} AND c.database_id = ${databaseId} AND c.changed_by = ${userId}
+      AND c.changed_at >= now() - ${UNDO_WINDOW}
+      AND NOT EXISTS (
+        SELECT 1 FROM db_type_changes l
+        WHERE l.database_id = c.database_id AND l.property_id = c.property_id
+          AND l.changed_at > c.changed_at)
+    RETURNING c.id, c.property_id, c.changed_by, c.changed_at, c.property, c."values", c.settings`);
+  const row = rows[0];
+  return row ? toTypeChange(row) : null;
 }
 
 /**

@@ -1,6 +1,6 @@
 // Drizzle tables for databases and forms (decision 0200; the SQL is in
-// migrations/202610270600_databases_tables.sql). Read and write them through store.ts where it has
-// a helper, so the version rule and the page joins stay in one place.
+// migrations/202610270600_databases_tables.sql and the files after it). Read and write them
+// through store.ts where it has a helper, so the version rule and the page joins stay in one place.
 import type {
   Id,
   Property,
@@ -11,7 +11,12 @@ import type {
   View,
 } from '@carehub/databases';
 import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import type { DeletedProperty, DependencySettings, SubItemSettings } from './record';
+import type {
+  DeletedProperty,
+  DependencySettings,
+  SubItemSettings,
+  TypeChangeSettings,
+} from './record';
 
 const at = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -34,6 +39,18 @@ export const dbDatabases = pgTable('db_databases', {
   version: integer('version').notNull().default(1),
   createdAt: at('created_at').notNull().defaultNow(),
   updatedAt: at('updated_at').notNull().defaultNow(),
+});
+
+/** Type changes kept 10 minutes for Undo (migrations/202610270700_databases_type_changes.sql). */
+export const dbTypeChanges = pgTable('db_type_changes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  databaseId: uuid('database_id').notNull(),
+  propertyId: text('property_id').notNull(),
+  changedBy: uuid('changed_by').notNull(),
+  changedAt: at('changed_at').notNull().defaultNow(),
+  property: jsonb('property').$type<Property>().notNull(),
+  values: jsonb('values').$type<Record<string, unknown>>().notNull().default({}),
+  settings: jsonb('settings').$type<TypeChangeSettings>().notNull().default({}),
 });
 
 export const dbRows = pgTable('db_rows', {
