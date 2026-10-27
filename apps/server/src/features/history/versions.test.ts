@@ -78,6 +78,7 @@ describe.skipIf(!hasDatabase)('versions on Postgres', () => {
       style: { fullWidth: false },
       locked: false,
       trashed: false,
+      archivedAt: null,
       ...fields,
     });
     write(id, text);
