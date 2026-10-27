@@ -1,66 +1,10 @@
-import type { EventItem, Layer, RowItem, SyncedItem } from '@carehub/team-calendar-api';
+import type { SyncedItem } from '@carehub/team-calendar-api';
 import { describe, expect, it } from 'vitest';
 import { describeTimes, gridItems, longDate, NO_TITLE, toGridItem } from './adapt';
+import { testEvent as event, testLayer as layer, testRow } from './testItems';
 
 // Fictional data only. America/Denver is UTC-6 until Nov 1 2026, then UTC-7.
 const prefs = { timeZone: 'America/Denver', use24h: false };
-
-function layer(id: string, overrides: Partial<Layer> = {}): Layer {
-  return {
-    id,
-    kind: 'meetings',
-    name: 'Meetings',
-    color: 'purple',
-    on: true,
-    order: 1,
-    status: 'ok',
-    error: null,
-    database: null,
-    connectionId: null,
-    ...overrides,
-  };
-}
-
-function event(overrides: Partial<EventItem> = {}): EventItem {
-  return {
-    id: 'ev-1',
-    source: 'event',
-    layerId: 'meetings',
-    title: 'QA calibration',
-    allDay: false,
-    start: '2026-10-27T16:00:00.000Z',
-    end: '2026-10-27T17:00:00.000Z',
-    timeZone: 'America/Denver',
-    canEdit: true,
-    eventId: 'ev-1',
-    occurrence: null,
-    repeat: null,
-    location: '',
-    description: '',
-    videoLink: null,
-    organizer: { id: 'u-1', name: 'Eli Editor', avatarUrl: null },
-    people: [],
-    myReply: null,
-    canReply: false,
-    notesPageId: null,
-    ...overrides,
-  };
-}
-
-const allDayRow: RowItem = {
-  id: 'row-1:due',
-  source: 'row',
-  layerId: 'db-1',
-  title: 'Fictional policy review',
-  allDay: true,
-  start: '2026-11-05',
-  end: '2026-11-08',
-  timeZone: null,
-  canEdit: true,
-  rowId: 'row-1',
-  databaseId: 'db-1',
-  propertyId: 'due',
-};
 
 describe('toGridItem', () => {
   it('turns instants into wall-clock times in the viewer zone, with the spoken label', () => {
@@ -85,12 +29,12 @@ describe('toGridItem', () => {
   });
 
   it('makes the exclusive all-day end the last day', () => {
-    const item = toGridItem(allDayRow, layer('db-1', { name: 'Policies', color: 'green' }), prefs);
+    const item = toGridItem(testRow(), layer('db-1', { name: 'Policies', color: 'green' }), prefs);
     expect(item).toMatchObject({ allDay: true, start: '2026-11-05', end: '2026-11-07' });
     expect(item.label).toBe(
       'Fictional policy review, Thursday, November 5 to Saturday, November 7, All day, Policies',
     );
-    const oneDay = toGridItem({ ...allDayRow, end: '2026-11-06' }, undefined, prefs);
+    const oneDay = toGridItem(testRow({ end: '2026-11-06' }), undefined, prefs);
     expect(oneDay).toMatchObject({ start: '2026-11-05', end: null, color: 'default' });
     expect(oneDay.label).toBe('Fictional policy review, Thursday, November 5, All day');
   });

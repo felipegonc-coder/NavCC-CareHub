@@ -58,6 +58,12 @@ export function CalendarScreen() {
         : [],
     [items.data, layers.data, timeZone, prefs.use24h],
   );
+  // Without the layers, items of hidden layers would show, so either failing is an error.
+  const failed = items.error ?? layers.error;
+  const retry = () => {
+    if (items.isError) void items.refetch();
+    if (layers.isError) void layers.refetch();
+  };
   const step = (to: PeriodStep) =>
     show({ date: navigate(view, anchor, to, { ...options, today }) });
   const switchView = (next: CalendarView) => show({ view: next });
@@ -80,14 +86,14 @@ export function CalendarScreen() {
         wide
         className="border-b border-border px-3 py-2 md:hidden"
       />
-      {items.isError && (
+      {failed && (
         <div
           role="alert"
           className="flex items-center gap-2 border-b border-border px-4 py-2 text-small"
         >
           <TriangleAlert aria-hidden className="size-4 shrink-0 text-danger" />
-          <p className="min-w-0 flex-1">Couldn't load the calendar. {items.error.message}</p>
-          <Button variant="secondary" size="sm" onClick={() => void items.refetch()}>
+          <p className="min-w-0 flex-1">Couldn't load the calendar. {failed.message}</p>
+          <Button variant="secondary" size="sm" onClick={retry}>
             Retry
           </Button>
         </div>
