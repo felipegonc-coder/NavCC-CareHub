@@ -56,6 +56,7 @@ Talking about work where it lives: comments on a page, on selected text, on a bl
 - **Notice kinds** from this spec: a mention, a reply in your thread, a comment or suggestion on a followed page, your suggestion accepted or rejected, and the hourly edit summary. Roles and permissions adds "shared with you" and access requests.
 - **The 🔔 chat as inbox** (Messages): filter chips at the top: All, Mentions and replies, Following, Reminders, Requests, Unread; and Mark all as read. Comment notices have Reply, which posts straight into the thread, and Open, which goes to the spot.
 - Several new comments in one thread within 5 minutes make one notice ("3 new replies in Refund steps"). If the person can no longer open the page, the notice shows "🔒 A page you can't open".
+- One comment or suggestion makes at most one notice per person. If it reaches someone in several ways, they get the first kind in this order that they have turned on: a mention, a reply in their thread, a comment on a followed page. So if Sam follows Refund steps and is @mentioned in a new comment there, Sam gets one notice: the mention. A comment that mentions someone is never folded into a grouped "3 new replies" notice for them, and muting a thread doesn't stop mentions in it.
 - Each person picks which kinds they get in Settings → Notifications (Settings and members).
 
 ## 4. Data it stores
@@ -111,7 +112,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **CM-05** In Suggesting mode, inserts, deletes, formatting and block changes show as suggestions; Accept and Reject work one by one and all at once; history shows "suggested by".
 - **CM-06** Someone with Can comment can only suggest; a direct request to change content is refused (403).
 - **CM-07** A suggestion whose text was removed by someone else closes as "No longer applies".
-- **CM-08** Mentioning a person sends one notice with the snippet and a link to the exact spot; deleting the mention within 10 seconds cancels it.
+- **CM-08** Mentioning a person sends one notice with the snippet and a link to the exact spot; deleting the mention within 10 seconds cancels it. If the person also follows the page, a comment that mentions them still sends one notice: the mention.
 - **CM-09** Mentioning someone who can't open the page asks first; Share with Can view gives access and notifies; Mention without notifying sends nothing.
 - **CM-10** "@Team leads" notifies only members who can open the page; a group of 51 can't be mentioned.
 - **CM-11** Following sends a notice per comment and one edit summary per hour at most; muting a thread stops its notices.

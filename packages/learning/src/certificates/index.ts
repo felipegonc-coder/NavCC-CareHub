@@ -5,5 +5,23 @@ export {
   isCertificateCodeWellFormed,
   normalizeCertificateCode,
 } from './code';
-export { certificateExpiry, certificateStatus } from './expiry';
+export { CERTIFICATE_STATUSES, certificateExpiry, certificateStatus } from './expiry';
 export type { CertificateStatus } from './expiry';
+export {
+  CertificateCodeSchema,
+  CertificateListQuerySchema,
+  CertificateListResponseSchema,
+  CertificateSchema,
+  CertificateStatusSchema,
+} from './api';
+export type { Certificate, CertificateListQuery } from './api';
+export {
+  certificateDue,
+  currentCertificates,
+  earnsCertificate,
+  newCertificate,
+  withCertificateStatus,
+} from './issue';
+export type { CertificateFinish, CertificateRecord } from './issue';
+export { certificateNotice, certificateNoticeDue, recertificationDueDate } from './renewal';
+export type { CertificateNotice, CertificateNoticeKind, SentCertificateNotice } from './renewal';

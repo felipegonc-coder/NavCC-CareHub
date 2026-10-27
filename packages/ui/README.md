@@ -18,10 +18,12 @@ export default {
 
 ```tsx
 // index.css: @import '@carehub/ui/styles.css';
-import { Button, ThemeProvider } from '@carehub/ui';
+import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
 
 <ThemeProvider>
-  <Button>Save</Button>
+  <ToastProvider>
+    <Button>Save</Button>
+  </ToastProvider>
 </ThemeProvider>;
 ```
 
@@ -37,10 +39,30 @@ import { Button, ThemeProvider } from '@carehub/ui';
   background; `text-muted` is not checked on them.
 - **Covers:** `coverNames` (eight presets, saved as `cover: { type: 'preset', name }`) and
   `style={{ backgroundImage: coverGradients[name] }}`. They are decoration: put no text on them.
+- **Sizes and type:** `src/scale.ts` holds the corners, spacing, type, weights, fonts, shadows and
+  widths. The Tailwind classes come from it, and so do these CSS variables for plain CSS (the
+  editor); change a value there and both follow. Use only these, the classes, or the colour
+  variables (`rgb(var(--ch-fg))`): no one-off values.
+  - Corners: `--ch-radius-sm` (4px, `rounded-sm`), `--ch-radius` (8px, `rounded`),
+    `--ch-radius-full`.
+  - Spacing: `--ch-space-<n>` for each Tailwind step (`--ch-space-2` is 0.5rem, like `p-2`;
+    `--ch-space-1_5` is step 1.5; also `--ch-space-px`).
+  - Type: `--ch-text-<style>` and `--ch-leading-<style>` for `title`, `h1`, `h2`, `h3`, `body`,
+    `small`, `label` (`text-small` is `--ch-text-small`); `--ch-weight-<style>` for `title` and
+    `h1` to `h3`; `--ch-tracking-title`. Weights `--ch-weight-normal`, `-medium`, `-semibold`,
+    `-bold`; fonts `--ch-font-sans`, `--ch-font-mono`.
+  - Also `--ch-shadow-menu`, `--ch-shadow-dialog`, and widths `--ch-page-width` (48rem),
+    `--ch-sidebar-width` (16rem), `--ch-dialog-width` (32rem), `--ch-toast-width` (24rem). Scrims
+    use `bg-overlay/50`; the logo uses `brand` and `brand-fg`.
 - **Theme:** `ThemeProvider` + `ThemeSwitch` (light, dark, system), saved on the device.
   `apps/web/public/theme-init.js` applies the saved theme before the first paint; it is a file, not
   an inline script, because the Content Security Policy allows only `script-src 'self'`.
+- **Phones:** under 768 px every control is at least 44 px tall (`max-md:` classes), as 0007 asks;
+  keep that when you override a size.
 - **Bigger text:** set `data-text-size="large"` on `<html>`; all sizes are in rem.
 - **Fields:** wrap a control in `<Field label hint error required>` and it gets its label, description
   and invalid state for screen readers.
+- **Overlays:** `DropdownMenu`, `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
+  and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
+  focus back.
 - **Icons:** [Lucide](https://lucide.dev) (`lucide-react`), 16 px inside buttons and menus.

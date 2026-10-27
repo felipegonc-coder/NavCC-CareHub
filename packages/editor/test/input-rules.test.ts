@@ -101,4 +101,32 @@ describe('links', () => {
       expect.objectContaining({ attrs: expect.objectContaining({ href: 'https://example.com' }) }),
     ]);
   });
+
+  it('draws where a pasted link opens from its href, never from its target or rel', async () => {
+    editor = await createTestEditor();
+    editor.commands.setContent(
+      '<p><a href="https://example.com" target="_self" rel="opener">rota</a> ' +
+        '<a href="/p/page-1" target="_blank" rel="opener">page</a> ' +
+        '<a href="//care.example.org" rel="opener">clinic</a></p>',
+    );
+    const drawn = [...editor.view.dom.querySelectorAll('a')].map((a) => [
+      a.getAttribute('href'),
+      a.getAttribute('target'),
+      a.getAttribute('rel'),
+    ]);
+    expect(drawn).toEqual([
+      ['https://example.com', '_blank', 'noopener noreferrer'],
+      ['/p/page-1', null, null],
+      ['https://care.example.org', '_blank', 'noopener noreferrer'],
+    ]);
+    const links = first(editor)
+      ?.content?.flatMap((node) => node.marks ?? [])
+      .filter((mark) => mark.type === 'link');
+    expect(links?.map((mark) => mark.attrs?.href)).toEqual([
+      'https://example.com',
+      '/p/page-1',
+      'https://care.example.org',
+    ]);
+    expect(links?.filter((mark) => mark.attrs?.rel === 'opener')).toEqual([]);
+  });
 });

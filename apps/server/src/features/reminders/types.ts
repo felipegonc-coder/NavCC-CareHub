@@ -39,3 +39,23 @@ export interface Reminder {
   sentAt: Date | null;
   createdAt: Date;
 }
+
+/** A reminder as the routes send it (GET /api/reminders lists them). */
+export interface ReminderView {
+  id: string;
+  target: ReminderTarget;
+  minutesBefore: number | null;
+  dueAt: string;
+  note: string;
+  status: ReminderStatus;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+/** The signed-in person a request is for, with their time settings now. */
+export interface Viewer {
+  userId: string;
+  workspaceId: string;
+  timeZone: string;
+  use24h: boolean;
+}
