@@ -64,7 +64,13 @@ export function createMemorySyncStore() {
       const connection = connections.get(id);
       if (!connection || connection.ownerId !== ownerId || !leaseFree(connection, now))
         return false;
-      if (fresh && connection.lastSyncedAt && connection.lastSyncedAt >= fresh) return false;
+      if (fresh) {
+        if (connection.status === 'needs-reconnect') return false;
+        const stale =
+          connection.status === 'ok' &&
+          (!connection.lastSyncedAt || connection.lastSyncedAt < fresh);
+        if (connection.nextSyncAt > now && !stale) return false;
+      }
       connection.leaseUntil = new Date(now.getTime() + LEASE_MS);
       return true;
     },
