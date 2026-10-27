@@ -1,7 +1,9 @@
 import {
   CourseSchema,
-  type Course,
+  LearnerCourseSchema,
+  learnerCourse,
   type Id,
+  type LearnerCourse,
   type LearnerCourseState,
   type NewProgressEvent,
   type ProgressEvent,
@@ -20,8 +22,11 @@ import { withPending } from './pending';
 
 // The player's calls (docs/learning/api.md): the live course, the learner's state, progress events.
 
-/** GET /courses/:id: the live version of a course, as learners see it. */
-export type LiveCourse = { course: Course; version: number };
+/**
+ * GET /courses/:id: the learner's version of a course (0311) in the learner view (0314): quiz
+ * lessons have a question count, and their questions come with each attempt.
+ */
+export type LiveCourse = { course: LearnerCourse; version: number };
 
 export const courseKey = (courseId: Id) => ['learning', 'course', courseId] as const;
 export const progressKey = (courseId: Id) => ['learning', 'progress', courseId] as const;
@@ -29,16 +34,22 @@ export const progressKey = (courseId: Id) => ['learning', 'progress', courseId] 
 // Route params are checked with IdSchema first, so each id is one safe path segment (0310).
 const coursePath = (courseId: Id) => `/courses/${encodeURIComponent(courseId)}`;
 
-// Stand-ins until B1's LiveCourseSchema and B3's LearnerCourseStateSchema reach main.
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
+// A full course (from a server that doesn't send the learner view yet) is turned into the learner
+// view here, so the player never keeps quiz questions.
 const LiveCourseReply: ReplySchema<LiveCourse> = {
   parse(data) {
     if (!isObject(data) || typeof data.version !== 'number') throw new TypeError('Not a course');
-    return { course: CourseSchema.parse(data.course), version: data.version };
+    const learner = LearnerCourseSchema.safeParse(data.course);
+    const course = learner.success ? learner.data : learnerCourse(CourseSchema.parse(data.course));
+    return { course, version: data.version };
   },
 };
+
+// Light checks of the progress replies, until the player reads them with B3's
+// LearnerCourseStateSchema.
 
 const STATE_LISTS = ['lessons', 'quizzes', 'knowledgeChecks', 'scenarios', 'rejected'];
 

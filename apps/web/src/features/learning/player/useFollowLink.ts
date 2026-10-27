@@ -1,4 +1,4 @@
-import { linkTarget, type Course, type Link as CourseLink } from '@carehub/learning';
+import { linkTarget, type Link as CourseLink, type PlayerCourse } from '@carehub/learning';
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
  * Follows a link in a course (`linkTarget`): lessons and Care Hub pages open in the app, web links
  * in this tab or a new one, and a broken link does nothing (its text already says why).
  */
-export function useFollowLink(course: Pick<Course, 'id' | 'lessons'>) {
+export function useFollowLink(course: Pick<PlayerCourse, 'id' | 'lessons'>) {
   const navigate = useNavigate();
   return useCallback(
     (link: CourseLink) => {

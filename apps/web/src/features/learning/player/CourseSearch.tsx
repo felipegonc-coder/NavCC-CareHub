@@ -3,16 +3,16 @@ import {
   buildCourseSearchIndex,
   lessonHref,
   searchCourseIndex,
-  type Course,
   type CourseSearchResult,
   type OutlineRow,
+  type PlayerCourse,
 } from '@carehub/learning';
 import { Field, Input, cn } from '@carehub/ui';
 import { Fragment, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router';
 
 type CourseSearchProps = {
-  course: Course;
+  course: PlayerCourse;
   /** The outline's rows, to mark results in locked lessons. */
   rows: readonly OutlineRow[];
   query: string;

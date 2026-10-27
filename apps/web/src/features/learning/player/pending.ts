@@ -1,8 +1,8 @@
 import type {
-  Course,
   Id,
   LearnerCourseState,
   LessonProgress,
+  PlayerCourse,
   ProgressEvent,
 } from '@carehub/learning';
 
@@ -13,7 +13,7 @@ import type {
  * laid over, as the server applies it.
  */
 export function withPending(
-  course: Pick<Course, 'lessons' | 'settings'>,
+  course: Pick<PlayerCourse, 'lessons' | 'settings'>,
   state: LearnerCourseState,
   events: readonly ProgressEvent[],
 ): LearnerCourseState {
@@ -79,7 +79,7 @@ export function withPending(
  * content lesson is completed.
  */
 function canSign(
-  course: Pick<Course, 'lessons' | 'settings'>,
+  course: Pick<PlayerCourse, 'lessons' | 'settings'>,
   lessons: Map<Id, LessonProgress>,
   statement: string,
 ): boolean {
@@ -95,7 +95,7 @@ function canSign(
 
 /** In a course taken in order, opens the first locked lesson once all before it are done. */
 function unlockNext(
-  course: Pick<Course, 'lessons' | 'settings'>,
+  course: Pick<PlayerCourse, 'lessons' | 'settings'>,
   lessons: Map<Id, LessonProgress>,
 ) {
   if (course.settings.lessonOrder !== 'sequential') return;

@@ -3,10 +3,10 @@ import {
   courseOutline,
   playerSidebar,
   playerTextScale,
-  type Course,
   type Id,
   type LearnerCourseState,
   type NewProgressEvent,
+  type PlayerCourse,
 } from '@carehub/learning';
 import { IconButton, cn, useMediaQuery } from '@carehub/ui';
 import { Menu, PanelLeft, PanelLeftClose, Search, Type, X } from 'lucide-react';
@@ -21,7 +21,7 @@ import { TextSizeControl, usePlayerTextSize } from './TextSize';
 import { useFollowLink } from './useFollowLink';
 
 export type PlayerProps = {
-  course: Course;
+  course: PlayerCourse;
   state: LearnerCourseState;
   /** The open lesson; it must be one of the course's. */
   lessonId: Id;
