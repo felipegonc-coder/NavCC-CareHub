@@ -1,35 +1,47 @@
 import { z } from 'zod';
 import { idSchema } from './compose';
 import { COPY, NOTIFICATION_TEXT_LENGTH } from './constants';
-import { truncateText } from './text';
+import { collapseWhitespace, isBlankText, truncateText } from './text';
 import type { ChatType, MessageKind } from './types';
 
-/** Settings → Notifications: all messages (default); only direct messages, @mentions and notices; or nothing. */
-export const NOTIFICATION_LEVELS = ['all', 'directAndMentions', 'nothing'] as const;
-export type NotificationLevel = (typeof NOTIFICATION_LEVELS)[number];
+/**
+ * Settings → Notifications, as push stores them (`push_preferences`): all messages (default);
+ * `mentions`, which is direct messages, @mentions and notices; or nothing.
+ */
+export const NOTIFY_ABOUT = ['all', 'mentions', 'nothing'] as const;
+export type NotifyAbout = (typeof NOTIFY_ABOUT)[number];
 
 /** A person's notification settings. Missing values get the defaults. */
 export const notificationSettingsSchema = z.object({
-  level: z.enum(NOTIFICATION_LEVELS).default('all'),
+  notifyAbout: z.enum(NOTIFY_ABOUT).default('all'),
   /** Show message text in notifications. */
   showText: z.boolean().default(true),
+  /** A pause is on right now (push keeps it as `pause.until`): nothing notifies until it ends. */
+  paused: z.boolean().default(false),
 });
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 
-export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = { level: 'all', showText: true };
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  notifyAbout: 'all',
+  showText: true,
+  paused: false,
+};
 
 export interface NotifyInput {
-  recipientId: string;
   settings: NotificationSettings;
-  /** The recipient's membership in the chat right now, or null if they're not in it. */
+  /** The person's membership of the chat right now, or null if they're not in it. */
   membership: { muted: boolean } | null;
   chatType: ChatType;
-  message: { kind: MessageKind; senderId: string | null; mentionedUserIds: readonly string[] };
-  /** The recipient is reading the chat (see `isChatRead`). */
+  kind: MessageKind;
+  /** The person sent it. */
+  own: boolean;
+  /** It @mentions the person. */
+  mentionsUser: boolean;
+  /** The person is reading the chat (see `isChatRead`). Only a tab knows; the server passes false. */
   readingChat: boolean;
-  /** A Care Hub tab is open for the recipient (it has a live connection). */
+  /** A Care Hub tab is open for the person (live's `hasOpenTabs`). */
   tabOpen: boolean;
-  /** The recipient has at least one push subscription. */
+  /** The person has at least one push subscription. */
   hasPushDevice: boolean;
 }
 
@@ -39,6 +51,7 @@ export type QuietReason =
   | 'own-message'
   | 'not-in-chat'
   | 'turned-off'
+  | 'paused'
   | 'muted'
   | 'not-direct-or-mention'
   | 'reading'
@@ -53,16 +66,16 @@ export type NotifyDecision =
  * Only new messages notify: edits, deletes and reactions never do.
  */
 export function notifyDecision(input: NotifyInput): NotifyDecision {
-  const { message, membership, settings } = input;
+  const { membership, settings } = input;
   const quiet = (reason: QuietReason): NotifyDecision => ({ notify: false, reason });
-  if (message.kind === 'system') return quiet('system-line');
-  if (message.senderId === input.recipientId) return quiet('own-message');
+  if (input.kind === 'system') return quiet('system-line');
+  if (input.own) return quiet('own-message');
   if (!membership) return quiet('not-in-chat');
-  if (settings.level === 'nothing') return quiet('turned-off');
-  const mentioned = message.mentionedUserIds.includes(input.recipientId);
-  if (membership.muted && !mentioned) return quiet('muted');
-  const directOrNotice = input.chatType === 'direct' || message.kind === 'notice';
-  if (settings.level === 'directAndMentions' && !mentioned && !directOrNotice) {
+  if (settings.notifyAbout === 'nothing') return quiet('turned-off');
+  if (settings.paused) return quiet('paused');
+  if (membership.muted && !input.mentionsUser) return quiet('muted');
+  const directOrNotice = input.chatType === 'direct' || input.kind === 'notice';
+  if (settings.notifyAbout === 'mentions' && !input.mentionsUser && !directOrNotice) {
     return quiet('not-direct-or-mention');
   }
   if (input.readingChat) return quiet('reading');
@@ -94,14 +107,23 @@ export function notificationContent(input: {
   messageId: string;
   kind: 'message' | 'notice';
   senderName: string;
-  /** `messagePreview` of the message. */
-  preview: string;
+  /**
+   * What the body shows when text is on: a message's plain text (`messagePlainText`, mentions as
+   * names), '' when it has only files or page cards (never file names), or a notice's
+   * `messagePreview`.
+   */
+  text: string;
   showText: boolean;
+  /** It @mentions the person: the title reads "Avery Lin mentioned you". */
+  mentionsUser?: boolean;
 }): NotificationContent {
   const hidden = input.kind === 'notice' ? COPY.hiddenNoticeText : COPY.hiddenMessageText;
+  const sender = truncateText(input.senderName, 100);
+  const text = collapseWhitespace(input.text);
   return {
-    title: truncateText(input.senderName, 100),
-    body: input.showText ? truncateText(input.preview, NOTIFICATION_TEXT_LENGTH) : hidden,
+    title: input.mentionsUser ? `${sender} mentioned you` : sender,
+    body:
+      input.showText && !isBlankText(text) ? truncateText(text, NOTIFICATION_TEXT_LENGTH) : hidden,
     tag: notificationTag(input.chatId),
     chatId: input.chatId,
     messageId: input.messageId,
