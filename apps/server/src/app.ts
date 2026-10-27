@@ -50,7 +50,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: collab
 
-  // feature: comments
+  await app.register(import('./features/comments/routes'), { prefix: '/api/comments' });
 
   // feature: mentions
 
