@@ -48,7 +48,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: pages
 
-  // feature: collab
+  await app.register(import('./features/collab/routes'), {
+    prefix: '/api/collab',
+    version: config.CAREHUB_VERSION,
+    publicUrl: config.CAREHUB_PUBLIC_URL,
+  });
 
   // feature: comments
 
