@@ -79,7 +79,7 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
   beforeAll(async () => {
     test = await createTestApp({
       routes: async (app) => {
-        await app.register(writeRoutes, { prefix: '/api/claude' });
+        await app.register(writeRoutes, { prefix: '/api/test-claude' });
       },
     });
     avery = await createUser(test.db, { name: 'Avery Lin', email: 'avery.lin@example.test' });
@@ -152,7 +152,7 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
     return id;
   }
   const write = (user: TestUser, payload: object) =>
-    injectAs(test.app, user, { method: 'POST', url: '/api/claude/write', payload });
+    injectAs(test.app, user, { method: 'POST', url: '/api/test-claude/write', payload });
   const reasonOf = (response: { json(): unknown }) =>
     (response.json() as { error: { details?: { reason?: string } } }).error.details?.reason;
 
@@ -316,7 +316,7 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
       [sam, 'edit'],
     ]);
     const payload = { pageId, action: 'make_shorter', placement: 'replace' };
-    const url = '/api/claude/write/applied';
+    const url = '/api/test-claude/write/applied';
     const accepted = await injectAs(test.app, avery, { method: 'POST', url, payload });
     expect(accepted.statusCode).toBe(204);
     await test.app.events.settled();
