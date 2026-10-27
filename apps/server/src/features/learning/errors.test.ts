@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { httpError as coreError } from '../../core/errors';
-import { errorReply, httpError, LearningError, parseInput } from './errors';
+import { cannotPublish, errorReply, httpError, LearningError, parseInput } from './errors';
 
 describe('Learning API errors', () => {
   it('sends our own errors with their code, message and issues', () => {
@@ -25,6 +25,39 @@ describe('Learning API errors', () => {
         },
       },
     });
+  });
+
+  it('refuses a publish with every problem listed, in the same words for every area', () => {
+    const title = { path: 'lessons[0].title', message: 'Add a title.', lessonId: 'intro' };
+    const bank = { path: 'lessons[2].bankDraws[0]', message: '"Safety basics" has 3 questions.' };
+    expect(errorReply(cannotPublish([title]))).toEqual({
+      status: 422,
+      body: {
+        error: {
+          code: 'cannot_publish',
+          message: 'Fix this problem before publishing.',
+          issues: [title],
+        },
+      },
+    });
+    expect(cannotPublish([title, bank])).toMatchObject({
+      status: 422,
+      message: 'Fix these 2 problems before publishing.',
+      issues: [title, bank],
+    });
+  });
+
+  it('sends at most 100 issues, then says how many more there are', () => {
+    const issues = Array.from({ length: 103 }, (_, index) => ({
+      path: `lessons[${index}].title`,
+      message: 'Add a title.',
+    }));
+    const { body } = errorReply(
+      httpError(422, 'Fix these 103 problems before publishing.', issues),
+    );
+    expect(body.error.issues).toHaveLength(101);
+    expect(body.error.issues?.slice(0, 100)).toEqual(issues.slice(0, 100));
+    expect(body.error.issues?.[100]).toEqual({ path: '', message: 'And 3 more.' });
   });
 
   it("keeps core's code and message, as from the sign-in and security checks", () => {

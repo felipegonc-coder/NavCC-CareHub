@@ -204,7 +204,8 @@ Routes (B1 creates them all in PR 3, each lazy-loading the owner's `index.tsx` s
 - Block editors (B8 owns `studio/editors/registry.tsx`; same pattern): `type BlockEditorProps<B> = { block: B;
   onChange(next: B): void; course: Course; lessonId: Id }`. Families: text and continue (B8), media and interactive
   (B10), knowledge_check (B9), scenario (B2).
-- Quiz: B2 exports `QuizLessonView({ course, lesson, state, emit })`; B9 exports `QuizLessonEditor({ lesson, onChange })`;
+- Quiz: B2 exports `QuizLessonView({ course, lesson, state, emit, go })` (`go(link)` follows links in prompts and
+  feedback, as in `BlockViewProps`; right answers per 0316); B9 exports `QuizLessonEditor({ lesson, onChange })`;
   B5 and B8 mount them.
 - Media (B10): `MediaPicker`, `ImageField({ value: Image | undefined; onChange })` and `useMediaUrl(ref: MediaRef)`.
 - Rich text: one adapter, `RichTextInput` (B8, `studio/editors/text/RichTextInput.tsx`), props `{ value, onChange,

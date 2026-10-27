@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   REPEAT_MESSAGES,
+  afterRun,
   dueRuns,
   nextRuns,
   repeatTitle,
   shouldPause,
   validateSchedule,
 } from './repeat';
-import type { RepeatSchedule, RowTemplate } from './types';
+import { LIMITS, type RepeatSchedule, type RowTemplate } from './types';
 
 const schedule = (over: Partial<RepeatSchedule> = {}): RepeatSchedule => ({
   every: 'day',
@@ -119,6 +120,16 @@ describe('nextRuns', () => {
     ]);
   });
 
+  it('gives no more runs than the times left', () => {
+    const after = '2026-10-26T00:00:00.000Z';
+    expect(nextRuns(schedule({ timesLeft: 2 }), after, 5)).toEqual([
+      '2026-10-26T15:00:00.000Z',
+      '2026-10-27T15:00:00.000Z',
+    ]);
+    expect(nextRuns(schedule({ timesLeft: null }), after, 3)).toHaveLength(3);
+    expect(nextRuns(schedule({ timesLeft: 0 }), after, 3)).toEqual([]);
+  });
+
   it('gives nothing for an invalid schedule, a bad moment or a count of 0', () => {
     expect(nextRuns(schedule({ time: '09:10' }), '2026-10-01T00:00:00.000Z', 3)).toEqual([]);
     expect(nextRuns(schedule({}), 'yesterday', 3)).toEqual([]);
@@ -181,18 +192,63 @@ describe('dueRuns', () => {
     const now = new Date('2026-10-26T15:05:00.000Z');
     const nothing = { run: null, skipped: false, next: null };
     expect(dueRuns(schedule({ paused: true }), null, now)).toEqual(nothing);
-    expect(dueRuns(daily, null, now, { timesLeft: 0 })).toEqual(nothing);
+    expect(dueRuns({ ...daily, timesLeft: 0 }, null, now)).toEqual(nothing);
   });
 
   it('has no next run after the last time, or after the end date', () => {
     const now = new Date('2026-10-26T15:05:00.000Z');
-    expect(dueRuns(daily, null, now, { timesLeft: 1 })).toEqual({
+    expect(dueRuns({ ...daily, timesLeft: 1 }, null, now)).toEqual({
       run: '2026-10-26T15:00:00.000Z',
       skipped: false,
       next: null,
     });
-    expect(dueRuns(daily, null, now, { timesLeft: 2 }).next).toBe('2026-10-27T15:00:00.000Z');
+    expect(dueRuns({ ...daily, timesLeft: 2 }, null, now).next).toBe('2026-10-27T15:00:00.000Z');
     expect(dueRuns(schedule({ end: '2026-10-26' }), null, now).next).toBeNull();
+  });
+});
+
+describe('ending after a number of times', () => {
+  it('counts down one time per row made', () => {
+    const s = schedule({ timesLeft: 2 });
+    expect(afterRun(s)).toEqual({ ...s, timesLeft: 1 });
+    expect(afterRun(afterRun(s)).timesLeft).toBe(0);
+    expect(afterRun(schedule({ timesLeft: 0 })).timesLeft).toBe(0);
+    const endless = schedule();
+    expect(afterRun(endless)).toBe(endless);
+  });
+
+  it('still makes the latest missed run when one time is left', () => {
+    const last = schedule({ start: '2026-03-01', timesLeft: 1 });
+    const due = dueRuns(last, '2026-03-06T16:00:00.000Z', new Date('2026-03-08T15:30:00.000Z'));
+    expect(due).toEqual({ run: '2026-03-08T15:00:00.000Z', skipped: true, next: null });
+  });
+
+  it('TB-07: weekdays at 9:00 AM Denver across the clock change, stopping after 3 times', () => {
+    let s = schedule({ every: 'weekday', start: '2026-10-29', timesLeft: 3 });
+    let last: string | null = null;
+    const made: string[] = [];
+    const end = Date.parse('2026-11-06T00:00:00.000Z');
+    for (let t = Date.parse('2026-10-29T00:00:00.000Z'); t < end; t += 15 * 60_000) {
+      const due = dueRuns(s, last, new Date(t));
+      expect(due.skipped).toBe(false);
+      if (due.run === null) continue;
+      made.push(due.run);
+      last = due.run;
+      s = afterRun(s);
+    }
+    expect(made).toEqual([
+      '2026-10-29T15:00:00.000Z',
+      '2026-10-30T15:00:00.000Z',
+      '2026-11-02T16:00:00.000Z',
+    ]);
+    expect(s.timesLeft).toBe(0);
+    expect(dueRuns(s, last, new Date('2026-11-09T16:00:00.000Z'))).toEqual({
+      run: null,
+      skipped: false,
+      next: null,
+    });
+    // ...and it pauses, with a notice, when its setter loses access.
+    expect(shouldPause({ active: true, access: 'view' })).toBe(true);
   });
 });
 
@@ -248,6 +304,11 @@ describe('validateSchedule', () => {
     expect(validateSchedule(schedule({ every: 'week', weekDays: [1, 3], interval: 2 }))).toBeNull();
     expect(validateSchedule(schedule({ every: 'month', monthDay: 'last' }))).toBeNull();
     expect(validateSchedule(schedule({ every: 'year', month: 2, monthDay: 28 }))).toBeNull();
+    expect(validateSchedule(schedule({ timesLeft: 1 }))).toBeNull();
+    expect(validateSchedule(schedule({ timesLeft: 0 }))).toBeNull(); // ended, saved as it is
+    expect(validateSchedule(schedule({ timesLeft: LIMITS.repeatTimes, end: null }))).toBeNull();
+    expect(REPEAT_MESSAGES.times).toBe('Enter a number from 1 to 1,000.');
+    expect(LIMITS.repeatTimes).toBe(1_000);
   });
 
   it.each([
@@ -267,6 +328,10 @@ describe('validateSchedule', () => {
     [{ timeZone: 'Mars/Olympus' }, M.timeZone],
     [{ start: '2026-02-30' }, M.date],
     [{ end: '2026-10-25' }, M.endBeforeStart],
+    [{ timesLeft: -1 }, M.times],
+    [{ timesLeft: 1_001 }, M.times],
+    [{ timesLeft: 2.5 }, M.times],
+    [{ timesLeft: 5, end: '2026-12-31' }, M.oneEnd],
   ] satisfies [Partial<RepeatSchedule>, string][])('refuses %j', (over, message) => {
     expect(validateSchedule(schedule(over))).toBe(message);
   });
