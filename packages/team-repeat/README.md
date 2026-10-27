@@ -16,7 +16,10 @@ exact moments; this package has no time-zone code.
 | `checkRule`, `isRepeatRule`, `MAX_INTERVAL` | Checks untrusted JSON; problems come back in plain words |
 | `normalizeRule` | Spells out what a rule leaves to the series start (the weekday of a weekly rule, and so on) |
 | `Series`, `Override`, `Occurrence`, `OccurrenceKey`, `checkSeries` | A schedule: `start`, `end` (exclusive), `rule`, `exceptions` and `overrides`, keyed by each occurrence's original start |
+| `expand`, `ExpandWindow`, `Expansion`, `MAX_OCCURRENCES`, `MAX_STEPS` | Occurrences overlapping a window, after exceptions and overrides; at most 1,000 per call, with `truncated` when a cap stopped it |
+| `occurrenceAt` | One occurrence by key, or `null` |
 | `parseRRule`, `serializeRRule`, `isUnsupported`, `UnsupportedRule`, `ParseOptions`, `SerializeOptions` | RRULE: FREQ, INTERVAL, COUNT, UNTIL, BYDAY (with 2MO, -1FR), BYMONTHDAY, BYMONTH, WKST |
+| `describeRepeat` | "Every 2 weeks on Mon and Wed", "Every month on the last Friday, 10 times" |
 | `RepeatError`, `RepeatErrorCode`, `WEEKDAYS` | Errors: `invalid-input` (answer 400), `not-an-occurrence` (409, the screen is out of date), `needs-converter` (a missing UTC converter: a bug) |
 
 ## How it behaves
@@ -28,3 +31,7 @@ exact moments; this package has no time-zone code.
   making a rule: `WEEKDAYS[prefs.weekStart]` turns team-time's number into a code.
 - A rule outside the subset parses as `{ unsupported: true, raw }`: show the event read-only and
   write `raw` back unchanged. UNTIL in UTC needs `fromUtc` to read and `toUtc` to write.
+- `describeRepeat` calls a rule outside the subset, or any invalid rule, "Custom repeat".
+- Dates stay inside team-time's range, 0001-01-01 to 9999-12-31: expansion leaves out occurrences
+  that would end after it, an edit that would leave it throws `invalid-input`, and a moved `until`
+  stops at its edge.

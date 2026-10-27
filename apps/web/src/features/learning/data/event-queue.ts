@@ -2,11 +2,12 @@ import { LearningApiError } from './http';
 
 // The offline event queue: progress events wait in the browser until the server has them, so a learner can keep
 // going on a weak connection. Events have ids and the server ignores ids it already has, so sending twice is safe.
+// Waiting events carry ids, choices and numbers only, never typed text, and belong to one person (0310).
 
 /** Anything with a unique id, such as a progress event. Stored as JSON. */
 export type QueuedEvent = { id: string };
 
-export type QueueStorage = Pick<Storage, 'getItem' | 'setItem'>;
+export type QueueStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
 
 /** Events that will never be sent: the server refused them for good, or the queue was full. */
 export type DroppedEvents<E> = {
@@ -17,7 +18,10 @@ export type DroppedEvents<E> = {
 };
 
 export type EventQueueOptions<E extends QueuedEvent> = {
-  /** One queue per signed-in person, so nobody's events are ever sent as someone else's. */
+  /**
+   * The signed-in person, from the session (never from a link). One queue per person, so nobody's events are
+   * ever sent as someone else's; starting it drops anyone else's waiting events from storage.
+   */
   userId: string;
   /** Sends some of one course's events; resolves once the server has them. Usually an `api` call. */
   send(courseId: string, events: E[]): Promise<void>;
@@ -39,6 +43,11 @@ export type EventQueue<E extends QueuedEvent> = {
   pending(courseId?: string): E[];
   /** Calls `listener` whenever the waiting events change; returns a function that stops it. */
   subscribe(listener: () => void): () => void;
+  /**
+   * Sends events at once without queueing them, after whatever is waiting: for events that need a connection,
+   * such as a quiz attempt (0302, 0310). Rejects when they can't be sent.
+   */
+  sendNow(courseId: string, events: readonly E[]): Promise<void>;
   /** Forgets every waiting event. */
   clear(): void;
 };
@@ -61,6 +70,7 @@ export function createEventQueue<E extends QueuedEvent>(
   const batchSize = Math.max(1, options.batchSize ?? 50);
   const maxEvents = Math.max(1, options.maxEvents ?? 2000);
   let storage = options.storage === undefined ? browserStorage() : options.storage;
+  removeQueues(storage, (other) => other !== key);
   let memory: Entry<E>[] = [];
   const listeners = new Set<() => void>();
   let running: Promise<void> | null = null;
@@ -162,6 +172,11 @@ export function createEventQueue<E extends QueuedEvent>(
       await flush();
     },
     flush,
+    async sendNow(courseId, events) {
+      if (events.length === 0) return;
+      await flush();
+      await options.send(courseId, [...events]);
+    },
     pending(courseId) {
       return read()
         .filter((entry) => courseId === undefined || entry.courseId === courseId)
@@ -175,6 +190,25 @@ export function createEventQueue<E extends QueuedEvent>(
       write([]);
     },
   };
+}
+
+/** Forgets everyone's waiting events in this browser, for sign-out (0310). */
+export function clearQueuedEvents(storage: QueueStorage | null = browserStorage()): void {
+  removeQueues(storage, () => true);
+}
+
+function removeQueues(storage: QueueStorage | null, shouldRemove: (key: string) => boolean): void {
+  if (!storage) return;
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(KEY_PREFIX) && shouldRemove(key)) keys.push(key);
+    }
+    for (const key of keys) storage.removeItem(key);
+  } catch {
+    // storage that can't be read or changed: leave it
+  }
 }
 
 /** Sends the queue whenever the browser comes back online; returns a function that stops it. */
