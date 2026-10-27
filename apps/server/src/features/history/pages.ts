@@ -26,6 +26,13 @@ export interface HistoryPage {
   archivedAt: Date | null;
 }
 
+/** Who archived a page and when; `pageId` is the page archived: this one or a parent page. */
+export interface PageArchive {
+  pageId: string;
+  by: string | null;
+  at: Date;
+}
+
 /** The parts of a page a version puts back besides its content. */
 export interface PageLook {
   title: string;
@@ -47,15 +54,27 @@ export interface HistoryPages {
     userId: string,
     pageIds: readonly string[],
   ): Promise<Map<string, string>>;
+  /** The archive the page is in, its own or a parent page's (`archived_at`, `archived_by`). */
+  getArchive(db: Db | Tx, pageId: string): Promise<PageArchive | null>;
+  /** How many sub-pages the page has, rows and Trash left out (`listSubtree`). */
+  countSubPages(db: Db | Tx, pageId: string): Promise<number>;
+  /** Archives the page with its sub-pages (`archivePage`); the IDs of the pages archived. */
+  archivePage(tx: Tx, pageId: string, by: string): Promise<string[]>;
+  /** Puts them back (`unarchivePage`); the IDs of the pages unarchived. */
+  unarchivePage(tx: Tx, pageId: string, by: string): Promise<string[]>;
 }
 
 // stand-in: features/pages/index.ts (the page model, getPageAccess, setPageTitle and
-// getPageCards, #49)
+// getPageCards, #49; archiving, pages PR 2)
 const nothing: HistoryPages = {
   getPage: async () => null,
   getPageAccess: async () => 'none',
   setPageLook: async () => {},
   getPageTitles: async () => new Map(),
+  getArchive: async () => null,
+  countSubPages: async () => 0,
+  archivePage: async () => [],
+  unarchivePage: async () => [],
 };
 let pages = nothing;
 

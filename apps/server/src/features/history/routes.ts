@@ -1,12 +1,15 @@
 // /api/history: versions, Updates and Archive. Extras lane (decision 0400, docs/extras/history.md).
 // Versions need Can edit on the page; restoring and naming also need it unlocked and not archived;
-// Updates need Can view (HT-15). Open Version history windows hear `history.versions` and
-// `history.restored` on the live topic `history:<pageId>` (Can edit needed).
+// Updates and the archive state need Can view; archiving and unarchiving need Full access (HT-15).
+// Open Version history windows hear `history.versions` and `history.restored` on the live topic
+// `history:<pageId>` (Can edit needed).
 import {
   nameVersionSchema,
   saveVersionSchema,
   updateListQuerySchema,
   versionListQuerySchema,
+  type ArchiveChange,
+  type ArchiveState,
   type SavedVersionResponse,
   type UpdateListResponse,
   type VersionListResponse,
@@ -17,6 +20,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { httpError } from '../../core/errors';
 import { publishTopic, registerTopic } from '../live';
 import { assertCanChange, canChange, idParam, isId, pageFor, userIdOf } from './access';
+import { archivePage, archiveState, unarchivePage } from './archive';
 import type { VersionRestoredEvent } from './events';
 import { historyPages } from './pages';
 import { getVersion, listVersions, nameVersion, restoreVersion, versionSummary } from './service';
@@ -129,6 +133,29 @@ const historyRoutes: FastifyPluginAsync = async (app) => {
     });
     return body;
   });
+
+  // Archive (HT-14): whoever can open the page sees its banner. Core declares page.archived and
+  // page.unarchived (pages PR 2); Updates, Search, reminders and forms listen to them.
+  app.get('/pages/:pageId/archive', async (request) => {
+    const userId = userIdOf(request);
+    const page = await pageFor(app.db, userId, pageIdOf(request.params), 'view');
+    const body: ArchiveState = await archiveState(app.db, userId, page);
+    return body;
+  });
+
+  const archiveActions = [
+    ['archive', archivePage, 'page.archived'],
+    ['unarchive', unarchivePage, 'page.unarchived'],
+  ] as const;
+  for (const [action, change, event] of archiveActions) {
+    app.post(`/pages/:pageId/${action}`, async (request) => {
+      const by = userIdOf(request);
+      const { pageIds, ...body } = await change(app.db, by, pageIdOf(request.params));
+      (app.events as unknown as LooseEvents).emit(event, { pageId: body.pageId, pageIds, by });
+      const answer: ArchiveChange = body;
+      return answer;
+    });
+  }
 };
 
 export default historyRoutes;
