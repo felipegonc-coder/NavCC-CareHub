@@ -1,7 +1,7 @@
 import { Bell, BellOff } from 'lucide-react';
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router';
-import { badgeText, COPY, type ChatListResponse } from '@carehub/team-chat';
+import { badgeText, COPY, type ChatJson, type ChatListResponse } from '@carehub/team-chat';
 import { Avatar, cn, Skeleton, VisuallyHidden } from '@carehub/ui';
 import { useNoticesPreview, useNoticesUnread } from '../notices';
 import { CARE_HUB_ID, chatHref, previewOf, titleOf } from './chat-info';
@@ -77,7 +77,7 @@ function ChatListItem({ href, title, preview, at, unread, muted, picture }: Item
 }
 
 /** 🔔 Care Hub, always first; the notices feature gives its preview and count. */
-function CareHubItem() {
+export function CareHubItem() {
   const latest = useNoticesPreview();
   const unread = useNoticesUnread();
   return (
@@ -93,6 +93,24 @@ function CareHubItem() {
           <Bell className="size-4" aria-hidden />
         </span>
       }
+    />
+  );
+}
+
+/** A chat in the list, or in search results. */
+export function ChatItem({ chat, answer }: { chat: ChatJson; answer: ChatListResponse }) {
+  const title = titleOf(chat, answer.viewerId, answer.people);
+  return (
+    <ChatListItem
+      href={chatHref(chat.id)}
+      title={title}
+      preview={
+        chat.lastMessage ? previewOf(chat.lastMessage, answer.viewerId, answer.people) : null
+      }
+      at={chat.lastMessageAt}
+      unread={chat.unread}
+      muted={chat.muted}
+      picture={<Avatar name={title} decorative />}
     />
   );
 }
@@ -153,8 +171,14 @@ const stopsOf = (answer: ChatListResponse | null | undefined, noticesUnread: num
   })),
 ];
 
-/** 🔔 Care Hub, then the person's chats by latest message. */
-export function ChatList({ activeId }: { activeId: string | null }) {
+/** 🔔 Care Hub, then the person's chats by latest message. Kept (hidden) under search results. */
+export function ChatList({
+  activeId,
+  hidden = false,
+}: {
+  activeId: string | null;
+  hidden?: boolean;
+}) {
   const list = useChatList();
   const noticesUnread = useNoticesUnread();
   const answer = list.data;
@@ -162,22 +186,11 @@ export function ChatList({ activeId }: { activeId: string | null }) {
   useChatKeys(stops, activeId);
 
   return (
-    <nav aria-label="Chats" className="min-h-0 flex-1 overflow-y-auto">
+    <nav aria-label="Chats" className={cn('min-h-0 flex-1 overflow-y-auto', hidden && 'hidden')}>
       <ul className="flex flex-col gap-1 p-2" data-testid="messages-chat-list">
         <CareHubItem />
         {answer?.chats.map((chat) => (
-          <ChatListItem
-            key={chat.id}
-            href={chatHref(chat.id)}
-            title={titleOf(chat, answer.viewerId, answer.people)}
-            preview={
-              chat.lastMessage ? previewOf(chat.lastMessage, answer.viewerId, answer.people) : null
-            }
-            at={chat.lastMessageAt}
-            unread={chat.unread}
-            muted={chat.muted}
-            picture={<Avatar name={titleOf(chat, answer.viewerId, answer.people)} decorative />}
-          />
+          <ChatItem key={chat.id} chat={chat} answer={answer} />
         ))}
       </ul>
       {list.isPending && <ListLoading />}

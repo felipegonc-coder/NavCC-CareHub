@@ -1,7 +1,8 @@
-import { Bell, BellOff, Ellipsis } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router';
 import {
   firstUnreadSeq,
+  personName,
   prepareMessage,
   spokenMessage,
   type ChatResponse,
@@ -10,7 +11,6 @@ import {
 } from '@carehub/team-chat';
 import {
   Button,
-  buttonClasses,
   cn,
   Dialog,
   DialogClose,
@@ -19,10 +19,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   Skeleton,
   VisuallyHidden,
 } from '@carehub/ui';
@@ -37,6 +33,7 @@ import {
   unreadMessage,
 } from './chat-info';
 import { ChatHeader } from './ChatHeader';
+import { ChatMenu } from './ChatMenu';
 import { Composer } from './Composer';
 import {
   historyOf,
@@ -46,7 +43,6 @@ import {
   useHistory,
   useMarkRead,
   useMarkUnread,
-  useMute,
   useOutbox,
   usePendingMessages,
 } from './data';
@@ -87,6 +83,9 @@ const statusOf = (error: Error) => (error instanceof ApiError ? error.status : n
 export function ChatView({ chatId }: { chatId: string }) {
   const chat = useChat(chatId);
   const history = useHistory(chatId);
+  // ?message=<id>: a search result or a notification opens the chat at that message.
+  const [params] = useSearchParams();
+  const { key: locationKey } = useLocation();
   const error = chat.error ?? history.error;
 
   if (error) {
@@ -129,8 +128,10 @@ export function ChatView({ chatId }: { chatId: string }) {
       pages={history.data.pages}
       hasOlder={history.hasNextPage}
       loadingOlder={history.isFetchingNextPage}
-      onLoadOlder={() => void history.fetchNextPage()}
+      onLoadOlder={() => void history.fetchNextPage({ cancelRefetch: false })}
       settled={!chat.isFetching && !history.isFetching}
+      focusId={params.get('message')}
+      focusKey={locationKey}
     />
   );
 }
@@ -144,7 +145,15 @@ interface OpenChatProps {
   onLoadOlder(): void;
   /** Both answers are up to date, so the unread ones are known. */
   settled: boolean;
+  /** The message to open the chat at, and the visit that asked (each click scrolls again). */
+  focusId: string | null;
+  focusKey: string;
 }
+
+/** Older pages load until the message to open at is found: up to 1,000 messages back. */
+const FOCUS_PAGES_MAX = 20;
+/** How long the message opened at stays highlighted. */
+const HIGHLIGHT_MS = 3000;
 
 function OpenChat({
   chatId,
@@ -154,6 +163,8 @@ function OpenChat({
   loadingOlder,
   onLoadOlder,
   settled,
+  focusId,
+  focusKey,
 }: OpenChatProps) {
   const { viewerId, chat } = answer;
   const outbox = useOutbox();
@@ -166,6 +177,15 @@ function OpenChat({
   );
   const nameOf = useMemo(() => nameLookup(people), [people]);
   const memberIds = useMemo(() => chat.members.map((member) => member.userId), [chat.members]);
+  // Who can be mentioned: the others in the chat who are still in the workspace.
+  const mentionable = useMemo(
+    () =>
+      chat.members
+        .filter((member) => member.userId !== viewerId && !people[member.userId]?.removed)
+        .map((member) => ({ id: member.userId, name: personName(people[member.userId]) })),
+    [chat.members, viewerId, people],
+  );
+  const mentionIds = useMemo(() => mentionable.map((person) => person.id), [mentionable]);
   const title = titleOf(chat, viewerId, people);
   const otherId = otherPersonId(chat, viewerId);
   const other = otherId ? people[otherId] : undefined;
@@ -177,6 +197,22 @@ function OpenChat({
     setNewLine(firstUnreadSeq(messages.map(unreadMessage), viewerId, chat.lastReadSeq));
   }
   const ready = newLine !== undefined;
+
+  // Opening at a message: load older pages until it's there, then scroll to it and highlight it.
+  const looking = focusId !== null && !messages.some((message) => message.id === focusId);
+  const canLookFurther = hasOlder && pages.length < FOCUS_PAGES_MAX;
+  useEffect(() => {
+    if (looking && canLookFurther && !loadingOlder) onLoadOlder();
+  }, [looking, canLookFurther, loadingOlder, onLoadOlder]);
+  const lost = looking && !canLookFurther && !loadingOlder;
+  const focusFound = focusId !== null && !looking;
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusFound) return;
+    setHighlightId(focusId);
+    const timer = window.setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [focusFound, focusId, focusKey]);
   const rows = useMemo(
     () =>
       buildRows(messages, pending, { viewerId, newMessagesSeq: newLine ?? null, now: new Date() }),
@@ -218,6 +254,10 @@ function OpenChat({
     if (latest) setStatus(spokenMessage(senderName(latest, people), previewSource(latest), nameOf));
   }, [ready, newestSeq, messages, viewerId, people, nameOf]);
 
+  useEffect(() => {
+    if (lost) setStatus("That message isn't in this chat any more.");
+  }, [lost]);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const focusComposer = () => window.requestAnimationFrame(() => inputRef.current?.focus());
   const [editing, setEditing] = useState<MessageJson | null>(null);
@@ -242,12 +282,19 @@ function OpenChat({
 
   const submit = (text: string) => {
     if (!editing) {
-      const prepared = prepareMessage({ text }, { memberIds });
+      // "@Avery Lin" for someone in the chat becomes their mention.
+      const prepared = prepareMessage(
+        { text: storedText(text, mentionIds, nameOf) },
+        { memberIds },
+      );
       if (prepared.ok) outbox.send(chatId, prepared.message.text);
       return;
     }
     const prepared = prepareMessage(
-      { text: storedText(text, editing.mentions, nameOf), pageIds: editing.pageIds },
+      {
+        text: storedText(text, [...new Set([...editing.mentions, ...mentionIds])], nameOf),
+        pageIds: editing.pageIds,
+      },
       { memberIds },
     );
     if (!prepared.ok) return;
@@ -274,7 +321,6 @@ function OpenChat({
     });
   };
 
-  const mute = useMute(chatId);
   const { mutate: markUnread } = useMarkUnread(chatId);
   const fromOthers = messages.some(
     (message) => message.kind === 'message' && message.senderId !== viewerId && !message.deletedAt,
@@ -284,6 +330,7 @@ function OpenChat({
     viewerId,
     people,
     editingId: editing?.id ?? null,
+    highlightId,
     onCopy: (message) => {
       const text = readableText(message.text, message.mentions, nameOf);
       navigator.clipboard.writeText(text).then(
@@ -301,36 +348,17 @@ function OpenChat({
   };
 
   const menu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label="Chat options"
-        data-testid="messages-chat-menu"
-        className={buttonClasses({ variant: 'ghost', size: 'sm', icon: true })}
-      >
-        <Ellipsis className="size-4" aria-hidden />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={() => mute.mutate(!chat.muted)} data-testid="messages-mute">
-          {chat.muted ? (
-            <Bell className="size-4" aria-hidden />
-          ) : (
-            <BellOff className="size-4" aria-hidden />
-          )}
-          {chat.muted ? 'Unmute' : 'Mute'}
-        </DropdownMenuItem>
-        {fromOthers && (
-          <DropdownMenuItem
-            data-testid="messages-mark-unread"
-            onSelect={() => {
-              setHoldRead(true);
-              markUnread(undefined, { onSuccess: () => setStatus('Marked as unread.') });
-            }}
-          >
-            Mark as unread
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <ChatMenu
+      chat={chat}
+      viewerId={viewerId}
+      title={title}
+      people={people}
+      canMarkUnread={fromOthers}
+      onMarkUnread={() => {
+        setHoldRead(true);
+        markUnread(undefined, { onSuccess: () => setStatus('Marked as unread.') });
+      }}
+    />
   );
 
   const hello =
@@ -357,7 +385,9 @@ function OpenChat({
         hasOlder={hasOlder}
         loadingOlder={loadingOlder}
         onLoadOlder={onLoadOlder}
-        ready={ready}
+        ready={ready && (!looking || lost)}
+        focusId={focusFound ? focusId : null}
+        focusKey={focusKey}
         onAtBottomChange={setAtBottom}
         empty={
           <p className="px-4 pt-8 text-center text-muted" data-testid="messages-empty-chat">
@@ -378,6 +408,7 @@ function OpenChat({
           chatId={chatId}
           label={`Message ${title}`}
           inputRef={inputRef}
+          mentionable={mentionable}
           editingText={editing ? readableText(editing.text, editing.mentions, nameOf) : null}
           saving={edit.isPending}
           error={edit.error ? `Couldn't save your change. ${edit.error.message}` : null}
