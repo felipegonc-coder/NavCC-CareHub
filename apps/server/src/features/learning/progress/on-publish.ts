@@ -4,7 +4,6 @@ import type { Db, Tx } from '../../../db';
 import { sendNotice } from '../../notices';
 import { issueCertificate } from '../certificates/service';
 import { canSeeCourse } from '../courses/access';
-import { syncPathsWithCourse } from '../paths/service';
 import { courseVersions, type PublishedCourse } from './courses';
 import { learningProgressChanges as changes, learningProgress as progress } from './schema';
 import { newRunOf, progressKey, runEvents, stateOf, summaryOf, type ProgressRow } from './store';
@@ -79,8 +78,7 @@ async function tell(row: ProgressRow, notice: CourseUpdateNotice): Promise<void>
  * courseUpdateFor and the run's saved state. `move` measures the run's events against the new
  * version, `restart` begins a new run on it (old events kept, a completion marked by hand
  * cleared) and `keep` leaves the run on its version. Notices go only to people who can see the
- * course (decision 0313). Then the assignments of the paths that hold the course follow it
- * (`syncPathsWithCourse`). It runs in the publish transaction, so a failed publish changes nobody.
+ * course (decision 0313). It runs in the publish transaction, so a failed publish changes nobody.
  */
 export const onCoursePublished = async (db: Db | Tx, published: CoursePublished): Promise<void> => {
   const { workspaceId, courseId, version, notify, note } = published;
@@ -109,5 +107,4 @@ export const onCoursePublished = async (db: Db | Tx, published: CoursePublished)
       await tell(row, update.notice);
     }
   }
-  await syncPathsWithCourse(db, workspaceId, courseId);
 };
