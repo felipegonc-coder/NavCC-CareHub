@@ -14,6 +14,8 @@
  *   this view, insert left or right, duplicate, property access and delete, plus the layout's own
  *   items (`viewItems`). Give it `usePropertyActions(meta.id)`, and the view, `updateView` and
  *   rows the layout has. Changes that clear or remove values confirm first with a count.
+ * - `PropertySettings` is Edit property: name, description and row pages. `PropertyMenu` opens
+ *   it by the header unless it gets `onEditProperty`.
  * - `DeletedProperties` is the Properties → Deleted list, each with Restore.
  */
 export { CellEditor } from './cell-editor';
@@ -28,6 +30,7 @@ export {
   CELL_TEXT,
   DAY_REMINDER_LABELS,
   PROPERTY_TEXT,
+  SETTINGS_TEXT,
   STATUS_GROUP_LABELS,
   TIME_REMINDER_LABELS,
 } from './messages';
@@ -42,6 +45,12 @@ export {
   type TargetType,
 } from './property-logic';
 export { PropertyMenu, type PropertyMenuEvent, type PropertyMenuProps } from './property-menu';
+export {
+  PropertySettings,
+  PropertySettingsPopover,
+  type PropertySettingsPopoverProps,
+  type PropertySettingsProps,
+} from './property-settings';
 export { rowCell, type CellData } from './row-cell';
 export type {
   CellContext,
