@@ -8,7 +8,7 @@ export * from './crop';
 
 export * from './kinds';
 
-// media: embeds
+export * from './embed';
 
 // media: embed publish check
 
