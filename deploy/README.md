@@ -10,15 +10,15 @@ checkout `/opt/carehub`, unless a step says otherwise.
 
 > **For AI assistants:** Claude Code (or another assistant) runs as a normal user, without
 > permission-skipping (no `--dangerously-skip-permissions`) and without passwordless `sudo`, so
-> Felipe approves each command and every `sudo` needs him. Ask before anything that needs his
-> decision or access: the deploy key on GitHub, the Tailscale policy, the version, the firewall,
-> a restore and a rollback. Use `--confirmed` only after he agreed. Never show the contents of
-> `deploy/.env`; it holds the secrets. When the work is done, log the assistant out and remove
-> its credentials (and any API key it used) from the server.
+> the server's admin approves each command and every `sudo` needs them. Ask before anything that
+> needs their decision or access: the deploy key on GitHub, the Tailscale policy, the version, the
+> firewall, a restore and a rollback. Use `--confirmed` only after they agreed. Never show the
+> contents of `deploy/.env`; it holds the secrets. When the work is done, log the assistant out
+> and remove its credentials (and any API key it used) from the server.
 
 ## Before the first deploy
 
-The first deploy is Felipe's call. Ubuntu 24.04 LTS is assumed. Check off each item:
+The server's admin decides when to deploy. Ubuntu 24.04 LTS is assumed. Check off each item:
 
 1. **Docker Engine and the Compose plugin** from Docker's repository
    ([docs.docker.com/engine/install/ubuntu](https://docs.docker.com/engine/install/ubuntu/)).
@@ -36,7 +36,7 @@ The first deploy is Felipe's call. Ubuntu 24.04 LTS is assumed. Check off each i
    {
      "groups": {
        "group:carehub-users": ["someone@example.com"],
-       "group:carehub-admins": ["felipe@example.com"]
+       "group:carehub-admins": ["admin@example.com"]
      },
      "tagOwners": { "tag:carehub": ["group:carehub-admins"] },
      "acls": [
@@ -142,19 +142,20 @@ Also good to know:
    cat /tmp/github.key >> ~/.ssh/known_hosts && rm /tmp/github.key
    ```
 
-3. **Clone into `/opt/carehub`**, owned by you:
+3. **Clone into `/opt/carehub`**, owned by you. Put the repository's SSH address (on GitHub:
+   Code > SSH) in place of `git@github.com:OWNER/REPO.git`:
 
    ```sh
    sudo install -d -o "$USER" -g "$USER" /opt/carehub
    GIT_SSH_COMMAND="ssh -i $HOME/.ssh/carehub_deploy -o IdentitiesOnly=yes" \
-     git clone git@github.com:felipegonc-coder/NavCC-CareHub.git /opt/carehub
+     git clone git@github.com:OWNER/REPO.git /opt/carehub
    cd /opt/carehub
    git config core.sshCommand "ssh -i $HOME/.ssh/carehub_deploy -o IdentitiesOnly=yes"
    ```
 
 4. **Check out a version that passed CI on `main`**: a tag, or a commit of `main` whose CI
-   run is green (and whose Image run is green, if it changed the image or `deploy/`). Which
-   version is Felipe's call. It must include `TRUST_PROXY` support in the server, or the app
+   run is green (and whose Image run is green, if it changed the image or `deploy/`), chosen by
+   the server's admin. It must include `TRUST_PROXY` support in the server, or the app
    sees Caddy's address instead of each person's (sessions, per-address limits).
 
    ```sh

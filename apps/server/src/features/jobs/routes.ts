@@ -77,7 +77,9 @@ function sendError(
 const jobsRoutes: FastifyPluginAsync<JobsRoutesOptions> = async (app, options) => {
   const runner = options.runner ?? jobRunner;
   const sql = options.sql ?? (app.hasDecorator('db') ? sqlRunnerFor(app.db) : undefined);
-  if (sql) runner.useStore(createPostgresJobStore(sql));
+  // Tests build a second app while the first is open. They share this runner and one test
+  // database, so the runner keeps the store it started with.
+  if (sql && !runner.isRunning()) runner.useStore(createPostgresJobStore(sql));
   const getUserId = options.getUserId ?? ((request: FastifyRequest) => request.user?.id);
   runner.setLogger(app.log);
   app.addHook('onReady', async () => {

@@ -71,13 +71,17 @@ export function createMemoryPushStore(): MemoryPushStore {
     },
 
     async getPreferences(userId) {
-      return { ...(preferences.get(userId) ?? DEFAULT_PREFERENCES) };
+      return copyPreferences(preferences.get(userId) ?? DEFAULT_PREFERENCES);
     },
 
     async updatePreferences(userId, changes) {
       const updated = { ...DEFAULT_PREFERENCES, ...preferences.get(userId), ...changes };
-      preferences.set(userId, updated);
-      return { ...updated };
+      preferences.set(userId, copyPreferences(updated));
+      return copyPreferences(updated);
     },
   };
+}
+
+function copyPreferences({ pause, ...rest }: NotificationPreferences): NotificationPreferences {
+  return { ...rest, pause: pause && { until: pause.until && new Date(pause.until) } };
 }
