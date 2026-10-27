@@ -12,4 +12,4 @@ export * from './embed';
 
 // media: embed publish check
 
-// media: interactive blocks
+export * from './interactive';
