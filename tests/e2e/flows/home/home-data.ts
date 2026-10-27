@@ -2,9 +2,8 @@ import type { Page } from '@playwright/test';
 import { apiFor, DEFAULT_TIME_ZONE } from '../_support/index.js';
 
 // Fictional data for the Home flows, made through the API as the person signed in on the page.
-// Pages and spaces follow decision 0007 (section 4.1) and databases decision 0200. Calendar has no
-// documented route yet, so its guess (route and field names from the Calendar spec, section 3)
-// lives only in createEvent and deleteEvent.
+// Pages and spaces follow decision 0007 (section 4.1) and databases decision 0200. Events follow
+// the Calendar API shapes in @carehub/team-calendar-api (#168), only in createEvent and deleteEvent.
 
 /** A reply that is the thing itself or wraps it, such as { page: { … } }. */
 function unwrap<T>(reply: unknown, key: string): T {
@@ -43,12 +42,11 @@ export async function createEvent(page: Page, event: FictionalEvent): Promise<st
     await apiFor(page)
   ).post('/api/calendar/events', {
     title: event.title,
+    allDay: false,
     start: new Date(event.start).toISOString(),
     end: new Date(event.end).toISOString(),
-    allDay: false,
     timeZone: DEFAULT_TIME_ZONE,
-    location: event.videoLink, // where people often paste it
-    videoLink: event.videoLink,
+    ...(event.videoLink ? { videoUrl: event.videoLink } : {}),
   });
   const id = unwrap<{ id?: string }>(made, 'event').id;
   if (!id) throw new Error(`POST /api/calendar/events gave no event ID: ${JSON.stringify(made)}`);
