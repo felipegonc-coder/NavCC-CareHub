@@ -14,7 +14,7 @@ export const PANELS: Record<PanelName, PanelComponent> = {
 
   sort: lazy(() => import('./shell/panel-not-built')),
 
-  group: lazy(() => import('./shell/panel-not-built')),
+  group: lazy(() => import('./filters/group-entry')),
 
   properties: lazy(() => import('./shell/panel-not-built')),
 
