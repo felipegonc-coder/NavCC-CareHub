@@ -1,2 +1,3 @@
-// api module: owned by B1 (course, catalog and review endpoint schemas); see docs/learning/PLAN.md. Stub until it lands.
-export {};
+// api module (B1): request and response schemas for the course, catalog and review endpoints, and the error shape.
+export * from './errors';
+export * from './publish';

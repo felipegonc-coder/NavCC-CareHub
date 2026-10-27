@@ -6,10 +6,10 @@ export * from './webvtt';
 export * from './transcript';
 export * from './crop';
 
-// media: upload checks
+export * from './kinds';
 
-// media: embeds
+export * from './embed';
 
-// media: embed publish check
+export * from './embed-issues';
 
-// media: interactive blocks
+export * from './interactive';

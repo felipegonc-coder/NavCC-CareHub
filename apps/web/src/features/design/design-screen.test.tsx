@@ -1,4 +1,4 @@
-import { ThemeProvider } from '@carehub/ui';
+import { ThemeProvider, ToastProvider } from '@carehub/ui';
 import { render, screen, within } from '@testing-library/react';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { DesignScreen } from './design-screen';
@@ -18,7 +18,9 @@ describe('DesignScreen', () => {
   it('is one titled page showing the kit', () => {
     render(
       <ThemeProvider>
-        <DesignScreen />
+        <ToastProvider>
+          <DesignScreen />
+        </ToastProvider>
       </ThemeProvider>,
     );
     const main = screen.getByRole('main');
@@ -27,5 +29,9 @@ describe('DesignScreen', () => {
     expect(document.title).toBe('Care Hub · Design kit');
     expect(within(main).getByRole('radiogroup', { name: 'Theme' })).toBeInTheDocument();
     expect(within(main).getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    expect(within(main).getByRole('button', { name: 'Page actions' })).toHaveAttribute(
+      'aria-haspopup',
+      'menu',
+    );
   });
 });

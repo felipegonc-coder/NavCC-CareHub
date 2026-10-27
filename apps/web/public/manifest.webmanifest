@@ -1,0 +1,9 @@
+{
+  "id": "/",
+  "name": "Care Hub",
+  "short_name": "Care Hub",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

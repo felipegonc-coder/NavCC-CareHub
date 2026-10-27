@@ -54,6 +54,7 @@ describe('tokens', () => {
       expect(contrast(tokens['primary-fg'], tokens.primary)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(tokens['primary-fg'], tokens['primary-hover'])).toBeGreaterThanOrEqual(4.5);
       expect(contrast(tokens.bg, tokens.danger)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(tokens['brand-fg'], tokens.brand)).toBeGreaterThanOrEqual(4.5);
     },
   );
 

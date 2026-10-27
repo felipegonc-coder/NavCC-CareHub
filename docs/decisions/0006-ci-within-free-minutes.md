@@ -17,6 +17,8 @@ The repository is private on GitHub Free, which includes 2,000 Actions minutes a
 
 ## Update 2026-10-26: Felipe's Mac as a self-hosted runner
 
+> **Superseded 2026-10-27:** Felipe decided against a Mac runner (issue #7 closed). Every job runs on GitHub-hosted `ubuntu-latest`, and nothing below applies.
+
 Felipe is adding a free self-hosted runner on his Mac (labels `self-hosted`, `macOS`, `ARM64`; Apple M2, 8 GB, one job at a time; it may sleep at night, and jobs then wait up to 24 hours).
 
 - **Split:** once the Mac is online, the browser tests (`e2e.yml`: the `e2e` label, nightly, by hand) run on the Mac. The label `e2e-linux` runs the same tests on `ubuntu-latest` when the Mac is asleep and a result is needed now (costs minutes). The quick checks stay on `ubuntu-latest` until the free minutes get low, then move to the Mac in one small PR. `image.yml` always stays on `ubuntu-latest` (it needs Docker).
