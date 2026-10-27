@@ -1,6 +1,7 @@
 import type { FilterCondition, FilterGroup, View } from '@carehub/databases';
 import { fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import type { PanelProps } from '../contract';
 import { jobsDatabase, PROPS, testViewer, USERS } from '../fixtures';
 import { mockActions, mockClient, renderWithDatabase } from '../test-utils';
 import FilterEntry from './filter-entry';
@@ -20,7 +21,10 @@ const byTechnician: FilterGroup = {
 };
 
 /** The Filter panel as the shell draws it, with the props of PanelProps. */
-function show(filter: FilterGroup | null, extras: PanelExtras = {}) {
+function show(
+  filter: FilterGroup | null,
+  extras: PanelExtras & Pick<PanelProps, 'propertyIds' | 'rowTitles'> = {},
+) {
   const meta = jobsDatabase();
   const [first] = meta.views;
   if (!first) throw new Error('No view');
