@@ -8,8 +8,8 @@ import { NewRowMenu, addRowBy, addRowTemplate, variable } from './templates-page
 
 // Templates and buttons, section 3.3: template variables in a database template's properties.
 // Eli (Editor) makes Tasks in the team space and its template through the API (decision 0200);
-// Eli and then Avery (Admin) make a row from it with New ▾. Not covered yet: This page, and a
-// Tasks view filtered by This page inside a template, which only the editor can make so far.
+// Eli and then Avery (Admin) make a row from it with New ▾. Rows can come back in any order, so
+// each row is found by its id. This page, and a Tasks view filtered by it, are a fixme entry.
 
 test.describe('Templates: template variables', () => {
   onlyIn('desktop-light');
@@ -19,6 +19,7 @@ test.describe('Templates: template variables', () => {
     page,
     browser,
   }) => {
+    test.slow(); // Two people, each in a browser of their own.
     await signInAs(page, 'editor');
     const tasks = await makeDatabase(page, uniqueName('Fictional QA Tasks'));
     const due = await addProperty(page, tasks.id, 'Due', config.date());
@@ -37,17 +38,20 @@ test.describe('Templates: template variables', () => {
         await menu.item(template.name).click();
       });
     const screen = new DatabaseScreen(page, tasks.id);
+    let eliRow = '';
 
     await test.step('Eli: New ▾ → the template makes a row due in 3 days, started now, owned by Eli', async () => {
       await screen.open();
       const madeAt = Date.now();
       await fromTemplate(screen);
-      await expect(screen.column(due.id)).toContainText([dayIn(3).shown]);
-      await expect(screen.column(started.id)).toContainText([dayIn(0).shown]);
-      await expect(screen.column(owner.id)).toContainText([eli]);
+      // Tasks was empty, so the new row is its only one.
+      await expect(screen.rows()).toHaveCount(1);
+      eliRow = (await screen.rows().first().getAttribute('data-row-id')) ?? '';
+      await expect(screen.cell(eliRow, due.id)).toContainText(dayIn(3).shown);
+      await expect(screen.cell(eliRow, started.id)).toContainText(dayIn(0).shown);
+      await expect(screen.cell(eliRow, owner.id)).toContainText(eli);
       // The variables became real values when the row was made: a calendar day and a moment.
-      const rowId = await screen.rows().first().getAttribute('data-row-id');
-      const row = await getRow(page, tasks.id, rowId ?? '');
+      const row = await getRow(page, tasks.id, eliRow);
       expect(row.values[due.id]).toMatchObject({ start: dayIn(3).iso, hasTime: false });
       const startedAt = row.values[started.id] as { start: string; hasTime: boolean };
       expect(startedAt.hasTime).toBe(true);
@@ -60,12 +64,27 @@ test.describe('Templates: template variables', () => {
         const averyName = await nameOf(avery.page);
         const asAvery = new DatabaseScreen(avery.page, tasks.id);
         await asAvery.open();
+        await expect(asAvery.cell(eliRow, owner.id)).toContainText(eli);
         await fromTemplate(asAvery);
-        await expect(asAvery.column(owner.id)).toContainText([eli, averyName]);
-        await expect(asAvery.column(due.id)).toContainText([dayIn(3).shown, dayIn(3).shown]);
+        // Avery's row is the one that isn't Eli's, wherever the table puts it.
+        const ids = await asAvery
+          .rows()
+          .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-row-id') ?? ''));
+        const averyRow = ids.find((id) => id !== '' && id !== eliRow) ?? '';
+        expect(averyRow, "Avery's new row").not.toBe('');
+        await expect(asAvery.cell(averyRow, owner.id)).toContainText(averyName);
+        await expect(asAvery.cell(averyRow, due.id)).toContainText(dayIn(3).shown);
+        await expect(asAvery.cell(eliRow, owner.id)).toContainText(eli);
       } finally {
         await avery.close();
       }
     });
+  });
+
+  test('TB-05 This page: in a Projects template, a Tasks view filtered "Project contains This page" shows, in each new project, only that project’s tasks', () => {
+    // The plan: Tasks has a Project relation to Projects, and the Projects template holds a linked
+    // Tasks view filtered "Project contains This page". Two projects made from the template each
+    // list only their own tasks.
+    test.fixme(true, 'Waiting for linked views inside templates');
   });
 });
