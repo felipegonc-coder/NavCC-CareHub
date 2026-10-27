@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@carehub/editor": "*",
+    "@carehub/extras": "*",
     "@carehub/learning": "*",
     "@carehub/shared": "*",
     "@carehub/team-time": "*",

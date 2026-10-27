@@ -67,6 +67,9 @@ export const shadows = {
 /** `max-w-page` (the reading column), `w-sidebar`, `max-w-dialog`, `max-w-toast`. */
 export const widths = { page: '48rem', sidebar: '16rem', dialog: '32rem', toast: '24rem' } as const;
 
+/** `grid-cols-control`: a checkbox or switch, then its label (`Field` with `inline`). */
+export const gridColumns = { control: 'auto 1fr' } as const;
+
 /** `outline-offset-inset`: a focus outline drawn inside rows that sit in a scrolling list. */
 export const outlineOffsets = { inset: '-2px' } as const;
 
