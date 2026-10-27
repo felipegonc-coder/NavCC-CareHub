@@ -21,7 +21,7 @@ import { BlockEditor } from '@carehub/editor';
 | `ydoc`        | required           | The page's `Y.Doc`.                                            |
 | `field`       | `'default'`        | XML fragment in `ydoc` that holds the blocks (`PAGE_FIELD`).   |
 | `provider`    | `null`             | `{ awareness }`; a new provider makes a new editor.            |
-| `user`        |                    | `{ id?, name, color }`; `color` is a CSS color for your caret. |
+| `user`        |                    | `{ id?, name, color }`; `color`: a name (`blue`) or CSS color. |
 | `editable`    | `true`             | `false` makes it read-only.                                    |
 | `placeholder` | `Type '/' for ...` | Shown in an empty page.                                        |
 | `ariaLabel`   | `'Page content'`   | Accessible name of the editing area (read on mount).           |

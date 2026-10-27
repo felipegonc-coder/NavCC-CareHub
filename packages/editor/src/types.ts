@@ -10,7 +10,7 @@ export type NodeViews = Record<string, ComponentType<ReactNodeViewProps>>;
 export interface EditorUser {
   id?: string;
   name: string;
-  /** A CSS color for the caret, like `#2563eb`. */
+  /** The caret color: a design kit color name like `blue`, or a CSS color like `#2563eb`. */
   color: string;
 }
 
