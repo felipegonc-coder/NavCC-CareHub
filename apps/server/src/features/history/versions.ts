@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import {
   VERSION_MAX_STRETCH_MS,
   VERSION_PAUSE_MS,
+  countChanges,
+  diffDocs,
   isVersionReason,
   kindForReason,
   type HistoryDoc,
@@ -15,6 +17,7 @@ import type { Db, Tx } from '../../db';
 import { historyContent } from './content';
 import { hasPageModel, historyPages, type HistoryPage } from './pages';
 import { historyEdits, historyVersions } from './schema';
+import { recordUpdates } from './updates';
 
 export interface SaveVersionOptions {
   /** What is about to replace the page's content. */
@@ -153,17 +156,45 @@ async function takeSnapshot(db: Db | Tx, page: HistoryPage): Promise<Snapshot | 
   };
 }
 
+/**
+ * Saves the version, with an "edited" entry in Updates for each person whose edits it holds
+ * (HT-08): "Sam Ortiz edited · 3 changes", counted as Show changes marks them.
+ */
 async function insertVersion(
   tx: Tx,
   pageId: string,
   snapshot: Snapshot,
   fields: { kind: VersionKind; editorIds: string[]; createdBy: string | null; createdAt: Date },
 ): Promise<SavedVersion> {
+  const [previous] = fields.editorIds.length
+    ? await tx
+        .select({ content: historyVersions.content })
+        .from(historyVersions)
+        .where(eq(historyVersions.pageId, pageId))
+        .orderBy(desc(historyVersions.createdAt), desc(historyVersions.id))
+        .limit(1)
+    : [];
   const [row] = await tx
     .insert(historyVersions)
     .values({ pageId, ...snapshot, ...fields })
     .returning({ id: historyVersions.id, createdAt: historyVersions.createdAt });
   if (!row) throw new Error('The version was not saved.');
+  // The first version has nothing to compare with, so its entries don't count changes.
+  const details = previous
+    ? { changes: countChanges(diffDocs(previous.content, snapshot.content)) }
+    : {};
+  await recordUpdates(
+    tx,
+    fields.editorIds.map((by) => ({
+      pageId,
+      workspaceId: snapshot.workspaceId,
+      kind: 'edited' as const,
+      by,
+      details,
+      versionId: row.id,
+      at: row.createdAt,
+    })),
+  );
   return { id: row.id, pageId, kind: fields.kind, createdAt: row.createdAt };
 }
 
@@ -294,4 +325,5 @@ export async function forgetPages(db: Db | Tx, pageIds: readonly string[]): Prom
   const ids = sql`${sql.param([...pageIds])}::uuid[]`;
   await db.execute(sql`DELETE FROM history_versions WHERE page_id = ANY(${ids})`);
   await db.execute(sql`DELETE FROM history_edits WHERE page_id = ANY(${ids})`);
+  await db.execute(sql`DELETE FROM history_updates WHERE page_id = ANY(${ids})`);
 }
