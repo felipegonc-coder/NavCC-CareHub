@@ -3,6 +3,7 @@
 // Origin on changes.
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
+import { readSettings } from '../../core/settings';
 import { changedPreferences, preferencesPatch } from './domain/preferences';
 import {
   deviceName,
@@ -55,8 +56,9 @@ const TEST_NOTICE: PushNotice = {
 const pushRoutes: FastifyPluginAsync<PushRoutesOptions> = async (app, options) => {
   const store = options.store ?? (app.hasDecorator('db') ? createPostgresPushStore(app.db) : null);
   if (!store) throw new Error('The push routes need a database or a store.');
-  // From the environment until core/settings.ts (readSettings) is on main.
-  const config = options.config ?? resolvePushConfig(pushSettingsSchema.parse(process.env));
+  // The PUSH_VAPID_* settings. While any is missing, push is off and the routes say so.
+  const config =
+    options.config ?? resolvePushConfig(readSettings(pushSettingsSchema, { log: app.log }));
   if (!config.enabled) app.log.info(config.message); // For site admins: it says what's missing.
   const getUserId = options.getUserId ?? ((request: FastifyRequest) => request.user?.id);
   const now = options.now ?? (() => new Date());

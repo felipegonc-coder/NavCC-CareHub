@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { errorHandler } from '../../core/errors';
+import { createTestApp, createUser, hasDatabase, injectAs } from '../../testing';
 import { createTestSubscription, type TestSubscription } from './protocol/testing';
 import { generateVapidKeys } from './protocol/vapid';
 import pushRoutes, { TEST_COOLDOWN_MS } from './routes';
@@ -213,5 +214,26 @@ describe('/api/push/preferences', () => {
     });
     const unknown = await call('PATCH', '/preferences', avery, { notifyAbout: 'everything' });
     expect(unknown.statusCode).toBe(400);
+  });
+});
+
+describe.skipIf(!hasDatabase)('/api/push in the app', () => {
+  it('is registered behind sign-in, with push off until the keys are set', async () => {
+    const testApp = await createTestApp();
+    try {
+      const riley = await createUser(testApp.db, { name: 'Riley Chen' });
+      const signedOut = await testApp.app.inject({ method: 'GET', url: '/api/push/key' });
+      expect(signedOut.statusCode).toBe(401);
+      const key = await injectAs(testApp.app, riley, { method: 'GET', url: '/api/push/key' });
+      expect(key.json()).toEqual({ publicKey: null });
+      const saved = await injectAs(testApp.app, riley, {
+        method: 'PATCH',
+        url: '/api/push/preferences',
+        payload: { notifyAbout: 'mentions' },
+      });
+      expect(saved.json()).toEqual({ preferences: { notifyAbout: 'mentions', showText: true } });
+    } finally {
+      await testApp.close();
+    }
   });
 });
