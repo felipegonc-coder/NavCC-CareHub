@@ -116,15 +116,32 @@ export interface AppStart {
   run(ctx: AppStartContext): void | Promise<void>;
 }
 
+/** What a beforeSignOut item gets: the API, and who is signing out (null if never loaded). */
+export interface BeforeSignOutContext {
+  api: typeof api;
+  user: CurrentUser | null;
+}
+
+/**
+ * Runs when someone signs out, while their session still works, for anything that has to tell the
+ * server: removing this device's push subscription, say. Best effort: sign-out waits up to 3
+ * seconds for all items together, logs a failure and goes on. If the server sign-out then fails,
+ * the person stays signed in, so prefer steps that the next app start redoes.
+ */
+export interface BeforeSignOutHook {
+  id: string;
+  run(ctx: BeforeSignOutContext): void | Promise<void>;
+}
+
 /** What a signOut hook gets: who just signed out, or null if they were never loaded. */
 export interface SignOutContext {
   user: CurrentUser | null;
 }
 
 /**
- * Runs when someone signs out on this device, after the server ended the session and before every
- * cached query is cleared: turning off push here, or dropping an offline queue. Sign-out waits up
- * to 3 seconds for all hooks together; a hook's failure is logged and sign-out goes on.
+ * Runs when someone has signed out on this device: after the server ended the session (so API
+ * calls fail) and before every cached query is cleared. For local clean-up, such as dropping an
+ * offline queue. Sign-out waits up to 3 seconds for all hooks together; a failure is logged.
  */
 export interface SignOutHook {
   id: string;
@@ -153,6 +170,7 @@ export interface Slots {
   overlays: Overlay[];
   pageBanners: PageBanner[];
   appStart: AppStart[];
+  beforeSignOut: BeforeSignOutHook[];
   signOut: SignOutHook[];
   editor: EditorSlots;
 }
@@ -167,8 +185,8 @@ type SlotsModule = { slots?: FeatureSlots };
 
 /**
  * Merges feature slots in line order: lists are joined and sorted by `order` (ties keep line
- * order; commands, overlays, appStart and signOut keep line order), objects are merged with later
- * lines winning.
+ * order; commands, overlays, appStart and the sign-out hooks keep line order), objects are merged
+ * with later lines winning.
  */
 export function mergeSlots(parts: readonly FeatureSlots[]): MergedSlots {
   const join = <T>(pick: (part: FeatureSlots) => T[] | undefined): T[] =>
@@ -186,6 +204,7 @@ export function mergeSlots(parts: readonly FeatureSlots[]): MergedSlots {
     overlays: join((part) => part.overlays),
     pageBanners: sorted(join((part) => part.pageBanners)),
     appStart: join((part) => part.appStart),
+    beforeSignOut: join((part) => part.beforeSignOut),
     signOut: join((part) => part.signOut),
     editor: {
       nodeViews: Object.assign({}, ...parts.map((part) => part.editor?.nodeViews)),

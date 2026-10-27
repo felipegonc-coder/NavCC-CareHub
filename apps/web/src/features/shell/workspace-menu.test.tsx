@@ -63,7 +63,7 @@ describe('WorkspaceMenu', () => {
     expect(onNavigate).toHaveBeenCalledTimes(1);
   });
 
-  it('signs out: the server first, then the sign-out hooks, then the cache goes', async () => {
+  it('signs out: beforeSignOut, the server, the signOut hooks, then the cache goes', async () => {
     const order: string[] = [];
     const server = fakeAuthServer(meFor(), {
       'POST /api/auth/sign-out': () => {
@@ -72,16 +72,24 @@ describe('WorkspaceMenu', () => {
       },
     });
     const queryClient = renderMenu();
+    const before = vi.fn(() => {
+      order.push('before');
+    });
     const run = vi.fn(() => {
       order.push(queryClient.getQueryData(VIEWER) ? 'hook, cache kept' : 'hook, cache gone');
     });
-    await loadSlots([async () => ({ slots: { signOut: [{ id: 'push', run }] } })]);
+    await loadSlots([
+      async () => ({
+        slots: { beforeSignOut: [{ id: 'push', run: before }], signOut: [{ id: 'queue', run }] },
+      }),
+    ]);
 
     await choose('Sign out');
     expect(await screen.findByText('Sign-in screen')).toBeVisible();
     expect(screen.getByTestId('address')).toHaveTextContent(/^\/sign-in$/);
     expect(changes(server)).toEqual(['POST /api/auth/sign-out']);
-    expect(order).toEqual(['server', 'hook, cache kept']);
+    expect(order).toEqual(['before', 'server', 'hook, cache kept']);
+    expect(before).toHaveBeenCalledWith(expect.objectContaining({ user: USER }));
     expect(run).toHaveBeenCalledWith({ user: USER });
     expect(queryClient.getQueryData(VIEWER)).toBeUndefined();
     expect(queryClient.getQueryData(meQueryKey)).toBeUndefined();

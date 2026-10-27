@@ -26,6 +26,7 @@ describe('mergeSlots', () => {
       overlays: [],
       pageBanners: [],
       appStart: [],
+      beforeSignOut: [],
       signOut: [],
       editor: { nodeViews: {}, slashItems: [], linkPickers: [], bubbleItems: [], extensions: [] },
     });
@@ -49,12 +50,13 @@ describe('mergeSlots', () => {
   it('joins the app start items and sign-out hooks in line order', () => {
     const run = () => undefined;
     const merged = mergeSlots([
-      { appStart: [{ id: 'push', run }], signOut: [{ id: 'push', run }] },
+      { appStart: [{ id: 'push', run }], beforeSignOut: [{ id: 'push', run }] },
       { signOut: [{ id: 'learning-queue', run }] },
-      { appStart: [{ id: 'open-chat', run }] },
+      { appStart: [{ id: 'open-chat', run }], signOut: [{ id: 'drafts', run }] },
     ]);
     expect(merged.appStart.map((item) => item.id)).toEqual(['push', 'open-chat']);
-    expect(merged.signOut.map((hook) => hook.id)).toEqual(['push', 'learning-queue']);
+    expect(merged.beforeSignOut.map((hook) => hook.id)).toEqual(['push']);
+    expect(merged.signOut.map((hook) => hook.id)).toEqual(['learning-queue', 'drafts']);
   });
 
   it('joins lists and sorts them by order, keeping line order for ties', () => {
