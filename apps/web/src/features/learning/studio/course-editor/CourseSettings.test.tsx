@@ -25,6 +25,8 @@ const savedDraft = (client: StudioClient, courseId: string, check: (course: Cour
   waitFor(async () => check((await client.getCourse(courseId)).course), SAVE_WAIT);
 
 const box = (scope: HTMLElement, name: string) => within(scope).getByRole('textbox', { name });
+const numberBox = (scope: HTMLElement, name: string) =>
+  within(scope).getByRole('spinbutton', { name });
 const checkbox = (scope: HTMLElement, name: string) =>
   within(scope).getByRole('checkbox', { name });
 
@@ -46,7 +48,7 @@ describe('course settings', () => {
 
   it('take whole minutes only, and an empty box means not set', async () => {
     const { client, courseId, settings } = await openSettings();
-    const minutes = box(settings, 'Estimated time in minutes');
+    const minutes = numberBox(settings, 'Estimated time in minutes');
     fireEvent.change(minutes, { target: { value: '1.5' } });
     expect(
       within(settings).getByText(`Use a whole number from 1 to ${LIMITS.estimatedMinutes}.`),
@@ -97,7 +99,7 @@ describe('course settings', () => {
     fireEvent.change(box(settings, 'Acknowledgement statement'), {
       target: { value: 'I will clean my hands at the five moments.' },
     });
-    fireEvent.change(box(settings, 'Minimum time in the course, in minutes'), {
+    fireEvent.change(numberBox(settings, 'Minimum time in the course, in minutes'), {
       target: { value: '10' },
     });
     await savedDraft(client, courseId, ({ settings: saved }) => {
@@ -115,7 +117,7 @@ describe('course settings', () => {
       within(settings).queryByRole('textbox', { name: 'Certificate valid for, in months' }),
     ).toBeNull();
     fireEvent.click(checkbox(settings, 'Give a certificate'));
-    fireEvent.change(box(settings, 'Certificate valid for, in months'), {
+    fireEvent.change(numberBox(settings, 'Certificate valid for, in months'), {
       target: { value: '24' },
     });
     await savedDraft(client, courseId, ({ settings: saved }) => {
@@ -127,27 +129,17 @@ describe('course settings', () => {
   it('apply a course type with its settings, and Undo puts mine back', async () => {
     const { settings } = await openSettings();
     const type = within(settings).getByRole('group', { name: 'Type' });
-    expect(within(type).getByRole('button', { name: 'Standard' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    fireEvent.click(within(type).getByRole('button', { name: 'Required read' }));
-    expect(within(type).getByRole('button', { name: 'Required read' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    expect(
-      within(settings).getByText(/an "I have read and understood" sign-off/),
-    ).toBeInTheDocument();
+    expect(within(type).getByRole('radio', { name: 'Standard' })).toBeChecked();
+    const requiredRead = within(type).getByRole('radio', { name: 'Required read' });
+    expect(requiredRead).toHaveAccessibleDescription(/an "I have read and understood" sign-off/);
+    fireEvent.click(requiredRead);
+    expect(requiredRead).toBeChecked();
     expect(checkbox(settings, 'Lessons are taken in order')).toBeChecked();
     expect(checkbox(settings, 'Sign an acknowledgement to complete the course')).toBeChecked();
     expect(box(settings, 'Acknowledgement statement')).toHaveValue(DEFAULT_ACKNOWLEDGEMENT);
 
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(within(type).getByRole('button', { name: 'Standard' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(within(type).getByRole('radio', { name: 'Standard' })).toBeChecked();
     expect(checkbox(settings, 'Lessons are taken in order')).not.toBeChecked();
     expect(
       within(settings).queryByRole('textbox', { name: 'Acknowledgement statement' }),
@@ -156,7 +148,7 @@ describe('course settings', () => {
 
   it('close when a lesson is chosen in the outline', async () => {
     await openSettings();
-    fireEvent.click(screen.getByRole('button', { name: '1. Why it matters' }));
+    fireEvent.click(screen.getByRole('link', { name: '1. Why it matters' }));
     expect(screen.queryByRole('region', { name: 'Course settings' })).toBeNull();
     expect(screen.getByRole('textbox', { name: 'Lesson title' })).toHaveValue('Why it matters');
     expect(screen.getByRole('button', { name: 'Course settings' })).not.toHaveAttribute(

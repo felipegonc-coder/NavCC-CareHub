@@ -12,8 +12,8 @@ const paragraph = (id: string, text: string): Block => ({
   text: [{ runs: [{ text }] }],
 });
 
-/** Opens "Hand hygiene" (two lessons, the first with two paragraphs) in the editor. */
-async function openCourse() {
+/** Opens "Hand hygiene" (two lessons, the first with two paragraphs) in the editor, at `search`. */
+async function openCourse(search = '') {
   const client = testStudioClient();
   const draft = await client.createCourse({ type: 'standard', title: 'Hand hygiene' });
   const course: Course = {
@@ -32,16 +32,15 @@ async function openCourse() {
     ],
   };
   await client.saveCourse(course.id, course, draft.revision);
-  const view = renderStudio(`/learning/studio/courses/${course.id}`, { client });
+  const view = renderStudio(`/learning/studio/courses/${course.id}${search}`, { client });
   await screen.findByRole('heading', { level: 1, name: 'Hand hygiene' });
   return { ...view, courseId: course.id };
 }
 
 const lessonNames = () =>
-  within(screen.getByRole('navigation', { name: 'Lessons' }))
-    .getAllByRole('button')
-    .map((button) => button.textContent ?? '')
-    .filter((text) => /^\d/.test(text));
+  within(screen.getByRole('navigation', { name: 'Outline' }))
+    .getAllByRole('link')
+    .map((link) => link.textContent ?? '');
 const blockTexts = () => screen.getAllByTestId('paragraph').map((text) => text.textContent);
 const savedTitle = (client: { getCourse(id: string): Promise<{ course: Course }> }, id: string) =>
   client.getCourse(id).then((draft) => draft.course.title);
@@ -66,7 +65,7 @@ describe('course editor', () => {
     await openCourse();
     expect(screen.getAllByRole('main')).toHaveLength(1);
     expect(pageTitles()).toContain('Care Hub · Hand hygiene');
-    expect(screen.getByRole('button', { name: '1. Why it matters' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '1. Why it matters' })).toHaveAttribute(
       'aria-current',
       'true',
     );
@@ -75,6 +74,16 @@ describe('course editor', () => {
     expect(blockTexts()).toEqual(['Clean hands save lives.', 'Use soap or hand rub.']);
     expect(screen.getByText('Saved')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  });
+
+  it('opens the lesson in the address, and each lesson in the outline links to its place', async () => {
+    const { courseId } = await openCourse('?lesson=lesson-moments');
+    expect(screen.getByRole('region', { name: 'Lesson: Five moments' })).toBeInTheDocument();
+    const first = screen.getByRole('link', { name: '1. Why it matters' });
+    expect(first).toHaveAttribute('href', `/learning/studio/courses/${courseId}?lesson=lesson-why`);
+    fireEvent.click(first);
+    expect(screen.getByRole('region', { name: 'Lesson: Why it matters' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent(`${courseId}?lesson=lesson-why`);
   });
 
   it('renames the course and saves it a moment later', async () => {
@@ -104,7 +113,7 @@ describe('course editor', () => {
   it('adds, moves, copies and deletes lessons, and Undo brings one back', async () => {
     await openCourse();
     fireEvent.click(screen.getByRole('button', { name: 'Add lesson' }));
-    expect(screen.getByRole('button', { name: '3. Lesson 3' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '3. Lesson 3' })).toHaveAttribute(
       'aria-current',
       'true',
     );
@@ -136,16 +145,37 @@ describe('course editor', () => {
     );
   });
 
+  it("sets a lesson's minimum time in seconds; an empty box removes it", async () => {
+    const { client, courseId } = await openCourse();
+    const firstLesson = async () => (await client.getCourse(courseId)).course.lessons[0];
+    const minimum = screen.getByRole('spinbutton', { name: 'Minimum time, in seconds' });
+    fireEvent.change(minimum, { target: { value: '60' } });
+    await waitFor(
+      async () => expect(await firstLesson()).toMatchObject({ minimumSeconds: 60 }),
+      SAVE_WAIT,
+    );
+    fireEvent.change(minimum, { target: { value: '4000' } });
+    expect(screen.getByText('Use a whole number from 1 to 3600.')).toBeInTheDocument();
+    fireEvent.change(minimum, { target: { value: '' } });
+    await waitFor(
+      async () => expect(await firstLesson()).not.toHaveProperty('minimumSeconds'),
+      SAVE_WAIT,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add quiz' }));
+    expect(screen.queryByRole('spinbutton')).toBeNull();
+  });
+
   it('adds blocks from the menu, asking for an address when a block needs one', async () => {
     const { client, courseId } = await openCourse();
-    fireEvent.click(screen.getByRole('button', { name: '2. Five moments' }));
+    fireEvent.click(screen.getByRole('link', { name: '2. Five moments' }));
     const lesson = screen.getByRole('region', { name: 'Lesson: Five moments' });
     fireEvent.click(within(lesson).getByRole('button', { name: 'Add block' }));
     let menu = screen.getByRole('region', { name: 'Add a block' });
     const search = within(menu).getByRole('searchbox', { name: 'Search blocks' });
     await waitFor(() => expect(search).toHaveFocus());
     fireEvent.change(search, { target: { value: 'paragraph' } });
-    fireEvent.click(within(menu).getByRole('button', { name: /^Paragraph/ }));
+    expect(within(menu).getByRole('menu', { name: 'Add a block' })).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Paragraph' }));
 
     const added = screen.getByRole('region', { name: 'Block 1, Paragraph' });
     await waitFor(() => expect(added).toHaveFocus());
@@ -153,9 +183,13 @@ describe('course editor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add a block below block 1' }));
     menu = screen.getByRole('region', { name: 'Add a block' });
-    expect(within(menu).getByRole('button', { name: /^File download/ })).toBeDisabled();
-    fireEvent.click(within(menu).getByRole('button', { name: /^Image/ }));
+    const file = within(menu).getByRole('menuitem', { name: 'File download' });
+    expect(file).toHaveAttribute('aria-disabled', 'true');
+    expect(file).toHaveAccessibleDescription('Available once file uploads are ready.');
+    fireEvent.click(file);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Image' }));
     const address = within(menu).getByRole('textbox', { name: 'Picture address' });
+    await waitFor(() => expect(address).toHaveFocus());
     fireEvent.change(address, { target: { value: 'http://example.org/hands.png' } });
     fireEvent.click(within(menu).getByRole('button', { name: 'Add block' }));
     expect(within(menu).getByText('Use a full https:// address.')).toBeInTheDocument();
@@ -173,6 +207,28 @@ describe('course editor', () => {
         course.lessons[1]?.kind === 'content' && course.lessons[1].blocks.map((b) => b.type),
       ).toEqual(['paragraph', 'image']);
     }, SAVE_WAIT);
+  });
+
+  it('moves through the add-block menu with the keyboard', async () => {
+    await openCourse();
+    fireEvent.click(screen.getByRole('link', { name: '2. Five moments' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add block' }));
+    const search = screen.getByRole('searchbox', { name: 'Search blocks' });
+    await waitFor(() => expect(search).toHaveFocus());
+    fireEvent.change(search, { target: { value: 'quote' } });
+    const items = screen.getAllByRole('menuitem');
+    expect(items.map((item) => item.getAttribute('tabindex'))).toEqual(
+      items.map((_, index) => (index === 0 ? '0' : '-1')),
+    );
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    expect(items[0]).toHaveFocus();
+    fireEvent.keyDown(items[0] as HTMLElement, { key: 'ArrowUp' });
+    expect(search).toHaveFocus();
+
+    fireEvent.change(search, { target: { value: 'heading' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(screen.getByRole('region', { name: 'Block 1, Heading' })).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   it('moves, copies and deletes blocks, and Undo brings one back', async () => {
@@ -206,7 +262,7 @@ describe('course editor', () => {
     await openCourse();
     const title = screen.getByRole('textbox', { name: 'Lesson title' });
     fireEvent.change(title, { target: { value: 'Why clean hands matter' } });
-    expect(screen.getByRole('button', { name: '1. Why clean hands matter' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '1. Why clean hands matter' })).toBeInTheDocument();
 
     fireEvent.keyDown(title, { key: 'z', ctrlKey: true });
     expect(title).toHaveValue('Why it matters');
@@ -281,7 +337,7 @@ describe('course editor', () => {
   it('says so when the course is gone', async () => {
     renderStudio('/learning/studio/courses/gone');
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This course was deleted, or the link is wrong.',
+      'This was deleted, or the link is wrong.',
     );
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Edit course');
@@ -292,7 +348,7 @@ describe('course editor', () => {
     render(<CourseEditorScreen />);
     expect(screen.getAllByRole('main')).toHaveLength(1);
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This course was deleted, or the link is wrong.',
+      'This was deleted, or the link is wrong.',
     );
   });
 });

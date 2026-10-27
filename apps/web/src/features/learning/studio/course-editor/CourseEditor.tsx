@@ -1,9 +1,9 @@
-import { canRedo, canUndo } from '@carehub/learning';
+import { canRedo, canUndo, checkPublishable } from '@carehub/learning';
 import type { Course, Id, PublishProblem } from '@carehub/learning';
 import { Button, IconButton } from '@carehub/ui';
 import { ArrowLeft, Eye, History, Redo2, Undo2 } from 'lucide-react';
-import { useCallback, useEffect, useReducer, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router';
 import type { StudioDraft } from '../data/client';
 import { useStudioDraft } from '../data/queries';
 import { previewPath } from '../labels';
@@ -13,7 +13,7 @@ import { CourseSettings } from './CourseSettings';
 import { LessonCanvas } from './LessonCanvas';
 import { Outline } from './Outline';
 import { SaveState, UndoNotice } from './parts';
-import { PublishPanel } from './PublishPanel';
+import { ProblemsPanel, PublishDialog } from './PublishPanel';
 import { useDraftAutosave } from './use-autosave';
 import type { EditorActions, EditOptions } from './types';
 import { VersionsPanel } from './VersionsPanel';
@@ -34,16 +34,21 @@ const SETTINGS_PATH = /^(settings|cover|description)/;
 
 function Editor({ draft }: { draft: StudioDraft }) {
   const navigate = useNavigate();
+  const opened = new URLSearchParams(useLocation().search).get('lesson');
   const [state, dispatch] = useReducer(courseEditorReducer, draft.course, (course) =>
-    initCourseEditor(course),
+    initCourseEditor(course, opened),
   );
   const course = state.history.present;
   const saving = useDraftAutosave(course.id, draft.revision, course);
   const [notice, setNotice] = useState<{ message: string; after: Course } | null>(null);
   const [view, setView] = useState<'lesson' | 'settings'>('lesson');
-  const [panel, setPanel] = useState<'publish' | 'versions' | null>(null);
+  const [panel, setPanel] = useState<'problems' | 'versions' | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [refused, setRefused] = useState<PublishProblem[]>([]);
   const [liveVersion, setLiveVersion] = useState(draft.liveVersion);
   const [published, setPublished] = useState('');
+  const found = useMemo(() => checkPublishable(course), [course]);
+  const problems = found.length > 0 ? found : refused;
 
   const edit = useCallback<EditorActions['edit']>((change, options: EditOptions = {}) => {
     if (options.select?.lessonId) setView('lesson');
@@ -68,9 +73,18 @@ function Editor({ draft }: { draft: StudioDraft }) {
       dispatch({ type: 'select', lessonId: problem.lessonId, blockId: problem.blockId ?? null });
     } else setView(SETTINGS_PATH.test(problem.path) ? 'settings' : 'lesson');
   };
-  const toggle = (name: 'publish' | 'versions') => {
+  const toggleVersions = () => {
     setPublished('');
-    setPanel(panel === name ? null : name);
+    setPanel(panel === 'versions' ? null : 'versions');
+  };
+  const startPublishing = () => {
+    setPublished('');
+    if (problems.length > 0) {
+      setPanel('problems');
+      return;
+    }
+    if (panel === 'problems') setPanel(null);
+    setConfirming(true);
   };
   const preview = async () => {
     await saving.flush();
@@ -116,24 +130,55 @@ function Editor({ draft }: { draft: StudioDraft }) {
         >
           <Redo2 aria-hidden />
         </IconButton>
-        <Button size="sm" variant="secondary" onClick={() => void preview()}>
-          <Eye aria-hidden />
-          Preview
+        <Button asChild size="sm" variant="secondary">
+          <Link
+            to={previewPath(course.id)}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              void preview();
+            }}
+          >
+            <Eye aria-hidden />
+            Preview
+          </Link>
         </Button>
         {liveVersion !== null && (
           <Button
             size="sm"
             variant="ghost"
             aria-expanded={panel === 'versions'}
-            onClick={() => toggle('versions')}
+            onClick={toggleVersions}
           >
             <History aria-hidden />
             Versions
           </Button>
         )}
-        <Button size="sm" aria-expanded={panel === 'publish'} onClick={() => toggle('publish')}>
+        <Button size="sm" onClick={startPublishing}>
           Publish
         </Button>
+        <PublishDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          courseId={course.id}
+          liveVersion={liveVersion}
+          flush={saving.flush}
+          onPublished={(version) => {
+            setConfirming(false);
+            setRefused([]);
+            setLiveVersion(version);
+            setPublished(
+              version === 1
+                ? 'Published version 1. People with access can start it now.'
+                : `Published version ${version}. People who start from now get it.`,
+            );
+          }}
+          onRefused={(list) => {
+            setConfirming(false);
+            setRefused(list);
+            setPanel('problems');
+          }}
+        />
       </header>
       <p role="status" className="px-4 text-small text-fg empty:hidden">
         {published}
@@ -143,24 +188,8 @@ function Editor({ draft }: { draft: StudioDraft }) {
           {notice?.after === course && (
             <UndoNotice message={notice.message} onUndo={() => dispatch({ type: 'undo' })} />
           )}
-          {panel === 'publish' && (
-            <PublishPanel
-              courseId={course.id}
-              course={course}
-              liveVersion={liveVersion}
-              flush={saving.flush}
-              onShow={show}
-              onClose={() => setPanel(null)}
-              onPublished={(version) => {
-                setLiveVersion(version);
-                setPanel(null);
-                setPublished(
-                  version === 1
-                    ? 'Published version 1. People with access can start it now.'
-                    : `Published version ${version}. People who start from now get it.`,
-                );
-              }}
-            />
+          {panel === 'problems' && (
+            <ProblemsPanel problems={problems} onShow={show} onClose={() => setPanel(null)} />
           )}
           {panel === 'versions' && (
             <VersionsPanel

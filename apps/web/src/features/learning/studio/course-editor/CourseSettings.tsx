@@ -1,5 +1,4 @@
 import {
-  COURSE_TYPES,
   HttpsUrlSchema,
   LIMITS,
   changeCourseType,
@@ -9,60 +8,15 @@ import {
   setEstimatedMinutes,
   updateCourseSettings,
 } from '@carehub/learning';
-import type { Course, CourseSettingsPatch } from '@carehub/learning';
+import type { Course, CourseSettingsPatch, CourseType } from '@carehub/learning';
 import { Checkbox, Field, Input, Textarea } from '@carehub/ui';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import { RichTextInput } from '../editors/text/RichTextInput';
-import { ChoiceButtons } from '../fields';
-import { COURSE_TYPE_INFO } from '../labels';
+import { RadioChoices } from '../choices';
+import { COURSE_TYPE_CHOICES } from '../labels';
+import { NumberField } from './parts';
 import type { EditorActions } from './types';
-
-/** A whole number box that can be cleared while typing; blank means "not set" (null). */
-function NumberField(props: {
-  label: string;
-  hint?: string | undefined;
-  value: number | undefined;
-  min: number;
-  max: number;
-  onChange(next: number | null): void;
-}): JSX.Element {
-  const show = (value: number | undefined) => (value === undefined ? '' : String(value));
-  const [text, setText] = useState(show(props.value));
-  const [shown, setShown] = useState(props.value);
-  if (props.value !== shown) {
-    setShown(props.value);
-    setText(show(props.value));
-  }
-  const valid = (raw: string) => {
-    const n = Number(raw);
-    return Number.isInteger(n) && n >= props.min && n <= props.max;
-  };
-  const typed = text.trim();
-  return (
-    <Field
-      label={props.label}
-      hint={props.hint}
-      error={
-        typed === '' || valid(typed)
-          ? undefined
-          : `Use a whole number from ${props.min} to ${props.max}.`
-      }
-    >
-      <Input
-        inputMode="numeric"
-        className="max-w-32"
-        value={text}
-        onChange={(e) => {
-          const raw = e.currentTarget.value;
-          setText(raw);
-          if (raw.trim() === '') props.onChange(null);
-          else if (valid(raw.trim())) props.onChange(Number(raw.trim()));
-        }}
-      />
-    </Field>
-  );
-}
 
 /** Cover picture by web address, with its description, until the media picker lands. */
 function CoverFields({
@@ -217,18 +171,14 @@ export function CourseSettings({
       </Group>
 
       <Group title="Course type">
-        <ChoiceButtons
-          label="Type"
+        <RadioChoices<CourseType>
+          legend="Type"
           value={course.type}
-          options={COURSE_TYPES.map((type) => ({
-            value: type,
-            label: COURSE_TYPE_INFO[type].label,
-          }))}
+          options={COURSE_TYPE_CHOICES}
           onChange={(type) => edit((c) => changeCourseType(c, type))}
         />
         <p className="text-small text-muted">
-          {COURSE_TYPE_INFO[course.type].description} Changing the type applies its settings; Undo
-          puts yours back.
+          Changing the type applies its settings. Undo puts yours back.
         </p>
       </Group>
 
