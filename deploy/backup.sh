@@ -8,6 +8,8 @@
 # carehub-STAMP.sha256 exists, which is written after the dump was restored into a scratch
 # database and the files archive was read back. Every run writes runs/STAMP.json and a
 # copy in status.json; a file named "now" in requests/ asks for a backup (see README.md).
+# Limits: one backup at a time; a request less than 60 minutes after the last run is
+# ignored; a backup does not start with less free space than twice the last one's size.
 set -euo pipefail
 umask 077
 
@@ -17,6 +19,7 @@ KEEP_DAYS=${BACKUP_KEEP_DAYS:-30}
 BACKUP_AT=${BACKUP_AT:-02:00}
 DB=${PGDATABASE:?PGDATABASE is not set}
 APP_UID=1000 # the node user of the app image
+REQUEST_GAP=60 # minutes; requests sooner than this after the last run are ignored
 STAMP="" STARTED="" BASE="" ERROR="" LOCKED=0 CHANGED=0 PROVING=0
 DB_BYTES="" FILE_BYTES="" TEST_OK=false CHECKED_AT="" DETAILS=""
 NAME_RE='^carehub-([0-9]{8})T[0-9]{6}Z\.(db\.dump|files\.tar\.gz|sha256)(\.partial)?$'
@@ -85,8 +88,12 @@ schedule() {
     now=$(date '+%F %H:%M')
     if [[ -e $BACKUPS/requests/now ]]; then
       rm -f "$BACKUPS/requests/now"
-      log "a backup was requested (requests/now)"
-      bash "$0" now || log "the backup failed, see $BACKUPS/status.json" >&2
+      if [[ -n $(find "$BACKUPS" -maxdepth 1 -name status.json -mmin "-$REQUEST_GAP" -print -quit) ]]; then
+        log "ignored a backup request: the last backup finished less than $REQUEST_GAP minutes ago"
+      else
+        log "a backup was requested (requests/now)"
+        bash "$0" now || log "the backup failed, see $BACKUPS/status.json" >&2
+      fi
     elif [[ ${now% *} != "$done_day" && ! ${now#* } < "$BACKUP_AT" ]]; then
       done_day=${now% *}
       bash "$0" now || log "the backup failed, see $BACKUPS/status.json" >&2
@@ -100,9 +107,13 @@ backup_now() {
   check_config
   prepare_dirs
   lock
-  t=$(date +%s) && STAMP=$(date -u -d "@$t" +%Y%m%dT%H%M%SZ) && STARTED=$(iso "$t")
+  # A STAMP of its own even right after the last run, so a failure never removes that run's files.
+  while t=$(date +%s) && STAMP=$(date -u -d "@$t" +%Y%m%dT%H%M%SZ) \
+    && [[ -e $BACKUPS/runs/$STAMP.json || -e $BACKUPS/carehub-$STAMP.db.dump ]]; do sleep 1; done
+  STARTED=$(iso "$t")
   BASE="$BACKUPS/carehub-$STAMP"
   trap backup_exit EXIT
+  check_space
   log "backup $STAMP: dumping database $DB"
   pg_dump -Fc -f "$BASE.db.dump.partial" "$DB" || die "pg_dump failed"
   mv "$BASE.db.dump.partial" "$BASE.db.dump"
@@ -115,6 +126,20 @@ backup_now() {
   prune
   write_run true
   log "backup $STAMP: done. $DETAILS"
+}
+
+# A backup needs room for itself next to the others: at least twice the last one's size.
+check_space() {
+  local last f bytes=0 free
+  last=$(find "$BACKUPS" -maxdepth 1 -name 'carehub-*.sha256' -printf '%f\n' | sort | tail -n 1)
+  [[ -n $last ]] || return 0 # the first backup
+  for f in "$BACKUPS/${last%.sha256}".{db.dump,files.tar.gz}; do
+    if [[ -f $f ]]; then bytes=$((bytes + $(stat -c %s "$f"))); fi
+  done
+  free=$(df -Pk "$BACKUPS" | awk 'NR == 2 {print $4}')
+  [[ $free =~ ^[0-9]+$ ]] || die "could not read the free space in $BACKUPS"
+  ((free * 1024 >= 2 * bytes)) \
+    || die "only $((free / 1024)) MB are free in $BACKUPS; a backup needs $(((2 * bytes + 1048575) / 1048576)) MB (twice the last one)"
 }
 
 prove() {

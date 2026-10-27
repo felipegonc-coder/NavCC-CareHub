@@ -10,7 +10,7 @@ Caddy for HTTPS and a backup service. Why it looks like this:
 | `.env.example`                  | Settings; `install.sh` turns it into `.env` with random secrets          |
 | `Caddyfile`                     | HTTPS for `CAREHUB_DOMAIN`, passed on to the app                         |
 | `install.sh`                    | Copies this folder to `/opt/carehub`, creates `.env`, turns on the timer |
-| `update.sh`, `carehub-update.*` | Every 15 minutes: pull new images, restart what changed                  |
+| `update.sh`, `carehub-update.*` | Updates when you run it; the timer only with `CAREHUB_AUTO_UPDATE=true`  |
 | `backup.sh`                     | Nightly backups; runs inside the `backup` service                        |
 | `restore.sh`                    | Puts a backup back                                                       |
 
@@ -18,7 +18,11 @@ Caddy for HTTPS and a backup service. Why it looks like this:
 
 You need a Linux amd64 server with Docker Engine and the compose plugin. For a
 `*.ts.net` name, Tailscale runs on the host with HTTPS certificates turned on for the
-tailnet. For a public domain, point its DNS at the server and open ports 80 and 443.
+tailnet; see [Tailscale](#tailscale) to keep Care Hub off every other network. For a
+public domain, point its DNS at the server and open ports 80 and 443.
+
+The app version that `docker-compose.yml` names must be published first, see
+[Versions and updates](#versions-and-updates).
 
 ```sh
 sudo bash install.sh carehub.your-tailnet.ts.net   # in this deploy/ folder
@@ -40,17 +44,31 @@ systemctl list-timers carehub-update.timer
 journalctl -u carehub-update            # what the updates did
 ```
 
-## Updates, holding and rolling back
+## Versions and updates
 
-The image workflow builds `main` every day at 01:30 UTC if it changed, and tags the image
-`latest` and `sha-<commit>`. The timer pulls `latest` every 15 minutes and restarts the
-app when it changed.
-PostgreSQL (17.x) and Caddy (2.x) are pulled only in the 03:00 run.
+`docker-compose.yml` pins the app to a version, `ghcr.io/felipegonc-coder/navcc-carehub:0.1.0`,
+so the server changes only when someone decides it should.
 
-To hold a version or go back to one, set
-`CAREHUB_IMAGE=ghcr.io/felipegonc-coder/navcc-carehub:sha-<commit>` in `.env` and run
-`sudo ./update.sh`. Set it back to `:latest` to follow `main` again. If the newer
-version changed the database, going back also needs a restore from before the update.
+- **Publish a version:** on GitHub, Actions > Image > Run workflow, branch `main`, with a
+  version such as `0.1.0`. The workflow builds and tests `main` and pushes the image as
+  `0.1.0`, `sha-<commit>` and `latest`. An existing version is never overwritten.
+- **Move the server to it:** change the version in `deploy/docker-compose.yml` in a pull
+  request. After the merge, run `sudo bash install.sh` in the new `deploy/` folder (or edit
+  `/opt/carehub/docker-compose.yml`), then `sudo ./update.sh` in `/opt/carehub`.
+- **`sudo ./update.sh`** pulls the pinned app version, the newest PostgreSQL 17.x and
+  Caddy 2.x, and restarts what changed.
+- **Go back:** put the old version back in `docker-compose.yml` and run `sudo ./update.sh`.
+  If the newer version changed the database, going back also needs a restore from before
+  the update.
+
+`main` is also built every night at 01:30 UTC if it changed, as `latest` and
+`sha-<commit>`; the server uses neither unless you put one in `docker-compose.yml`. Pull
+requests build and test the image but push nothing.
+
+Automatic updates are off: `CAREHUB_AUTO_UPDATE=false` in `.env`. The timer still runs
+every 15 minutes, but only for the Tailscale check below. With `CAREHUB_AUTO_UPDATE=true`
+its 03:00 run does what `sudo ./update.sh` does, which in practice brings newer PostgreSQL
+17.x and Caddy 2.x images (the app stays at its pinned version).
 
 ## Tailscale
 
@@ -58,6 +76,23 @@ Caddy gets `*.ts.net` certificates from the host's tailscaled through its socket
 The compose file mounts the folder `/var/run/tailscale`, not the socket file, so Caddy
 still finds the socket after tailscaled restarts. If Caddy loses it anyway, `update.sh`
 restarts Caddy.
+
+To make Care Hub reachable only over Tailscale, set `CAREHUB_BIND_ADDRESS` in `.env` to
+the server's tailnet address (`tailscale ip -4`, for example `100.101.102.103`) and run
+`sudo docker compose up -d`. Caddy then listens on ports 80 and 443 of that address only.
+Empty, the default, means every address of the server. A firewall such as ufw cannot do
+this job: ports published by Docker bypass ufw's rules.
+
+Docker starts Caddy at boot, possibly before Tailscale has its address. Let the kernel
+accept listening on an address the server does not have yet:
+
+```sh
+echo 'net.ipv4.ip_nonlocal_bind = 1' | sudo tee /etc/sysctl.d/60-carehub.conf
+sudo sysctl --system
+```
+
+With a public domain, leave `CAREHUB_BIND_ADDRESS` empty: the certificate authority must
+reach ports 80 and 443 from the internet.
 
 ## Backups
 
@@ -71,7 +106,17 @@ The backup files are readable by root only.
 
 To back up right now: `sudo docker compose exec backup bash /opt/carehub/backup.sh now`.
 
-The backups are on the same disk as the data. Copy `backups/` somewhere else too.
+Limits:
+
+- One backup or restore at a time (a lock file in `backups/`).
+- A backup does not start when the disk has less free space than twice the size of the
+  last finished backup. The run is recorded as failed: `Not run: only N MB are free ...`.
+- A request from the app (see [Status page](#status-page)) less than 60 minutes after
+  the last run finished is ignored. Backups started by hand or by the schedule are not.
+
+The backups are on the same disk as the data, and they are not encrypted. Copy `backups/`
+somewhere else too. Encrypting them (for example with age, with the key kept off the
+server) is planned for later.
 
 ## Status page
 
@@ -101,7 +146,17 @@ The app container mounts `backups/` read-only at `/data/backups`, so it can read
 read-write at `/data/backups/requests`. To ask for a backup, the app creates a file
 named `now` there. The backup service checks for it every 30 seconds, deletes it and
 runs a backup; the result shows up in `status.json`. `install.sh` makes `requests/`
-writable for the app's `node` user (uid 1000).
+writable for the app's `node` user (uid 1000). The image workflow checks that this user
+cannot read the backup files.
+
+Rules for the app:
+
+- Only admins may see the Status page and ask for a backup. Check this on the server, not
+  only in the page.
+- A request less than 60 minutes after the last run's `finishedAt` is deleted without a
+  backup. Show when the next one is possible instead of offering the button.
+- Requests run one at a time. A backup that would leave too little disk space fails at
+  once with `ok: false` and the reason in `restoreTest.details`.
 
 ## Restore
 
@@ -120,6 +175,7 @@ start Care Hub, then restore.
 
 ## Old image versions
 
-Nothing deletes old images automatically. Each build adds a version to the GHCR
-package; delete old ones by hand in the package settings on GitHub. On the server,
-free space by hand with `sudo docker image prune`.
+Nothing deletes old images automatically. Each build of `main` adds a version to the
+GHCR package; delete old ones by hand in the package settings on GitHub (keep the
+published version numbers). On the server, free space by hand with
+`sudo docker image prune`.

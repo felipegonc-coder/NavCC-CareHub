@@ -1,59 +1,114 @@
 name: Image
 
-# Builds the Docker image, smoke-tests it and, on main, pushes it to GHCR
+# Builds the Docker image and smoke-tests it. Only main publishes it to GHCR
 # (docs/decisions/0003-image-and-deploy.md). It runs only:
 # - daily at 01:30 UTC on main, and stops early if that commit already has an image;
-# - by hand (Actions > Image > Run workflow): pushes on main, only builds elsewhere;
-# - on a pull request when the "image" label is added: builds and tests, never pushes.
+# - by hand (Actions > Image > Run workflow): on main it publishes, optionally with a
+#   version tag like 0.1.0; on other branches it only builds and tests;
+# - on a pull request when the "image" label is added: builds and tests, never publishes.
 #   A pull request that changes only deploy/ (but not backup.sh) is validated without a build.
+# Each job gets only the permissions it needs: building and testing has contents: read, and
+# packages: write belongs to the publish job, which runs only on refs/heads/main.
 # Nothing here deletes old image versions.
 on:
   schedule:
     - cron: '30 1 * * *'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'On main, also tag the image with this version, like 0.1.0 (never overwritten)'
+        type: string
+        default: ''
   pull_request:
     types: [labeled]
 
-# A newer run for the same ref and label cancels the older one.
+# On a pull request a newer run for the same label cancels the older one. On main, runs
+# wait for each other, so a publish is never cut short.
 concurrency:
   group: image-${{ github.ref }}-${{ github.event.label.name || 'run' }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
-  packages: write
-  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
 
 env:
   IMAGE: ghcr.io/felipegonc-coder/navcc-carehub
 
 jobs:
+  # On main only: does this commit have an image yet, and is the version tag still free?
+  registry:
+    name: registry
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      packages: read
+    outputs:
+      exists: ${{ steps.check.outputs.exists }}
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - name: Check the registry
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          tag=sha-${GITHUB_SHA::7} exists=false build=true
+          if [[ -n $VERSION && ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::The version must look like 1.2.3 or 1.2.3-rc.1."; exit 1
+          fi
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
+          if [[ -n $VERSION ]] && docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            echo "::error::$IMAGE:$VERSION exists already. Version tags are never overwritten."; exit 1
+          fi
+          if docker buildx imagetools inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+            exists=true
+            # For a version tag, this run still builds and tests an image of the commit.
+            if [[ -z $VERSION ]]; then build=false; fi
+          fi
+          echo "$IMAGE:$tag exists: $exists. Build: $build."
+          printf 'exists=%s\nbuild=%s\n' "$exists" "$build" >> "$GITHUB_OUTPUT"
+
+  # Builds and tests with read-only access to the repository: no registry login, no push.
   image:
     name: image
-    if: github.event_name != 'pull_request' || github.event.label.name == 'image'
+    needs: registry
+    if: >-
+      ${{ !cancelled() && needs.registry.result != 'failure' && needs.registry.outputs.build != 'false' &&
+      (github.event_name != 'pull_request' || github.event.label.name == 'image') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      tag: ${{ steps.plan.outputs.tag }}
     steps:
       - name: Check out
         id: checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 2
+          persist-credentials: false
 
       # Each run step keeps its output in $RUNNER_TEMP/ci-logs/<step id>.log for the report.
       - name: Plan
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          VERSION: ${{ inputs.version }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-logs"
           {
             head=${PR_HEAD:-$GITHUB_SHA}
-            build=true validate=true push=false tag=sha-${head::7}
+            build=true tag=sha-${head::7}
+            if [[ -n $VERSION && $GITHUB_REF != refs/heads/main ]]; then
+              echo "::error::Version tags are published only from main."; exit 1
+            fi
             if [[ $GITHUB_EVENT_NAME == pull_request ]]; then
               changed=$(git diff --name-only HEAD^1 HEAD)
               printf 'Changed files:\n%s\n' "$changed"
@@ -61,26 +116,20 @@ jobs:
                 build=false
                 echo "Only deploy/ changed, not backup.sh: validating it without building the image."
               fi
-            elif [[ $GITHUB_REF == refs/heads/main ]]; then
-              docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
-              if docker buildx imagetools inspect "$IMAGE:$tag" >/dev/null 2>&1; then
-                build=false validate=false
-                echo "$IMAGE:$tag exists already: nothing to do."
-              else
-                push=true
-              fi
             fi
-            printf 'build=%s\nvalidate=%s\npush=%s\ntag=%s\n' "$build" "$validate" "$push" "$tag" | tee -a "$GITHUB_OUTPUT"
+            printf 'build=%s\ntag=%s\n' "$build" "$tag" | tee -a "$GITHUB_OUTPUT"
           } 2>&1 | tee "$RUNNER_TEMP/ci-logs/plan.log"
 
       - name: Validate deploy files
         id: validate
-        if: steps.plan.outputs.validate == 'true'
         run: |
           {
             cp deploy/.env.example deploy/.env
             docker compose -f deploy/docker-compose.yml config --quiet
-            echo "docker-compose.yml is valid."
+            config=$(CAREHUB_BIND_ADDRESS=100.64.0.1 docker compose -f deploy/docker-compose.yml config)
+            grep -q 'host_ip: 100.64.0.1' <<<"$config" \
+              || { echo "::error::CAREHUB_BIND_ADDRESS does not reach Caddy's ports"; exit 1; }
+            echo "docker-compose.yml is valid, with and without CAREHUB_BIND_ADDRESS."
             command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
             shellcheck -S warning deploy/*.sh
             echo "shellcheck found no warnings."
@@ -192,6 +241,20 @@ jobs:
             stamp=$(jq -r '.startedAt | gsub("[-:]"; "")' status.json)
             cmp -s status.json "$b/runs/$stamp.json" || fail "runs/$stamp.json should match status.json"
             [[ -f $b/carehub-$stamp.sha256 ]] || fail "backup $stamp has no checksum file"
+            # The app sees the backup files but must not be able to read them.
+            for f in db.dump files.tar.gz; do
+              if docker exec -u node ci-app cat "/data/backups/carehub-$stamp.$f" >/dev/null 2>&1; then
+                fail "the app can read carehub-$stamp.$f"
+              fi
+            done
+
+            # A second request within 60 minutes of the last backup is dropped.
+            docker exec -u node ci-app touch /data/backups/requests/now
+            for _ in $(seq 25); do [[ -e $b/requests/now ]] || break; sleep 2; done
+            docker logs --tail 1 ci-backup 2>&1
+            [[ ! -e $b/requests/now ]] || fail 'backup.sh did not pick up the second request'
+            runs=("$b"/runs/*.json)
+            (( ${#runs[@]} == 1 )) || fail 'backup.sh ran a second backup within 60 minutes'
             docker stop ci-backup >/dev/null
 
             # Lose the data, then put the backup back with the app stopped, as restore.sh does.
@@ -210,29 +273,112 @@ jobs:
             echo "The requested backup checked out, and restoring it brought back the table and the file."
           } 2>&1 | tee "$RUNNER_TEMP/ci-logs/smoke.log"
 
-      - name: Push
-        id: push
-        if: steps.plan.outputs.push == 'true'
-        env:
-          TAG: ${{ steps.plan.outputs.tag }}
+      # The publish job pushes exactly this tested image.
+      - name: Save the image for the publish job
+        id: save
+        if: steps.plan.outputs.build == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
           {
-            for tag in "$TAG" latest; do
-              docker tag carehub:ci "$IMAGE:$tag"
-              docker push --quiet "$IMAGE:$tag"
-            done
-          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/push.log"
+            docker save carehub:ci | gzip -1 > "$RUNNER_TEMP/carehub.tar.gz"
+            ls -l "$RUNNER_TEMP/carehub.tar.gz"
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/save.log"
 
-      # Keep this step last. On a pull request it posts or updates one comment (its own,
-      # next to the CI report) with the result: agents' tokens can't read check runs.
-      - name: Report on the pull request
-        id: report
+      - name: Upload the image
+        id: upload-image
+        if: steps.save.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: image
+          path: ${{ runner.temp }}/carehub.tar.gz
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+          overwrite: true
+
+      # On a pull request, the report job posts these.
+      - name: Keep the logs for the report
+        id: keep-logs
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          STEPS_JSON: ${{ toJSON(steps) }}
+        run: mkdir -p "$RUNNER_TEMP/ci-logs" && printf '%s\n' "$STEPS_JSON" > "$RUNNER_TEMP/ci-logs/steps.json"
+
+      - name: Upload the logs
+        id: upload-logs
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-logs
+          path: ${{ runner.temp }}/ci-logs
+          retention-days: 1
+          overwrite: true
+
+  # On main only, after the image passed: pushes that same image. The only job that may
+  # write packages; it doesn't check out or run code from the repository.
+  publish:
+    name: publish
+    needs: [registry, image]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      packages: write
+    steps:
+      - name: Download the tested image
+        uses: actions/download-artifact@v4
+        with:
+          name: image
+          path: ${{ runner.temp }}/image
+
+      - name: Push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.image.outputs.tag }}
+          EXISTS: ${{ needs.registry.outputs.exists }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          docker load -i "$RUNNER_TEMP/image/carehub.tar.gz"
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
+          tags=()
+          # A commit that has an image already (a run for a version tag) keeps its tags.
+          if [[ $EXISTS != true ]]; then tags+=("$TAG" latest); fi
+          if [[ -n $VERSION ]]; then
+            if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+              echo "::error::$IMAGE:$VERSION exists already. Version tags are never overwritten."; exit 1
+            fi
+            tags+=("$VERSION")
+          fi
+          for tag in "${tags[@]}"; do
+            docker tag carehub:ci "$IMAGE:$tag"
+            docker push --quiet "$IMAGE:$tag"
+          done
+          echo "Pushed $IMAGE with the tags: ${tags[*]}"
+
+  # Posts or updates one comment on the pull request with the result, next to the CI report:
+  # agents' tokens can't read check runs. It doesn't check out or run code from the pull request.
+  report:
+    name: report
+    needs: image
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.image.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download the logs
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: image-logs
+          path: ci-logs
+
+      - name: Report on the pull request
         continue-on-error: true
         uses: actions/github-script@v7
         env:
-          STEPS_JSON: ${{ toJSON(steps) }}
-          BUILT: ${{ steps.plan.outputs.build }}
+          RESULT: ${{ needs.image.result }}
+          BUILT: ${{ needs.image.outputs.build }}
         with:
           script: |
             const fs = require('node:fs');
@@ -241,12 +387,14 @@ jobs:
             const issue_number = context.issue.number;
             const sha = context.payload.pull_request.head.sha.slice(0, 7);
             const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const steps = JSON.parse(process.env.STEPS_JSON);
+            const read = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trimEnd() : '');
+            const steps = JSON.parse(read('ci-logs/steps.json') || '{}');
             const failed = Object.keys(steps).filter((id) => steps[id].outcome === 'failure');
+            if (process.env.RESULT !== 'success' && !failed.length) failed.push('image');
             const section = (id) => {
-              const file = `${process.env.RUNNER_TEMP}/ci-logs/${id}.log`;
-              if (!fs.existsSync(file)) return `\`${id}\` failed before writing a log; see the [run](${run}).`;
-              const tail = fs.readFileSync(file, 'utf8').trimEnd().split('\n').slice(-120).join('\n').slice(-25000);
+              const log = read(`ci-logs/${id}.log`);
+              if (!log) return `\`${id}\` failed before writing a log; see the [run](${run}).`;
+              const tail = log.split('\n').slice(-120).join('\n').slice(-25000);
               return `<details open>\n<summary><code>${id}</code>: last 120 lines</summary>\n\n\`\`\`\`text\n${tail}\n\`\`\`\`\n\n</details>`;
             };
             const done = process.env.BUILT === 'true' ? 'built and smoke-tested with a backup and a restore, not pushed' : 'deploy/ validated, no build needed';
