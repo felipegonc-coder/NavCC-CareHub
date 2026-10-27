@@ -20,7 +20,7 @@ const WORKSPACES = [
   { dir: 'tests/e2e', name: '@carehub/e2e', dependencies: [] },
 ];
 
-const SERVER_CORE = ['src/app.test.ts', 'src/core/', 'src/features/auth/'];
+const SERVER_CORE = ['src/app.test.ts', 'src/core/', 'src/features/auth/', 'src/features/workspaces/'];
 const WEB_CORE = ['src/routes.test.tsx', 'src/slots.test.ts'];
 const TEAM_SERVER = [
   'messages',
