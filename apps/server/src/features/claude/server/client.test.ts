@@ -27,6 +27,7 @@ function fakeRuntime(replies: Array<Response | Error>) {
       url: CLAUDE_MESSAGES_URL,
     }),
     access: { isSettingOn: async () => true, canUseClaude: async () => true },
+    pages: { canOpenPage: async () => true },
     fetch: async (url, init) => {
       calls.push({ url, init });
       const next = replies.shift();

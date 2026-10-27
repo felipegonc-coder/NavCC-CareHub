@@ -18,9 +18,16 @@ export interface ClaudeAccess {
   canUseClaude(db: Db | Tx, workspaceId: string, userId: string): Promise<boolean>;
 }
 
+/** What Claude needs from the page model (#49) before it sends anything from a page. */
+export interface ClaudePages {
+  /** Whether the person can open the page in that workspace. A page in Trash counts as closed. */
+  canOpenPage(db: Db | Tx, workspaceId: string, userId: string, pageId: string): Promise<boolean>;
+}
+
 export interface ClaudeRuntime {
   settings: () => ClaudeSettings;
   access: ClaudeAccess;
+  pages: ClaudePages;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   sleep: (ms: number) => Promise<void>;
   log: ClaudeLog;
@@ -35,11 +42,15 @@ const standInAccess: ClaudeAccess = {
   canUseClaude: async () => false,
 };
 
+// stand-in: the page model's getPageAccess (#49). Until it's bound, no page can be opened.
+const standInPages: ClaudePages = { canOpenPage: async () => false };
+
 let settingsFromEnv: ClaudeSettings | undefined;
 
 const defaults: ClaudeRuntime = {
   settings: () => (settingsFromEnv ??= readClaudeSettings()),
   access: standInAccess,
+  pages: standInPages,
   fetch: (url, init) => fetch(url, init),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   log: { warn: (details, message) => console.warn(message, JSON.stringify(details)) },
@@ -54,7 +65,7 @@ export function claudeRuntime(): ClaudeRuntime {
 
 /**
  * Replaces parts of Claude's runtime: the app binds its log, the Settings → Claude PR binds the real
- * access checks, and tests bind fakes. The returned function puts back what was there before.
+ * access checks, the page model binds `pages`, and tests bind fakes. The returned function puts back what was there before.
  */
 export function configureClaude(next: Partial<ClaudeRuntime>): () => void {
   const previous = current;
