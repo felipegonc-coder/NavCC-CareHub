@@ -8,7 +8,7 @@ export * from './crop';
 
 // media: upload checks
 
-// media: embeds
+export * from './embed';
 
 // media: embed publish check
 
