@@ -1,4 +1,5 @@
 import {
+  LIMITS,
   addBlock,
   deleteBlock,
   duplicateBlock,
@@ -6,6 +7,7 @@ import {
   moveBlockBy,
   renameLesson,
   updateBlock,
+  updateLessonDetails,
 } from '@carehub/learning';
 import type { Block, Course, Lesson } from '@carehub/learning';
 import { Button, cn, IconButton } from '@carehub/ui';
@@ -14,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BlockEditorFor } from '../editors/registry';
 import { blockLabel } from '../labels';
 import { BlockPicker } from './BlockPicker';
-import { TitleField } from './parts';
+import { NumberField, TitleField } from './parts';
 import { SortableList, useSortableItem } from './sortable';
 import type { EditorActions } from './types';
 
@@ -145,13 +147,31 @@ export function LessonCanvas(
       aria-label={`Lesson: ${lesson.title}`}
       className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6"
     >
-      <TitleField
-        label="Lesson title"
-        value={lesson.title}
-        onChange={(text) =>
-          edit((c) => renameLesson(c, lesson.id, text), { group: `lesson-title:${lesson.id}` })
-        }
-      />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1">
+          <TitleField
+            label="Lesson title"
+            value={lesson.title}
+            onChange={(text) =>
+              edit((c) => renameLesson(c, lesson.id, text), { group: `lesson-title:${lesson.id}` })
+            }
+          />
+        </div>
+        {lesson.kind === 'content' && (
+          <NumberField
+            label="Minimum time, in seconds"
+            hint="Learners can't complete the lesson sooner. Empty means no minimum."
+            value={lesson.minimumSeconds}
+            min={1}
+            max={LIMITS.minimumLessonSeconds}
+            onChange={(seconds) =>
+              edit((c) => updateLessonDetails(c, lesson.id, { minimumSeconds: seconds }), {
+                group: `lesson-minimum:${lesson.id}`,
+              })
+            }
+          />
+        )}
+      </div>
       {lesson.kind === 'quiz' ? (
         <p className="rounded border border-border p-4 text-small text-muted">
           Quiz questions and settings are edited here once the quiz editor is ready.

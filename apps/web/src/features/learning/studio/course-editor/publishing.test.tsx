@@ -47,11 +47,12 @@ describe('publishing from the course editor', () => {
   it('lists what to fix in plain words, each with a way to the place', async () => {
     await renderEditor(unfinished);
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
-    const publish = panel('Publish');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const publish = panel('Before publishing');
     expect(within(publish).getByText('Fix these 3 things before publishing:')).toBeInTheDocument();
 
     showMe('Lesson 2 "Five moments" has no blocks.');
-    expect(screen.getByRole('button', { name: '2. Five moments' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '2. Five moments' })).toHaveAttribute(
       'aria-current',
       'true',
     );
@@ -67,29 +68,39 @@ describe('publishing from the course editor', () => {
       target: { value: 'I have read and understood this.' },
     });
     expect(within(publish).getByText('Fix these 2 things before publishing:')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('publishes, then publishes again telling people who finished', async () => {
+  it('publishes, then publishes again moving people partway through', async () => {
     const { client, courseId } = await readyCourse();
     await open(client, courseId);
     expect(screen.getByText('Draft, not published yet')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
-    expect(screen.queryByRole('group', { name: 'People who already started' })).toBeNull();
-    fireEvent.change(within(panel('Publish')).getByRole('textbox', { name: 'What changed' }), {
+    let dialog = screen.getByRole('dialog', { name: 'Publish this course' });
+    expect(within(dialog).queryByRole('group', { name: 'People who already started' })).toBeNull();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'What changed' }), {
       target: { value: 'First version' },
     });
-    fireEvent.click(within(panel('Publish')).getByRole('button', { name: 'Publish' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish' }));
     expect(await screen.findByText(/^Published version 1\./)).toBeInTheDocument();
     expect(screen.getByText('Live, version 1')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Publish' })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Course title' }), {
       target: { value: 'Hand hygiene, updated' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Move to this one' }));
-    expect(screen.getByText(/^People partway through move to this version/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Publish version 2' }));
+    dialog = screen.getByRole('dialog', { name: 'Publish version 2' });
+    const started = within(dialog).getByRole('group', { name: 'People who already started' });
+    expect(within(started).getByRole('radio', { name: "Don't tell them" })).toBeChecked();
+    const tell = within(started).getByRole('radio', {
+      name: 'Move them to this version and tell them',
+    });
+    expect(tell).toHaveAccessibleDescription(/^People partway through carry on in this version/);
+    fireEvent.click(tell);
+    expect(tell).toBeChecked();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish version 2' }));
     expect(await screen.findByText(/^Published version 2\./)).toBeInTheDocument();
 
     const versions = await client.listVersions(courseId);

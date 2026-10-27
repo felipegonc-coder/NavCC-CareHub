@@ -10,6 +10,8 @@ import {
 import type { Course, Id, Lesson } from '@carehub/learning';
 import { Button, cn, IconButton } from '@carehub/ui';
 import { ArrowDown, ArrowUp, Copy, Plus, Settings, Trash2 } from 'lucide-react';
+import { Link } from 'react-router';
+import { lessonPath } from '../labels';
 import { TitleField } from './parts';
 import { SortableList, useSortableItem } from './sortable';
 import type { EditorActions } from './types';
@@ -17,7 +19,13 @@ import type { EditorActions } from './types';
 const moveClasses = 'aria-disabled:text-faint';
 
 function LessonRow(
-  props: EditorActions & { lesson: Lesson; index: number; count: number; selected: boolean },
+  props: EditorActions & {
+    courseId: Id;
+    lesson: Lesson;
+    index: number;
+    count: number;
+    selected: boolean;
+  },
 ) {
   const { lesson, index, count, selected, edit, remove, select } = props;
   const item = useSortableItem(lesson.id, `Reorder ${lesson.title}`);
@@ -32,8 +40,9 @@ function LessonRow(
       )}
     >
       {item.handle}
-      <button
-        type="button"
+      <Link
+        to={lessonPath(props.courseId, lesson.id)}
+        replace
         aria-current={selected || undefined}
         className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-small text-fg hover:bg-fill-hover"
         onClick={() => select(lesson.id)}
@@ -42,7 +51,7 @@ function LessonRow(
         {lesson.kind === 'quiz' && !/quiz/i.test(lesson.title) && (
           <span className="text-muted"> · Quiz</span>
         )}
-      </button>
+      </Link>
       {selected && (
         <>
           <IconButton
@@ -122,7 +131,7 @@ export function Outline(props: OutlineProps) {
         <Settings aria-hidden />
         Course settings
       </Button>
-      <nav aria-label="Lessons" className="flex flex-col gap-2">
+      <nav aria-label="Outline" className="flex flex-col gap-2">
         <h2 className="text-small font-semibold text-muted">Lessons</h2>
         {course.lessons.length === 0 ? (
           <p className="text-small text-muted">No lessons yet. Add one to start.</p>
@@ -137,6 +146,7 @@ export function Outline(props: OutlineProps) {
                 <LessonRow
                   key={lesson.id}
                   {...props}
+                  courseId={course.id}
                   lesson={lesson}
                   index={index}
                   count={course.lessons.length}
@@ -146,17 +156,17 @@ export function Outline(props: OutlineProps) {
             </ol>
           </SortableList>
         )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={() => add('content')}>
+            <Plus aria-hidden />
+            Add lesson
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => add('quiz')}>
+            <Plus aria-hidden />
+            Add quiz
+          </Button>
+        </div>
       </nav>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="secondary" onClick={() => add('content')}>
-          <Plus aria-hidden />
-          Add lesson
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => add('quiz')}>
-          <Plus aria-hidden />
-          Add quiz
-        </Button>
-      </div>
     </div>
   );
 }

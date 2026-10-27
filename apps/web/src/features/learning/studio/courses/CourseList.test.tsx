@@ -26,6 +26,13 @@ async function someCourses(): Promise<StudioClient> {
 }
 
 const courseLinks = () => screen.getAllByRole('link').map((link) => link.textContent);
+/** Waits until a course editor's address is open. */
+const editorOpened = () =>
+  waitFor(() =>
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      /^\/learning\/studio\/courses\/[^/]+$/,
+    ),
+  );
 
 describe('Studio course list', () => {
   it('is one screen with its title, and says how to start when there are no courses', async () => {
@@ -38,26 +45,42 @@ describe('Studio course list', () => {
     expect(pageTitles()).toContain('Care Hub · Studio');
   });
 
-  it('starts a course from a course type and opens it in the editor', async () => {
+  it('starts a course from a type and a title, and opens it in the editor', async () => {
     const { client } = renderStudio('/learning/studio');
-    const toggle = screen.getByRole('button', { name: 'New course' });
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    const panel = screen.getByRole('region', { name: 'New course' });
-    fireEvent.click(within(panel).getByRole('button', { name: /^Certification/ }));
-
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Untitled course' }),
-    ).toBeInTheDocument();
-    const [course] = await client.listCourses();
-    expect(course).toMatchObject({
-      title: 'Untitled course',
-      type: 'certification',
-      state: 'draft',
+    const button = screen.getByRole('button', { name: 'New course' });
+    fireEvent.click(button);
+    const dialog = screen.getByRole('dialog', { name: 'New course' });
+    const standard = within(dialog).getByRole('radio', { name: 'Standard' });
+    expect(standard).toBeChecked();
+    expect(standard).toHaveAccessibleDescription(/^Lessons in any order/);
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Certification' }));
+    expect(within(dialog).getByRole('radio', { name: 'Certification' })).toBeChecked();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Title' }), {
+      target: { value: '  Safe lifting  ' },
     });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create course' }));
+
+    await editorOpened();
+    const [course] = await client.listCourses();
+    expect(course).toMatchObject({ title: 'Safe lifting', type: 'certification', state: 'draft' });
     expect(screen.getByTestId('location')).toHaveTextContent(
       `/learning/studio/courses/${course?.id}`,
     );
+  });
+
+  it('names a course "Untitled course" when no title is given, and Cancel closes', async () => {
+    const { client } = renderStudio('/learning/studio');
+    fireEvent.click(screen.getByRole('button', { name: 'New course' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(await client.listCourses()).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New course' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create course' }));
+    await editorOpened();
+    expect(await client.listCourses()).toMatchObject([
+      { title: 'Untitled course', type: 'standard' },
+    ]);
   });
 
   it('copies an example course to start from', async () => {
@@ -67,9 +90,7 @@ describe('Studio course list', () => {
     if (!example) throw new Error('Expected example courses');
     fireEvent.click(await screen.findByRole('button', { name: `Copy ${example.title}` }));
 
-    expect(
-      await screen.findByRole('heading', { level: 1, name: example.title }),
-    ).toBeInTheDocument();
+    await editorOpened();
     expect((await client.listCourses()).map((course) => course.title)).toEqual([example.title]);
   });
 

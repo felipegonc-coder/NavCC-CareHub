@@ -1,5 +1,4 @@
 import { Button, Field, Input } from '@carehub/ui';
-import { Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import type { StudioCourseSummary } from '../data/client';
@@ -7,7 +6,7 @@ import { useCourseAction, useStudioCourses } from '../data/queries';
 import type { CourseAction } from '../data/queries';
 import { COURSE_TYPE_INFO, courseStateLabel, editorPath } from '../labels';
 import { ErrorState, LoadingState } from '../states';
-import { NewCourse } from './NewCourse';
+import { NewCourseButton } from './NewCourse';
 
 type Filter = 'all' | 'draft' | 'live' | 'archived';
 
@@ -42,7 +41,6 @@ function visible(courses: StudioCourseSummary[], filter: Filter, search: string)
 export function CourseList() {
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
-  const [creating, setCreating] = useState(false);
   const [done, setDone] = useState('');
   const courses = useStudioCourses(filter === 'archived');
   const action = useCourseAction();
@@ -58,12 +56,8 @@ export function CourseList() {
       <title>Care Hub · Studio</title>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-title text-fg">Studio</h1>
-        <Button aria-expanded={creating} onClick={() => setCreating(!creating)}>
-          <Plus aria-hidden />
-          New course
-        </Button>
+        <NewCourseButton />
       </div>
-      {creating && <NewCourse onClose={() => setCreating(false)} />}
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Search courses" className="min-w-48 flex-1">
           <Input type="search" value={search} onChange={(e) => setSearch(e.target.value)} />

@@ -1,56 +1,79 @@
-import { COURSE_TYPES } from '@carehub/learning';
-import { Button, Card } from '@carehub/ui';
-import { useId } from 'react';
+import { LIMITS } from '@carehub/learning';
+import type { CourseType } from '@carehub/learning';
+import {
+  Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  Field,
+  Input,
+} from '@carehub/ui';
+import { Plus } from 'lucide-react';
+import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { RadioChoices } from '../choices';
 import { useCreateCourse, useStudioExamples } from '../data/queries';
 import type { NewCourseInput } from '../data/queries';
-import { COURSE_TYPE_INFO, editorPath } from '../labels';
+import { COURSE_TYPE_CHOICES, editorPath } from '../labels';
 
-const choiceClasses =
-  'flex h-full w-full flex-col gap-1 rounded border border-border bg-bg p-3 text-left hover:border-border-hover hover:bg-fill-hover disabled:text-faint';
-
-/** New course: pick a course type (with its preset settings) or copy an example, then edit it. */
-export function NewCourse({ onClose }: { onClose(): void }) {
-  const headingId = useId();
+function NewCourseForm() {
+  const id = useId();
   const navigate = useNavigate();
   const create = useCreateCourse();
   const examples = useStudioExamples();
+  const [type, setType] = useState<CourseType>('standard');
+  const [title, setTitle] = useState('');
   const start = (input: NewCourseInput) =>
     create.mutate(input, { onSuccess: (draft) => void navigate(editorPath(draft.course.id)) });
+  const typed = title.trim();
 
   return (
-    <Card role="region" aria-labelledby={headingId} className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 id={headingId} className="text-body font-semibold text-fg">
-          New course
-        </h2>
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          Cancel
-        </Button>
-      </div>
-      <section className="flex flex-col gap-2">
-        <h3 className="text-small font-medium text-muted">Start from a course type</h3>
-        <ul className="grid gap-2 sm:grid-cols-2">
-          {COURSE_TYPES.map((type) => (
-            <li key={type}>
-              <button
-                type="button"
-                className={choiceClasses}
-                disabled={create.isPending}
-                onClick={() => start({ type })}
-              >
-                <span className="text-small font-semibold text-fg">
-                  {COURSE_TYPE_INFO[type].label}
-                </span>
-                <span className="text-small text-muted">{COURSE_TYPE_INFO[type].description}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
+    <>
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          start({ type, ...(typed ? { title: typed } : {}) });
+        }}
+      >
+        <RadioChoices<CourseType>
+          legend="Course type"
+          value={type}
+          options={COURSE_TYPE_CHOICES}
+          onChange={setType}
+        />
+        <Field label="Title" hint="Optional. You can change it in the editor.">
+          <Input
+            value={title}
+            maxLength={LIMITS.title}
+            placeholder="Untitled course"
+            onChange={(event) => setTitle(event.currentTarget.value)}
+          />
+        </Field>
+        {create.isError && (
+          <p role="alert" className="text-small text-danger">
+            The course couldn't be created. Try again.
+          </p>
+        )}
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost">Cancel</Button>
+          </DialogClose>
+          <Button type="submit" loading={create.isPending}>
+            Create course
+          </Button>
+        </DialogFooter>
+      </form>
       {examples.data && examples.data.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h3 className="text-small font-medium text-muted">Or copy an example course</h3>
+        <section aria-labelledby={`${id}-examples`} className="flex flex-col gap-2">
+          <h3 id={`${id}-examples`} className="text-small font-medium text-fg">
+            Or copy an example course
+          </h3>
           <ul className="flex flex-col gap-2">
             {examples.data.map((example) => (
               <li key={example.id} className="flex items-center gap-3">
@@ -72,11 +95,29 @@ export function NewCourse({ onClose }: { onClose(): void }) {
           </ul>
         </section>
       )}
-      {create.isError && (
-        <p role="alert" className="text-small text-danger">
-          The course couldn't be created. Try again.
-        </p>
-      )}
-    </Card>
+    </>
+  );
+}
+
+/** New course: a dialog to pick a course type (with its preset settings) and a title, or copy an example. */
+export function NewCourseButton() {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button>
+          <Plus aria-hidden />
+          New course
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New course</DialogTitle>
+          <DialogDescription>
+            The type sets up the course's settings. You can change both later.
+          </DialogDescription>
+        </DialogHeader>
+        <NewCourseForm />
+      </DialogContent>
+    </Dialog>
   );
 }
