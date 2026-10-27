@@ -26,9 +26,13 @@ export interface LinkSpan {
   url: string;
 }
 
-/** http(s):// not straight after a letter or digit, up to a space or a character URLs can't hold. */
-const LINK_CANDIDATE = /(?<![\p{L}\p{N}])https?:\/\/[^\s<>"`\p{Cc}]+/giu;
-const SAFE_HREF = /^https?:\/\/[^\s<>"`\p{Cc}]+$/iu;
+/**
+ * http(s):// not straight after a letter or digit, up to a space or a character URLs can't hold.
+ * Invisible formatting characters (\p{Cf}, such as U+202E, which flips the text after it) end a
+ * link, so a link always goes where it reads. Message text keeps them: emoji need U+200D.
+ */
+const LINK_CANDIDATE = /(?<![\p{L}\p{N}])https?:\/\/[^\s<>"`\p{Cc}\p{Cf}]+/giu;
+const SAFE_HREF = /^https?:\/\/[^\s<>"`\p{Cc}\p{Cf}]+$/iu;
 const TRAILING = /[.,:;!?'…]/u;
 const LABEL = '[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]*[\\p{L}\\p{N}])?';
 const HOST = new RegExp(`^(?:\\[[0-9a-f:.]+\\]|${LABEL}(?:\\.${LABEL})*)(?::\\d{1,5})?$`, 'iu');

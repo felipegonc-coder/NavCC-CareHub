@@ -1,6 +1,6 @@
 /**
  * Which view shows, and the viewer's own filter, sorts and grouping on top of it ("Changed for you
- * only · Reset"). Plain functions, so they're tested without React.
+ * only · Reset"; the engine's applyOverride draws them). Plain functions, tested without React.
  */
 import type { DatabaseMeta, Id, View, ViewOverride } from '@carehub/databases';
 import { can } from '@carehub/databases/access';
@@ -42,16 +42,6 @@ export function pickView(
   return (
     tabs.find((v) => v.id === linked) ?? tabs.find((v) => v.id === lastUsed) ?? tabs[0] ?? null
   );
-}
-
-/** The saved view with the viewer's own filter, sorts and grouping on top. */
-export function withOverride(view: View, override: ViewOverride | null): View {
-  if (!override) return view;
-  const next = { ...view };
-  if (override.filter !== undefined) next.filter = override.filter;
-  if (override.sorts !== undefined) next.sorts = override.sorts;
-  if (override.grouping !== undefined) next.grouping = override.grouping;
-  return next;
 }
 
 /**

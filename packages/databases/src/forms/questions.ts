@@ -55,8 +55,9 @@ export function isAnonymousForm(def: Pick<FormDefinition, 'anonymous' | 'audienc
 
 /**
  * How a property shows as a question, or null when it can't be one. Status, Checklist, created
- * and edited properties, ID, formulas, rollups and buttons are never offered, and a form anyone
- * can fill in has no Person or Relation questions (they would show names and row titles).
+ * and edited properties, ID, formulas, rollups, buttons and verifications are never offered, and a
+ * form anyone can fill in has no Person or Relation questions (they would show names and row
+ * titles).
  */
 export function questionKind(
   prop: Property,
@@ -102,6 +103,7 @@ export function questionKind(
     case 'formula':
     case 'rollup':
     case 'button':
+    case 'verification':
       return null;
   }
 }
