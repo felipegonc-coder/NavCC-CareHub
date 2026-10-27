@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
-import { Button, cn, colorClasses } from '@carehub/ui';
+import { Button, Checkbox, cn, colorClasses } from '@carehub/ui';
 import {
   isEmptyValue,
   type Id,
@@ -30,12 +30,14 @@ import {
   type ViewData,
 } from '../contract';
 import {
+  CELL_TEXT,
   CellEditor,
   CellView,
   rowCell,
   type CellContext,
   type CommitDetails,
 } from './cell-adapter';
+import { BulkBar } from './bulk-bar';
 import { collapsedStorageKey, useCollapsedGroups } from './collapsed';
 import {
   clampWidth,
@@ -50,6 +52,15 @@ import { sameStored, withoutNewOptions } from './edits';
 import { TotalsRow } from './footer';
 import { HeaderCell, PropertiesMenu, type ColumnChanges } from './header';
 import { TABLE_TEXT } from './messages';
+import {
+  allTicked,
+  extendTo,
+  NO_SELECTION,
+  selectAll,
+  selectedNow,
+  tick,
+  type RowSelection,
+} from './selection';
 import { moveSetting, withCalculation, withSetting, withTableOptions } from './view-settings';
 
 /** One row on screen. A row can sit in several groups (multi-select), so lines have their own key. */
@@ -95,6 +106,24 @@ const NO_TYPING = new Set(['checkbox', 'files', 'button']);
 /** Elements inside a cell that handle their own presses. */
 const OWN_PRESS = 'button, a, input, textarea, select, [data-cell-editor]';
 
+/** The selection column in the active-cell state, and its width (px, as `w-11`). */
+const SELECT_KEY = '#select';
+const SELECT_WIDTH = 44;
+
+/** Types "Set property" can give every ticked row at once. */
+const BULK_TYPES = new Set([
+  'text',
+  'number',
+  'select',
+  'multi_select',
+  'status',
+  'date',
+  'checkbox',
+  'url',
+  'email',
+  'phone',
+]);
+
 function asQueryRow(row: Row): QueryRow {
   return {
     id: row.id,
@@ -104,6 +133,7 @@ function asQueryRow(row: Row): QueryRow {
     values: row.values,
     computed: {},
     hiddenLinks: {},
+    color: { row: null, cells: {} },
     createdAt: row.createdAt,
     createdBy: row.createdBy,
     editedAt: row.editedAt,
@@ -127,12 +157,15 @@ function inAnswer(data: ViewData, rowId: Id): boolean {
 /** The Table layout: rows and columns, grouped or not, with editing in the cells. */
 export default function TableLayout({ meta, view, data, viewer, actions, readOnly }: LayoutProps) {
   const options = tableOptions(view);
+  // Ticking rows is for people who can change them: Delete and Set property.
+  const canSelect = !readOnly && can('edit_rows', meta.viewerAccess, { locked: meta.locked });
+  const start = canSelect ? SELECT_WIDTH : 0;
   // A column's width while its edge is dragged, and until saving it is done.
   const [resize, setResize] = useState<{ propertyId: Id; width: number } | null>(null);
   const widths = useMemo(() => (resize ? { [resize.propertyId]: resize.width } : {}), [resize]);
   const columns = useMemo(
-    () => tableColumns(meta.properties, view, data.propertyIds, widths),
-    [meta.properties, view, data.propertyIds, widths],
+    () => tableColumns(meta.properties, view, data.propertyIds, widths, start),
+    [meta.properties, view, data.propertyIds, widths, start],
   );
   const listed = useMemo(
     () => propertyOrder(meta.properties, view, data.propertyIds),
@@ -157,6 +190,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const [editing, setEditing] = useState<Editing | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ key: string } | null>(null);
   const [menuFor, setMenuFor] = useState<Id | null>(null);
+  const [selection, setSelection] = useState<RowSelection>(NO_SELECTION);
   // A header being dragged to a new place: where the pointer is, px from the table's left edge.
   const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
   const cells = useRef(new Map<string, HTMLDivElement>());
@@ -225,6 +259,16 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   }, [data, created, collapsed]);
 
   const lines = useMemo(() => sections.flatMap((s) => (s.collapsed ? [] : s.lines)), [sections]);
+  // Every row in the answer by id (collapsed groups too): ticked rows that left drop out.
+  const lineOf = useMemo(() => {
+    const map = new Map<Id, Line>();
+    for (const section of sections) {
+      for (const line of section.lines) if (!map.has(line.row.id)) map.set(line.row.id, line);
+    }
+    return map;
+  }, [sections]);
+  const present = useMemo(() => new Set(lineOf.keys()), [lineOf]);
+  const selected = canSelect ? selectedNow(selection, present) : NO_SELECTION.ids;
   const nameColumn = columns.find((c) => c.property.config.type === 'title');
   const canAdd =
     !readOnly &&
@@ -246,7 +290,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const activeShown =
     active !== null &&
     lines.some((l) => l.key === active.line) &&
-    columns.some((c) => c.property.id === active.propertyId);
+    ((canSelect && active.propertyId === SELECT_KEY) ||
+      columns.some((c) => c.property.id === active.propertyId));
   const tabStop = activeShown
     ? cellKey(active.line, active.propertyId)
     : first && firstColumn
@@ -258,10 +303,12 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     setFocusRequest({ key: cellKey(line, propertyId) });
   };
 
+  /** Column index -1 is the selection column (when rows can be ticked). */
   const focusAt = (rowIndex: number, columnIndex: number) => {
     const line = lines[Math.max(0, Math.min(lines.length - 1, rowIndex))];
-    const column = columns[Math.max(0, Math.min(columns.length - 1, columnIndex))];
-    if (line && column) focusCell(line.key, column.property.id);
+    const at = Math.max(canSelect ? -1 : 0, Math.min(columns.length - 1, columnIndex));
+    const id = at === -1 ? SELECT_KEY : columns[at]?.property.id;
+    if (line && id !== undefined) focusCell(line.key, id);
   };
 
   /** Tab and Shift+Tab: the next or previous cell, on to the next or previous row. */
@@ -345,19 +392,58 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     }
   };
 
-  const keyOnCell = (event: KeyboardEvent<HTMLDivElement>, line: Line, column: TableColumn) => {
-    if (event.target !== event.currentTarget || editing) return;
-    const rowIndex = lines.findIndex((l) => l.key === line.key);
-    const columnIndex = columns.findIndex((c) => c.property.id === column.property.id);
-    const property = column.property;
+  const tickLine = (line: Line, range: boolean) =>
+    setSelection((current) => tick(current, lines, line.key, range));
+
+  /** Keys on a value cell that aren't moves: edit, type over, clear, open or tick. */
+  const keyOnValue = (event: KeyboardEvent<HTMLDivElement>, line: Line, property: Property) => {
     const mod = event.metaKey || event.ctrlKey;
     switch (event.key) {
+      case 'Enter':
+      case 'F2':
+        startEditing(line, property);
+        return true;
+      case ' ':
+        if (property.config.type === 'title') actions.openRow(line.row.id);
+        else if (property.config.type === 'checkbox' && canEdit(property)) toggle(line, property);
+        else return false;
+        return true;
+      case 'Delete':
+      case 'Backspace':
+        return clearCell(line, property);
+      default:
+        if (event.key.length !== 1 || mod || event.altKey) return false;
+        if (!canEdit(property) || NO_TYPING.has(property.config.type)) return false;
+        startEditing(line, property, event.key);
+        return true;
+    }
+  };
+
+  /** Keys on a cell; `columnIndex` -1 is the selection column. */
+  const keyOnCell = (event: KeyboardEvent<HTMLDivElement>, line: Line, columnIndex: number) => {
+    if (event.target !== event.currentTarget || editing) return;
+    const rowIndex = lines.findIndex((l) => l.key === line.key);
+    const column = columns[columnIndex];
+    const id = column ? column.property.id : SELECT_KEY;
+    const mod = event.metaKey || event.ctrlKey;
+    if (mod && !event.altKey && event.key.toLowerCase() === 'a') {
+      if (!canSelect) return;
+      setSelection(selectAll(lines));
+      event.preventDefault();
+      return;
+    }
+    switch (event.key) {
       case 'ArrowUp':
-        focusAt(rowIndex - 1, columnIndex);
+      case 'ArrowDown': {
+        const to = rowIndex + (event.key === 'ArrowUp' ? -1 : 1);
+        const target = lines[to];
+        // Shift+arrows in the selection column tick the rows on the way.
+        if (!column && event.shiftKey && target) {
+          setSelection((current) => extendTo(current, lines, line.key, target.key));
+        }
+        focusAt(to, columnIndex);
         break;
-      case 'ArrowDown':
-        focusAt(rowIndex + 1, columnIndex);
-        break;
+      }
       case 'ArrowLeft':
         focusAt(rowIndex, columnIndex - 1);
         break;
@@ -371,25 +457,20 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         focusAt(mod ? lines.length - 1 : rowIndex, columns.length - 1);
         break;
       case 'Tab':
-        if (!moveAlong(line.key, property.id, event.shiftKey ? -1 : 1)) return;
+        if (!moveAlong(line.key, id, event.shiftKey ? -1 : 1)) return;
         break;
-      case 'Enter':
-      case 'F2':
-        startEditing(line, property);
-        break;
-      case ' ':
-        if (property.config.type === 'title') actions.openRow(line.row.id);
-        else if (property.config.type === 'checkbox' && canEdit(property)) toggle(line, property);
-        else return;
-        break;
-      case 'Delete':
-      case 'Backspace':
-        if (!clearCell(line, property)) return;
+      case 'Escape':
+        if (selected.size === 0) return;
+        setSelection(NO_SELECTION);
         break;
       default:
-        if (event.key.length !== 1 || mod || event.altKey) return;
-        if (!canEdit(property) || NO_TYPING.has(property.config.type)) return;
-        startEditing(line, property, event.key);
+        if (column) {
+          if (!keyOnValue(event, line, column.property)) return;
+        } else if (event.key === ' ' || event.key === 'Enter') {
+          tickLine(line, event.shiftKey);
+        } else {
+          return;
+        }
     }
     event.preventDefault();
   };
@@ -464,6 +545,35 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       }),
     }));
 
+  // "Set property" lists what the viewer can change (Name, files, people and relations aside).
+  const bulkProperties = listed.filter(
+    (property) => BULK_TYPES.has(property.config.type) && canEdit(property),
+  );
+
+  const setForSelected = (property: Property, value: unknown, details: CommitDetails) => {
+    // Until the view can add options, a new one isn't set (a Select keeps each row's value).
+    const next = withoutNewOptions(value, undefined, details.newOptions);
+    if (
+      next === undefined ||
+      (!isEmptyValue(value as ReadValue) && isEmptyValue(next as ReadValue))
+    )
+      return;
+    for (const id of selected) {
+      const line = lineOf.get(id);
+      if (line && !sameStored(rowCell(line.row, property).value, next)) save(line, property, next);
+    }
+  };
+
+  const trashSelected = () => {
+    const ids = [...selected];
+    // Focus goes to the first row that stays, as the bar goes away.
+    const stays = lines.find((l) => !selected.has(l.row.id));
+    setSelection(NO_SELECTION);
+    setCreated((list) => list.filter((c) => !selected.has(c.row.id)));
+    if (stays) focusCell(stays.key, SELECT_KEY);
+    actions.trashRows(ids).catch(() => undefined);
+  };
+
   const gridX = (clientX: number) => clientX - (grid.current?.getBoundingClientRect().left ?? 0);
 
   const startResize = (event: PointerEvent<HTMLDivElement>, column: TableColumn) => {
@@ -528,18 +638,73 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
 
   const toggleGroup = (group: QueryGroup) => toggleCollapsed(group.collapsedKey);
 
+  // Frozen columns stay in place; so does Name on phones (`left` only counts once it's sticky).
   const placeOf = (column: TableColumn): CSSProperties =>
-    column.frozen ? { width: column.width, left: column.left } : { width: column.width };
+    column.frozen || column.property.config.type === 'title'
+      ? { width: column.width, left: column.left }
+      : { width: column.width };
   const lineClass = options.showVerticalLines ? 'border-r border-border' : undefined;
   const frozenClass = (column: TableColumn) =>
     cn(
       column.frozen && 'sticky z-10 bg-bg',
       column.property.config.type === 'title' &&
         !column.frozen &&
-        'max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-bg',
+        'max-md:sticky max-md:z-10 max-md:bg-bg',
     );
 
-  const renderCell = (line: Line, column: TableColumn) => {
+  // The selection column stays at the left edge, over the cells scrolling under it.
+  const selectClass = 'sticky left-0 z-10 flex w-11 shrink-0 items-center justify-center bg-bg';
+  const selectedClass = 'bg-fill-hover max-md:bg-fill-hover';
+  const cellRef = (key: string) => (element: HTMLDivElement | null) => {
+    if (element) cells.current.set(key, element);
+    else cells.current.delete(key);
+  };
+
+  const pressSelect = (event: MouseEvent<HTMLDivElement>, line: Line) => {
+    tickLine(line, event.shiftKey);
+    focusCell(line.key, SELECT_KEY);
+  };
+
+  const renderSelect = (line: Line) => {
+    const key = cellKey(line.key, SELECT_KEY);
+    const ticked = selected.has(line.row.id);
+    return (
+      <div
+        key={SELECT_KEY}
+        ref={cellRef(key)}
+        role="gridcell"
+        tabIndex={key === tabStop ? 0 : -1}
+        data-select-cell=""
+        onMouseDown={(event) => {
+          // Shift-click ticks a range; it shouldn't select text on the way.
+          if (event.shiftKey) event.preventDefault();
+        }}
+        onClick={(event) => pressSelect(event, line)}
+        onKeyDown={(event) => keyOnCell(event, line, -1)}
+        className={cn(
+          selectClass,
+          'min-h-9 cursor-pointer outline-none max-md:min-h-11',
+          'focus:outline focus:outline-2 focus:outline-offset-inset focus:outline-ring',
+          'group-hover/row:bg-fill',
+          ticked && selectedClass,
+        )}
+      >
+        <Checkbox
+          checked={ticked}
+          tabIndex={-1}
+          aria-label={TABLE_TEXT.selectRow(line.row.title || CELL_TEXT.untitled)}
+          // The cell ticks it (with Shift for a range), so the box itself does nothing more.
+          onClick={(event) => event.preventDefault()}
+          className={cn(
+            selected.size === 0 &&
+              'opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100 max-md:opacity-100',
+          )}
+        />
+      </div>
+    );
+  };
+
+  const renderCell = (line: Line, column: TableColumn, columnIndex: number) => {
     const property = column.property;
     const key = cellKey(line.key, property.id);
     const isName = property.config.type === 'title';
@@ -548,16 +713,13 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     return (
       <div
         key={property.id}
-        ref={(element) => {
-          if (element) cells.current.set(key, element);
-          else cells.current.delete(key);
-        }}
+        ref={cellRef(key)}
         role={isName ? 'rowheader' : 'gridcell'}
         tabIndex={key === tabStop ? 0 : -1}
         data-property-id={property.id}
         aria-readonly={canEdit(property) ? undefined : true}
         onClick={(event) => pressCell(event, line, column)}
-        onKeyDown={(event) => keyOnCell(event, line, column)}
+        onKeyDown={(event) => keyOnCell(event, line, columnIndex)}
         style={placeOf(column)}
         className={cn(
           'relative flex min-h-9 shrink-0 items-start gap-1 px-2 py-1.5 outline-none max-md:min-h-11',
@@ -565,6 +727,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           'group-hover/row:bg-fill',
           lineClass,
           frozenClass(column),
+          selected.has(line.row.id) && selectedClass,
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -620,9 +783,10 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   };
 
   const cellClass = (column: TableColumn) => cn(lineClass, frozenClass(column));
+  const colCount = columns.length + (canSelect ? 1 : 0);
   const renderWide = (content: ReactNode) => (
     <div role="row" className="flex">
-      <div role="gridcell" aria-colspan={columns.length} className="sticky left-0 px-1 py-1">
+      <div role="gridcell" aria-colspan={colCount} className="sticky left-0 px-1 py-1">
         {content}
       </div>
     </div>
@@ -639,12 +803,14 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             key={line.key}
             role="row"
             data-row-id={line.row.id}
+            aria-selected={canSelect ? selected.has(line.row.id) : undefined}
             className={cn(
               'group/row flex border-b border-border',
               line.row.context && 'text-muted',
             )}
           >
-            {columns.map((column) => renderCell(line, column))}
+            {canSelect && renderSelect(line)}
+            {columns.map((column, index) => renderCell(line, column, index))}
           </div>
         ))}
         {section.nextCursor !== null &&
@@ -682,6 +848,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             totals={group.totals}
             placeOf={placeOf}
             cellClass={cellClass}
+            leadClass={canSelect ? selectClass : undefined}
           />
         )}
       </>
@@ -697,11 +864,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     return (
       <div role="rowgroup" key={group.key} aria-label={group.label}>
         <div role="row" className="flex">
-          <div
-            role="gridcell"
-            aria-colspan={columns.length}
-            className="sticky left-0 px-1 pt-4 pb-1"
-          >
+          <div role="gridcell" aria-colspan={colCount} className="sticky left-0 px-1 pt-4 pb-1">
             <button
               type="button"
               aria-expanded={!section.collapsed}
@@ -727,77 +890,104 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     target === undefined
       ? null
       : target === null
-        ? columns.reduce((sum, c) => sum + c.width, 0)
+        ? columns.reduce((sum, c) => sum + c.width, start)
         : (columns.find((c) => c.property.id === target)?.left ?? null);
+  const allState = allTicked(lines, selected);
 
   return (
-    <div className="overflow-x-auto">
-      <div
-        ref={grid}
-        role="grid"
-        aria-label={view.name}
-        aria-colcount={columns.length}
-        aria-readonly={readOnly || undefined}
-        className="relative w-max min-w-full text-small text-fg"
-      >
-        <div role="rowgroup">
-          <div role="row" className="flex border-b border-border">
-            {columns.map((column) => (
-              <HeaderCell
-                key={column.property.id}
-                column={column}
-                style={placeOf(column)}
-                className={cellClass(column)}
-                editable={canEditViews}
-                frozenHere={options.frozenUpTo === column.property.id}
-                menuOpen={menuFor === column.property.id}
-                onMenuOpenChange={(open) => setMenuFor(open ? column.property.id : null)}
-                onPress={() => pressHeader(column)}
-                moving={moving?.propertyId === column.property.id}
-                onMoveStart={(event) => startMove(event, column)}
-                onResizeStart={(event) => startResize(event, column)}
-                change={columnChanges(column)}
-              />
-            ))}
-            {canEditViews && (
-              <div role="columnheader" className="flex shrink-0 items-center px-1">
-                <PropertiesMenu
-                  properties={listed}
-                  shown={shown}
-                  wrapCells={options.wrapCells}
-                  onShow={showColumn}
-                  onWrapCells={wrapCells}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-        {sections.map(renderSection)}
-        {(canEditViews || Object.keys(data.totals).length > 0) && (
+    <>
+      <div className="overflow-x-auto">
+        <div
+          ref={grid}
+          role="grid"
+          aria-label={view.name}
+          aria-colcount={colCount}
+          aria-multiselectable={canSelect || undefined}
+          aria-readonly={readOnly || undefined}
+          className="relative w-max min-w-full text-small text-fg"
+        >
           <div role="rowgroup">
-            <TotalsRow
-              columns={columns}
-              totals={data.totals}
-              placeOf={placeOf}
-              cellClass={cellClass}
-              calculations={canEditViews ? view.calculations : undefined}
-              onCalculate={(property, aggregate) =>
-                void changeView((v) => ({
-                  calculations: withCalculation(v.calculations, property.id, aggregate),
-                }))
-              }
-              testId="db-totals"
-            />
+            <div role="row" className="flex border-b border-border">
+              {canSelect && (
+                <div role="columnheader" className={cn(selectClass, 'min-h-9 max-md:min-h-11')}>
+                  <Checkbox
+                    checked={allState}
+                    aria-label={TABLE_TEXT.selectAll}
+                    onCheckedChange={() =>
+                      setSelection(allState === true ? NO_SELECTION : selectAll(lines))
+                    }
+                  />
+                </div>
+              )}
+              {columns.map((column) => (
+                <HeaderCell
+                  key={column.property.id}
+                  column={column}
+                  style={placeOf(column)}
+                  className={cellClass(column)}
+                  editable={canEditViews}
+                  frozenHere={options.frozenUpTo === column.property.id}
+                  menuOpen={menuFor === column.property.id}
+                  onMenuOpenChange={(open) => setMenuFor(open ? column.property.id : null)}
+                  onPress={() => pressHeader(column)}
+                  moving={moving?.propertyId === column.property.id}
+                  onMoveStart={(event) => startMove(event, column)}
+                  onResizeStart={(event) => startResize(event, column)}
+                  change={columnChanges(column)}
+                />
+              ))}
+              {canEditViews && (
+                <div role="columnheader" className="flex shrink-0 items-center px-1">
+                  <PropertiesMenu
+                    properties={listed}
+                    shown={shown}
+                    wrapCells={options.wrapCells}
+                    onShow={showColumn}
+                    onWrapCells={wrapCells}
+                  />
+                </div>
+              )}
+            </div>
           </div>
-        )}
-        {indicator !== null && (
-          <div
-            aria-hidden
-            style={{ left: indicator }}
-            className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-primary"
-          />
-        )}
+          {sections.map(renderSection)}
+          {(canEditViews || Object.keys(data.totals).length > 0) && (
+            <div role="rowgroup">
+              <TotalsRow
+                columns={columns}
+                totals={data.totals}
+                placeOf={placeOf}
+                cellClass={cellClass}
+                leadClass={canSelect ? selectClass : undefined}
+                calculations={canEditViews ? view.calculations : undefined}
+                onCalculate={(property, aggregate) =>
+                  void changeView((v) => ({
+                    calculations: withCalculation(v.calculations, property.id, aggregate),
+                  }))
+                }
+                testId="db-totals"
+              />
+            </div>
+          )}
+          {indicator !== null && (
+            <div
+              aria-hidden
+              style={{ left: indicator }}
+              className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-primary"
+            />
+          )}
+        </div>
       </div>
-    </div>
+      {selected.size > 0 && (
+        <BulkBar
+          count={selected.size}
+          properties={bulkProperties}
+          ctx={ctx}
+          canCreateOptions={canEditStructure}
+          onSet={setForSelected}
+          onTrash={trashSelected}
+          onClear={() => setSelection(NO_SELECTION)}
+        />
+      )}
+    </>
   );
 }

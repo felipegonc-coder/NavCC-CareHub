@@ -28,6 +28,7 @@ export const DEFAULT_MAX_EVENTS = 5000; // the spec's limit per calendar within 
 const MAX_LIST = 1000; // attendees, RDATEs or EXDATEs kept per event
 const MAX_WARNINGS = 50;
 const MAX_CUSTOM_ZONES = 20; // custom VTIMEZONEs read per file
+const MAX_LINES = 400_000; // content lines per file: about 40 MB of a typical calendar
 
 export interface ParseOptions {
   maxBytes?: number;
@@ -52,13 +53,16 @@ export interface ParseResult {
   events: ExternalEvent[];
   calendar: CalendarInfo;
   skipped: number; // broken events left out
-  truncated: boolean; // more than maxEvents; the rest were left out
+  truncated: boolean; // more than maxEvents or MAX_LINES; the rest were left out
   warnings: string[];
 }
 
+/** `too-complex`: the worker ran out of time or memory (see parse-in-worker.ts). */
+export type IcalParseErrorCode = 'too-large' | 'not-calendar' | 'too-complex';
+
 export class IcalParseError extends Error {
-  readonly code: 'too-large' | 'not-calendar';
-  constructor(code: 'too-large' | 'not-calendar', message: string) {
+  readonly code: IcalParseErrorCode;
+  constructor(code: IcalParseErrorCode, message: string) {
     super(message);
     this.name = 'IcalParseError';
     this.code = code;
@@ -84,13 +88,22 @@ export function parseCalendar(input: string | Uint8Array, options: ParseOptions 
   const text = typeof input === 'string' ? input.replace(/^\uFEFF/, '') : decode(input, options);
   const warnings: string[] = [];
   const warn = (message: string) => void (warnings.length < MAX_WARNINGS && warnings.push(message));
-  const lines: ContentLine[] = [];
-  for (const { text: raw, line } of logicalLines(text)) {
-    const parsed = parseContentLine(raw, line);
-    if (parsed) lines.push(parsed);
-    else warn(`Line ${line} isn't a valid iCalendar line and was ignored.`);
-  }
-  const roots = readComponents(lines);
+  // Lines are parsed as the tree is built, so lines that end up dropped are never kept.
+  let cut = false;
+  const lines = function* (): Generator<ContentLine> {
+    let count = 0;
+    for (const { text: raw, line } of logicalLines(text)) {
+      if (++count > MAX_LINES) {
+        cut = true;
+        warn(`The calendar has more than ${MAX_LINES} lines; the rest was left out.`);
+        return;
+      }
+      const parsed = parseContentLine(raw, line);
+      if (parsed) yield parsed;
+      else warn(`Line ${line} isn't a valid iCalendar line and was ignored.`);
+    }
+  };
+  const roots = readComponents(lines());
   const calendars = roots.filter((c) => c.name === 'VCALENDAR');
   const loose = roots.filter((c) => c.name === 'VEVENT');
   if (loose.length > 0) calendars.push({ name: 'VCALENDAR', props: [], children: loose });
@@ -179,7 +192,7 @@ export function parseCalendar(input: string | Uint8Array, options: ParseOptions 
     events: [...kept.values()],
     calendar: readCalendarInfo(calendars[0]!),
     skipped,
-    truncated,
+    truncated: truncated || cut,
     warnings,
   };
 }
