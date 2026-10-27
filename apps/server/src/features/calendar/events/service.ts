@@ -18,6 +18,7 @@ import { addDays, todayIn } from '@carehub/team-time';
 import { httpError } from '../../../core/errors';
 import type { Db, Tx } from '../../../db';
 import { publishToUsers } from '../../live';
+import { learningItems } from '../courses';
 import { listLayers } from '../layers/service';
 import { planDelete, planDuplicate, planEdit, planReply } from './edit';
 import { eventItems, eventJson } from './items';
@@ -59,13 +60,16 @@ const peopleIds = (event: EventRecord) => [event.organizerId, ...event.people.ma
 const notify = (eventId: string, userIds: readonly string[]) =>
   publishToUsers([...new Set(userIds)], { type: CALENDAR_CHANGED, data: { eventId } });
 
-/** Care Hub events in the viewer's range, from every event they organize or are invited to. */
+/** The viewer's range: events they organize or are invited to, and course due dates. */
 export async function listItems(db: Db, viewer: Viewer, query: ItemsQuery): Promise<ItemsResponse> {
   const window: Window = inRange(() => windowOf(query.from, query.to, viewer.timeZone));
-  const events = await eventsInWindow(db, viewer.workspaceId, viewer.id, window);
+  const [events, courses] = await Promise.all([
+    eventsInWindow(db, viewer.workspaceId, viewer.id, window),
+    learningItems(viewer, query.from, query.to),
+  ]);
   const profiles = await profilesOf(db, events.flatMap(peopleIds));
   let truncated = events.length >= MAX_EVENTS;
-  const items: CalendarItem[] = [];
+  const items: CalendarItem[] = [...courses];
   for (const event of events) {
     const shown = eventItems(event, viewer.id, window, profiles);
     truncated ||= shown.truncated;
