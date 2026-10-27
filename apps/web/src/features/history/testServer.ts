@@ -55,6 +55,10 @@ export interface FakeHistoryOptions {
   canRestore?: boolean;
   /** Answers list requests with this error status. */
   listStatus?: number;
+  /** Answers restores and names with this error. */
+  changeError?: { status: number; message: string };
+  /** Who restores and saves. */
+  by?: HistoryPerson;
 }
 
 const json = (status: number, body: unknown) =>
@@ -83,9 +87,24 @@ export function fakeHistoryServer(versions: FakeVersion[], options: FakeHistoryO
     const method = init.method ?? 'GET';
     const body: unknown = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
     requests.push({ method, url: `${url.pathname}${url.search}`, body });
-    const match = /^\/api\/history\/pages\/[^/]+\/versions(?:\/([^/]+))?$/.exec(url.pathname);
+    const match = /^\/api\/history\/pages\/[^/]+\/versions(?:\/([^/]+)(\/restore)?)?$/.exec(
+      url.pathname,
+    );
     if (!match) return refusal(404);
-    const versionId = match[1];
+    const [, versionId, restore] = match;
+    const by = state.by ?? AVERY;
+
+    if (method !== 'GET' && state.changeError) {
+      const { status, message } = state.changeError;
+      const code = status === 409 ? 'conflict' : status === 404 ? 'not_found' : 'forbidden';
+      return json(status, { error: { code, message } });
+    }
+
+    if (versionId === undefined && method === 'POST') {
+      const { reason } = body as { reason: string };
+      const saved = savedVersion(`v-before-${reason}`, `before_${reason}`, by, null);
+      return json(201, { version: saved });
+    }
 
     if (versionId === undefined) {
       if (state.listStatus) return refusal(state.listStatus);
@@ -105,6 +124,16 @@ export function fakeHistoryServer(versions: FakeVersion[], options: FakeHistoryO
     const index = state.versions.findIndex((one) => one.summary.id === versionId);
     const found = state.versions[index];
     if (!found) return json(404, { error: { code: 'not_found', message: TOO_OLD } });
+
+    if (restore && method === 'POST') {
+      const saved = savedVersion('v-saved', 'before_restore', by, found.summary.createdAt);
+      return json(200, { version: saved });
+    }
+    if (method === 'PATCH') {
+      const { name } = body as { name: string | null };
+      found.summary = { ...found.summary, name: name || null };
+      return json(200, { version: found.summary });
+    }
     const previous = state.versions[index + 1];
     const answer: VersionResponse = {
       version: found.summary,
@@ -114,6 +143,23 @@ export function fakeHistoryServer(versions: FakeVersion[], options: FakeHistoryO
     };
     return json(200, answer);
   };
+
+  /** Adds the version a restore or the editor saves, newest first. */
+  function savedVersion(
+    id: string,
+    kind: string,
+    by: HistoryPerson,
+    restoredFrom: string | null,
+  ): VersionSummary {
+    const saved = fakeVersion(id, 0, 'Call the member today.', {
+      kind: kind as VersionSummary['kind'],
+      editors: [],
+      createdBy: by,
+      restoredFrom,
+    });
+    state.versions = [saved, ...state.versions];
+    return saved.summary;
+  }
 
   return { fetch: fetch as typeof globalThis.fetch, requests, state };
 }

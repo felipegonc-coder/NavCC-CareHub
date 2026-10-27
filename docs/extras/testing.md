@@ -26,10 +26,12 @@ How search works and what's still a stand-in: [search.md](search.md).
 
 - **Version history:** page menu → "Version history", Ctrl+Alt+H on a page, or open `/p/<pageId>?version=<versionId>`. It's a dialog named "Version history", described by the page title. Inside:
   - the listbox "Versions", with one group per day (named "Today", "Yesterday", "Oct 20") and options such as "Today, 3:12 PM · Avery Lin, Sam Ortiz" (a named version starts with its name);
-  - the region "Version preview", with the switch "Show changes" (on) and the button "Copy link";
+  - the region "Version preview", with the switch "Show changes" (on) and the buttons "Copy link", "Name this version" and "Restore this version" (the last two only when the page isn't locked or archived; otherwise the text "The page is locked or archived, so versions can't be restored or named.");
   - the button "Show older versions" when there are more;
   - on phones, a tap on an option shows the preview, and the button "Versions" goes back.
-- **Endpoints:** `GET /api/history/pages/:pageId/versions?before=` and `GET /api/history/pages/:pageId/versions/:versionId`. Live topic `history:<pageId>`: `history.versions`, `history.restored`.
+- **Restore:** "Restore this version", or Enter in "Versions", opens the dialog "Restore this version?" with the buttons "Cancel" and "Restore". After Restore, Version history closes and the notification "Avery Lin restored a version from Oct 20, 3:00 PM." shows (also for others editing the page). A refusal shows "Couldn't restore this version." and the reason.
+- **Names:** "Name this version" opens the dialog "Name this version" ("Rename this version" for a named one) with the field "Name" and the buttons "Save", "Cancel" and, for a named one, "Remove name". Notifications: "Version named", "Name removed".
+- **Endpoints:** `GET /api/history/pages/:pageId/versions?before=`, `GET /api/history/pages/:pageId/versions/:versionId`, `PATCH …/versions/:versionId { name }`, `POST …/versions/:versionId/restore` and `POST /api/history/pages/:pageId/versions { reason }` (before Replace all or Accept all). Live topic `history:<pageId>`: `history.versions`, `history.restored`.
 - **Screens:** none in `tests/e2e/extras/screens.ts` yet; Version history opens from a page, so its screens come once the page view (#49) and seeded versions are on main.
 
 ## Templates and buttons

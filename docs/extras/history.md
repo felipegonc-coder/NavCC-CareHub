@@ -25,12 +25,20 @@ Spec: [page-history-and-trash.md](../plan/specs/page-history-and-trash.md) (chec
 
 ## The Version history window (web)
 
-- **Opens** from the page menu ("Version history", on pages and rows; a database has no versions of its own), with Ctrl+Alt+H on a page, and from `?version=<versionId>` links (Copy link), which start on that version. Other web features open it with `openVersionHistory({ id, title }, versionId?)` from `apps/web/src/features/history/store.ts`, for example Updates' Show changes. Going to another screen closes it.
+- **Opens** from the page menu ("Version history", on pages and rows; a database has no versions of its own), with Ctrl+Alt+H on a page, and from `?version=<versionId>` links (Copy link), which start on that version. Other web features open it with `openVersionHistory` (below). Going to another screen closes it.
 - **Layout:** the preview on the left, the versions on the right, newest first and grouped by day, named ones in bold, with a label for versions saved before a change ("Before a restore"). On phones the list shows first; a tap shows the preview, and "Versions" goes back.
-- **Keyboard:** the list takes focus once it loads; ↑ and ↓ move, Home and End jump, Esc closes. Tab reaches Show changes (on at first) and Copy link. More versions load near the end of the list, or with "Show older versions".
+- **Keyboard:** the list takes focus once it loads; ↑ and ↓ move, Home and End jump, Enter asks to restore the version, Esc closes. Tab reaches Show changes (on at first), Copy link, Name this version and Restore this version. More versions load near the end of the list, or with "Show older versions".
+- **Restore** (HT-05): "Restore this version" asks "Replace the current page with the version from Oct 20, 3:00 PM? The current page is saved as a version first." with Cancel and Restore (which has focus). After the restore the window closes and the note "Avery Lin restored a version from Oct 20, 3:00 PM." shows. Others editing the page get the same note from `history.restored`; the tab that restored doesn't show it twice. A refusal shows "Couldn't restore this version." with the server's reason, such as "This page is locked. Unlock it first."
+- **Names:** "Name this version" opens a dialog ("Rename this version" for a named one) with the field "Name" (up to 100 characters), Save, Cancel and, for a named one, "Remove name". The 101st name is refused with "This page has 100 named versions. Remove a name first." under the field.
+- Restoring and naming need `canRestore` (Can edit, and the page isn't locked or archived). Without it the buttons are gone and the window says "The page is locked or archived, so versions can't be restored or named."
 - **States:** "Versions appear here after the first edits."; no access (403) and not found (404) without any page details; a version that's gone shows the server's message.
 - **Live:** the list refreshes on `history.versions`, `history.restored` and after a reconnect.
 - The menu item shows for everyone who can open the page, since the page menu doesn't know the person's access yet; without Can edit the window says "You don't have access to this." Default: hide it once `SlotPage` carries the access (page model, #49).
+
+## For other web features (`apps/web/src/features/history/index.ts`)
+
+- `openVersionHistory({ id, title }, versionId?)` opens Version history, on that version if given; for example Updates' Show changes.
+- `saveVersionBefore(pageId, 'replace' | 'accept_all')` saves a version right before the editor's Replace all or Accept all suggestions changes the page (HT-02). Wait for it, then make the change. It gives the saved version, or null when the page keeps no versions (404, also while the server's stand-ins below aren't bound). When it throws, leave the page as it is and show the error's message.
 
 ## For other features (`apps/server/src/features/history/index.ts`)
 

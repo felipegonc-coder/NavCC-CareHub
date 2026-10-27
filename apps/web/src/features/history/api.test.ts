@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError } from '../../lib/api';
-import { getVersion, listVersions, versionLink } from './api';
+import {
+  getVersion,
+  listVersions,
+  nameVersion,
+  restoreVersion,
+  saveVersionBefore,
+  versionLink,
+} from './api';
 import { fakeHistoryServer, fakeVersion, PAGE_ID } from './testServer';
 
 const realFetch = globalThis.fetch;
@@ -44,6 +51,47 @@ describe('the versions API', () => {
     const error = await listVersions(PAGE_ID, null).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 403, message: "You don't have access to this." });
+  });
+
+  it('names, restores and saves versions', async () => {
+    const server = serve();
+    const named = await nameVersion(PAGE_ID, 'v-1', 'Before the audit');
+    expect(named.version).toMatchObject({ id: 'v-1', name: 'Before the audit' });
+    await nameVersion(PAGE_ID, 'v-1', null);
+
+    const restored = await restoreVersion(PAGE_ID, 'v-1');
+    expect(restored.version).toMatchObject({
+      kind: 'before_restore',
+      createdBy: { name: 'Avery Lin' },
+    });
+    const saved = await saveVersionBefore(PAGE_ID, 'accept_all');
+    expect(saved?.kind).toBe('before_accept_all');
+
+    const path = `/api/history/pages/${PAGE_ID}/versions`;
+    expect(server.requests).toEqual([
+      { method: 'PATCH', url: `${path}/v-1`, body: { name: 'Before the audit' } },
+      { method: 'PATCH', url: `${path}/v-1`, body: { name: null } },
+      { method: 'POST', url: `${path}/v-1/restore`, body: undefined },
+      { method: 'POST', url: path, body: { reason: 'accept_all' } },
+    ]);
+  });
+
+  it("passes on the server's reason when a restore is refused", async () => {
+    serve({ changeError: { status: 403, message: 'This page is archived. Unarchive it first.' } });
+    const error = await restoreVersion(PAGE_ID, 'v-1').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      status: 403,
+      message: 'This page is archived. Unarchive it first.',
+    });
+  });
+
+  it('answers null before a change to a page that keeps no versions, and passes on refusals', async () => {
+    serve({ changeError: { status: 404, message: 'This was deleted, or the link is wrong.' } });
+    expect(await saveVersionBefore(PAGE_ID, 'replace')).toBeNull();
+    serve({ changeError: { status: 403, message: 'This page is locked. Unlock it first.' } });
+    const error = await saveVersionBefore(PAGE_ID, 'replace').catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 403, message: 'This page is locked. Unlock it first.' });
   });
 
   it('links to the page with the version to open', () => {

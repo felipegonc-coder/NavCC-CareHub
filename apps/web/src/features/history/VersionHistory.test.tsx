@@ -1,4 +1,4 @@
-import { versionLine } from '@carehub/extras/history';
+import { restoreNote, restoreQuestion, versionDate, versionLine } from '@carehub/extras/history';
 import { ToastProvider } from '@carehub/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -21,6 +21,7 @@ import { VersionHistory } from './VersionHistory';
 const realFetch = globalThis.fetch;
 let live: ReturnType<typeof createFakeLive>;
 let server: ReturnType<typeof fakeHistoryServer>;
+let onClose = vi.fn();
 
 const VERSIONS = (): FakeVersion[] => [
   fakeVersion('v-4', 5, 'Call the member today.', { editors: [AVERY, SAM] }),
@@ -39,11 +40,12 @@ function show(
   const { versions = VERSIONS(), initialVersionId = null, ...rest } = options;
   server = fakeHistoryServer(versions, rest);
   globalThis.fetch = server.fetch;
+  onClose = vi.fn();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <VersionHistory pageId={PAGE_ID} initialVersionId={initialVersionId} />
+        <VersionHistory pageId={PAGE_ID} initialVersionId={initialVersionId} onClose={onClose} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -54,6 +56,7 @@ const plain = (value: string) => value.replace(/\s+/g, ' ');
 
 const versionRequests = (id: string) =>
   server.requests.filter((one) => one.url === `/api/history/pages/${PAGE_ID}/versions/${id}`);
+const changes = () => server.requests.filter((one) => one.method !== 'GET');
 
 beforeEach(() => {
   live = createFakeLive();
@@ -238,5 +241,138 @@ describe('Version history', () => {
     expect(await screen.findByText(TOO_OLD)).toBeInTheDocument();
     expect(screen.getByRole('listbox', { name: 'Versions' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Copy link' })).not.toBeInTheDocument();
+  });
+});
+
+describe('restoring and naming versions', () => {
+  const from = versionDate(VERSIONS()[1]!.summary.createdAt);
+
+  it('HT-05: Restore this version asks first, then restores, shows the note and closes', async () => {
+    show();
+    const listbox = await screen.findByRole('listbox', { name: 'Versions' });
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('button', { name: 'Restore this version' }));
+
+    const confirm = await screen.findByRole('dialog', { name: 'Restore this version?' });
+    expect(confirm).toHaveAccessibleDescription(restoreQuestion(from));
+    const restore = within(confirm).getByRole('button', { name: 'Restore' });
+    await waitFor(() => expect(restore).toHaveFocus());
+
+    fireEvent.click(restore);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(plain(restoreNote('Avery Lin', from)))).toBeInTheDocument();
+    expect(changes()).toEqual([
+      {
+        method: 'POST',
+        url: `/api/history/pages/${PAGE_ID}/versions/v-3/restore`,
+        body: undefined,
+      },
+    ]);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('Enter asks to restore the selected version, and Cancel changes nothing', async () => {
+    show();
+    const listbox = await screen.findByRole('listbox', { name: 'Versions' });
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    fireEvent.keyDown(listbox, { key: 'Enter' });
+
+    const confirm = await screen.findByRole('dialog', { name: 'Restore this version?' });
+    expect(confirm).toHaveAccessibleDescription(restoreQuestion(from));
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(changes()).toEqual([]);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('says why a restore failed, for example a page locked meanwhile', async () => {
+    show({ changeError: { status: 403, message: 'This page is locked. Unlock it first.' } });
+    await screen.findByRole('listbox', { name: 'Versions' });
+    fireEvent.click(screen.getByRole('button', { name: 'Restore this version' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Restore this version?' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Restore' }));
+
+    expect(await screen.findByText("Couldn't restore this version.")).toBeInTheDocument();
+    expect(screen.getByText('This page is locked. Unlock it first.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("HT-15: on a locked or archived page, says versions can't be restored or named", async () => {
+    show({ canRestore: false });
+    const listbox = await screen.findByRole('listbox', { name: 'Versions' });
+    expect(
+      screen.getByText("The page is locked or archived, so versions can't be restored or named."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Restore this version' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Name this version' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+
+    fireEvent.keyDown(listbox, { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('names a version, which then shows in bold', async () => {
+    show();
+    const listbox = await screen.findByRole('listbox', { name: 'Versions' });
+    fireEvent.click(screen.getByRole('button', { name: 'Name this version' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Name this version' });
+    expect(dialog).toHaveAccessibleDescription('Named versions are kept forever.');
+    expect(within(dialog).queryByRole('button', { name: 'Remove name' })).not.toBeInTheDocument();
+    const input = within(dialog).getByRole('textbox', { name: 'Name' });
+    await waitFor(() => expect(input).toHaveFocus());
+
+    fireEvent.change(input, { target: { value: ' Before the audit ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Version named')).toBeInTheDocument();
+    expect(changes()).toEqual([
+      {
+        method: 'PATCH',
+        url: `/api/history/pages/${PAGE_ID}/versions/v-4`,
+        body: { name: 'Before the audit' },
+      },
+    ]);
+    await waitFor(() =>
+      expect(within(listbox).getByText('Before the audit')).toHaveClass('font-semibold'),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('renames a named version, or removes its name', async () => {
+    show();
+    const listbox = await screen.findByRole('listbox', { name: 'Versions' });
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('button', { name: 'Name this version' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Rename this version' });
+    expect(within(dialog).getByRole('textbox', { name: 'Name' })).toHaveValue(
+      'Before the Nov policy change',
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove name' }));
+    expect(await screen.findByText('Name removed')).toBeInTheDocument();
+    expect(changes()).toEqual([
+      { method: 'PATCH', url: `/api/history/pages/${PAGE_ID}/versions/v-3`, body: { name: null } },
+    ]);
+    await waitFor(() =>
+      expect(within(listbox).queryByText('Before the Nov policy change')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('keeps the name dialog open with the reason when the server refuses the name', async () => {
+    const limit = 'This page has 100 named versions. Remove a name first.';
+    show({ changeError: { status: 409, message: limit } });
+    await screen.findByRole('listbox', { name: 'Versions' });
+    fireEvent.click(screen.getByRole('button', { name: 'Name this version' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Name this version' });
+    const input = within(dialog).getByRole('textbox', { name: 'Name' });
+    fireEvent.change(input, { target: { value: 'Before the audit' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(input).toHaveAccessibleDescription(limit));
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('dialog', { name: 'Name this version' })).toBeInTheDocument();
+    expect(screen.queryByText('Version named')).not.toBeInTheDocument();
   });
 });

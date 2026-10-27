@@ -1,7 +1,12 @@
 // The versions API (/api/history/pages/:pageId/versions). The server checks access on every call
 // (HT-15); these only send the requests.
-import type { VersionListResponse, VersionResponse } from '@carehub/extras/history';
-import { api } from '../../lib/api';
+import type {
+  SavedVersionResponse,
+  VersionListResponse,
+  VersionResponse,
+  VersionSummary,
+} from '@carehub/extras/history';
+import { api, ApiError } from '../../lib/api';
 
 const versionsPath = (pageId: string) =>
   `/api/history/pages/${encodeURIComponent(pageId)}/versions`;
@@ -32,6 +37,38 @@ export function getVersion(
   signal?: AbortSignal,
 ): Promise<VersionResponse> {
   return api.get<VersionResponse>(versionPath(pageId, versionId), { signal });
+}
+
+/** Names or renames a version; null removes its name. */
+export function nameVersion(
+  pageId: string,
+  versionId: string,
+  name: string | null,
+): Promise<SavedVersionResponse> {
+  return api.patch<SavedVersionResponse>(versionPath(pageId, versionId), { name });
+}
+
+/** Restores a version; the answer is the version saved just before (HT-05). */
+export function restoreVersion(pageId: string, versionId: string): Promise<SavedVersionResponse> {
+  return api.post<SavedVersionResponse>(`${versionPath(pageId, versionId)}/restore`);
+}
+
+/**
+ * Saves a version right before the editor's Replace all or Accept all suggestions changes the
+ * page (HT-02): wait for it, then make the change. Null when the page keeps no versions (404);
+ * when it throws, leave the page as it is.
+ */
+export async function saveVersionBefore(
+  pageId: string,
+  reason: 'replace' | 'accept_all',
+): Promise<VersionSummary | null> {
+  try {
+    const { version } = await api.post<SavedVersionResponse>(versionsPath(pageId), { reason });
+    return version;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 /** The link Copy link gives: the page, opening Version history on this version. */

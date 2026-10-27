@@ -1,5 +1,6 @@
 // Which page's Version history window is open, shared by the page menu item, Ctrl+Alt+H,
-// `?version=` links and the window itself.
+// `?version=` links and the window itself; and the restores this tab made, so it doesn't show its
+// own restore note twice.
 import { useSyncExternalStore } from 'react';
 
 export interface HistoryPageRef {
@@ -45,4 +46,33 @@ export function currentVersionHistory(): HistoryTarget | null {
 /** `currentVersionHistory()`, kept up to date. */
 export function useVersionHistoryTarget(): HistoryTarget | null {
   return useSyncExternalStore(subscribe, currentVersionHistory, () => null);
+}
+
+const restoring = new Map<string, Promise<unknown>>();
+const restoredHere = new Set<string>();
+
+/**
+ * Runs a restore this tab asked for and remembers the version it saved, so the page watcher skips
+ * the live note for it (the window shows the note itself).
+ */
+export function runRestore<T extends { version: { id: string } }>(
+  pageId: string,
+  restore: () => Promise<T>,
+): Promise<T> {
+  const run = restore().then((result) => {
+    restoredHere.add(result.version.id);
+    return result;
+  });
+  restoring.set(pageId, run);
+  const done = () => {
+    if (restoring.get(pageId) === run) restoring.delete(pageId);
+  };
+  run.then(done, done);
+  return run;
+}
+
+/** True if this tab made the restore that saved `versionId`; waits for its own pending one. */
+export async function isOwnRestore(pageId: string, versionId: string): Promise<boolean> {
+  await restoring.get(pageId)?.catch(() => undefined);
+  return restoredHere.has(versionId);
 }
