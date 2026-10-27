@@ -99,6 +99,19 @@ Nothing is lost by mistake. Care Hub keeps versions of every page that people ca
 - Changes in Show changes are announced as "added" and "removed", not only by color.
 - **Phone:** Version history shows the list first and the preview full screen after a tap; Trash and Updates are full screens; swipe left on a Trash item for Restore and Delete forever.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **HT-01** Edit "Refund steps" for a minute, wait 2 minutes, then open Page history. → One new version, with your name on it.
+2. ⭐ **HT-09** Move "Policies" and its sub-pages to Trash, press Undo, then trash it again and restore it from Trash. → Each time it comes back in the same place, with its sub-pages and comments.
+3. ⭐ **HT-05** Restore an older version while Sam is typing. → The page goes back; Sam's text is in the version saved just before, and both see the note.
+4. **HT-04** Open an older version and turn on Show changes. → Added, removed and changed blocks are marked.
+5. **HT-07** Copy two blocks from an old version and paste them into the page. → They keep their formatting.
+6. **HT-10** Restore a page whose parent is in Trash. → Restore both, Move to… and Cancel are offered, and each works.
+7. **HT-14** Archive a page, then unarchive it. → It turns read-only and leaves the sidebar and search, then comes back.
+8. **HT-08** Open Updates on a busy page. → Edits, renames, moves, sharing and comments show with names and times.
+
 ## 7. Acceptance checks
 
 - **HT-01** Editing for a minute and pausing for 2 minutes saves one version naming everyone who edited; an hour of non-stop typing saves at least 6.

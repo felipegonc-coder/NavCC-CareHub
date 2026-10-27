@@ -97,6 +97,19 @@ Bringing work into Care Hub from files other tools make, and getting it out agai
 - Progress is announced every 25% and at the end ("Import finished. 1,204 pages, 3 problems.").
 - **Phone:** imports of Markdown, text, Word, CSV and Excel files from the phone's files; big imports are best done on a computer and the dialog says so. Export works and downloads to the phone; Print uses the phone's print or save-as-PDF.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **IE-04** Import a Notion export with 3 databases. → The page tree, the databases with row pages and the links between pages come back; formulas are listed as problems.
+2. ⭐ **IE-01** Import a Markdown zip with folders and pictures. → A page tree with pictures, and links between the files point to the new pages.
+3. ⭐ **IE-02** Import a Word file with headings, a table, pictures and links. → They all come in, and tracked changes arrive accepted.
+4. ⭐ **IE-12** Export a page with sub-pages and a database as Markdown and CSV, then unzip it. → It opens offline with working links and pictures.
+5. **IE-11** Choose Undo import. → Everything it added goes to Trash as one entry.
+6. **IE-13** Export a page as PDF. → Colors are kept, and no picture is split across two pages.
+7. **IE-15** Export a space with 2,000 pages. → It runs in the background, and a 🔔 notice brings the download.
+8. **IE-16** Turn off "members can export" as an Admin. → Members no longer see Export, and Print still works.
+
 ## 7. Acceptance checks
 
 - **IE-01** A Markdown zip with folders and pictures becomes a page tree with pictures; links between the files point at the new pages.

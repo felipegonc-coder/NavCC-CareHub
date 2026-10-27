@@ -97,6 +97,20 @@ These rules apply to every way a file arrives: blocks, covers and icons, databas
 - An ordinary settings form; each choice is a labelled control, and confirms move focus to their main button.
 - Phone: one column; tables become lists.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **DS-05** Upload a 100.1 MB file; then, as a site admin, raise the limit to 200 MB and try again. → First it's refused with "This file is 100.1 MB; the limit is 100 MB."; then it's accepted.
+2. ⭐ **DS-04** Open Settings → Data → Storage. → The totals match the disk, and the largest-files list shows no title you can't open.
+3. ⭐ **DS-01** Under Keeping data, change automatic page versions to 90 days. → It shows how many versions will go; that night exactly those go, and named versions stay.
+4. ⭐ **DS-09** As a site admin, choose Export everything. → It finishes in the background; its link works for you only, for 7 days; the archive has pages, CSV, JSON and files, and no secrets or anyone else's private pages, chats or private events.
+5. **DS-06** Rename setup.exe to setup.pdf and upload it. → It's refused because of what's inside.
+6. **DS-07** Upload a photo with location data and an SVG with a script in it. → The photo is stored without the location; the SVG shows as a picture, and the script never runs.
+7. **DS-10** As Sam, choose Export my content. → Sam gets his private pages and his chats as he sees them.
+8. **DS-11** Delete a test workspace, then cancel within 7 days. → It closes at once, and cancelling brings it back.
+9. **DS-12** Sign in as Sam (not an Admin). → Data settings isn't there.
+
 ## 7. Acceptance checks
 
 - **DS-01** Shortening automatic page versions to 90 days shows the count; that night exactly those versions are deleted, and named versions stay.

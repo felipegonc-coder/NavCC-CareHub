@@ -108,6 +108,18 @@ Starting from something good instead of a blank page, and doing several steps wi
 - The button settings and the template menus work by keyboard; actions are reordered with Move up and Move down as well as by dragging.
 - **Phone:** the gallery is a full-screen list with categories as a dropdown, and the preview is full screen. Buttons work with a tap; their settings are a full screen.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **TB-01** Open the template gallery, search meeting, preview one and choose Use template. → The page appears with its sub-pages, and its links point to the new copies.
+2. ⭐ **TB-04** In a Tasks database, click New, then open New ▾. → New uses the view's default template; New ▾ lists every template and Empty.
+3. ⭐ **TB-09** Make a button that inserts a checklist, adds a row to Tickets and opens a page, then press it. → All three happen in order, and Undo reverses them.
+4. **TB-05** Use a template with Due set to Today + 3 days and Owner set to Me. → The new row has those values filled in.
+5. **TB-06** Apply a template to a row that already has a Status. → Only empty properties fill, the content is added at the end, and a version is saved first.
+6. **TB-02** Save a page as a template for Members of Support. → Support members see it in the gallery; others don't.
+7. **TB-13** Press a button that asks for confirmation, then choose Cancel. → Nothing changes.
+
 ## 7. Acceptance checks
 
 - **TB-01** The gallery's categories, search and preview work; Use template copies sub-pages, databases with sample rows (unless left out) and files, and links inside point to the copies.

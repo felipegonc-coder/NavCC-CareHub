@@ -4,6 +4,10 @@ import type { HealthResponse } from '@carehub/shared';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Config } from './config';
+import { DEFAULT_ERROR_MESSAGES, errorBody, errorHandler } from './core/errors';
+import { registerEvents } from './core/events';
+import { databasePlugin } from './db';
+import { authPlugin } from './features/auth/plugin';
 
 export interface BuildAppOptions {
   config: Config;
@@ -16,8 +20,18 @@ const API_PATH = /^\/api(?:[/?#]|$)/;
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config } = options;
   const app = Fastify({ logger: options.logger ?? false });
+  registerEvents(app);
 
-  app.get('/api/health', async (): Promise<HealthResponse> => ({
+  // Errors are { error: { code, message } } (decision 0007, section 2.2).
+  app.setErrorHandler(errorHandler);
+  await app.register(databasePlugin, { databaseUrl: config.DATABASE_URL });
+  // Every /api route after this needs a signed-in user unless it sets config: { public: true }.
+  await app.register(authPlugin, {
+    cookieSecure: config.COOKIE_SECURE,
+    publicUrl: config.CAREHUB_PUBLIC_URL,
+  });
+
+  app.get('/api/health', { config: { public: true } }, async (): Promise<HealthResponse> => ({
     status: 'ok',
     version: config.CAREHUB_VERSION,
   }));
@@ -26,7 +40,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // `await app.register(import('./features/auth/routes'), { prefix: '/api/auth' });`,
   // so parallel pull requests never edit the same lines.
 
-  // feature: auth
+  await app.register(import('./features/auth/routes'), { prefix: '/api/auth' });
 
   // feature: admin
 
@@ -38,17 +52,53 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: comments
 
+  // feature: mentions
+
   // feature: files
 
   // feature: search
 
-  // feature: learning
+  // feature: history
+
+  // feature: templates
+
+  // feature: import-export
+
+  // feature: sharing
+
+  // feature: roles
+
+  await app.register(import('./features/learning/routes'), { prefix: '/api/learning' });
 
   // feature: databases
 
+  // feature: forms
+
   // feature: messages
 
+  // feature: notices
+
+  // feature: live
+
+  // feature: push
+
+  // feature: jobs
+
+  // feature: reminders
+
+  // feature: home
+
   // feature: calendar
+
+  // feature: meetings
+
+  // feature: automations
+
+  // feature: analytics
+
+  // feature: status
+
+  // feature: claude
 
   // The web app: files from the built SPA, with index.html for every other page route.
   await app.register(fastifyStatic, { root: config.WEB_DIST_DIR });
@@ -59,12 +109,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       reply.sendFile('index.html');
       return;
     }
-    reply.code(404).send({
-      statusCode: 404,
-      error: 'Not Found',
-      message: `Route ${request.method}:${request.url} not found`,
-    });
+    reply.code(404).send(errorBody('not_found', DEFAULT_ERROR_MESSAGES.not_found));
   });
+
+  // Added last so it runs first on close: running event handlers finish before features and the
+  // database shut down.
+  app.addHook('onClose', () => app.events.settled());
 
   return app;
 }
