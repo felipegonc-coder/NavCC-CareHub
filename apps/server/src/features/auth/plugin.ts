@@ -25,6 +25,8 @@ declare module 'fastify' {
     user: CurrentUser | null;
     /** The signed-in person's membership of the current workspace (members and guests), or null. */
     member: CurrentMember | null;
+    /** The current session's ID (never its token), for data tied to one device; null signed out. */
+    sessionId: string | null;
   }
   interface FastifyInstance {
     /** The auth cookies: `names` (they depend on COOKIE_SECURE), `sessionToken(request)`, set and clear. */
@@ -72,6 +74,7 @@ export const authPlugin = fp<AuthPluginOptions>(
     app.decorate('sessionCookies', cookies);
     app.decorateRequest('user', null);
     app.decorateRequest('member', null);
+    app.decorateRequest('sessionId', null);
 
     app.addHook('onRoute', (route) => {
       if (API_ROUTE.test(route.url) || REVIEWED_ROUTES_OUTSIDE_API.has(route.url)) return;
@@ -98,6 +101,7 @@ export const authPlugin = fp<AuthPluginOptions>(
       const member = await getCurrentMember(app.db, session.user.id);
       request.user = session.user;
       request.member = member;
+      request.sessionId = session.id;
       rememberSession(request, { id: session.id, token });
     };
 
