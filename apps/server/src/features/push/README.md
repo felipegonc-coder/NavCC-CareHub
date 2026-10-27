@@ -17,9 +17,10 @@ PUSH_VAPID_PRIVATE_KEY=
 PUSH_VAPID_SUBJECT=mailto:admin@example.org
 ```
 
-Make a key pair with `generateVapidKeys()` (suggested CLI command: `push-keys`). Keep the private
-key secret: it never appears in responses, logs or error messages. Changing keys means every
-browser subscribes again; the web client does this on its next start.
+Make a key pair with the one-line `node` command in `docs/team/settings.md` (it calls
+`generateVapidKeys()`). Keep the private key secret: it never appears in responses, logs or error
+messages. Changing keys means every browser subscribes again; the web client does this on its next
+start.
 
 ## Using it
 
