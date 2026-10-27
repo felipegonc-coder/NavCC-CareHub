@@ -1,21 +1,21 @@
 # Databases and Forms: additions
 
-Approved by Felipe on Oct 26, 2026. Updated Oct 27 for the v2 specs.
+Approved on Oct 26, 2026. Updated Oct 27 for the v2 specs.
 
 **The specs win.** The v2 specs written on Oct 26 cover most of this page and win wherever they differ: [Databases](https://app.notion.com/p/fe27d484cabc4a74ae11028f8d43465f), [Formulas](https://app.notion.com/p/79b23fda5f624034a964c8df4ca2ff86), [Forms](https://app.notion.com/p/6640881fdf6d41c390c8576c2c971b1d), [Roles and permissions](https://app.notion.com/p/d2e6352004d64a9b93a0b3ee29ee4259) and [Templates and buttons](https://app.notion.com/p/53b55b188e7c49e19a3d43e383e01eb6). This page keeps only lane details the specs don't give. Shapes are in `packages/databases/src/types.ts`.
 
-## 1. Felipe's decisions
+## 1. Decisions
 
-| Decision                                                         | Answer                                                | What it means                                                                                                                         |
-| ---------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| DB-D1 Formulas, rollups, column totals                           | Now                                                   | Sections 2–4                                                                                                                          |
-| DB-D2 Row-level access                                           | Now                                                   | Section 7                                                                                                                             |
-| DB-D3 Import updates rows with the same Name                     | No, add only                                          | As the spec says                                                                                                                      |
-| DB-D4 Notices when added to a Person property                    | Yes                                                   | On for new Person properties. A bulk change sends one notice per person; imports send none; only people who can open the row are told |
-| FM-D1 Anonymous form responses                                   | Yes                                                   | A setting per form, off by default. Section 8                                                                                         |
-| DB-D5 Map view and Place property                                | Later (default, waiting for Felipe)                   | Not in the type or layout menus                                                                                                       |
-| DB-D6 Several data sources in one database                       | Later (default, waiting for Felipe)                   | One table of rows per database                                                                                                        |
-| FM-D2 Forms anyone on the network can fill in without signing in | Allowed per form, off by default (waiting for Felipe) | Always anonymous; no Person or Relation questions; 30 responses a minute per form                                                     |
+| Decision                                                         | Answer                                             | What it means                                                                                                                         |
+| ---------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| DB-D1 Formulas, rollups, column totals                           | Now                                                | Sections 2–4                                                                                                                          |
+| DB-D2 Row-level access                                           | Now                                                | Section 7                                                                                                                             |
+| DB-D3 Import updates rows with the same Name                     | No, add only                                       | As the spec says                                                                                                                      |
+| DB-D4 Notices when added to a Person property                    | Yes                                                | On for new Person properties. A bulk change sends one notice per person; imports send none; only people who can open the row are told |
+| FM-D1 Anonymous form responses                                   | Yes                                                | A setting per form, off by default. Section 8                                                                                         |
+| DB-D5 Map view and Place property                                | Later (default, not decided yet)                   | Not in the type or layout menus                                                                                                       |
+| DB-D6 Several data sources in one database                       | Later (default, not decided yet)                   | One table of rows per database                                                                                                        |
+| FM-D2 Forms anyone on the network can fill in without signing in | Allowed per form, off by default (not decided yet) | Always anonymous; no Person or Relation questions; 30 responses a minute per form                                                     |
 
 ## 2. Formulas
 

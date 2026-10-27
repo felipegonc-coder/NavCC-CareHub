@@ -1,10 +1,10 @@
 # Databases and Forms: status
 
-Updated Oct 27, 2026, 17:30 UTC. Plan: [PLAN.md](PLAN.md). Storage and API: [decision 0200](../decisions/0200-databases-storage-and-api.md). The v2 specs win; lane details in [additions.md](additions.md).
+Updated Oct 27, 2026, 18:00 UTC. Plan: [PLAN.md](PLAN.md). Storage and API: [decision 0200](../decisions/0200-databases-storage-and-api.md). The v2 specs win; lane details in [additions.md](additions.md).
 
 ## Done
 
-- Felipe's decisions recorded: formulas, rollups and column totals now; row-level access now; imports add rows only; Person notices yes; anonymous form answers yes (per form, off by default). Defaults in use until he decides: Map view and Place later; one data source per database; forms anyone can fill in allowed per form, off by default.
+- Decisions recorded: formulas, rollups and column totals now; row-level access now; imports add rows only; Person notices yes; anonymous form answers yes (per form, off by default). Defaults in use until decided: Map view and Place later; one data source per database; forms anyone can fill in allowed per form, off by default.
 - Merged logic in `packages/databases` (wave 1, all with tests):
   - Foundation and types (#6), safe links for security #12 part 1 and the v2 contract (#21), v2 type additions (#24).
   - Values, cell parsing and formatting, options, type changes (#19), and the v2 value rules: safe links, fixed time zones, reminders, file links, "+12 more" lists (#60).
@@ -22,11 +22,11 @@ Updated Oct 27, 2026, 17:30 UTC. Plan: [PLAN.md](PLAN.md). Storage and API: [dec
 
 ## In progress
 
-CI hasn't run since about 12:10 UTC on Oct 27, because the Actions minutes are used up until Nov 1 (decision 0006). Until then, lane-only pull requests merge by hand after a full read, under the main lead's interim rule. They're listed below under "Merged without CI".
+CI hasn't run since about 12:10 UTC on Oct 27, when the Actions minutes ran out (decision 0006). Runs are expected back soon. Until they start, lane-only pull requests merge by hand after a full read, under the main lead's interim rule, and are listed below under "Merged without CI". Once runs start, each ready pull request runs its checks once, and merges need green checks again.
 
 - Formula library with safe text patterns (#193; security #13 part 2): the security reviewer has approved its one new package. It changes the lockfile, so the main lead merges it by hand. After it, a follow-up measures the cost of each pattern call (program size × text read), with the security reviewer's conditions.
-- Server (wave 2), waiting on pages #49: schema, settings, properties with Undo for type changes, views, templates, the wiki flag, row access rules, create and duplicate for other lanes, and the Blue Pine Plumbing seed (#170, #181, #219, #242, #244, #249, #326, #348); rows, events, live updates and Person notices (#367). The forms server's first part is open (#432: form links, Change link and the fill screen; it waits for #367). Being built: the query behind every view; CSV and Excel import and export; buttons, date reminders, templates and repeats; form responses.
-- Screens (wave 3): shell part 3a (#406: the API client on lib/api, settings versions, options typed into cells, people for Person cells, duplicate rows) has fixes asked for. Being built: the toolbar and panels; the filter, sort, group and property panels; Edit property and select options; the table's next parts; the signed-out fill for public forms.
+- Server (wave 2), waiting on pages #49: schema, settings, properties with Undo for type changes, views, templates, the wiki flag, row access rules, create and duplicate for other lanes, and the Blue Pine Plumbing seed (#170, #181, #219, #242, #244, #249, #326, #348); rows, events, live updates and Person notices (#367). Also open: rows part 2, the functions other lanes and the forms server call (#436, draft), and the forms server's first part (#432: form links, Change link and the fill screen), both after #367. Being built: the query behind every view; CSV and Excel import and export; buttons, date reminders, templates and repeats; form responses.
+- Screens (wave 3): shell part 3a (#406: the API client on lib/api, settings versions, options typed into cells, people for Person cells, duplicate rows) has fixes asked for. The Edit property panel is in review (#438). Being built: the toolbar and panels; the filter, sort, group and property panels; type settings and select options; the table's next parts; the signed-out fill for public forms.
 
 ## Merged without CI
 
