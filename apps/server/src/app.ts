@@ -52,7 +52,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(import('./features/comments/routes'), { prefix: '/api/comments' });
 
-  // feature: mentions
+  await app.register(import('./features/mentions/routes'), { prefix: '/api/mentions' });
 
   // feature: files
 
