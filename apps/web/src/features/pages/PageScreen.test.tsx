@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HeaderTargetContext } from '../shell/header-context';
 import { PageScreen } from './PageScreen';
 
-const { api, toast, Refused, editor, slots } = vi.hoisted(() => {
+const { api, toast, Refused, editor, slots, remind } = vi.hoisted(() => {
   /** Stands in for ApiError. */
   class Refused extends Error {
     constructor(
@@ -17,7 +17,16 @@ const { api, toast, Refused, editor, slots } = vi.hoisted(() => {
     }
   }
   const run = vi.fn();
+  /** Another feature's page menu item. */
+  const remind = {
+    id: 'remind',
+    label: 'Remind me',
+    order: 10,
+    isVisible: vi.fn((_page: unknown) => true),
+    onSelect: vi.fn(),
+  };
   return {
+    remind,
     api: {
       get: vi.fn<(path: string) => Promise<unknown>>(),
       post: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
@@ -27,11 +36,18 @@ const { api, toast, Refused, editor, slots } = vi.hoisted(() => {
     },
     toast: vi.fn(),
     Refused,
-    editor: { isEmpty: true, commands: { focus: vi.fn() }, on: vi.fn(), off: vi.fn() },
+    editor: {
+      isEmpty: true,
+      commands: { focus: vi.fn() },
+      on: vi.fn(),
+      off: vi.fn(),
+      getText: () => 'Refunds take five days.',
+    },
     slots: {
       pageKindViews: {},
       pageHeaderExtras: {},
-      pageMenuItems: [],
+      pageBanners: [] as { id: string; order: number; Component: unknown }[],
+      pageMenuItems: [remind],
       editor: {
         nodeViews: {},
         slashItems: [
@@ -82,6 +98,7 @@ const HINT = 'Press Enter to start writing, or start with:';
 const at = (ms: number) => new Date(Date.now() + ms).toISOString();
 const sam = { id: 'sam', name: 'Sam Ortiz' };
 const support = { id: 'support', kind: 'space', title: 'Support', icon: null };
+const space = { id: 'support', kind: 'open', name: 'Support', icon: null };
 const policies = { id: 'policies', kind: 'page', title: 'Policies', icon: null };
 
 // Fictional pages, as the server sends them.
@@ -135,9 +152,27 @@ function open(id: string, state?: unknown) {
 const titleField = () => screen.findByRole('textbox', { name: 'Page title' });
 const topBar = () => screen.getByRole('banner');
 
+/** Opens "…" in the top bar, as the keyboard does. */
+async function openMenu() {
+  await titleField();
+  fireEvent.keyDown(within(topBar()).getByRole('button', { name: 'Page menu' }), { key: 'Enter' });
+  return screen.findByRole('menu');
+}
+
+/** The menu's items, in order. */
+const itemsOf = (menu: HTMLElement) =>
+  Array.from(menu.querySelectorAll('[role^="menuitem"]'), (item) => item.textContent);
+
+/** Stands in for another feature's banner, such as Extras' archive banner. */
+function ArchivedBanner({ page }: { page: { title: string } }) {
+  return <p>{`${page.title} is archived.`}</p>;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   editor.isEmpty = true;
+  slots.pageBanners.length = 0;
+  remind.isVisible.mockReturnValue(true);
   pages = new Map<string, Record<string, unknown>>([
     ['refunds', refunds()],
     ['policies', { ...refunds(), id: 'policies', title: 'Policies', icon: null, path: [support] }],
@@ -151,6 +186,9 @@ beforeEach(() => {
       throw new Refused(refused.get(id) ?? 404, 'Refused');
     }
     if (path === '/api/favorites') return { favorites: [] };
+    if (path === '/api/spaces')
+      return { spaces: [space, { id: 'me', kind: 'personal', name: 'Private' }] };
+    if (path.endsWith('/tree')) return { nodes: [] };
     if (path === '/api/auth/me') return { member: { permissions: ['pages.create'] } };
     return {};
   });
@@ -158,8 +196,8 @@ beforeEach(() => {
     const id = path.slice('/api/pages/'.length);
     const { locked, archived, ...rest } = body as Record<string, unknown>;
     const page = { ...pages.get(id), ...rest };
-    if (locked === false) page.lockedAt = undefined;
-    if (archived === false) page.archivedAt = undefined;
+    if (locked !== undefined) page.lockedAt = locked ? at(0) : undefined;
+    if (archived !== undefined) page.archivedAt = archived ? at(0) : undefined;
     pages.set(id, page);
     return null;
   });
@@ -169,7 +207,11 @@ beforeEach(() => {
     return null;
   });
   api.put.mockResolvedValue(null);
-  api.delete.mockResolvedValue(null);
+  api.delete.mockImplementation(async (path) => {
+    const id = /^\/api\/pages\/([^/]+)$/.exec(path)?.[1];
+    if (id) pages.set(id, { ...pages.get(id), deletedAt: at(0) });
+    return null;
+  });
 });
 
 describe('PageScreen', () => {
@@ -310,13 +352,15 @@ describe('PageScreen', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Loading the page');
   });
 
-  it('shows an archived page read-only, and Unarchive brings it back', async () => {
+  it('shows an archived page read-only, under the banners other features add', async () => {
+    slots.pageBanners.push({ id: 'archived', order: 10, Component: ArchivedBanner });
     pages.set('refunds', refunds({ archivedAt: '2026-10-20T15:00:00Z', archivedBy: sam }));
     open('refunds');
-    expect(await screen.findByText('Archived by Sam Ortiz on Oct 20, 2026')).toBeInTheDocument();
-    expect(await titleField()).toHaveAttribute('readonly');
-    fireEvent.click(screen.getByRole('button', { name: 'Unarchive' }));
-    await waitFor(() => expect(screen.queryByText(/^Archived by/)).not.toBeInTheDocument());
+    const banner = await screen.findByText('Refund steps is archived.');
+    const title = await titleField();
+    expect(title).toHaveAttribute('readonly');
+    expect(banner.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(within(await openMenu()).getByRole('menuitem', { name: 'Unarchive' }));
     expect(api.patch).toHaveBeenCalledWith('/api/pages/refunds', { archived: false });
     await waitFor(() =>
       expect(screen.getByRole('textbox', { name: 'Page title' })).not.toHaveAttribute('readonly'),
@@ -354,6 +398,104 @@ describe('PageScreen', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete forever' }));
     expect(await screen.findByText('Home')).toBeInTheDocument();
     expect(api.delete).toHaveBeenCalledWith('/api/trash/refunds');
+  });
+});
+
+describe('PageScreen page menu', () => {
+  it('offers everything to someone with full access, then the other features, then Page info', async () => {
+    const avery = { id: 'avery', name: 'Avery Lin' };
+    pages.set('refunds', refunds({ createdAt: '2026-10-01T16:00:00Z', createdBy: avery }));
+    open('refunds');
+    const menu = await openMenu();
+    expect(itemsOf(menu)).toEqual([
+      'Full width',
+      'Lock page',
+      'Copy link',
+      'Move to',
+      'Move to Trash',
+      'Archive',
+      'Remind me',
+    ]);
+    expect(within(menu).getByRole('menuitemcheckbox', { name: 'Full width' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    const info = within(menu).getByRole('group', { name: 'Page info' });
+    expect(within(info).getByText('4 words · 23 characters')).toBeInTheDocument();
+    expect(within(info).getByText(/^Created by Avery Lin, Oct 1, 2026/)).toBeInTheDocument();
+    expect(within(info).getByText(/^Edited by Sam Ortiz, /)).toBeInTheDocument();
+  });
+
+  it('shows only Copy link and visible items to someone who can only view', async () => {
+    pages.set('refunds', refunds({ access: 'view' }));
+    open('refunds');
+    expect(itemsOf(await openMenu())).toEqual(['Copy link', 'Remind me']);
+    expect(remind.isVisible).toHaveBeenCalledWith({
+      id: 'refunds',
+      kind: 'page',
+      title: 'Refund steps',
+    });
+  });
+
+  it("leaves out another feature's item when it says so, and runs it on the page", async () => {
+    open('refunds');
+    fireEvent.click(within(await openMenu()).getByRole('menuitem', { name: 'Remind me' }));
+    expect(remind.onSelect).toHaveBeenCalledWith({
+      id: 'refunds',
+      kind: 'page',
+      title: 'Refund steps',
+    });
+    remind.isVisible.mockReturnValue(false);
+    expect(itemsOf(await openMenu())).not.toContain('Remind me');
+  });
+
+  it('switches Full width on', async () => {
+    open('refunds');
+    fireEvent.click(within(await openMenu()).getByRole('menuitemcheckbox', { name: 'Full width' }));
+    expect(api.patch).toHaveBeenCalledWith('/api/pages/refunds', { fullWidth: true });
+  });
+
+  it('locks the page, which turns it read-only, and offers Unlock page', async () => {
+    open('refunds');
+    fireEvent.click(within(await openMenu()).getByRole('menuitem', { name: 'Lock page' }));
+    expect(api.patch).toHaveBeenCalledWith('/api/pages/refunds', { locked: true });
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Page title' })).toHaveAttribute('readonly'),
+    );
+    expect(itemsOf(await openMenu())).toContain('Unlock page');
+  });
+
+  it('copies the link to the page', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    open('refunds');
+    fireEvent.click(within(await openMenu()).getByRole('menuitem', { name: 'Copy link' }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/p\/refunds$/)),
+    );
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Link copied' })),
+    );
+  });
+
+  it('moves the page with Move to', async () => {
+    open('refunds');
+    fireEvent.click(within(await openMenu()).getByRole('menuitem', { name: 'Move to' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move “Refund steps” to' });
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^Private/ }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/pages/refunds/move', {
+        spaceId: 'me',
+        parentId: null,
+      }),
+    );
+  });
+
+  it('moves the page to Trash, and the page says so', async () => {
+    open('refunds');
+    fireEvent.click(within(await openMenu()).getByRole('menuitem', { name: 'Move to Trash' }));
+    expect(await screen.findByText('This page is in Trash.')).toBeInTheDocument();
+    expect(api.delete).toHaveBeenCalledWith('/api/pages/refunds');
   });
 });
 

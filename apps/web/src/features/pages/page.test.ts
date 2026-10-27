@@ -4,10 +4,12 @@ import {
   editedLabel,
   editedWhen,
   foldCrumbs,
+  lockedLabel,
+  madeWhen,
   patchCached,
-  stampLabel,
   startItems,
   tabTitle,
+  textCounts,
   TITLE_MAX,
 } from './page';
 
@@ -64,13 +66,23 @@ describe('stamps', () => {
 
   it('names who and when', () => {
     expect(editedWhen(stamp)).toMatch(/^Edited by Sam Ortiz, Oct 20, 2026, \d{1,2}:00\s[AP]M$/);
-    expect(stampLabel('Archived', stamp)).toBe('Archived by Sam Ortiz on Oct 20, 2026');
-    expect(stampLabel('Locked', stamp)).toBe('Locked by Sam Ortiz');
+    expect(madeWhen('Created', stamp)).toMatch(/^Created by Sam Ortiz, Oct 20, 2026, /);
+    expect(lockedLabel(stamp)).toBe('Locked by Sam Ortiz');
   });
 
   it('leaves the name out when nobody is known', () => {
-    expect(stampLabel('Locked', { by: null, at: stamp.at })).toBe('Locked');
+    expect(lockedLabel({ by: null, at: stamp.at })).toBe('Locked');
     expect(editedWhen({ by: null, at: stamp.at })).toMatch(/^Edited, Oct 20, 2026/);
+  });
+});
+
+describe('textCounts', () => {
+  it('counts words and characters; an emoji is one character and line breaks are none', () => {
+    expect(textCounts('Refunds take five days.')).toBe('4 words · 23 characters');
+    expect(textCounts('Done ✅\nNext')).toBe('3 words · 10 characters');
+    expect(textCounts('Hi')).toBe('1 word · 2 characters');
+    expect(textCounts('')).toBe('0 words · 0 characters');
+    expect(textCounts('a '.repeat(1200))).toBe('1,200 words · 2,400 characters');
   });
 });
 
