@@ -1,5 +1,6 @@
+import { timePart, toCivil } from '@carehub/team-time';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { errorHandler } from '../../core/errors';
 import { createTestApp, createUser, hasDatabase, injectAs } from '../../testing';
 import { createTestSubscription, type TestSubscription } from './protocol/testing';
@@ -46,19 +47,25 @@ async function build(config: PushConfig = on()): Promise<FastifyInstance> {
       const user = request.headers['x-test-user'];
       return typeof user === 'string' ? user : null;
     },
+    getTimeZone: (request) => {
+      const zone = request.headers['x-test-zone'];
+      return typeof zone === 'string' ? zone : null;
+    },
   });
   return app;
 }
 
 function call(
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   url: string,
   user?: string,
   body?: Record<string, unknown>,
+  timeZone?: string,
 ) {
   if (!app) throw new Error('Call build() first.');
   const headers: Record<string, string> = { 'user-agent': chrome };
   if (user) headers['x-test-user'] = user;
+  if (timeZone) headers['x-test-zone'] = timeZone;
   return app.inject({
     method,
     url: `/api/push${url}`,
@@ -90,6 +97,8 @@ describe('push routes', () => {
       ['DELETE', '/subscriptions'],
       ['POST', '/test'],
       ['GET', '/preferences'],
+      ['PUT', '/pause'],
+      ['DELETE', '/pause'],
     ] as const) {
       const response = await call(method, url);
       expect(response.statusCode, url).toBe(401);
@@ -204,16 +213,80 @@ describe('/api/push/preferences', () => {
   it('starts from the defaults and changes only what is sent', async () => {
     await build();
     expect((await call('GET', '/preferences', avery)).json()).toEqual({
-      preferences: { notifyAbout: 'all', showText: true },
+      preferences: { notifyAbout: 'all', showText: true, pause: null },
     });
     const changed = await call('PATCH', '/preferences', avery, { showText: false });
-    expect(changed.json()).toEqual({ preferences: { notifyAbout: 'all', showText: false } });
+    expect(changed.json()).toEqual({
+      preferences: { notifyAbout: 'all', showText: false, pause: null },
+    });
     expect((await call('GET', '/preferences', avery)).json()).toEqual(changed.json());
     expect((await call('GET', '/preferences', sam)).json()).toEqual({
-      preferences: { notifyAbout: 'all', showText: true },
+      preferences: { notifyAbout: 'all', showText: true, pause: null },
     });
     const unknown = await call('PATCH', '/preferences', avery, { notifyAbout: 'everything' });
     expect(unknown.statusCode).toBe(400);
+  });
+});
+
+describe('/api/push/pause', () => {
+  const HOUR = 60 * 60 * 1000;
+  const pauseOf = async (user: string) =>
+    (await call('GET', '/preferences', user)).json().preferences.pause;
+
+  beforeEach(() => {
+    clock = Date.UTC(2026, 9, 27, 15, 0); // 9:00 AM in Denver
+  });
+
+  it('pauses for an hour, which then reads as no pause', async () => {
+    await build();
+    const until = new Date(clock + HOUR).toISOString();
+    const paused = await call('PUT', '/pause', avery, { ends: 'in_an_hour' });
+    expect(paused.json()).toEqual({
+      preferences: { notifyAbout: 'all', showText: true, pause: { until } },
+    });
+    expect(await pauseOf(avery)).toEqual({ until });
+    expect(await pauseOf(sam)).toBeNull();
+    clock += HOUR;
+    expect(await pauseOf(avery)).toBeNull();
+  });
+
+  it("pauses until 8:00 AM tomorrow in the person's time zone", async () => {
+    await build();
+    const london = await call('PUT', '/pause', sam, { ends: 'tomorrow_8am' }, 'Europe/London');
+    expect(london.json().preferences.pause).toEqual({ until: '2026-10-28T08:00:00.000Z' });
+    // Without a time zone: America/Denver.
+    const denver = await call('PUT', '/pause', avery, { ends: 'tomorrow_8am' });
+    expect(denver.json().preferences.pause).toEqual({ until: '2026-10-28T14:00:00.000Z' });
+  });
+
+  it('pauses until turned back on, also while push is off, and turns back on', async () => {
+    await build(resolvePushConfig({}));
+    await call('PATCH', '/preferences', avery, { notifyAbout: 'mentions' });
+    const paused = await call('PUT', '/pause', avery, { ends: 'when_turned_on' });
+    expect(paused.json().preferences.pause).toEqual({ until: null });
+    clock += 30 * 24 * HOUR;
+    expect(await pauseOf(avery)).toEqual({ until: null });
+    const resumed = await call('DELETE', '/pause', avery);
+    expect(resumed.json()).toEqual({
+      preferences: { notifyAbout: 'mentions', showText: true, pause: null },
+    });
+    expect(await pauseOf(avery)).toBeNull();
+  });
+
+  it('refuses other lengths, and settings changes leave a pause alone', async () => {
+    await build();
+    for (const body of [{ ends: 'forever' }, { until: '2026-10-27T16:00:00.000Z' }, {}]) {
+      const refused = await call('PUT', '/pause', avery, body);
+      expect(refused.statusCode, JSON.stringify(body)).toBe(400);
+      expect(refused.json()).toMatchObject({ error: { code: 'invalid' } });
+    }
+    const viaSettings = await call('PATCH', '/preferences', avery, { pause: null });
+    expect(viaSettings.statusCode).toBe(400);
+    expect(await pauseOf(avery)).toBeNull();
+
+    await call('PUT', '/pause', avery, { ends: 'in_an_hour' });
+    await call('PATCH', '/preferences', avery, { showText: false });
+    expect(await pauseOf(avery)).toEqual({ until: new Date(clock + HOUR).toISOString() });
   });
 });
 
@@ -231,7 +304,26 @@ describe.skipIf(!hasDatabase)('/api/push in the app', () => {
         url: '/api/push/preferences',
         payload: { notifyAbout: 'mentions' },
       });
-      expect(saved.json()).toEqual({ preferences: { notifyAbout: 'mentions', showText: true } });
+      expect(saved.json()).toEqual({
+        preferences: { notifyAbout: 'mentions', showText: true, pause: null },
+      });
+      // Riley has the default time zone, America/Denver.
+      const paused = await injectAs(testApp.app, riley, {
+        method: 'PUT',
+        url: '/api/push/pause',
+        payload: { ends: 'tomorrow_8am' },
+      });
+      const { until } = paused.json().preferences.pause;
+      expect(timePart(toCivil(new Date(until), 'America/Denver'))).toBe('08:00');
+      const resumed = await injectAs(testApp.app, riley, {
+        method: 'DELETE',
+        url: '/api/push/pause',
+      });
+      expect(resumed.json().preferences).toEqual({
+        notifyAbout: 'mentions',
+        showText: true,
+        pause: null,
+      });
     } finally {
       await testApp.close();
     }
