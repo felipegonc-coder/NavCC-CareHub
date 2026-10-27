@@ -12,8 +12,10 @@ import {
   RUN_JOB,
   SCHEDULER_EVERY_MS,
   SCHEDULER_TASK,
+  StepError,
 } from './running';
 import { createAutomationsService, type Caller } from './service';
+import type { People } from './access';
 import { createPostgresAutomationStore } from './store';
 
 /** The caller's place in the current workspace: `request.member` (decision 0007, section 3.1). */
@@ -27,8 +29,15 @@ export interface AutomationsRoutesOptions {
   store?: AutomationStore;
   /** Defaults to `request.member`; until the roles PR adds it, everyone gets 403. */
   getMember?: (request: FastifyRequest) => AutomationsMember | null | undefined;
+  /** The workspace's members now. Until the members list is wired in, no run goes ahead. */
+  people?: People;
   now?: () => Date;
 }
+
+/** Without the members list a run can't check its owner, so it fails instead of guessing. */
+const noMembersList: People = async () => {
+  throw new StepError("Couldn't check its owner's access.");
+};
 
 const params = z.object({ id: z.string().min(1).max(100) });
 const iso = (value: Date | null) => value?.toISOString() ?? null;
@@ -82,6 +91,7 @@ const automationsRoutes: FastifyPluginAsync<AutomationsRoutesOptions> = async (a
     scheduleJob,
     sendNotice,
     performers: {},
+    people: options.people ?? noMembersList,
     log: app.log,
     now: options.now,
   });

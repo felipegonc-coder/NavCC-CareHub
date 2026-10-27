@@ -1,7 +1,8 @@
 /**
  * Running automations (Automations spec, section 3: Running). Every minute the scheduler task
  * queues each planned run that's due as an `automations.run` job, and the job runs the actions
- * in order and logs the run.
+ * in order and logs the run. Each run acts as its owner, checked when it starts (access.ts), and
+ * each automation runs at most RUNS_PER_HOUR times an hour.
  */
 import { randomUUID } from 'node:crypto';
 import type { Action, ActionKind, RunKind, RunStep } from '@carehub/team-automations/automation';
@@ -13,6 +14,7 @@ import {
 } from '@carehub/team-automations/schedule';
 import type { JobContext, JobFailure, ScheduleJobInput } from '../jobs';
 import { NOTICE_LIMITS, type SendNoticeInput } from '../notices';
+import { OWNER_LEFT, OWNER_NOT_ADMIN, pausedForOwner, type People, type Person } from './access';
 import type { Automation, AutomationStore, NewRun, Run, RunOutcome } from './domain/types';
 
 export const RUN_JOB = 'automations.run';
@@ -21,9 +23,18 @@ export const SCHEDULER_TASK = 'automations.scheduler';
 export const SCHEDULER_EVERY_MS = 60_000;
 /** The first try and 3 more over about 10 minutes: the job runner waits about 1, 2 and 4 minutes. */
 export const RUN_ATTEMPTS = 4;
+/** Each automation runs at most this many times an hour; more are skipped (spec, Limits). */
+export const RUNS_PER_HOUR = 1_000;
+export const TOO_OFTEN = 'Skipped: it already ran 1,000 times this hour.';
 const DUE_PER_TICK = 100;
 const FAILED = 'Something went wrong.';
 const MISSED: RunOutcome = { result: 'missed', steps: [], recipients: 0, error: MISSED_MESSAGE };
+const skipped = (error: string): RunOutcome => ({
+  result: 'skipped',
+  steps: [],
+  recipients: 0,
+  error,
+});
 
 /** The `automations.run` job's payload: enough to find its run again on a retry. */
 export interface RunJob {
@@ -50,11 +61,26 @@ export class StepError extends Error {
   }
 }
 
+/**
+ * The owner can't open something the action uses, such as a page card's page: the step fails
+ * and the automation pauses, telling the owner and the Admins (AU-20).
+ */
+export class AccessLost extends StepError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AccessLost';
+  }
+}
+
 export interface StepContext {
   automation: Automation;
   run: Run;
   /** The action's place in the list, from 0. */
   step: number;
+  /** Who it acts as, checked when the run started: act with their access, never more. */
+  owner: Person;
+  /** The workspace's members when the run started. */
+  people: readonly Person[];
   /** Send only to me: messages go to this person only. */
   onlyTo: string | null;
   signal: AbortSignal;
@@ -79,6 +105,8 @@ export interface AutomationRunnerOptions {
   /** `sendNotice` from features/notices: tells the owner when a run fails. */
   sendNotice: (input: SendNoticeInput) => Promise<unknown>;
   performers: Performers;
+  /** The workspace's members now: each run checks its owner among them first. */
+  people: People;
   log?: { warn(details: object, message: string): void };
   now?: (() => Date) | undefined;
 }
@@ -173,8 +201,8 @@ export function createAutomationRunner(options: AutomationRunnerOptions) {
   }
 
   /** The scheduler task: plans each due automation, one at a time across servers. */
-  async function tick(ctx?: Pick<JobContext, 'signal'>): Promise<void> {
-    const at = now();
+  async function tick(ctx?: { signal: AbortSignal; now?: Date }): Promise<void> {
+    const at = ctx?.now ?? now();
     for (const automation of await store.due(at, DUE_PER_TICK)) {
       if (ctx?.signal.aborted) return;
       try {
@@ -185,30 +213,96 @@ export function createAutomationRunner(options: AutomationRunnerOptions) {
     }
   }
 
-  /** Tells the owner in their 🔔 chat that a run failed (AU-07). A failed notice is only logged. */
-  async function tellOwner(automation: Automation, error: string | null): Promise<void> {
+  /** Sends a 🔔 notice from the automation. A failed notice is only logged. */
+  async function tell(
+    automation: Automation,
+    userId: string,
+    words: { title: string; text?: string | null; link?: string },
+  ): Promise<void> {
     try {
       await options.sendNotice({
         workspaceId: automation.workspaceId,
-        userId: automation.ownerUserId,
+        userId,
         kind: 'automation',
         sender: senderFor(automation.name),
-        title: 'An automation failed',
-        ...(error ? { text: error } : {}),
-        buttons: [{ label: 'See its runs', href: `/settings/automations/${automation.id}` }],
+        title: words.title,
+        ...(words.text ? { text: words.text } : {}),
+        ...(words.link
+          ? { buttons: [{ label: words.link, href: `/settings/automations/${automation.id}` }] }
+          : {}),
       });
     } catch (err) {
-      warn({ err, automationId: automation.id }, 'automations: telling the owner failed');
+      warn({ err, automationId: automation.id }, 'automations: a notice failed');
     }
   }
 
-  /** Runs the actions after the ones an earlier try did, in order; a failed step stops the rest. */
+  /** Tells the owner that a run failed (AU-07). */
+  function tellOwner(automation: Automation, error: string | null): Promise<void> {
+    const words = { title: 'An automation failed', text: error, link: 'See its runs' };
+    return tell(automation, automation.ownerUserId, words);
+  }
+
+  /**
+   * Switches it off, saying why ("Paused: …"). If it was on, the Admins are told, and the owner
+   * too while they're still here (spec, Running; AU-20).
+   */
+  async function pause(automation: Automation, reason: string, people: readonly Person[]) {
+    const patch = { enabled: false, nextRunAt: null, pausedReason: reason };
+    const paused = await store.update(automation.workspaceId, automation.id, patch, now());
+    if (!paused || !automation.enabled) return;
+    const title =
+      reason === OWNER_LEFT ? 'An automation was switched off' : 'An automation was paused';
+    const fix = pausedForOwner(reason)
+      ? 'Switch it back on to become its owner.'
+      : "Switch it back on once that's fixed.";
+    for (const person of people) {
+      if (person.isAdmin) {
+        await tell(automation, person.userId, { title, text: `${reason} ${fix}`, link: 'Open it' });
+      } else if (person.userId === automation.ownerUserId) {
+        // Only an owner who isn't an Admin anymore gets here.
+        const text =
+          "You aren't an Admin anymore, so it was paused. An Admin can switch it back on.";
+        await tell(automation, person.userId, { title, text });
+      }
+    }
+  }
+
+  /**
+   * The owner it acts as and the members, checked now (spec, section 5). Null when the run
+   * can't go ahead: it's then logged, and an automation whose owner left or isn't an Admin
+   * anymore is paused.
+   */
+  async function checkOwner(automation: Automation, run: Run, ctx: JobContext) {
+    let people: readonly Person[];
+    try {
+      people = await options.people(automation.workspaceId);
+    } catch (error) {
+      // As with steps: a StepError is final, anything else is tried again.
+      const final = error instanceof StepError;
+      if (ctx.signal.aborted || (!final && ctx.attempt < RUN_ATTEMPTS)) throw error;
+      const message = final ? error.message : FAILED;
+      await finish(automation, run, { result: 'failed', steps: [], recipients: 0, error: message });
+      return null;
+    }
+    const owner = people.find((person) => person.userId === automation.ownerUserId);
+    if (owner?.isAdmin) return { owner, people };
+    const reason = owner ? OWNER_NOT_ADMIN : OWNER_LEFT;
+    await store.finishRun(run.id, skipped(reason), now());
+    await pause(automation, reason, people);
+    return null;
+  }
+
+  /**
+   * Runs the actions after the ones an earlier try did, in order; a failed step stops the rest.
+   * `lostAccess` says why it must pause, when the owner couldn't open something it uses.
+   */
   async function runSteps(
     automation: Automation,
     run: Run,
     job: RunJob,
     ctx: JobContext,
-  ): Promise<RunOutcome> {
+    acting: { owner: Person; people: readonly Person[] },
+  ): Promise<{ outcome: RunOutcome; lostAccess: string | null }> {
     const steps = [...run.steps];
     let recipients = run.recipients;
     const onlyTo = job.kind === 'test' ? job.startedBy : null;
@@ -219,7 +313,8 @@ export function createAutomationRunner(options: AutomationRunnerOptions) {
       try {
         const perform = performers[action.kind] as Perform | undefined;
         if (!perform) throw new StepError("This action can't run yet.");
-        const done = await perform(action, { automation, run, step: index, onlyTo, signal });
+        const step = { automation, run, step: index, ...acting, onlyTo, signal };
+        const done = await perform(action, step);
         recipients += done.recipients ?? 0;
         steps.push({ action: index, kind: action.kind, result: 'done', message: done.message });
         await store.saveSteps(run.id, steps, recipients);
@@ -231,15 +326,16 @@ export function createAutomationRunner(options: AutomationRunnerOptions) {
         if (!final && ctx.attempt < RUN_ATTEMPTS) throw error;
         if (!final) warn({ err: error, automationId: automation.id }, 'automations: a step failed');
         const message = final ? error.message : FAILED;
-        return {
+        const outcome: RunOutcome = {
           result: 'failed',
           steps: failedSteps(automation.actions, steps, message),
           recipients,
           error: message,
         };
+        return { outcome, lostAccess: error instanceof AccessLost ? message : null };
       }
     }
-    return { result: 'sent', steps, recipients, error: null };
+    return { outcome: { result: 'sent', steps, recipients, error: null }, lostAccess: null };
   }
 
   /** Finishes the run and tells the owner when it failed, except for Send only to me. */
@@ -260,7 +356,29 @@ export function createAutomationRunner(options: AutomationRunnerOptions) {
       input.plannedFor !== null && runTiming(input.plannedFor, input.now).kind === 'missed';
     const started = await store.startRun(late ? { ...input, outcome: MISSED } : input);
     if (!started || started.run.result !== null) return;
-    await finish(automation, started.run, await runSteps(automation, started.run, job, ctx));
+    const { run } = started;
+    // Counted once per run, not per try. The owner hears about the first run over the limit.
+    if (started.created) {
+      const count = await store.countHourlyRun(automation.id, input.now);
+      if (count > RUNS_PER_HOUR) {
+        await store.finishRun(run.id, skipped(TOO_OFTEN), now());
+        if (count === RUNS_PER_HOUR + 1) {
+          await tell(automation, automation.ownerUserId, {
+            title: 'An automation ran too often',
+            text: 'It ran 1,000 times this hour, so more runs are skipped until the hour is up.',
+            link: 'See its runs',
+          });
+        }
+        return;
+      }
+    }
+    const acting = await checkOwner(automation, run, ctx);
+    if (!acting) return;
+    const { outcome, lostAccess } = await runSteps(automation, run, job, ctx, acting);
+    if (!lostAccess) return finish(automation, run, outcome);
+    // Pausing tells the owner and the Admins, instead of the failed-run notice.
+    await store.finishRun(run.id, outcome, now());
+    await pause(automation, lostAccess, acting.people);
   }
 
   /** The job failed for good without logging its run: it took too long or stopped responding. */

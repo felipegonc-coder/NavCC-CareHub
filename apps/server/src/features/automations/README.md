@@ -26,8 +26,9 @@ Tables: `automations_automations` and `automations_runs` (`migrations/2026102707
 ## Routes (`routes.ts`, mounted at `/api/automations`)
 
 Admins only (AU-D1): anyone else gets 403 (AU-09). It uses `app.db`, `request.user` and
-`request.member`; until the roles PR adds `request.member`, every request gets 403. Options for
-tests: `store`, `getMember(request)` and `now`. Bodies are checked with
+`request.member`; until the roles PR adds `request.member`, every request gets 403. Options:
+`people(workspaceId)`, the members list (see Running), and for tests `store`, `getMember(request)`
+and `now`. Bodies are checked with
 `@carehub/team-automations/validate`; answers use the views in `@carehub/team-automations/api`
 (times as ISO strings).
 
@@ -37,7 +38,9 @@ tests: `store`, `getMember(request)` and `now`. Bodies are checked with
   `nextRunAt`.
 - `GET /:id` returns `{ automation }`. `PATCH /:id` changes only the fields sent. Switching it off
   clears `nextRunAt`. Switching it on, or changing the trigger, plans the next run at least 15
-  minutes after the last scheduled run. Switching it on also clears `pausedReason`.
+  minutes after the last scheduled run. Switching it on also clears `pausedReason`; if the
+  server paused it because of its owner (they left, or aren't an Admin anymore), the Admin who
+  switches it on becomes its owner.
 - `DELETE /:id` deletes it and its runs: 204.
 - `GET /:id/runs` returns `{ runs }`, the latest 100, newest first (run keys stay on the server).
 - `POST /:id/try` with `{ to: 'me' }` (Send only to me, the default) or `{ to: 'everyone' }`
@@ -69,9 +72,28 @@ tests: `store`, `getMember(request)` and `now`. Bodies are checked with
   with a new key per click, so Send to everyone now runs once per click. In a test run the
   actions get `onlyTo`, the presser, and a failure tells no one else.
 - **Actions** come from `performers`: one function per action kind, given the action and
-  `{ automation, run, step, onlyTo, signal }`, returning `{ message, recipients? }`. None are
-  plugged in yet, so until Send a message and Add a row land, their steps fail with "This action
-  can't run yet."
+  `{ automation, run, step, owner, people, onlyTo, signal }`, returning `{ message, recipients? }`.
+  None are plugged in yet, so until Send a message and Add a row land, their steps fail with "This
+  action can't run yet."
+
+## Safety
+
+- **It acts as its owner** (spec, section 5; `access.ts`): each run first finds its owner among
+  the workspace's members now (`people`). If they left, the automation switches off ("Its owner
+  left the workspace.") and the Admins are told; if they aren't an Admin anymore, it pauses and
+  they and the Admins are told. Either way the run is logged as skipped. Actions get the `owner`
+  and act with their access, never more: an action that finds the owner can't open something it
+  uses throws `AccessLost`, which fails the step and pauses the automation, telling the owner and
+  the Admins (AU-20). Until the members list is wired in, `people` fails and so does every run:
+  nothing runs without a checked owner.
+- **No loops:** changes made by automations never fire automations
+  (`newRowFires(trigger, row)` in the package refuses `source: 'automation'`), so automations
+  can't trigger each other. Rows from a CSV import count only with Include imports on.
+- **At most 1,000 runs an hour** for each automation, of every kind, Try it now included
+  (`countHourlyRun`, counted once per run, not per try). Runs over the limit are logged as
+  skipped ("Skipped: it already ran 1,000 times this hour."), and the owner is told once.
+- **No web addresses:** automations fetch nothing. There are no webhooks or outside actions (spec,
+  AU-D3), and notice buttons and cards are Care Hub paths only.
 
 ## Coming next
 

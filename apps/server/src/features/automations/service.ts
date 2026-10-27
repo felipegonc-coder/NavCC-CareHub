@@ -9,7 +9,7 @@ import {
   type Problem,
 } from '@carehub/team-automations/validate';
 import type { Automation, AutomationPatch, AutomationStore, Run } from './domain/types';
-import { OWNER_LEFT } from './owners';
+import { pausedForOwner } from './access';
 
 /** An Admin of the workspace (the routes check that first). */
 export interface Caller {
@@ -114,10 +114,10 @@ export function createAutomationsService(options: AutomationsServiceOptions): Au
         const lastRanAt = scheduled ? await lastScheduledRun(caller, id) : null;
         patch.nextRunAt = nextRunFor(merged, at, lastRanAt);
       }
-      // Switching it back on clears why the server paused it. If its owner left, the Admin who
-      // switches it on takes it over.
+      // Switching it back on clears why the server paused it. If it paused because of its owner
+      // (they left, or aren't an Admin anymore), the Admin who switches it on takes it over.
       if (patch.enabled === true) {
-        if (current.pausedReason === OWNER_LEFT) patch.ownerUserId = caller.userId;
+        if (pausedForOwner(current.pausedReason)) patch.ownerUserId = caller.userId;
         patch.pausedReason = null;
       }
       const updated = await store.update(caller.workspaceId, id, patch, at);
