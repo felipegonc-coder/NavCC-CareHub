@@ -1,4 +1,5 @@
 import type { ComputedValue, Property, PropertyConfig } from '@carehub/databases';
+import { colorClasses } from '@carehub/ui';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { jobsProperties, PRIORITY, PROPS, STATUS, USERS } from '../fixtures';
@@ -386,5 +387,53 @@ describe('CellView: buttons', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mark paid' }));
     await act(async () => {});
     expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+});
+
+describe('CellView: verification', () => {
+  const verification = prop({ type: 'verification' }, 'Verification');
+  const verified = {
+    state: 'verified',
+    verifiedBy: USERS.jordan.id,
+    verifiedAt: '2026-10-20T15:00:00Z',
+    until: '2027-01-20',
+  };
+
+  it('shows who verified it and until when, in green with a check', () => {
+    const { container } = show(verification, verified);
+    const text = screen.getByText('Verified by Jordan Park until Jan 20, 2027');
+    expect(text.parentElement).toHaveClass(colorClasses.green.bg);
+    expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    show(verification, { ...verified, until: null });
+    expect(screen.getByText('Verified by Jordan Park')).toBeInTheDocument();
+  });
+
+  it('shows an expired one in orange with its date', () => {
+    const { container } = show(verification, {
+      ...verified,
+      state: 'expired',
+      until: '2026-10-01',
+    });
+    const text = screen.getByText('Verification expired Oct 1, 2026');
+    expect(text.parentElement).toHaveClass(colorClasses.orange.bg);
+    expect(container.querySelector('svg')).toBeNull();
+  });
+
+  it('says Not verified in grey, as a state rather than an empty cell', () => {
+    show(verification, null);
+    show(verification, { state: 'verified' });
+    const shown = screen.getAllByText('Not verified');
+    expect(shown).toHaveLength(2);
+    expect(shown[0]).toHaveClass('text-muted');
+  });
+
+  it('marks a removed verifier, and leaves out one it does not know', () => {
+    const ctx = cellCtx({ isRemovedUser: (id) => id === USERS.jordan.id });
+    render(<CellView property={verification} value={verified} ctx={ctx} />);
+    expect(
+      screen.getByText('Verified by Jordan Park (removed) until Jan 20, 2027'),
+    ).toBeInTheDocument();
+    show(verification, { ...verified, verifiedBy: 'user-unknown' });
+    expect(screen.getByText('Verified until Jan 20, 2027')).toBeInTheDocument();
   });
 });
