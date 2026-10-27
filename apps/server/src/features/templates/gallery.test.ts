@@ -73,7 +73,9 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
 
   beforeAll(async () => {
     test = await createTestApp({
-      routes: (app) => app.register(galleryRoutes, { prefix: BASE }),
+      routes: async (app) => {
+        await app.register(galleryRoutes, { prefix: BASE });
+      },
     });
     avery = await createUser(test.db, { name: 'Avery Lin', email: 'avery.lin@example.test' });
     sam = await createUser(test.db, { name: 'Sam Ortiz', email: 'sam.ortiz@example.test' });
