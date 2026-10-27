@@ -15,7 +15,7 @@ import {
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { ChevronRight, MoreHorizontal, Plus } from 'lucide-react';
 import { useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
-import { NavLink } from 'react-router';
+import { NavLink, useNavigate } from 'react-router';
 import { slots } from '../../slots';
 import { useEntryActions, type EntryActions } from './actions';
 import {
@@ -32,6 +32,7 @@ import type { MoveScope } from './move';
 import { useMoveDialogs } from './MoveDialog';
 import { EntryIcon, PageTree, titleOf } from './PageTree';
 import { useFlagPref, useSetPref } from './prefs';
+import { isNewPageKeys } from './shortcuts';
 import { CreateSpaceButton, SpaceMenu } from './SpaceMenu';
 import { groupChildren } from './tree';
 import type { PageLink, Space, TreeNode } from './types';
@@ -58,6 +59,7 @@ export default function PagesSidebar() {
   const [showRecent, onShowRecent] = useFlagPref('sidebar.recent', false);
   const moves = useMoveDialogs();
   const actions = useEntryActions(moves.host);
+  useNewPageKeys(actions.canCreate);
   const ctx: Ctx = { expanded, onExpand, collapsed, onCollapse, showRecent, onShowRecent, actions };
 
   if (spaces.isError) return <Retry onRetry={() => void spaces.refetch()} />;
@@ -88,6 +90,21 @@ export default function PagesSidebar() {
       {moves.dialogs(actions.move)}
     </div>
   );
+}
+
+/** Ctrl+Alt+N (Cmd+Option+N on a Mac) starts a new page, for people who may add pages. */
+function useNewPageKeys(enabled: boolean) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!enabled) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || !isNewPageKeys(event)) return;
+      event.preventDefault();
+      void navigate('/new');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [enabled, navigate]);
 }
 
 interface SectionProps {
