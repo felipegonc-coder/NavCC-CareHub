@@ -37,21 +37,39 @@ export function deriveCopies(doc: Y.Doc): DerivedCopies {
 
 export async function loadState(db: Db | Tx, pageId: string): Promise<Uint8Array | null> {
   const [row] = await db
-    .select({ ydoc: pageDocs.ydoc })
+    .select({ state: pageDocs.state })
     .from(pageDocs)
     .where(eq(pageDocs.pageId, pageId));
-  return row?.ydoc ?? null;
+  return row?.state ?? null;
 }
 
-/** Creates the page's row if needed, locks it until the transaction ends and returns its state. */
-async function lockRow(tx: Db | Tx, pageId: string): Promise<Uint8Array> {
-  await tx.insert(pageDocs).values({ pageId, ydoc: NO_STATE }).onConflictDoNothing();
+interface StoredRow {
+  state: Uint8Array;
+  text: string;
+}
+
+/** Creates the page's row if needed, locks it until the transaction ends and returns it. */
+async function lockRow(tx: Db | Tx, pageId: string): Promise<StoredRow> {
+  await tx.insert(pageDocs).values({ pageId, state: NO_STATE }).onConflictDoNothing();
   const [row] = await tx
-    .select({ ydoc: pageDocs.ydoc })
+    .select({ state: pageDocs.state, text: pageDocs.text })
     .from(pageDocs)
     .where(eq(pageDocs.pageId, pageId))
     .for('update');
-  return row?.ydoc ?? NO_STATE;
+  return row ?? { state: NO_STATE, text: '' };
+}
+
+/** The row's new values. `text_updated_at` moves only when the text changes. */
+function changes(doc: Y.Doc, copies: DerivedCopies, stored: StoredRow, by: string | null) {
+  const now = new Date();
+  const textChanged = copies.text !== stored.text;
+  return {
+    state: Y.encodeStateAsUpdate(doc),
+    ...copies,
+    ...(textChanged ? { textUpdatedAt: now } : {}),
+    updatedAt: now,
+    updatedBy: by,
+  };
 }
 
 /**
@@ -66,11 +84,11 @@ export async function saveDoc(
 ): Promise<DerivedCopies> {
   return db.transaction(async (tx) => {
     const stored = await lockRow(tx, pageId);
-    if (stored.length > 0) Y.applyUpdate(doc, stored, MERGE_ORIGIN);
+    if (stored.state.length > 0) Y.applyUpdate(doc, stored.state, MERGE_ORIGIN);
     const copies = deriveCopies(doc);
     await tx
       .update(pageDocs)
-      .set({ ydoc: Y.encodeStateAsUpdate(doc), ...copies, updatedAt: new Date(), updatedBy: by })
+      .set(changes(doc, copies, stored, by))
       .where(eq(pageDocs.pageId, pageId));
     return copies;
   });
