@@ -44,18 +44,12 @@ function subscription(endpoint: string) {
   return {
     endpoint,
     options: { applicationServerKey: KEY_BYTES.slice().buffer },
-    toJSON: () => ({
-      endpoint,
-      expirationTime: null,
-      keys: { p256dh: 'test-p256dh', auth: 'test-auth' },
-    }),
   };
 }
 
 interface WorkerOptions {
   tabs?: Tab[];
   publicKey?: string | null;
-  csrf?: string | null;
   keyOffline?: boolean;
 }
 
@@ -74,13 +68,6 @@ function loadWorker(options: WorkerOptions = {}) {
       state.skipped = true;
     },
     atob: (text: string) => atob(text),
-    cookieStore:
-      options.csrf === null
-        ? undefined
-        : {
-            get: async (name: string) =>
-              name === 'carehub_csrf' ? { value: options.csrf ?? 'test-csrf' } : null,
-          },
     clients: {
       claim: async () => {
         state.claimed = true;
@@ -128,6 +115,17 @@ const click = (data: unknown) => {
   return notification;
 };
 
+/** The size of a PNG data URL's image, and whether it can be see-through. */
+function png(url: unknown) {
+  const base64 = /^data:image\/png;base64,([\w+/]+=*)$/.exec(String(url))?.[1] ?? '';
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  expect([...bytes.slice(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  // The IHDR chunk comes first: width, height, bit depth, then colour type (4 and 6 have alpha).
+  const colourType = bytes[25] ?? 0;
+  return { width: view.getUint32(16), height: view.getUint32(20), alpha: colourType >= 4 };
+}
+
 describe('sw.js', () => {
   it('takes over at once and handles push only, so nothing is ever cached', async () => {
     const worker = loadWorker();
@@ -142,6 +140,8 @@ describe('sw.js', () => {
       'pushsubscriptionchange',
     ]);
     expect(workerSource).not.toContain('caches');
+    // Web code never reads the CSRF cookie (0007), and only the app saves subscriptions.
+    expect(workerSource).not.toMatch(/cookie/i);
   });
 
   it("shows the sender and preview, replacing the chat's older notification", async () => {
@@ -153,18 +153,29 @@ describe('sw.js', () => {
       tag: 'chat:chat-7',
     };
     await worker.fire('push', { data: pushData(payload) });
-    expect(worker.shown).toEqual([
-      {
-        title: 'Avery Lin',
-        options: {
-          body: 'Can you check the QA form?',
-          icon: '/favicon.svg',
-          badge: '/favicon.svg',
-          data: { url: '/messages/chat-7' },
-          tag: 'chat:chat-7',
-          renotify: true,
-        },
-      },
+    expect(worker.shown).toHaveLength(1);
+    const { icon, badge, ...options } = worker.shown[0]?.options ?? {};
+    expect(worker.shown[0]?.title).toBe('Avery Lin');
+    expect(options).toEqual({
+      body: 'Can you check the QA form?',
+      data: { url: '/messages/chat-7' },
+      tag: 'chat:chat-7',
+      renotify: true,
+    });
+    // PNG, since some browsers can't draw an SVG in a notification.
+    expect(png(icon)).toEqual({ width: 192, height: 192, alpha: true });
+    expect(png(badge)).toEqual({ width: 96, height: 96, alpha: true });
+  });
+
+  it('shows a headline alone, and fills in only an empty notification', async () => {
+    const worker = loadWorker();
+    await worker.fire('push', { data: pushData({ title: 'Avery Lin mentioned you', body: '' }) });
+    await worker.fire('push', { data: pushData({ body: 'Can you check the QA form?' }) });
+    await worker.fire('push', { data: pushData({ title: '', body: '' }) });
+    expect(worker.shown.map(({ title, options }) => [title, options.body])).toEqual([
+      ['Avery Lin mentioned you', ''],
+      ['Care Hub', 'Can you check the QA form?'],
+      ['Care Hub', 'New notification'],
     ]);
   });
 
@@ -181,7 +192,8 @@ describe('sw.js', () => {
     expect(empty?.options.tag).toBeUndefined();
     expect(broken).toMatchObject({ title: 'Care Hub', options: { data: { url: '/' } } });
     expect(long?.title).toHaveLength(300);
-    expect(long?.options).toMatchObject({ icon: '/favicon.svg', data: { url: '/' } });
+    expect(long?.options).toMatchObject({ body: '', data: { url: '/' } });
+    expect(long?.options.icon).toBe(empty?.options.icon); // not the payload's /other.png
     expect(external?.options.data).toEqual({ url: '/' });
   });
 
@@ -214,38 +226,26 @@ describe('sw.js', () => {
     expect(worker.opened).toEqual(['/messages/chat-7', '/', '/']);
   });
 
-  it('subscribes again with the server key and tells the server what it replaces', async () => {
+  it('subscribes again with the server key, and leaves saving it to the app', async () => {
     const worker = loadWorker();
     await worker.fire('pushsubscriptionchange', { oldSubscription: subscription(OLD_ENDPOINT) });
     expect(worker.subscribed).toHaveLength(1);
     expect(worker.subscribed[0]?.userVisibleOnly).toBe(true);
     expect([...(worker.subscribed[0]?.applicationServerKey as Uint8Array)]).toEqual([...KEY_BYTES]);
-    const [key, save] = worker.requests;
-    expect(key).toMatchObject({ url: '/api/push/key', init: { credentials: 'same-origin' } });
-    expect(save).toMatchObject({
-      url: '/api/push/subscriptions',
-      init: {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'test-csrf' },
-      },
-    });
-    expect(JSON.parse(String(save?.init?.body))).toEqual({
-      endpoint: NEW_ENDPOINT,
-      expirationTime: null,
-      keys: { p256dh: 'test-p256dh', auth: 'test-auth' },
-      replaces: OLD_ENDPOINT,
-    });
+    // Only the key is read; syncPushSubscription saves the new subscription when the app starts.
+    expect(worker.requests).toEqual([
+      { url: '/api/push/key', init: { credentials: 'same-origin' } },
+    ]);
   });
 
-  it('uses the subscription the browser made, or the old key when offline', async () => {
+  it('keeps the subscription the browser made, or uses the old key when offline', async () => {
     const made = loadWorker();
     await made.fire('pushsubscriptionchange', {
       oldSubscription: subscription(OLD_ENDPOINT),
       newSubscription: subscription(NEW_ENDPOINT),
     });
     expect(made.subscribed).toEqual([]);
-    expect(made.requests.map((request) => request.url)).toEqual(['/api/push/subscriptions']);
+    expect(made.requests).toEqual([]);
 
     const offline = loadWorker({ keyOffline: true });
     await offline.fire('pushsubscriptionchange', { oldSubscription: subscription(OLD_ENDPOINT) });
@@ -253,15 +253,10 @@ describe('sw.js', () => {
     expect([...new Uint8Array(key)]).toEqual([...KEY_BYTES]);
   });
 
-  it("stops when push is off on the server, and leaves saving to the app when it can't", async () => {
+  it('stops when push is off on the server', async () => {
     const off = loadWorker({ publicKey: null });
     await off.fire('pushsubscriptionchange', { oldSubscription: subscription(OLD_ENDPOINT) });
     expect(off.subscribed).toEqual([]);
-    expect(off.requests).toHaveLength(1);
-
-    const noCookie = loadWorker({ csrf: null });
-    await noCookie.fire('pushsubscriptionchange', { oldSubscription: subscription(OLD_ENDPOINT) });
-    expect(noCookie.subscribed).toHaveLength(1);
-    expect(noCookie.requests.map((request) => request.url)).toEqual(['/api/push/key']);
+    expect(off.requests.map((request) => request.url)).toEqual(['/api/push/key']);
   });
 });

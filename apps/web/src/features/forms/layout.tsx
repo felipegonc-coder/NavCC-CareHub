@@ -32,7 +32,7 @@ export default function FormLayout(props: LayoutProps) {
       {view.form ? (
         <FormByCode code={view.form.linkCode} />
       ) : (
-        <p className="mx-auto max-w-2xl text-body text-fg">
+        <p className="mx-auto max-w-page text-body text-fg">
           This form isn&apos;t accepting responses.
         </p>
       )}
@@ -124,7 +124,7 @@ function FormEditor({ meta, view, viewer, actions }: LayoutProps) {
       {problem && (
         <p
           role="alert"
-          className="mx-auto w-full max-w-2xl rounded border border-danger px-3 py-2 text-small text-danger"
+          className="mx-auto w-full max-w-page rounded border border-danger px-3 py-2 text-small text-danger"
         >
           {problem}
         </p>
