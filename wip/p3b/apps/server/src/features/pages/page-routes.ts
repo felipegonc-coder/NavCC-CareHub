@@ -3,6 +3,7 @@
 import {
   atLeast,
   createPageSchema,
+  hasPermission,
   movePageSchema,
   pageCardsSchema,
   updatePageSchema,
@@ -28,7 +29,7 @@ import { cardsFor } from './cards';
 import { forbidden, invalid, notFound, spaceArchived } from './http';
 import { pageChanged, treeChanged } from './live';
 import { movePage, whoCanOpen, type MovedPage, type PageMove } from './move';
-import { createPage, readPage, updatePage } from './pages';
+import { grantCreator, insertPage, readPage, updatePage } from './pages';
 import { spacePlace } from './spaces';
 
 const locked = () => httpError(403, 'forbidden', 'This page is locked. Unlock it to change it.');
@@ -94,23 +95,29 @@ export function pageRoutes(app: FastifyInstance): void {
   const canEdit = { preHandler: app.requirePageAccess('edit') };
 
   // Add a sub-page: Can edit on the parent. Top level: a member (owners, if the space says so).
-  // Both need the Create permission, and Can edit on the new page.
-  const create = { preHandler: app.requirePermission('pages.create') };
+  // Both need the Create permission, and Can edit on the new page before the creator's grant.
+  // Guests have no permissions, but may add sub-pages where they can edit (Roles spec 3, Guests).
+  const create = { preHandler: app.requireMember, config: { allowGuests: true } };
   app.post('/api/pages', create, async (request, reply) => {
     const input = createPageSchema.parse(request.body);
+    const member = request.member!;
+    const guest = member.kind === 'guest';
+    if (!(guest ? input.parentId : hasPermission(member, 'pages.create'))) throw forbidden();
     const viewer = await viewerFor(request);
-    const { workspaceId } = request.member!;
+    const { workspaceId } = member;
+    const levelOf = async (tx: Executor, id: string) =>
+      (await resolvePages(tx, viewer, [id])).get(id)?.level ?? 'none';
     const page = await db.transaction(async (tx) => {
       await checkPlace(tx, viewer, input);
-      const made = await createPage(tx, {
+      const made = await insertPage(tx, {
         ...input,
         workspaceId,
         kind: 'page',
         createdBy: viewer.userId,
       });
-      const level = (await resolvePages(tx, viewer, [made.id])).get(made.id)?.level ?? 'none';
-      if (!atLeast(level, 'edit')) throw forbidden();
-      return { ...made, level };
+      if (!atLeast(await levelOf(tx, made.id), 'edit')) throw forbidden();
+      await grantCreator(tx, made, viewer.userId);
+      return { ...made, level: await levelOf(tx, made.id) };
     });
     const { id: pageId, spaceId, parentId, kind } = page;
     app.events.emit('page.created', {

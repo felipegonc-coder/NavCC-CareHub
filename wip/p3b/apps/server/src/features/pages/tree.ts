@@ -3,6 +3,7 @@
 import { atLeast, type AccessLevel, type PageIcon, type TreeNodeJson } from '@carehub/shared';
 import { sql } from 'drizzle-orm';
 import { resolvePages, type Executor, type Viewer } from './access';
+import { isUuid } from './http';
 
 type TreeRow = {
   id: string;
@@ -76,4 +77,46 @@ export async function spaceTree(db: Executor, viewer: Viewer, spaceId: string) {
   for (const row of shownUnder.get(null) ?? []) emit(row, false);
   for (const row of pathHidden) emit(row, true);
   return nodes;
+}
+
+export type SubtreePage = {
+  id: string;
+  parentId: string | null;
+  kind: 'page' | 'database' | 'row';
+  isInline: boolean;
+  title: string;
+  position: string;
+  archived: boolean;
+  /** 0 for the root. */
+  depth: number;
+};
+
+/**
+ * 0007: the page and everything under it that isn't in Trash (sub-pages, databases, rows), parents
+ * before their children in page order, for export, duplicate and history. No access check:
+ * filter with getAccessForPages. Empty when the page is missing or in Trash.
+ */
+export async function listSubtree(db: Executor, rootId: string): Promise<SubtreePage[]> {
+  const { rows } = await db.execute<SubtreePage>(sql`
+    WITH RECURSIVE sub AS (
+      SELECT id, 0 AS depth FROM pages
+      WHERE id = ${isUuid(rootId) ? rootId : null}::uuid AND deleted_at IS NULL
+      UNION ALL
+      SELECT p.id, sub.depth + 1 FROM pages p JOIN sub ON p.parent_id = sub.id
+      WHERE p.deleted_at IS NULL
+    )
+    SELECT p.id, p.parent_id AS "parentId", p.kind, p.is_inline AS "isInline", p.title,
+      p.position, p.archived_at IS NOT NULL AS archived, sub.depth
+    FROM sub JOIN pages p ON p.id = sub.id ORDER BY p.position, p.id`);
+  const under = new Map<string | null, SubtreePage[]>();
+  for (const row of rows) add(under, row.depth === 0 ? null : row.parentId, row);
+  const ordered: SubtreePage[] = [];
+  const walk = (parentId: string | null) => {
+    for (const row of under.get(parentId) ?? []) {
+      ordered.push(row);
+      walk(row.id);
+    }
+  };
+  walk(null);
+  return ordered;
 }

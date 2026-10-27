@@ -10,6 +10,7 @@ import { grantAccess } from './access';
 import { changePageKind } from './move';
 import { createPage } from './pages';
 import { getPrivateSpaceId, joinSpace } from './spaces';
+import { listSubtree } from './tree';
 
 let app: Awaited<ReturnType<typeof createTestApp>>['app'];
 let db: Db;
@@ -249,6 +250,29 @@ describe.skipIf(!hasDatabase)('the page tree and moving pages', () => {
       { spaceId: newWing.id, parentId: plan.id },
       { spaceId: newWing.id, parentId: rooms.id },
     ]);
+  });
+
+  it('lists a page and everything under it, parents first (listSubtree)', async () => {
+    const space = await newSpace({ name: 'Archive desk' });
+    const guide = await make('Guide', { spaceId: space.id });
+    const second = await make('Second', { parentId: guide.id });
+    const first = await make('First', { parentId: guide.id }, { index: 0 });
+    const log = await make('Log', { parentId: first.id }, { kind: 'database', isInline: true });
+    const entry = await make('Entry', { parentId: log.id }, { kind: 'row' });
+    const gone = await make('Gone', { parentId: second.id });
+    await db.execute(sql`UPDATE pages SET deleted_at = now() WHERE id = ${gone.id}`);
+
+    const pages = await listSubtree(db, guide.id);
+    expect(pages.map((page) => [page.title, page.depth, page.parentId])).toEqual([
+      ['Guide', 0, null],
+      ['First', 1, guide.id],
+      ['Log', 2, first.id],
+      ['Entry', 3, log.id],
+      ['Second', 1, guide.id],
+    ]);
+    expect(pages[3]).toMatchObject({ id: entry.id, kind: 'row', archived: false });
+    expect(await listSubtree(db, gone.id)).toEqual([]);
+    expect(await listSubtree(db, 'not-a-page')).toEqual([]);
   });
 
   it('nudges the trees and pages people have open, with IDs only (SB-05)', async () => {
