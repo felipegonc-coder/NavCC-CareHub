@@ -78,6 +78,10 @@ function settingsChanges(
     allow('lock');
     changes.locked = input.locked;
   }
+  if (input.wiki !== undefined && input.wiki !== (current.wiki === true)) {
+    if (!atLeast(databasePageAccess(access), 'full')) throw forbidden();
+    changes.wiki = input.wiki;
+  }
   if (input.description !== undefined) {
     if (!atLeast(databasePageAccess(access), 'edit')) throw forbidden();
     changes.description = input.description;
@@ -189,7 +193,7 @@ export default async function databaseRoutes(app: FastifyInstance) {
     return answer(request, record, page.level);
   });
 
-  // Lock, default template, row page layout, sub-items, dependencies and description.
+  // Lock, wiki, default template, row page layout, sub-items, dependencies and description.
   app.patch('/:id', { preHandler: app.requirePageAccess('edit') }, async (request) => {
     const page = pageAccessOf(request);
     if (page.kind !== 'database') throw notFound();

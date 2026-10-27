@@ -34,7 +34,8 @@ export type NewDatabaseRequest = z.infer<typeof newDatabaseRequest>;
  * default (null: an empty row), and views drop their own defaults. `subItems: true` adds the
  * "Parent item" and "Sub-items" relations; false turns sub-items off and keeps the properties.
  * `dependencies` with a shift adds "Blocked by" and "Blocking" (or just changes the shift when
- * they're on); null turns them off the same way.
+ * they're on); null turns them off the same way. `wiki` makes it a Knowledge base wiki (Full access;
+ * Lock structure doesn't stop it).
  */
 export const databaseSettingsRequest = z.strictObject({
   version: versionSchema,
@@ -47,6 +48,7 @@ export const databaseSettingsRequest = z.strictObject({
     .nullable()
     .optional(),
   description: richTextSchema().optional(),
+  wiki: z.boolean().optional(),
 });
 export type DatabaseSettingsRequest = z.infer<typeof databaseSettingsRequest>;
 

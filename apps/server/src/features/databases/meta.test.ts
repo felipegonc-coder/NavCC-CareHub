@@ -150,6 +150,14 @@ describe('databaseMeta', () => {
     expect(meta.rowPageLayout?.pinned).toEqual([status.id]);
     expect(meta.icon).toBe('🔧');
     expect(meta.version).toBe(3);
+    expect(meta.wiki).toBe(false);
+    expect(
+      databaseMeta({
+        record: { ...record, wiki: true },
+        access: 'view',
+        viewer: { userId: JORDAN },
+      }).wiki,
+    ).toBe(true);
     // Pricing is a page Jordan can't open: its title is left out.
     expect(meta.description[1]).toEqual({ text: '', mention: { kind: 'page', id: PAGE } });
 

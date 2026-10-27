@@ -171,4 +171,22 @@ describe.skipIf(!hasDatabase)('database routes', () => {
     );
     expect(avery.version).toBe(7);
   });
+
+  it('lets only Full access make it a wiki, even with the structure locked', async () => {
+    expect((await get(people.avery)).json().wiki).toBe(false);
+    expect((await patch(people.avery, { version: 7, wiki: true })).statusCode).toBe(403);
+    expect((await patch(people.admin, { version: 7, wiki: 'yes' })).statusCode).toBe(400);
+    const locked = await patch(people.admin, { version: 7, locked: true });
+    expect(locked.json()).toMatchObject({ locked: true, version: 8 });
+    const wiki = await patch(people.admin, { version: 8, wiki: true });
+    expect(wiki.statusCode).toBe(200);
+    expect(wiki.json()).toMatchObject({ wiki: true, version: 9 });
+    expect((await get(people.jordan)).json().wiki).toBe(true);
+    const same = await patch(people.admin, { version: 9, wiki: true });
+    expect(same.json().version).toBe(9);
+    const { rows } = await ws.db.execute<{ wiki: boolean }>(
+      sql`SELECT wiki FROM db_databases WHERE page_id = ${databaseId}`,
+    );
+    expect(rows[0]?.wiki).toBe(true);
+  });
 });
