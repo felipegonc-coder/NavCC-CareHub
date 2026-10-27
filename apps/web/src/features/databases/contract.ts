@@ -1,111 +1,29 @@
 /**
  * The contract between the database shell and the layouts (table, board, list, gallery, calendar,
- * timeline, chart, feed, dashboard and form). The shell loads the database and the view's rows and
- * hands them to the layout as LayoutProps; a layout changes anything only through `actions`.
+ * timeline, chart, feed, dashboard and form), and between the toolbar and its panels. The shell
+ * loads the database and the view's rows and hands them to the layout as LayoutProps; a layout or
+ * panel changes anything only through `actions`.
  *
- * The query answer types mirror `@carehub/databases/engine` (engine/shapes.ts). Until the engine is
- * on main they live here; then this file re-exports the engine's types and nothing else changes.
+ * The query answer (rows, groups, lanes, counts and totals) is the engine's, from
+ * `@carehub/databases/engine`.
  */
-import type { ViewTotal } from '@carehub/databases/aggregate';
+import type { DatabaseMeta, Id, Row, View, ViewOverride, Viewer } from '@carehub/databases';
 import type {
-  ComputedValue,
-  DatabaseMeta,
-  Id,
-  Instant,
-  OptionColor,
-  Row,
-  View,
-  ViewOverride,
-  Viewer,
-} from '@carehub/databases';
+  ViewQueryBlocked,
+  ViewQueryData,
+  ViewQueryResult,
+} from '@carehub/databases/engine';
 
-// ---------------------------------------------------------------- the query answer (engine shapes)
+export type {
+  QueryGroup,
+  QueryLane,
+  QueryRow,
+  ViewQueryBlocked,
+  ViewQueryData,
+  ViewQueryResult,
+} from '@carehub/databases/engine';
 
-/** A row as the viewer may see it. */
-export interface QueryRow {
-  id: Id;
-  title: string;
-  icon: string | null;
-  /** The form (view id) it was sent with, if any. */
-  formId: Id | null;
-  /** Stored values of the properties the viewer can see; relations list only rows they can open. */
-  values: Partial<Record<Id, unknown>>;
-  /** Formula and rollup results the viewer can see. */
-  computed: Partial<Record<Id, ComputedValue>>;
-  /** Relation property id → links left out because the viewer can't open them. */
-  hiddenLinks: Partial<Record<Id, number>>;
-  /** null when every property that shows it is hidden from the viewer. */
-  createdAt: Instant | null;
-  createdBy: Id | null;
-  editedAt: Instant | null;
-  editedBy: Id | null;
-  uniqueNumber: number | null;
-  /** Sub-items only: where the line sits. */
-  depth?: number;
-  parentId?: Id | null;
-  childCount?: number;
-  /** Greyed out: it doesn't match, but a sub-item under it does. */
-  context?: boolean;
-}
-
-/** A group (board column, table group) or a board sub-group. */
-export interface QueryGroup {
-  key: string;
-  label: string;
-  color?: OptionColor;
-  hidden: boolean;
-  collapsedKey: string;
-  /** Rows in the group that match, all of them (not just the ones loaded). */
-  count: number;
-  /** The view's calculations over those rows. */
-  totals: Partial<Record<Id, ViewTotal>>;
-  /** Board column headers: the header calculation, when the board sets one on a property. */
-  header?: ViewTotal;
-  /** This page of the group's rows (none for hidden groups until asked for). */
-  rows: QueryRow[];
-  /** For "Load more"; null when everything is loaded. */
-  nextCursor: string | null;
-  /** Boards with sub-groups: one per lane, in lane order. The rows are in these. */
-  subGroups?: QueryGroup[];
-}
-
-/** A board lane (sub-group) across every column. */
-export interface QueryLane {
-  key: string;
-  label: string;
-  color?: OptionColor;
-  hidden: boolean;
-  collapsedKey: string;
-  count: number;
-}
-
-/** The answer for a view. */
-export interface ViewQueryData {
-  /** Rows that match the filter and search among the rows the viewer can open. */
-  count: number;
-  totals: Partial<Record<Id, ViewTotal>>;
-  /** Ungrouped views: this page of rows ([] when grouped). */
-  rows: QueryRow[];
-  nextCursor: string | null;
-  groups: QueryGroup[] | null;
-  lanes: QueryLane[] | null;
-  /** Titles of the rows these rows link to (only ones the viewer can open). */
-  rowTitles: Record<Id, string>;
-  /** The properties the viewer can see, in database order. */
-  propertyIds: Id[];
-  /** An answer to a cursor: only that group (and sub-group) is listed, or none if it's gone. */
-  continued: boolean;
-  /** The time budget ran out; some results say "⚠ Too slow". */
-  timedOut: boolean;
-}
-
-/** The whole answer for a view that uses a property the viewer can't see. */
-export interface ViewQueryBlocked {
-  blocked: string;
-}
-
-export type ViewQueryResult = ViewQueryBlocked | ViewQueryData;
-
+/** The view uses a property the viewer can't see: the block shows `blocked` instead of rows. */
 export function isBlocked(result: ViewQueryResult): result is ViewQueryBlocked {
   return 'blocked' in result;
 }
@@ -198,4 +116,57 @@ export interface LayoutProps {
   actions: ViewActions;
   /** The viewer can't change rows here (Can view, Can comment, or offline). */
   readOnly: boolean;
+}
+
+// ---------------------------------------------------------------- what a toolbar panel gets
+
+/**
+ * What the toolbar opens: Filter, Sort, Group and Properties (its buttons) and Layout ("…" →
+ * Layout) open under the toolbar; Import CSV and Export CSV ("…") open as dialogs, with the title
+ * and Close drawn by the shell.
+ */
+export const PANEL_NAMES = [
+  'filter',
+  'sort',
+  'group',
+  'properties',
+  'layout',
+  'importCsv',
+  'exportCsv',
+] as const;
+
+export type PanelName = (typeof PANEL_NAMES)[number];
+
+export const PANEL_LABELS: Record<PanelName, string> = {
+  filter: 'Filter',
+  sort: 'Sort',
+  group: 'Group',
+  properties: 'Properties',
+  layout: 'Layout',
+  importCsv: 'Import CSV',
+  exportCsv: 'Export CSV',
+};
+
+/** The panels drawn as dialogs (the CSV dialogs of spec section 2). */
+export const DIALOG_PANELS: ReadonlySet<PanelName> = new Set<PanelName>(['importCsv', 'exportCsv']);
+
+/** What the shell hands to a panel. */
+export interface PanelProps {
+  /** Which panel this is (one component may draw several). */
+  panel: PanelName;
+  meta: DatabaseMeta;
+  /** The view as shown: the saved view with the viewer's "Changed for you only" override. */
+  view: View;
+  /** The view as saved for everyone. */
+  savedView: View;
+  viewer: Viewer;
+  /**
+   * `actions.updateView` saves for everyone when canEditViews; otherwise the filter, sorts and
+   * grouping in the change become "Changed for you only" and the rest is left out.
+   */
+  actions: ViewActions;
+  /** Can edit, Lock structure off and online: changes to the view are saved for everyone. */
+  canEditViews: boolean;
+  /** Closes the panel and gives focus back to its button. Esc and presses outside close it too. */
+  close(): void;
 }
