@@ -62,7 +62,7 @@ export async function seedFeatures(ctx: SeedContext): Promise<void> {
 
   // feature: roles
 
-  // feature: learning
+  await (await import('./features/learning/seed')).seed(ctx);
 
   // feature: databases
 
