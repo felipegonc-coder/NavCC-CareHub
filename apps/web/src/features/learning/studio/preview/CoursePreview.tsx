@@ -137,7 +137,7 @@ function Preview({ course }: { course: Course }) {
         aria-label={narrow ? 'Preview at phone width' : 'Preview at computer width'}
         className={cn(
           'mx-auto flex w-full flex-col gap-6 rounded border border-border bg-bg p-4',
-          narrow ? 'max-w-sm' : 'md:flex-row md:p-6',
+          narrow ? 'max-w-96' : 'md:flex-row md:p-6',
         )}
       >
         {!lesson ? (

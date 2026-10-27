@@ -46,7 +46,7 @@ const savedTitle = (client: { getCourse(id: string): Promise<{ course: Course }>
   client.getCourse(id).then((draft) => draft.course.title);
 const SAVE_WAIT = { timeout: 3000 };
 
-// The paragraph editor arrives with the text editors; until then, show each paragraph's text.
+// Show each paragraph's text plainly, so these tests read it without the paragraph editor.
 const realParagraphEditor = blockEditors.paragraph;
 beforeEach(() => {
   blockEditors.paragraph = ({ block }) => (

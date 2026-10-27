@@ -55,3 +55,10 @@ export function blockLabel(block: Block): string {
   if (block.type === 'knowledge_check') return 'Knowledge check';
   return blockCatalog.find((entry) => entry.key === block.type)?.label ?? block.type;
 }
+
+/** "2 blocks: Heading, List": how many blocks, and the first three types. */
+export function blocksSummary(blocks: readonly Block[]): string {
+  const types = blocks.slice(0, 3).map(blockLabel).join(', ');
+  const count = blocks.length === 1 ? '1 block' : `${blocks.length} blocks`;
+  return `${count}: ${types}${blocks.length > 3 ? ', …' : ''}`;
+}
