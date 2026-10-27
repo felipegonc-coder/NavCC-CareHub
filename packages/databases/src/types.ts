@@ -53,8 +53,8 @@ export interface Viewer {
   roleId?: Id;
   /** Groups the viewer belongs to (GET /api/workspace/groups), for lists that name groups. */
   groupIds?: readonly Id[];
-  /** Guests can be picked in Person properties and see only what is shared with them. */
-  isGuest?: boolean;
+  /** From GET /api/workspace/members (decision 0007 section 4.3). Guests see only what is shared with them. Absent: member. */
+  kind?: 'member' | 'guest';
 }
 
 // ---------------------------------------------------------------- options
@@ -757,6 +757,12 @@ export interface View {
   colorRules?: ColorRule[];
   /** Sub-items (when on for the database): nested under parents, flat, or only top-level rows. */
   subItems?: 'nested' | 'flattened' | 'parents_only';
+  /**
+   * Nested sub-items: filters also apply to sub-items (a matching sub-item shows under its parents,
+   * which show greyed out as context). Absent: false (filters apply to top-level rows, which show
+   * with all their sub-items).
+   */
+  filterSubItems?: boolean;
   /** Show the Name column or card title. Absent: true. */
   showTitle?: boolean;
   /** Wrap all property text (list, gallery, board, timeline). Absent: false. */
@@ -1031,6 +1037,8 @@ export const LIMITS = {
   formAnyoneResponsesPerMinute: 30,
   colorRules: 10,
   subItemDepth: 10,
+  /** Rows one date change may shift through dependencies before it stops and says so. */
+  dependencyShiftRows: 500,
   rowPagePinned: 4,
   dashboardWidgets: 12,
   dashboardColumns: 4,

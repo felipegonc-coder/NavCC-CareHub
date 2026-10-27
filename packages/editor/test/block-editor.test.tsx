@@ -1,7 +1,7 @@
-import { Node } from '@tiptap/core';
+import { Extension, Node } from '@tiptap/core';
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { BlockEditor, type Editor } from '../src';
@@ -59,23 +59,26 @@ describe('BlockEditor', () => {
     expect(textbox?.getAttribute('aria-label')).toBe('Shift notes');
   });
 
-  it('takes extra extensions', async () => {
-    const Note = Node.create({
-      name: 'shiftNote',
-      group: 'block',
-      content: 'inline*',
-      parseHTML: () => [{ tag: 'aside' }],
-      renderHTML: () => ['aside', 0],
+  it('takes extensions that are not nodes and ignores nodes there', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const Shortcut = Extension.create({
+      name: 'shiftShortcut',
+      addKeyboardShortcuts: () => ({ 'Mod-Shift-x': () => true }),
     });
-    const ydoc = new Y.Doc();
+    const Note = Node.create({ name: 'shiftNote', group: 'block', content: 'inline*' });
     const ready: { editor?: Editor } = {};
     await render(
-      <BlockEditor ydoc={ydoc} extensions={[Note]} onReady={(editor) => (ready.editor = editor)} />,
+      <BlockEditor
+        ydoc={new Y.Doc()}
+        extensions={[Shortcut, Note]}
+        onReady={(editor) => (ready.editor = editor)}
+      />,
     );
-    expect(ready.editor?.schema.nodes.shiftNote).toBeDefined();
-    ready.editor?.commands.setContent('<aside>Bring the signed form</aside>');
-    expect(ready.editor?.getJSON().content?.[0]?.type).toBe('shiftNote');
-    expect(ydoc.getXmlFragment('default').toString()).toContain('Bring the signed form');
+    const names = ready.editor?.extensionManager.extensions.map((extension) => extension.name);
+    expect(names).toContain('shiftShortcut');
+    expect(ready.editor?.schema.nodes.shiftNote).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"shiftNote"'));
+    warn.mockRestore();
   });
 });
 

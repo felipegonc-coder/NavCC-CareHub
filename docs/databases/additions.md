@@ -1,18 +1,29 @@
 # Databases and Forms: additions
 
-Approved by Felipe on Oct 26, 2026. This page adds to the [Databases](https://app.notion.com/p/fe27d484cabc4a74ae11028f8d43465f) and [Forms](https://app.notion.com/p/6640881fdf6d41c390c8576c2c971b1d) specs so Care Hub matches Notion option for option. Where it differs from a spec, this page wins. Shapes are in `packages/databases/src/types.ts`.
+Approved by Felipe on Oct 26, 2026. Updated Oct 27 for the v2 specs.
+
+**The specs win.** The v2 specs written on Oct 26 cover most of this page and win wherever they differ: [Databases](https://app.notion.com/p/fe27d484cabc4a74ae11028f8d43465f), [Formulas](https://app.notion.com/p/79b23fda5f624034a964c8df4ca2ff86), [Forms](https://app.notion.com/p/6640881fdf6d41c390c8576c2c971b1d), [Roles and permissions](https://app.notion.com/p/d2e6352004d64a9b93a0b3ee29ee4259) and [Templates and buttons](https://app.notion.com/p/53b55b188e7c49e19a3d43e383e01eb6). This page keeps only lane details the specs don't give. Shapes are in `packages/databases/src/types.ts`.
 
 ## 1. Felipe's decisions
 
-| Decision | Answer | What it means |
-| --- | --- | --- |
-| DB-D1 Formulas, rollups, column totals | Now | Sections 2–4 |
-| DB-D2 Row-level access | Now | Section 7 |
-| DB-D3 Import updates rows with the same Name | No, add only | As the spec says |
-| DB-D4 Notices when added to a Person property | Yes | On for new Person properties. A bulk change sends one notice per person; imports send none; only people who can open the row are told |
-| FM-D1 Anonymous form responses | Yes | A setting per form, off by default. Section 8 |
+| Decision                                                         | Answer                                                | What it means                                                                                                                         |
+| ---------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| DB-D1 Formulas, rollups, column totals                           | Now                                                   | Sections 2–4                                                                                                                          |
+| DB-D2 Row-level access                                           | Now                                                   | Section 7                                                                                                                             |
+| DB-D3 Import updates rows with the same Name                     | No, add only                                          | As the spec says                                                                                                                      |
+| DB-D4 Notices when added to a Person property                    | Yes                                                   | On for new Person properties. A bulk change sends one notice per person; imports send none; only people who can open the row are told |
+| FM-D1 Anonymous form responses                                   | Yes                                                   | A setting per form, off by default. Section 8                                                                                         |
+| DB-D5 Map view and Place property                                | Later (default, waiting for Felipe)                   | Not in the type or layout menus                                                                                                       |
+| DB-D6 Several data sources in one database                       | Later (default, waiting for Felipe)                   | One table of rows per database                                                                                                        |
+| FM-D2 Forms anyone on the network can fill in without signing in | Allowed per form, off by default (waiting for Felipe) | Always anonymous; no Person or Relation questions; 30 responses a minute per form                                                     |
 
 ## 2. Formulas
+
+**The [Formulas spec](https://app.notion.com/p/79b23fda5f624034a964c8df4ca2ff86) replaces this section** for syntax, types, functions, messages, limits and loops. Kept here: storage, and how patterns run safely.
+
+**Patterns (security #13).** `test`, `match`, `replace` and `replaceAll` never run JavaScript `RegExp` on a typed pattern. They use the RE2 engine (`re2js`, linear time), patterns up to 200 characters, text up to 10,000 characters, inside the 50 ms per-row limit ("⚠ Pattern too slow").
+
+**Links (security #12).** `link()` and every URL value pass `isSafeWebLink` (http and https only); anything else shows as plain text.
 
 **Editing.** Formula property → "Edit formula" opens the editor: an expression box (monospace, line breaks and `/* comments */` allowed), a live result for the view's first row ("No rows to preview" if none), the error under the box with its position, a list of properties (click inserts `prop("Name")`) and the functions grouped by kind, each with a one-line description and an example. Done (or Ctrl+Enter) saves; Esc cancels. Done is disabled while the formula has an error. Needs Can edit and Lock structure off.
 
@@ -20,20 +31,20 @@ Approved by Felipe on Oct 26, 2026. This page adds to the [Databases](https://ap
 
 **Values.** number, text, checkbox (true or false), date, person, page (a row) and lists of these; anything can be empty. What each property gives a formula:
 
-| Property | In a formula |
-| --- | --- |
-| Name, Text, Link, Email, Phone | text |
-| Number | number |
-| Select, Status | text (the option name) |
-| Multi-select | list of text |
-| Date, Created time, Edited time | date |
-| Checkbox | checkbox |
-| Person | list of person; Created by and Edited by are one person |
-| Relation | list of page (only rows the viewer can open) |
-| Files | list of text (file names) |
-| Checklist | number: the share done, 0 to 1 |
-| ID | text with a prefix ("QA-12"), otherwise number |
-| Formula, Rollup | its result |
+| Property                        | In a formula                                            |
+| ------------------------------- | ------------------------------------------------------- |
+| Name, Text, Link, Email, Phone  | text                                                    |
+| Number                          | number                                                  |
+| Select, Status                  | text (the option name)                                  |
+| Multi-select                    | list of text                                            |
+| Date, Created time, Edited time | date                                                    |
+| Checkbox                        | checkbox                                                |
+| Person                          | list of person; Created by and Edited by are one person |
+| Relation                        | list of page (only rows the viewer can open)            |
+| Files                           | list of text (file names)                               |
+| Checklist                       | number: the share done, 0 to 1                          |
+| ID                              | text with a prefix ("QA-12"), otherwise number          |
+| Formula, Rollup                 | its result                                              |
 
 **Syntax** (Notion formulas):
 
@@ -46,15 +57,15 @@ Approved by Felipe on Oct 26, 2026. This page adds to the [Databases](https://ap
 
 **Functions.**
 
-| Kind | Functions |
-| --- | --- |
-| Logic | `if`, `ifs`, `empty` (one argument: is it empty, where "", 0, false and [] count as empty; no argument: an empty value), `not`, `and`, `or`, `equal`, `unequal` |
-| Text | `length`, `substring(text, start, end?)`, `contains`, `test(text, pattern)`, `match(text, pattern)` (list), `replace(text, pattern, with)`, `replaceAll`, `lower`, `upper`, `trim`, `repeat`, `split`, `join(list, separator)`, `format(value)`, `toNumber`, `link(label, url)`, `style(text, styles…)` (b, i, u, s, c and the text colors, plus `_background` colors), `unstyle(text, styles?)` |
-| Math | `add`, `subtract`, `multiply`, `divide`, `mod`, `pow`, `abs`, `ceil`, `floor`, `round(x, places?)` (places may be negative: `round(1234, -2)` is 1200), `sqrt`, `cbrt`, `exp`, `ln`, `log10`, `log2`, `sign`, `min`, `max`, `sum`, `mean`, `median` (numbers or lists), `pi`, `e` |
-| Dates | `now`, `today`, `minute`, `hour`, `day` (1 Monday … 7 Sunday), `date` (day of the month), `week` (ISO week 1–53), `month` (1–12), `year`, `dateAdd(date, amount, unit)`, `dateSubtract`, `dateBetween(a, b, unit)` (a − b in whole units, toward zero), `dateRange(start, end)`, `dateStart`, `dateEnd`, `timestamp` (milliseconds), `fromTimestamp`, `formatDate(date, pattern)`, `parseDate(ISO text)`. Units: years, quarters, months, weeks, days, hours, minutes (singular also accepted) |
-| People | `name`, `email`, `id` |
-| Lists | `at` (negative counts from the end), `first`, `last`, `slice`, `concat` (lists only), `sort`, `reverse`, `unique`, `includes`, `find`, `findIndex` (−1 if none), `filter`, `some`, `every`, `map`, `flat` (one level), `length`, `join` |
-| Pages | `id()` (this row), `id(page)`, `prop` |
+| Kind   | Functions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Logic  | `if`, `ifs`, `empty` (one argument: is it empty, where "", 0, false and [] count as empty; no argument: an empty value), `not`, `and`, `or`, `equal`, `unequal`                                                                                                                                                                                                                                                                                                                                |
+| Text   | `length`, `substring(text, start, end?)`, `contains`, `test(text, pattern)`, `match(text, pattern)` (list), `replace(text, pattern, with)`, `replaceAll`, `lower`, `upper`, `trim`, `repeat`, `split`, `join(list, separator)`, `format(value)`, `toNumber`, `link(label, url)`, `style(text, styles…)` (b, i, u, s, c and the text colors, plus `_background` colors), `unstyle(text, styles?)`                                                                                               |
+| Math   | `add`, `subtract`, `multiply`, `divide`, `mod`, `pow`, `abs`, `ceil`, `floor`, `round(x, places?)` (places may be negative: `round(1234, -2)` is 1200), `sqrt`, `cbrt`, `exp`, `ln`, `log10`, `log2`, `sign`, `min`, `max`, `sum`, `mean`, `median` (numbers or lists), `pi`, `e`                                                                                                                                                                                                              |
+| Dates  | `now`, `today`, `minute`, `hour`, `day` (1 Monday … 7 Sunday), `date` (day of the month), `week` (ISO week 1–53), `month` (1–12), `year`, `dateAdd(date, amount, unit)`, `dateSubtract`, `dateBetween(a, b, unit)` (a − b in whole units, toward zero), `dateRange(start, end)`, `dateStart`, `dateEnd`, `timestamp` (milliseconds), `fromTimestamp`, `formatDate(date, pattern)`, `parseDate(ISO text)`. Units: years, quarters, months, weeks, days, hours, minutes (singular also accepted) |
+| People | `name`, `email`, `id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Lists  | `at` (negative counts from the end), `first`, `last`, `slice`, `concat` (lists only), `sort`, `reverse`, `unique`, `includes`, `find`, `findIndex` (−1 if none), `filter`, `some`, `every`, `map`, `flat` (one level), `length`, `join`                                                                                                                                                                                                                                                        |
+| Pages  | `id()` (this row), `id(page)`, `prop`                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 **Rules.**
 
@@ -78,13 +89,15 @@ Approved by Felipe on Oct 26, 2026. This page adds to the [Databases](https://ap
 - "Count all" counts related rows; "count values" counts non-empty values (each value of a multi-value property counts); percent results show as percent.
 - Results: lists for show original and show unique (shown like the property); dates for earliest and latest; date range gives the earliest start → the latest end; everything else is a number, shown with the rollup's number display (it starts as the target's number format).
 - Only related rows the viewer can open are counted. Their titles and values never reach the browser.
-- Cycles and chains: as for formulas (section 2).
+- Loops: "This would make a loop." Chains: as in the Formulas spec (10 deep).
+- When some related rows can't be opened, the result shows a hover note: "Based on 2 of 3 rows you can open".
 - Filters and sorts follow the result kind, as for formulas.
 
 ## 4. Column totals
 
 - Table footer: one per column, "Calculate ▾" on hover when empty. Grouped tables show a footer per group.
-- Board, gallery and list group headers show the count (as in the spec).
+- Board, gallery and list group headers show the count (as in the spec); board column headers can show another calculation; the timeline's table has its own footer.
+- Date labels: "Earliest", "Latest", "Date range"; rollup date labels: "Earliest date", "Latest date".
 - Options: none, count all, count values, count unique values, count empty, count not empty, percent empty, percent not empty; numbers: sum, average, median, min, max, range; dates: earliest, latest, date range; checkboxes: checked, unchecked, percent checked, percent unchecked. Name offers the counts only.
 - Totals cover every row that matches the view's filters and search (not just the loaded ones) that the viewer can open. The server computes them with the query; they refresh with live updates.
 - Labels: "Sum 12,340" in the property's number format; percents with up to one decimal ("25%", "33.3%"); date range "Oct 1 → Oct 26, 2026".
@@ -99,7 +112,7 @@ Approved by Felipe on Oct 26, 2026. This page adds to the [Databases](https://ap
 - Bars show the title and the view's visible properties. Filters, sorts and grouping work as in the table. Clicking a bar opens the row.
 - Keyboard: Tab to a bar; ← and → move it one step; Shift+← and Shift+→ change its end; Enter opens.
 - Phone: the table part only, with the dates as columns.
-- Dependencies (arrows between rows) are not included.
+- Dependencies (arrows between rows) follow the Databases spec (Blocked by and Blocking; Shift or Don't shift).
 
 ## 6. Row templates
 
@@ -109,13 +122,14 @@ Approved by Felipe on Oct 26, 2026. This page adds to the [Databases](https://ap
 - Dynamic presets: dates can be "Today" or "Now" and people can be "Me", resolved for the person creating the row in their time zone.
 - Content and values are copied when the row is made; editing a template later doesn't change existing rows.
 - Templates never show up as rows: not in views, search, counts, totals, rollups, charts, relation pickers, exports, the calendar API or forms. Form responses and CSV imports don't use templates.
-- Managing templates needs Can edit and Lock structure off; using them needs Can edit. Up to 50 per database. Duplicating a database copies its templates.
+- Managing templates needs Can edit and Lock structure off; using them needs Can edit content. Up to 50 per database. Duplicating a database copies its templates.
+- Repeating templates, "Today + 3 days", "This page", and applying a template to an existing row: the [Templates and buttons spec](https://app.notion.com/p/53b55b188e7c49e19a3d43e383e01eb6).
 
 ## 7. Row-level access (DB-D2)
 
 - In the database's Share menu (Full access only, source database only): **Row access** rules, "People in [a Person or Created by property] get [Can view, Can comment, Can edit or Full access] on rows that name them." Up to 10 rules.
 - A person's access to a row is the highest of: their access to the database (rows inherit it), the row page's own sharing, and every rule that names them in that row. Rules only add access.
-- **Rows only.** Someone with no access to the database but at least one rule can open it from a link or search (it isn't in their sidebar). They see its views and properties and only the rows rules give them. Everything else is as if those other rows didn't exist: counts, totals, charts, search, exports, relation titles ("1 row you can't open"), rollups and formulas. They can't add rows (forms still work) or change views for everyone.
+- **Only rows they're in** (a Share level, decision 0007). It gives view on the database page; rows start at none and rules lift the rows that name them. They see its views and properties and only those rows. Everything else is as if the other rows didn't exist: counts, totals, charts, search, exports, relation titles ("1 row you can't open"), rollups and formulas. With "Can add rows" they can add rows (and see them, as Created by); otherwise they can't (forms still work). They never change views for everyone.
 - Can edit from a rule lets them change that row's values and content, not the database's structure. If a change would remove their own access (taking themselves out of the Person property), they confirm first: "You'll lose access to this row."
 - Changes apply at once. Open views of people whose access changed refresh through live updates.
 - The server enforces this on every read and write: queries, row pages, search, mentions and backlinks, relation titles and pickers, rollups, formulas, totals, charts, CSV export, the calendar and timeline APIs, notices (only people who can open the row), form relation questions, and Trash.
@@ -124,12 +138,13 @@ Approved by Felipe on Oct 26, 2026. This page adds to the [Databases](https://ap
 
 ## 8. Anonymous form responses (FM-D1)
 
-- Form Settings → "Anonymous responses" (off by default). Changing it needs Can edit with Lock structure off, like other form settings. The builder notes "Responses you've already received keep their sender." and the fill screen says "Your name isn't recorded with your answers."
-- An anonymous response row has no Created by or Edited by; it shows "Anonymous" (also in the row's history). If Name wasn't asked, it's "Anonymous response". The row page says "Sent anonymously with the form 'QA dispute request'". Later edits by editors are recorded as usual.
-- Sign-in and workspace membership are still required, and "only one response" and the 10-per-minute limit still apply. To do that without linking anyone to a row, the server keeps a separate list per form of who responded and on which day (no row, no time), used only for "You already responded on Oct 26, 2026". The rate limit is counted in memory.
-- Nothing names the respondent: the response event has no responder, the notice says "New response to 'QA dispute request'", no view is recorded, and request logs leave out the answers.
-- Files questions aren't offered in anonymous forms until uploads can be stored without their uploader ("Files questions can't be anonymous yet."). Person questions still work; respondents choose whom they name.
-- Turning it off later: new responses record their sender again; anonymous ones stay anonymous.
+The [Forms spec](https://app.notion.com/p/6640881fdf6d41c390c8576c2c971b1d) replaces this section. In short:
+
+- Changing Anonymous responses, Who can respond or closing needs Full access.
+- Nothing about the sender is stored anywhere: no Created by, no respondents list, no view, no log of the answers. The rate limit is counted in memory.
+- "One response per person" needs names: "One response per person needs names. Turn off anonymous responses first."
+- File questions work; files are stored as uploaded by Anonymous.
+- Texts: "Your name isn't recorded with this form." (fill screen); "Answers can still show who sent them (Person questions, or what people type)." (builder); notice "New anonymous response to 'QA dispute request'".
 
 ## 9. Linked views
 
@@ -147,13 +162,13 @@ Approved by Felipe on Oct 26, 2026. This page adds to the [Databases](https://ap
 - **Number**: Number, Number with commas, Percent or Currency (the common currencies first, then any ISO code, shown like "€1,234.50"); decimals automatic or 0–4; show as Number, Bar or Ring, with a color, "Divide by" (default 100) and "Show number".
 - **Date formats**: Full (Oct 26, 2026), Month/Day/Year, Day/Month/Year, Year/Month/Day, Relative; time 12-hour, 24-hour, hidden, or the viewer's setting.
 - **Property descriptions**: up to 280 characters, shown on hover over the column header and next to the label on row pages.
-- **Views**: "Open pages in" side peek (default), center peek or full page; "Show page icon"; "Load limit" 10, 25, 50 or 100 rows (default 25 on boards, 50 elsewhere), then "Load more" (per group).
+- **Views**: "Open pages in" side peek (default), center peek or full page; "Show page icon"; "Load limit" 10, 25, 50, 100 or 200 rows (default 50 everywhere), then "Load more" (per group).
 - **Board**: sub-groups (lanes by a second property) and "Color columns".
 - **Filters**: up to 3 layers (the top plus 2 levels of nested groups), as in Notion. This replaces the spec's one level.
 - **Table**: wrap per column or for all; vertical lines on or off.
 - **Charts**: also horizontal bar and donut, stacked bars (with Split by), cumulative lines, median, and heights S, M, L and XL.
 - **Calendar**: show weekends on or off; weeks start on the viewer's setting.
-- **Button property**: later; not in the type menu.
+- **Button property**: now, per the Templates and buttons spec.
 
 ## 12. How the server computes views
 
@@ -161,19 +176,21 @@ The server answers every query with the shared package: it loads the database's 
 
 ## 13. Acceptance checks for the additions
 
-- **DB-29** `prop("Score") / prop("Max")` shown as Percent gives "85%"; renaming Score keeps it working; a formula using itself is refused with "This formula refers to itself."; `formatDate(prop("Due"), "MMM D")` shows "Oct 26".
-- **DB-30** Formula and rollup results filter, sort and group by their result kind; a `today()` formula follows the viewer's time zone (America/Denver and Europe/London around midnight).
-- **DB-31** A rollup "Sum of Hours" matches a hand count; a related row the viewer can't open isn't counted, and its title and values never reach the browser.
-- **DB-32** Totals (sum, average, count empty, percent checked, earliest) match the server over all rows matching the filter, per group when grouped, and survive a reload.
-- **DB-33** Timeline bars span start → end; dragging a bar keeps its length; dragging an end changes only that end; rows without dates are under "No date"; the keyboard moves a bar.
-- **DB-34** The default template fills values and content; "Today" and "Me" resolve for the creator; templates never appear as rows, in search, counts or exports.
-- **DB-35** Jordan has no access to QA reviews and a rule on Agent: he sees only rows naming him, can't add rows, gets 403 on other rows by URL, and totals, charts, search, relation titles and exports cover only his rows. Taking him out of Agent removes his access at once.
-- **DB-36** New rows get the next ID with its prefix ("QA-13"); IDs aren't reused after a delete; searching "QA-12" finds that row.
-- **DB-37** Number Bar and Ring (Divide by 100) show; a Euro column shows "€1,234.50" and exports as shown.
-- **DB-38** Board sub-groups, Open pages in and Load limit (with Load more per group) work and are saved per view.
-- **FM-16** With Anonymous responses on: the row has no Created by and shows "Anonymous"; Name is "Anonymous response"; the notice names nobody; with one response allowed, a second visit still shows "You already responded…"; no table links a person to an anonymous row.
-- **FM-17** A rule on Created by lets a respondent see their own responses and nothing else.
+These are lane checks, numbered AX so they don't clash with the specs' own DB-29 to DB-46 and FM-16 to FM-21. The specs' checks come first.
+
+- **AX-01** `prop("Score") / prop("Max")` shown as Percent gives "85%"; renaming Score keeps it working; a formula using itself through another is refused with "'Days open' uses itself through 'Late?'."; `formatDate(prop("Due"), "MMM D")` shows "Oct 26".
+- **AX-02** Formula and rollup results filter, sort and group by their result kind; a `today()` formula follows the viewer's time zone (America/Denver and Europe/London around midnight).
+- **AX-03** A rollup "Sum of Hours" matches a hand count; a related row the viewer can't open isn't counted, and its title and values never reach the browser.
+- **AX-04** Totals (sum, average, count empty, percent checked, earliest) match the server over all rows matching the filter, per group when grouped, and survive a reload.
+- **AX-05** Timeline bars span start → end; dragging a bar keeps its length; dragging an end changes only that end; rows without dates are under "No date"; the keyboard moves a bar.
+- **AX-06** The default template fills values and content; "Today" and "Me" resolve for the creator; templates never appear as rows, in search, counts or exports.
+- **AX-07** Jordan has "Only rows they're in" on QA reviews and a rule on Agent: he sees only rows naming him, can't add rows (Can add rows is off), gets 403 on other rows by URL, and totals, charts, search, relation titles and exports cover only his rows. Taking him out of Agent removes his access at once.
+- **AX-08** New rows get the next ID with its prefix ("QA-13"); IDs aren't reused after a delete; searching "QA-12" finds that row.
+- **AX-09** Number Bar and Ring (Divide by 100) show; a Euro column shows "€1,234.50" and exports as shown.
+- **AX-10** Board sub-groups, Open pages in and Load limit (with Load more per group) work and are saved per view.
+- **AX-11** With Anonymous responses on: the row has no Created by and shows "Anonymous"; Name is "Anonymous response"; the notice names nobody; turning on "One response per person" is refused with "One response per person needs names. Turn off anonymous responses first."; no table links a person to an anonymous row.
+- **AX-12** A rule on Created by lets a respondent see their own responses and nothing else.
 
 ## 14. If time runs short
 
-Dropped first, in this order: timeline on phones beyond the table, chart donut and horizontal bar, number Ring, board sub-groups, per-view default templates, regex functions. Everything else is core.
+Dropped first, in this order: Dashboard view, Feed view, Excel import, chart extras (palette, reference line, smooth lines), timeline on phones beyond the table, number Ring, board sub-groups, repeating templates, per-view default templates. Everything else is core.

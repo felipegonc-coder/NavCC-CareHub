@@ -1,12 +1,20 @@
 import type { Config } from 'tailwindcss';
 import plugin from 'tailwindcss/plugin';
+import { colorNames, colorVariables, darkColors, lightColors } from './src/palette';
 import { cssVariables, darkTokens, lightTokens, tokenNames } from './src/tokens';
 
-const colors = Object.fromEntries(
-  tokenNames.map((name) => [name, `rgb(var(--ch-${name}) / <alpha-value>)`]),
-);
+const colors = Object.fromEntries([
+  ...tokenNames.map((name) => [name, `rgb(var(--ch-${name}) / <alpha-value>)`]),
+  // Picked colours: `text-blue-text`, `bg-blue-bg` ...
+  ...colorNames.flatMap((name) =>
+    ['text', 'bg'].map((part) => [
+      `${name}-${part}`,
+      `rgb(var(--ch-${name}-${part}) / <alpha-value>)`,
+    ]),
+  ),
+]);
 
-/** Care Hub Tailwind preset: colour tokens, system font, type scale, 8 px corners. */
+/** Care Hub Tailwind preset: colour tokens, picked colours, system font, type scale, 8 px corners. */
 const preset = {
   content: [],
   darkMode: 'class',
@@ -66,7 +74,10 @@ const preset = {
   },
   plugins: [
     plugin(({ addBase }) => {
-      addBase({ ':root': cssVariables(lightTokens), '.dark': cssVariables(darkTokens) });
+      addBase({
+        ':root': { ...cssVariables(lightTokens), ...colorVariables(lightColors) },
+        '.dark': { ...cssVariables(darkTokens), ...colorVariables(darkColors) },
+      });
     }),
   ],
 } satisfies Config;

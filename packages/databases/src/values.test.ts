@@ -5,6 +5,8 @@ import type {
   ChecklistItem,
   ComputedValue,
   ConfigOf,
+  DateValue,
+  EvalContext,
   NumberDisplay,
   OptionColor,
   Property,
@@ -23,7 +25,6 @@ import {
   relationTitlesText,
   splitOnCommas,
   validateValue,
-  type FormatContext,
   type ValueResult,
 } from './values';
 
@@ -41,7 +42,7 @@ const titles: Record<string, string> = {
   'r-heat': 'Install heater',
   'r-blank': '',
 };
-const ctx: FormatContext = {
+const ctx: EvalContext = {
   properties: [],
   viewer,
   userName: (id) => names[id],
@@ -255,6 +256,43 @@ describe('validateValue: Date', () => {
   ])('rejects %s', (_label: string, input: unknown) => {
     expect(validateValue(due, input)).toEqual(bad('Enter a date.'));
   });
+  const at = { start: '2026-10-26T15:00:00.000Z', end: null, hasTime: true };
+  const day = { start: '2026-10-26', end: null, hasTime: false };
+  it('keeps a fixed time zone on a date with a time', () => {
+    const zoned = { ...at, timeZone: 'America/New_York' };
+    expect(validateValue(due, zoned)).toEqual(good(zoned));
+    expect(validateValue(due, { ...at, timeZone: 'Etc/GMT+5' }).ok).toBe(true);
+    expect(validateValue(due, { ...at, timeZone: null })).toEqual(good(at));
+  });
+  it.each([
+    ['a date without a time', { ...day, timeZone: 'America/New_York' }],
+    ['a name with a space', { ...at, timeZone: 'America/New York' }],
+    ['a number', { ...at, timeZone: 5 }],
+    ['an empty name', { ...at, timeZone: '' }],
+    ['a name that is too long', { ...at, timeZone: `A/${'b'.repeat(63)}` }],
+  ])('rejects a time zone on %s', (_label: string, input: unknown) => {
+    expect(validateValue(due, input)).toEqual(bad(VALUE_MESSAGES.invalid));
+  });
+  it('keeps reminders: minutes before a time, days before a date', () => {
+    expect(validateValue(due, { ...at, reminder: { minutesBefore: 60 } })).toEqual(
+      good({ ...at, reminder: { minutesBefore: 60 } }),
+    );
+    expect(validateValue(due, { ...day, reminder: { daysBefore: 1 } })).toEqual(
+      good({ ...day, reminder: { daysBefore: 1 } }),
+    );
+    expect(validateValue(due, { ...at, reminder: { minutesBefore: 0 } }).ok).toBe(true);
+    expect(validateValue(due, { ...day, reminder: null })).toEqual(good(day));
+  });
+  it.each([
+    ['days before a date with a time', { ...at, reminder: { daysBefore: 1 } }],
+    ['minutes before a date without a time', { ...day, reminder: { minutesBefore: 60 } }],
+    ['a time not offered', { ...at, reminder: { minutesBefore: 45 } }],
+    ['both kinds', { ...at, reminder: { minutesBefore: 60, daysBefore: 1 } }],
+    ['a string', { ...at, reminder: '1 hour before' }],
+    ['a list', { ...day, reminder: [{ daysBefore: 1 }] }],
+  ])('rejects a reminder with %s', (_label: string, input: unknown) => {
+    expect(validateValue(due, input)).toEqual(bad(VALUE_MESSAGES.invalid));
+  });
 });
 
 describe('validateValue: Checkbox', () => {
@@ -269,17 +307,33 @@ describe('validateValue: Link, Email and Phone', () => {
   it.each([
     ['bluepine.example', 'https://bluepine.example'],
     [' http://bluepine.example/quote ', 'http://bluepine.example/quote'],
+    [' \t\n https://bluepine.example \n', 'https://bluepine.example'],
     ['localhost:3000', 'https://localhost:3000'],
-    ['//cdn.bluepine.example/logo.png', 'https://cdn.bluepine.example/logo.png'],
+    ['bluepine.example:8080/jobs?id=3#top', 'https://bluepine.example:8080/jobs?id=3#top'],
+    ['HTTPS://BluePine.example/Quote', 'HTTPS://BluePine.example/Quote'],
+    ['[::1]:8080', 'https://[::1]:8080'],
   ])('reads the link %s', (input: string, want: string) => {
     expect(validateValue(site, input)).toEqual(good(want));
   });
-  it.each([['javascript:alert(1)'], ['mailto:avery@bluepine.example'], ['ftp://bluepine.example']])(
-    'rejects the link %s',
-    (input: string) => {
-      expect(validateValue(site, input)).toEqual(bad('Enter a web address.'));
-    },
-  );
+  it.each([
+    ['javascript:alert(1)', 'javascript:alert(1)'],
+    ['mixed-case javascript:', 'JaVaScRiPt:alert(1)'],
+    ['javascript: after spaces and line breaks', ' \t\njavascript:alert(1)'],
+    ['a tab inside javascript:', 'java\tscript:alert(1)'],
+    ['javascript: with a host', 'javascript://bluepine.example/%0Aalert(1)'],
+    ['data:', 'data:text/html,<script>alert(1)</script>'],
+    ['vbscript:', 'vbscript:msgbox(1)'],
+    ['mailto:', 'mailto:avery@bluepine.example'],
+    ['ftp:', 'ftp://bluepine.example'],
+    ['a link starting with //', '//evil.example'],
+    ['a user name before the host', 'https://avery@evil.example'],
+    ['a space inside', 'https://bluepine.example/a b'],
+    ['a control character inside', 'https://bluepine.example/a\u0007b'],
+    ['an invisible character inside', 'https://bluepine.example/a\u200Bb'],
+    ['no host', 'https://'],
+  ])('rejects %s', (_label: string, input: string) => {
+    expect(validateValue(site, input)).toEqual(bad('Enter a web address.'));
+  });
   it('allows links up to 2,000 characters', () => {
     const base = 'https://bluepine.example/';
     expect(validateValue(site, base + 'a'.repeat(2000 - base.length)).ok).toBe(true);
@@ -293,6 +347,7 @@ describe('validateValue: Link, Email and Phone', () => {
     ['avery@bluepine.example'],
     ['jordan.park+jobs@mail.bluepine.example'],
     ['josé@ex.com'],
+    [`${'a'.repeat(249)}@x.co`],
   ])('accepts the email %s', (input: string) => {
     expect(validateValue(email, input)).toEqual(good(input));
   });
@@ -310,7 +365,7 @@ describe('validateValue: Link, Email and Phone', () => {
       bad('Enter an email address like name@example.com.'),
     );
   });
-  it.each([['+1 (303) 555-0100'], ['303.555.0100 x12']])(
+  it.each([['+1 (303) 555-0100'], ['303.555.0100 x12'], ['1'.repeat(50)]])(
     'accepts the phone %s',
     (input: string) => {
       expect(validateValue(phone, input)).toEqual(good(input));
@@ -381,6 +436,25 @@ describe('validateValue: Files and Checklist', () => {
       bad('Up to 20 files.'),
     );
   });
+  it('keeps web links as files: no size or type, the link as the name if unnamed', () => {
+    const link = 'https://bluepine.example/quote.pdf';
+    expect(validateValue(files, [{ id: 'f-link', url: link }])).toEqual(
+      good([{ id: 'f-link', name: link, size: 0, mime: '', url: link }]),
+    );
+    const named = { id: 'f-link', name: ' Quote ', size: 99, mime: 'application/pdf' };
+    expect(validateValue(files, [{ ...named, url: 'bluepine.example/q' }])).toEqual(
+      good([{ id: 'f-link', name: 'Quote', size: 0, mime: '', url: 'https://bluepine.example/q' }]),
+    );
+    expect(validateValue(files, [{ ...quote, url: null }])).toEqual(good([quote]));
+  });
+  it('rejects unsafe file links', () => {
+    for (const url of ['javascript:alert(1)', '//evil.example', ' ', 5]) {
+      expect(validateValue(files, [{ id: 'f-link', url }])).toEqual(bad('Enter a web address.'));
+    }
+    expect(
+      validateValue(files, [{ id: 'f-link', name: 5, url: 'https://bluepine.example' }]),
+    ).toEqual(bad(VALUE_MESSAGES.invalid));
+  });
   it('rejects things that are not files', () => {
     expect(validateValue(files, [{ ...quote, size: -1 }])).toEqual(bad(VALUE_MESSAGES.invalid));
     expect(validateValue(files, ['quote.pdf'])).toEqual(bad(VALUE_MESSAGES.invalid));
@@ -424,6 +498,7 @@ describe('parseTyped', () => {
     expect(parseTyped(title, ' Call back ', viewer)).toEqual(good('Call back'));
     expect(parseTyped(notes, 'Call back', viewer)).toEqual(good([{ text: 'Call back' }]));
     expect(parseTyped(site, 'bluepine.example', viewer)).toEqual(good('https://bluepine.example'));
+    expect(parseTyped(site, ' javascript:alert(1)', viewer)).toEqual(bad(VALUE_MESSAGES.url));
     expect(parseTyped(email, 'avery', viewer)).toEqual(bad(VALUE_MESSAGES.email));
     expect(parseTyped(phone, '303 555 0100', viewer)).toEqual(good('303 555 0100'));
   });
@@ -654,6 +729,37 @@ describe('formatValue', () => {
     const created = newProperty('Created', defaultConfig('created_time'));
     expect(formatValue(created, at, ctx)).toBe('Oct 26, 2026 3:30 PM');
   });
+  it('shows a fixed time zone next to the time', () => {
+    const at: DateValue = {
+      start: '2026-10-26T15:00:00.000Z',
+      end: null,
+      hasTime: true,
+      timeZone: 'America/New_York',
+    };
+    expect(formatValue(due, at, ctx)).toBe('Oct 26, 2026 11:00 AM EDT');
+    expect(formatValue(due, { ...at, end: '2026-10-26T17:00:00.000Z' }, ctx)).toBe(
+      'Oct 26, 2026 11:00 AM → 1:00 PM EDT',
+    );
+    const overClockChange = {
+      ...at,
+      start: '2026-10-31T14:00:00.000Z',
+      end: '2026-11-02T15:00:00.000Z',
+    };
+    expect(formatValue(due, overClockChange, ctx)).toBe(
+      'Oct 31, 2026 10:00 AM EDT → Nov 2, 2026 10:00 AM EST',
+    );
+    expect(formatValue(due, { ...at, timeZone: 'UTC' }, ctx)).toBe('Oct 26, 2026 3:00 PM UTC');
+    expect(formatValue(due, { ...at, timeZone: 'Mars/Olympus' }, ctx)).toBe('Oct 26, 2026 9:00 AM');
+  });
+  it('shows the day in the fixed time zone when the time is hidden', () => {
+    const hidden = newProperty('Due', { ...defaultConfig('date'), timeFormat: 'hidden' });
+    const at = { start: '2026-10-27T03:00:00.000Z', end: null, hasTime: true };
+    expect(formatValue(hidden, at, ctx)).toBe('Oct 26, 2026');
+    expect(formatValue(hidden, { ...at, timeZone: 'Asia/Tokyo' }, ctx)).toBe('Oct 27, 2026');
+    expect(formatValue(due, { ...at, timeZone: 'Asia/Tokyo' }, ctx)).toBe(
+      'Oct 27, 2026 12:00 PM GMT+9',
+    );
+  });
   it('writes relative dates in full for export', () => {
     const today = { start: '2026-10-26', end: null, hasTime: false };
     expect(formatValue(dueRelative, today, ctx)).toBe('Today');
@@ -666,6 +772,8 @@ describe('formatValue', () => {
   });
   it('shows links, emails and phones as stored', () => {
     expect(formatValue(site, 'https://bluepine.example', ctx)).toBe('https://bluepine.example');
+    expect(formatValue(site, 'javascript:alert(1)', ctx)).toBe('');
+    expect(formatValue(site, '//evil.example', ctx, EXPORT)).toBe('');
     expect(formatValue(email, null, ctx)).toBe('');
   });
   it('shows people by name and marks removed members in cells', () => {
@@ -684,6 +792,8 @@ describe('formatValue', () => {
       { id: 'f2', name: 'sink.jpg', size: 3400, mime: 'image/jpeg' },
     ];
     expect(formatValue(files, list, ctx)).toBe('quote.pdf, sink.jpg');
+    const link = { id: 'f3', name: 'Quote', size: 0, mime: '', url: 'https://bluepine.example/q' };
+    expect(formatValue(files, [link], ctx)).toBe('Quote');
   });
   it("shows related rows' titles and counts the ones you can't open", () => {
     expect(formatValue(jobs, ['r-leak', 'r-blank', 'r-x', 'r-y'], ctx)).toBe(
@@ -773,6 +883,40 @@ describe('formatComputed', () => {
   });
   it('shows the error message', () => {
     expect(show({ kind: 'error', message: "Can't divide by zero." })).toBe("Can't divide by zero.");
+  });
+  const numbers = (n: number): ComputedValue => ({
+    kind: 'list',
+    value: many(n, (i): ComputedValue => ({ kind: 'number', value: i + 1 })),
+  });
+  it('shows at most 100 list items in cells, then "+12 more"', () => {
+    const first100 = many(100, (i) => String(i + 1)).join(', ');
+    expect(show(numbers(112))).toBe(`${first100}, +12 more`);
+    expect(show(numbers(100))).toBe(first100);
+    expect(show(numbers(112), true)).toBe(many(112, (i) => String(i + 1)).join(', '));
+  });
+  it('counts hidden rows among the items shown', () => {
+    const list: ComputedValue = {
+      kind: 'list',
+      value: [
+        ...many(98, (): ComputedValue => ({ kind: 'page', value: 'r-leak' })),
+        { kind: 'page', value: 'r-x' },
+        { kind: 'page', value: 'r-y' },
+        { kind: 'page', value: 'r-z' },
+        { kind: 'text', value: 'Plumbing' },
+      ],
+    };
+    const leaks = many(98, () => 'Fix kitchen leak').join(', ');
+    expect(show(list)).toBe(`${leaks}, 2 rows you can't open, +2 more`);
+    expect(show(list, true)).toBe(`${leaks}, Plumbing, 3 rows you can't open`);
+  });
+  it('shows a date with a fixed time zone in that zone', () => {
+    const at = {
+      start: '2026-10-26T15:00:00.000Z',
+      end: null,
+      hasTime: true,
+      timeZone: 'America/New_York',
+    };
+    expect(show({ kind: 'date', value: at })).toBe('Oct 26, 2026 11:00 AM EDT');
   });
 });
 

@@ -1,6 +1,6 @@
 # Pages and blocks
 
-_Copied from the Notion spec (https://app.notion.com/p/2e1234682f1d4e23b29b18fbbf5d8ecf) on 2026-10-26. If they differ, Notion wins._
+_Copied from the Notion spec (https://app.notion.com/p/2e1234682f1d4e23b29b18fbbf5d8ecf) on 2026-10-27. If they differ, Notion wins._
 
 > 🧱 Phase 1 · Notion parity · Depends on: accounts, file storage and live co-editing (Phase 1) · Used by: every spec that shows page content · Related: Comments and mentions, Page history and Trash, Templates and buttons, Import and export, Sidebar, spaces and nested pages
 
@@ -53,7 +53,7 @@ Pages are documents made of blocks: text, lists, media, databases and more. This
 Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to · Move to Trash · Archive · Remind me (Home and reminders) · Follow (Comments and mentions) · Version history and Updates (Page history and Trash) · Save as template (Templates and buttons) · Turn into knowledge base page (Knowledge base) · Import · Export · Print (Import and export) · Analytics (Admins only) · Page info. Items the person can't use are hidden.
 
 - **Duplicate** copies the page with its sub-pages, databases (with rows), files and style, named "\[title\] (copy)", placed right after the original. Links inside the copy that pointed at copied pages point at the new copies. Comments, history, reminders and analytics aren't copied. Large copies run in the background ("Duplicating 340 pages…"), and a 🔔 notice says when it's done.
-- **Move to:** search pages and spaces where you can edit; the page moves there with its sub-pages. If that changes who can open it, a confirm says so first ("4 people will lose access and 2 will gain it.").
+- **Move to:** search pages and spaces where you can edit; the page moves there with its sub-pages. If that changes who can open it, a confirm says so first ("4 people will lose access and 2 will gain it."). 🆕 When Settings → Security and the space allow it, Move to also lists the person's other workspaces: the page, its sub-pages and files are copied there and moved to Trash here. Comments, history and access don't come along, and mentions of people who aren't in the other workspace become plain text.
 
 ### 3.3 Blocks in general
 

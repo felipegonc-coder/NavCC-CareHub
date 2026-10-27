@@ -79,9 +79,9 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 
 ### 2.5 Tests and seed data
 
-- `apps/server/src/testing/index.ts` (ETA Oct 27, with accounts PR 1): `createTestApp()` returns `{ app, db, close }` with an isolated database and all migrations; `createUser(db, { role?: 'admin' | 'editor' | 'commenter' | 'viewer', siteAdmin?, name?, email? })`; `injectAs(app, user, options)` signs in and sends the cookie and CSRF header. CI provides Postgres through `DATABASE_URL`.
-- Seed: `node apps/server/dist/cli.js seed` loads fictional data only into an empty database (dev and the browser tests). Core creates the workspace "Care Hub", four people (`avery.admin@example.test` is site admin and Admin, `eli.editor@example.test`, `casey.commenter@example.test`, `val.viewer@example.test`, password from `CAREHUB_SEED_PASSWORD`), a team space and a few pages. Then each feature's `seed(ctx)` runs, with `ctx = { db, workspaceId, users: { admin, editor, commenter, viewer }, teamSpaceId, log }`. Fixtures are fictional and idempotent.
-- Browser tests sign in with `signInAs(page, 'editor')` from `tests/e2e/helpers/auth.ts` (core, with the sign-in screens).
+- `apps/server/src/testing/index.ts` (ETA Oct 27, with accounts PR 1): `createTestApp()` returns `{ app, db, close }` with an isolated database and all migrations; `createUser(db, { role?: 'admin' | 'editor' | 'commenter' | 'viewer', permissions?: PermissionKey[], kind?: 'member' | 'guest', siteAdmin?, name?, email? })` (`permissions` makes a one-off custom role with those keys); `injectAs(app, user, options)` signs in and sends the cookie and CSRF header. CI provides Postgres through `DATABASE_URL`.
+- Seed: `node apps/server/dist/cli.js seed` loads fictional data only into an empty database (dev and the browser tests). Core creates the workspace "Care Hub", four people (`avery.admin@example.test` is site admin and Admin, `eli.editor@example.test`, `casey.commenter@example.test`, `val.viewer@example.test`, password from `CAREHUB_SEED_PASSWORD`), a team space and a few pages. Then each feature's `seed(ctx)` runs, with `ctx = { db, workspaceId, users: { admin, editor, commenter, viewer }, teamSpaceId, log }`. `ctx` also has `createRole({ name, permissions })` and `createPerson({ key, name, email, roleId })` for a lane's own test people (for example Learning's "Trainer" role). Fixtures are fictional and idempotent.
+- Browser tests sign in with `signInAs(page, 'editor')` (a role key or a seeded person's email) from `tests/e2e/helpers/auth.ts` (core, with the sign-in screens).
 
 ## 3. Accounts, sessions and permissions (core)
 
@@ -98,8 +98,9 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 
 Spec: [Roles and permissions](../plan/specs/roles-and-permissions.md).
 
-- `PermissionKey` (from `@carehub/shared`): `pages.edit`, `pages.create`, `pages.comment`, `pages.share`, `templates.manage`, `claude.use`, `learning.build`, `learning.assign`, `learning.analytics`, `workspace.admin` (Admin settings; built-in Admin only, never on custom roles).
+- `PermissionKey` (from `@carehub/shared`): `pages.edit`, `pages.create`, `pages.comment`, `pages.share`, `templates.manage`, `claude.use`, `learning.build`, `learning.assign`, `learning.analytics`, `guests.add`, `pages.shareLinks`, `workspace.admin` (Admin settings; built-in Admin only, never on custom roles).
 - Built-in roles (per workspace, can't be changed or deleted): **Admin** (all), **Editor** (edit, create, comment, share, templates, claude.use), **Commenter** (comment), **Viewer** (none). Custom roles: any mix except `workspace.admin` (Settings → Roles, ETA Oct 29).
+- Guests have no role (`roleId: null`): `hasPermission` is false for every key, and `app.requireMember` refuses them unless the route sets `config: { allowGuests: true }`. Their page access comes only from grants (no role limit), capped at `edit`.
 - `hasPermission(member, key)` (from `@carehub/shared`) on both sides. A **site admin** (`isSiteAdmin`) manages accounts and the server. A workspace **Admin** is someone whose role has `workspace.admin`.
 - Everyone, in every role, may use Home, Messages, Calendar, reminders and My learning, and fill in forms sent to them. Those routes need only `app.requireMember`.
 - **Privacy (RP-D1):** admins never open other people's private spaces, chats they aren't in, private events, connected calendars, transcripts or Claude chats (403). Each lane enforces this for its own content.
@@ -118,6 +119,9 @@ Spec: [Roles and permissions](../plan/specs/roles-and-permissions.md).
   - `app.requirePageAccess(min, (request) => pageId)` (preHandler; 404 if missing or deleted, 403 if below `min`)
   - `registerAccessResolver('row', (ctx) => Promise<AccessLevel>)`: the Databases lane adjusts a row's level from its row-access rules. `ctx = { db, userId, rowPageId, databasePageId, inherited, grantLevel }` (`grantLevel` is the `GrantLevel` that reached the database, so the lane can handle `rows_only`). The role limit still applies after it.
   - `grantAccess(tx, { spaceId? , pageId?, principal: { type: 'user' | 'role' | 'group' | 'everyone', id? }, level, grantedBy })` and `revokeAccess(tx, grantId, by)`. Nobody can grant above their own level.
+  - `registerShareLinkGuard(kind, (db, pageId) => Promise<{ ok: boolean, reason? }>)`: called before a share link is made (the Databases lane refuses databases with row rules or property access).
+  - `changePageKind(tx, pageId, { kind: 'page' | 'row', parentId, spaceId? }, by)` for "Move to" between a database and normal pages; emits `pages.kindChanged { pageId, from, to }`.
+  - `getPagePreviews(db, userId, pageIds, { maxChars })`: text previews from the stored text copy, filtered by access (Feed view, cards).
 
 ## 4. Pages (core)
 
@@ -136,11 +140,11 @@ Spec: [Roles and permissions](../plan/specs/roles-and-permissions.md).
 
 ### 4.3 Other core services
 
-- **Files** (ETA Oct 28): `POST /api/files` (multipart, field `file`, query `scope=<feature>:<id>`) returns `{ id, name, size, mimeType, url, width?, height? }`; `GET /api/files/:id` (supports Range and `?download=1`); `DELETE /api/files/:id`. Default limit 100 MB per file (setting `FILES_MAX_MB`; Data settings may lower it per type); the type is checked from the file's content, not its name, and programs are refused. SVG is accepted only as a picture. Every file response sends `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`; anything that isn't a picture, video, audio or PDF is sent as a download. Picture locations (EXIF GPS) are removed on upload (Pages and blocks 3.4). Each lane decides who may read its files: `registerFileScope(feature, { canRead(user, scopeId), canWrite(user, scopeId) })` from `apps/server/src/features/files/index.ts`. Web: `uploadFile(file, { scope, onProgress })` from `apps/web/src/lib/files.ts`.
+- **Files** (ETA Oct 28): `POST /api/files` (multipart, field `file`, query `scope=<feature>:<id>`) returns `{ id, name, size, mimeType, url, width?, height? }`; `GET /api/files/:id` (supports Range and `?download=1`); `DELETE /api/files/:id`. Default limit 100 MB per file (setting `FILES_MAX_MB`; Data settings may lower it per type); the type is checked from the file's content, not its name, and programs are refused. SVG is accepted only as a picture. Every file response sends `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`; anything that isn't a picture, video, audio or PDF is sent as a download. Picture locations (EXIF GPS) are removed on upload (Pages and blocks 3.4). Each lane decides who may read its files: `registerFileScope(feature, { canRead(ctx), canWrite(ctx) })` with `ctx = { db, user, member, scopeId }` (`user` and `member` are null only for a scope that allows anonymous uploads, pending the security reviewer) from `apps/server/src/features/files/index.ts`. `POST /api/files/from-url { url, scope }` copies a pasted web picture (pictures only, up to 10 MB, 5 s timeout, private and tailnet addresses refused) and returns the same shape. HEIC stays as uploaded (location removed); the web uploader turns it into JPEG first when the browser can. Web: `uploadFile(file, { scope, onProgress })` from `apps/web/src/lib/files.ts`.
 - **People, groups and managers** (ETA Oct 29): `GET /api/workspace/members` also returns `kind` (`member` | `guest`), `managerId` and `groupIds`; `GET /api/workspace/groups` returns `{ id, name, memberIds }[]`; admins manage groups and managers in Settings → Members (Settings and members spec). Server: `listGroupMembers(db, groupId)`, `listReports(db, managerId)`.
 - **Search** (ETA Oct 29): pages, databases and rows by title and text, filtered by access. A lane can add text for its own pages with `registerSearchText('row', (db, pageId) => Promise<string>)`.
 - **Security headers** (ETA Oct 28): core sends a strict Content-Security-Policy and the usual security headers on every response. `frame-src` is the admin-managed embed list (Pages and blocks, PB-D4) plus the origins a lane registers with `registerFrameSources(feature, origins)` from `apps/server/src/core/security.ts` (https only; a leading `*.` is the only wildcard). Core never imports lane packages for this.
-- **Comments and mentions** (ETA Oct 29): comments on pages and rows; '@' mentions of people, pages and dates in the editor and in comments. Mentions send a notice through Team tools' `sendNotice`.
+- **Comments and mentions** (ETA Oct 29): comments on pages and rows; '@' mentions of people, pages and dates in the editor and in comments. Mentions send a notice through Team tools' `sendNotice`. Server: `listComments(db, userId, pageId, { limit })`, filtered by access.
 
 ### 4.4 From the Team tools lane (names from its brief; that lead owns them)
 
@@ -177,6 +181,7 @@ Each web feature may export `slots` (a partial `Slots` object) from `features/<f
 | `pageMenuItems` | `{ id, label, icon?, order, isVisible?(page), onSelect(page) }` | the page '…' menu, e.g. "Remind me" |
 | `pageKindViews` | `{ database?: Component<{ page }> }` | the page view shows the Databases lane's `<DatabasePage>` for `kind = 'database'` |
 | `pageHeaderExtras` | `{ row?: Component<{ page }> }` | a row's properties above the editor |
+| `treeItemChildren` | `{ database?: Component<{ page }> }` | a database's views under it in the sidebar tree when expanded |
 | `editor` | `{ nodeViews?, slashItems?, linkPickers?, bubbleItems?, extensions? }` | React views for lane blocks by node name (`nodeViews`, e.g. `database`, meeting notes), "/database", writing help; `extensions` only for things that aren't nodes or marks |
 
 ### 5.4 The editor (`@carehub/editor`)
