@@ -28,26 +28,39 @@ export const currentUserColumns = {
 
 export const hashSessionToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
+const markActive = (db: Db | Tx, userId: string) =>
+  db
+    .update(users)
+    .set({ lastActiveAt: sql`now()` })
+    .where(eq(users.id, userId));
+
+export interface SessionDevice {
+  userAgent?: string;
+  ipAddress?: string;
+}
+
 /** Starts a session and returns its secret token (for the cookie). Also removes the person's expired ones. */
-export async function createSession(db: Db | Tx, userId: string, userAgent?: string) {
+export async function createSession(db: Db | Tx, userId: string, device: SessionDevice = {}) {
   const token = randomBytes(32).toString('base64url');
   const [row] = await db
     .insert(sessions)
     .values({
       tokenHash: hashSessionToken(token),
       userId,
-      userAgent: userAgent?.slice(0, 512) ?? null,
+      userAgent: device.userAgent?.slice(0, 512) ?? null,
+      ipAddress: device.ipAddress?.slice(0, 64) ?? null,
       expiresAt: expiresFromNow(),
     })
     .returning({ id: sessions.id });
   if (!row) throw new Error('The session was not saved.');
+  await markActive(db, userId);
   await db
     .delete(sessions)
     .where(and(eq(sessions.userId, userId), lte(sessions.expiresAt, sql`now()`)));
   return { id: row.id, token };
 }
 
-/** The live session for a token, or null (unknown or expired, or the account is turned off). */
+/** The live session for a token, or null (unknown or expired, or the account is locked). */
 export async function findSession(
   db: Db | Tx,
   token: string,
@@ -61,7 +74,7 @@ export async function findSession(
       and(
         eq(sessions.tokenHash, hashSessionToken(token)),
         gt(sessions.expiresAt, sql`now()`),
-        isNull(users.disabledAt),
+        isNull(users.lockedAt),
       ),
     )
     .limit(1);
@@ -73,12 +86,14 @@ export async function findSession(
 export const sessionNeedsTouch = (lastSeenAt: Date) =>
   Date.now() - lastSeenAt.getTime() >= TOUCH_INTERVAL_MS;
 
-/** Sliding expiry: the session now lasts 30 days from this moment. */
+/** Sliding expiry: the session now lasts 30 days from this moment. Also updates the person's last active time. */
 export async function touchSession(db: Db | Tx, sessionId: string): Promise<void> {
-  await db
+  const [row] = await db
     .update(sessions)
     .set({ lastSeenAt: sql`now()`, expiresAt: expiresFromNow() })
-    .where(eq(sessions.id, sessionId));
+    .where(eq(sessions.id, sessionId))
+    .returning({ userId: sessions.userId });
+  if (row) await markActive(db, row.userId);
 }
 
 export async function deleteSession(db: Db | Tx, sessionId: string): Promise<void> {
@@ -91,7 +106,7 @@ export async function deleteUserSessions(db: Db | Tx, userId: string): Promise<v
 
 /**
  * For the live co-editing server: the person signed in with this session token (the carehub_session cookie
- * value), or null if it's unknown or expired, the account is turned off, or a new password must be chosen first.
+ * value), or null if it's unknown or expired, the account is locked, or a new password must be chosen first.
  */
 export async function getUserFromSessionToken(
   db: Db | Tx,

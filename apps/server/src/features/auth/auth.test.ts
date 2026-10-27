@@ -246,6 +246,18 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
       expect(rows.map((row) => row.tokenHash)).toEqual([sha256(token)]);
     });
 
+    it('record the device and the last active time', async () => {
+      const user = await createUser(testApp.db);
+      await createSession(testApp.db, user.id, { userAgent: 'Firefox', ipAddress: '100.64.0.7' });
+      const [row] = await sessionRows(user.id);
+      expect(row).toMatchObject({ userAgent: 'Firefox', ipAddress: '100.64.0.7' });
+      const [account] = await testApp.db
+        .select({ lastActiveAt: users.lastActiveAt })
+        .from(users)
+        .where(eq(users.id, user.id));
+      expect(account?.lastActiveAt).toBeInstanceOf(Date);
+    });
+
     it('slide the 30-day expiry forward when used', async () => {
       const user = await createUser(testApp.db);
       const browser = await browserFor(user.id);
@@ -295,10 +307,10 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
       expect(cookieOf(response, SESSION_COOKIE)?.value).toBe('');
     });
 
-    it('stop working when the account is turned off', async () => {
+    it('stop working when the account is locked', async () => {
       const user = await createUser(testApp.db);
       const browser = await browserFor(user.id);
-      await testApp.db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, user.id));
+      await testApp.db.update(users).set({ lockedAt: new Date() }).where(eq(users.id, user.id));
       const response = await send(app, {
         method: 'GET',
         url: '/api/auth/me',

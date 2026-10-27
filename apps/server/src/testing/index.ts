@@ -94,7 +94,7 @@ export interface CreateUserOptions {
   name?: string;
   email?: string;
   mustChangePassword?: boolean;
-  disabled?: boolean;
+  locked?: boolean;
 }
 
 export type TestUser = CurrentUser;
@@ -111,7 +111,7 @@ export async function createUser(db: Db | Tx, options: CreateUserOptions = {}): 
       name: options.name ?? `Test ${label}`,
       isSiteAdmin: options.siteAdmin ?? false,
       mustChangePassword: options.mustChangePassword ?? false,
-      disabledAt: options.disabled ? new Date() : null,
+      lockedAt: options.locked ? new Date() : null,
     })
     .returning(currentUserColumns);
   if (!user) throw new Error('The test user was not saved.');
@@ -123,7 +123,7 @@ export async function createUser(db: Db | Tx, options: CreateUserOptions = {}): 
  * and the CSRF header.
  */
 export async function injectAs(app: FastifyInstance, user: { id: string }, options: InjectOptions) {
-  const { token } = await createSession(app.db, user.id, 'test');
+  const { token } = await createSession(app.db, user.id, { userAgent: 'test' });
   const csrf = csrfTokenForSession(token);
   return app.inject({
     ...options,

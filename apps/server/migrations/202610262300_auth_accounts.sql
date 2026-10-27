@@ -5,19 +5,23 @@ CREATE TABLE users (
   email text NOT NULL,
   name text NOT NULL,
   avatar_url text,
-  -- Argon2id. Null until the person sets a password (for example from an invite link).
+  -- Argon2id. Null until the person sets a password (for example from an invite or setup link).
   password_hash text,
   must_change_password boolean NOT NULL DEFAULT false,
   -- Manages accounts and the server. Gives no permission inside a workspace by itself.
   is_site_admin boolean NOT NULL DEFAULT false,
+  job_title text,
   time_zone text NOT NULL DEFAULT 'America/Denver',
   use_24h boolean NOT NULL DEFAULT false,
   -- 0 = Sunday … 6 = Saturday.
   week_start smallint NOT NULL DEFAULT 0,
-  -- Wrong passwords in a row; too many pause sign-in until locked_until.
+  -- Wrong passwords since failed_sign_ins_since; 10 within 15 minutes pause sign-in until sign_in_paused_until.
   failed_sign_ins integer NOT NULL DEFAULT 0,
-  locked_until timestamptz,
-  disabled_at timestamptz,
+  failed_sign_ins_since timestamptz,
+  sign_in_paused_until timestamptz,
+  -- Locked by a site admin: can't sign in, and existing sessions stop working.
+  locked_at timestamptz,
+  last_active_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT users_email_key UNIQUE (email),
@@ -35,6 +39,8 @@ CREATE TABLE sessions (
   last_seen_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL,
   user_agent text,
+  -- The device's (Tailscale) address when it signed in.
+  ip_address text,
   CONSTRAINT sessions_token_hash_key UNIQUE (token_hash),
   CONSTRAINT sessions_token_hash_check CHECK (token_hash ~ '^[0-9a-f]{64}$')
 );
