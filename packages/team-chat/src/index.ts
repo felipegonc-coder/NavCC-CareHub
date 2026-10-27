@@ -9,6 +9,7 @@ export * from './page-cards';
 export * from './preview';
 export * from './system-lines';
 export * from './text';
+export * from './text-search';
 export * from './tokens';
 export * from './types';
 export * from './unread';
