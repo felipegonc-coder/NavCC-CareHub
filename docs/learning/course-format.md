@@ -114,7 +114,7 @@ type QuizSettings = {
   passMark: number;              // 0..100 percent
   maxAttempts: number | null;    // 1..20, null = unlimited
   shuffleQuestions: boolean;
-  shuffleOptions: boolean;       // choice options, matching lists; never true/false
+  shuffleOptions: boolean;       // choice options only; never true/false (matching and ordering always shuffle, 0314)
   poolSize?: number;             // draw this many per attempt (publish: 1..questions.length)
   revealAnswers: "never" | "after_each_attempt" | "after_passing" | "after_final_attempt";
   mode?: "graded" | "survey";    // added; missing = "graded"

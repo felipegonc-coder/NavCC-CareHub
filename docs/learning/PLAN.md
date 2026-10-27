@@ -25,7 +25,8 @@ gets type-checked: nobody's computer has network. Browser tests, axe and screens
 label (add it with issue_write once the screens are ready; at most 2 runs per PR without asking the main lead) and
 nightly on main; put the result and the screenshot-comment link in the PR body. PRs stay under about 600 lines of
 non-test code (tests, fixtures and docs don't count). One GitHub account is shared by every agent: push complete
-batches in few commits, never poll in a loop, back off on rate-limit errors. Tracker: Care Hub rebuild tracker, Learning lane rows.
+batches in few commits, never poll in a loop, back off on rate-limit errors. Push work in progress to a feat/* branch with no open PR at least every 3 hours (branch
+pushes run no CI), so no work lives only on one computer; never push half-done work to a branch with an open PR. Tracker: Care Hub rebuild tracker, Learning lane rows.
 
 ## `packages/learning` layout and ownership
 

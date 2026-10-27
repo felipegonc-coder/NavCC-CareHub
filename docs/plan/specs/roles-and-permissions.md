@@ -40,7 +40,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 | Comment | Add comments and replies | ✓ | ✓ | ✓ | – |
 | Share | Change who has access, where they have Full access | ✓ | ✓ | – | – |
 | Templates | Save, change and delete workspace templates (everyone can use them) | ✓ | ✓ | – | – |
-| Use Claude | Use Claude features that are switched on (Phase 5) | ✓ | ✓ | – | – |
+| Use Claude | Use Claude features that are switched on (see Claude features) | ✓ | ✓ | – | – |
 | Build trainings | Use the Learning Studio (Phase 4) | ✓ | – | – | – |
 | Assign trainings | Assign courses and paths (Phase 4) | ✓ | – | – | – |
 | See training analytics | See Learning reports (Phase 4) | ✓ | – | – | – |

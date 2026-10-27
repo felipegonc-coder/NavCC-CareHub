@@ -80,3 +80,38 @@ agreed shape from PLAN.md, empty apart from its export; its owner then fills it.
 - API paths are built with `apiPath(...)`, which encodes each segment and refuses `.`, `..` (also as `%2e`) and
   `\`; screens check route params with `IdSchema` first and show "not found" otherwise.
 - Calendar and Home call `public.ts` with the signed-in person's id, and every `href` is an in-app `/learning/` path.
+
+## 0311 · Learners keep the version they started
+- Each learner's run is pinned to the course version it started on and reduced against that version, so editing
+  a published course never breaks anyone mid-course. Finished runs keep their result.
+- Publish options: **none**: nobody moves. **tell**: runs in progress move to the new version with their events
+  replayed, and those learners get the alert; finished runs stay. **retake**: everyone who started, finished or
+  not, begins a new run on the new version and gets the reminder.
+- `GET /courses/:id` (B1) returns the learner view of the version of the learner's latest run, else the live
+  version, with `version`. B3 provides `runVersion(db, { workspaceId, userId, courseId })` in the progress
+  server; B1 provides `getCourseVersion(db, workspaceId, courseId, version)`. `GET /courses/:id/progress` and the
+  quiz attempts route use the same version. There is no `?version=` parameter.
+
+## 0312 · Reset and mark complete need `learning.assign`
+People with only `learning.analytics` see reports but get no Reset or Mark complete; those need `learning.assign`.
+
+## 0313 · Learning notices have one button
+Every Learning notice has one in-app button: "Open course" (`/learning/courses/:courseId`) for learners,
+"Open in Studio" (`/learning/studio/courses/:courseId`) for authors, "Open certificate"
+(`/learning/certificates/:certificateId`) for certificate expiry. Course titles only go to people who can see the
+course.
+
+## 0314 · Quiz papers: surveys too, plain shuffles, per-attempt ids
+Adds to 0302 (B2, #192).
+- `learnerCourse(course)` removes the questions and bank-draw copies of every quiz lesson, surveys included, and
+  keeps id, title, intro, settings and `questionCount`. Every quiz, graded or survey, starts on the server and
+  gets its questions from the paper.
+- Shuffles are plain random orders, so the listed order can come up (never allowing it would give away a
+  two-item answer). `shuffleOptions` covers choice options only; matching answers and ordering items are always
+  shuffled.
+- On the paper, matching answers and ordering items get per-attempt ids (`match-1`, `item-1`, … in the order
+  shown); choice option and hotspot spot ids stay real. `paperResponses(quiz, plan, responses)` maps answers
+  back before `scoreAttempt`.
+- Who does what: B1's `GET /courses/:id` sends `learnerCourse(course)`. B3's attempts route sends
+  `quizPaper(lesson, plan)` as `questions`, and the submit step in `progress/reduce.ts` calls `paperResponses`
+  first. B9's Studio label for `shuffleOptions` says it shuffles choice options.

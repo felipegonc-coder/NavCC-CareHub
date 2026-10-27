@@ -1,12 +1,11 @@
 # @carehub/team-automations
 
 Automations for the Team tools lane: the parts both the server and the web app need. Spec:
-Automations (v2). For now that's schedules: when a scheduled automation runs, how its schedule
-reads in plain words, and what happens to runs the server was off for. The shapes of automations
-and runs, with their checks, move here next.
+Automations (v2). There are three: schedules (`schedule`), what an automation is made of
+(`automation`) and the checks on saving one (`validate`).
 
-Import by file, such as `@carehub/team-automations/schedule`. Everything is pure and built on
-`@carehub/team-time`; the caller passes `now`.
+Import by file, such as `@carehub/team-automations/schedule`. Everything is pure, built on
+`@carehub/team-time` and zod; the caller passes `now`.
 
 ## Schedules: `schedule`
 
@@ -37,3 +36,33 @@ A `Schedule` is `once` (on a `date`), `daily`, `weekdays` (Monday to Friday), `w
   which the server keeps.
 - A run less than an hour late still runs and shows how late it was; anything later is logged as
   missed.
+
+## Automations: `automation`
+
+Triggers and actions are stored as JSON, so new kinds need no migration.
+
+| Export                                         | What it's for                                                                                                                                  |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Trigger`                                      | `schedule` (a `Schedule`), `rowAdded` (`databaseId`, and `includeImports`, off by default) or `formResponse` (`databaseId`, `formId`)          |
+| `Action`                                       | `sendMessage` (`recipients`, `text` with fill-ins such as {first name}, up to 3 `pageIds`) or `addRow` (`databaseId`, `templateId`, `values`)  |
+| `Recipient`                                    | A `person`, a `role`, `everyone`, or the row's `personProperty`                                                                                |
+| `ValueSource`, `PropertyValue`                 | Where an Add a row value comes from: a `value`, `now`, `today`, `triggeredBy`, a `rowProperty` or a `formula`                                  |
+| `Variable`                                     | A named formula, worked out before the actions run                                                                                             |
+| `RunKind`, `RunResult`, `RunStep`, `RunSource` | Run history: `scheduled`, `test`, `manual` or `triggered`; `sent`, `failed`, `skipped` or `missed`; each step's result; the row that fired it  |
+| `MAX_AUTOMATIONS`, `RUNS_KEPT`, `LIMITS`       | 50 per workspace, the latest 100 runs kept, and the editor's limits (10 actions, 10 variables, 500 recipients, 2,000 characters, 3 page cards) |
+| `databasesUsed(trigger, actions)`              | Every database an automation uses, for the list's database filter                                                                              |
+| `Json`, `TriggerKind`, `ActionKind`            | The types                                                                                                                                      |
+
+## Checks: `validate`
+
+| Export                                | What it's for                                                                                                                                                                                              |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `automationInput`                     | The zod schema for a new automation. It fills in `enabled: true`, no conditions and no variables                                                                                                           |
+| `automationChanges`                   | The same fields, each one optional, for a change                                                                                                                                                           |
+| `automationProblems(automation, now)` | The rules zod can't check, each with its field's `path`: `'Pick at least one recipient.'`, `'Write a message.'`, `'Conditions need a database trigger.'`, `'A Person property needs a database trigger.'`… |
+| `Problem`, `AutomationInput`          | The types                                                                                                                                                                                                  |
+
+Zod's own messages are worded for the editor too: `'Give it a name.'`, `'Add at least one action.'`,
+`'Add up to 10 actions.'`… Schedule problems come from `scheduleProblems`. A time or end date
+that has passed counts only while the automation is on, so a finished Once automation can still be
+renamed.

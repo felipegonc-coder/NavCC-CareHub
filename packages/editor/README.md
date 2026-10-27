@@ -26,6 +26,7 @@ import { BlockEditor } from '@carehub/editor';
 | `ariaLabel`   | `'Page content'`   | Accessible name of the editing area (read on mount).           |
 | `onReady`     |                    | Gets the Tiptap `Editor` once it exists.                       |
 | `nodeViews`   | `{}`               | React views of lane blocks by node name (read on creation).    |
+| `slashItems`  | `[]`               | More "/" menu entries (`SlashItem`); can change at any time.   |
 | `extensions`  | `[]`               | Shortcuts and plugins, not nodes or marks (read on creation).  |
 
 ## Block groups
@@ -34,8 +35,40 @@ The core block catalog lives in `src/blocks/`, one file per block group (`text`,
 `callout`, `colors`, `code`, `table`, `columns`, `tabs`, `math`, `toc`, `synced`, `page`, `media`,
 `embed`), each `export const nodes: AnyExtension[]`. Each group owns only its file; core owns
 `blocks/index.ts` and `schema.ts`. The files hold schema only (nodes, marks, attributes, typing
-rules and shortcuts from `@tiptap` packages, never React), because the server loads them too. The
-"/" menu entries and React views of a group come with the "/" menu, in `blocks/<group>.ui.tsx`.
+rules and shortcuts from `@tiptap` packages, never React), because the server loads them too.
+
+A group's "/" menu entries and React views go next to it in `blocks/<group>.ui.ts` (`.tsx` once it
+has JSX): `export const slashItems: SlashItem[]` and `export const nodeViews: NodeViews`. Core owns
+`blocks/ui.ts`, which collects them; within a menu group, entries keep its order of groups.
+`blockItem()` in `blocks/item.ui.ts` makes an entry that turns the current line into a block.
+
+## The "/" menu
+
+Type "/" at the start of a line or after a space. The menu filters by title and keywords as you
+type (spaces allowed), moves with the arrow keys, runs the active entry on Enter, and closes on
+Escape (for that "/") or after three characters that match nothing. Nothing typed yet: the last
+five blocks you used come first under "Suggested" (kept per `user.id` in `localStorage`). The
+menu stays on screen on a phone, above the on-screen keyboard (it reads `visualViewport`).
+
+Groups are listed in the spec's order, "Suggested", "Basic blocks", "Media", "Database",
+"Advanced", "Inline", "Embeds", then any other group, and "Actions" last. Lanes add entries through
+`slashItems`:
+
+```tsx
+const shiftNote: SlashItem = {
+  id: 'shiftNote',
+  title: 'Shift note',
+  description: 'Handover for the next shift',
+  group: 'Advanced',
+  keywords: ['handover'],
+  icon: <NotebookPen size={18} />,
+  run: (editor) => editor.chain().focus().insertContent({ type: 'shiftNote' }).run(),
+};
+<BlockEditor ydoc={ydoc} slashItems={[shiftNote]} />;
+```
+
+`run` gets the editor once the typed "/query" is gone. `hint` shows a Markdown shortcut on the
+right, like `#` or `---`.
 
 ## Lane blocks and extension points (shared contract, see docs/decisions/0007)
 
@@ -49,9 +82,9 @@ rules and shortcuts from `@tiptap` packages, never React), because the server lo
 - **`extensions`**: only behavior, like shortcuts or plugins. Nodes and marks there are ignored with
   a console warning: when y-prosemirror meets a node it doesn't know, it removes it from the shared
   `Y.Doc`, so a block that only some clients know would be deleted for everyone.
-- **`slashItems`** (`SlashItem`), **`linkPickers`** (`LinkPicker`) and **`bubbleItems`**
-  (`BubbleItem`): the types are exported now; the "/" menu and the selection toolbar that show
-  them come in the next pull requests.
+- **`slashItems`** (`SlashItem`): more "/" menu entries, see above.
+- **`linkPickers`** (`LinkPicker`) and **`bubbleItems`** (`BubbleItem`): the types are exported
+  now; the selection toolbar that shows them comes in the next pull request.
 
 ```tsx
 // packages/editor/src/lanes/databases.ts: schema only
