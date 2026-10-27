@@ -65,18 +65,7 @@ export interface RemindersRuntime {
   now?: () => Date;
 }
 
-/**
- * When an event (or one occurrence) starts, or null when it doesn't exist or this person can't
- * open it. Calendar registers it at start-up.
- */
-export type EventLookup = (
-  db: Db | Tx,
-  userId: string,
-  target: { eventId: string; occurrenceStart?: string },
-) => Promise<EventStart | null>;
-
 let bound: RemindersRuntime | null = null;
-let eventLookup: EventLookup | null = null;
 
 /** The routes bind the app's runtime at start-up; the returned function unbinds it. */
 export function bindReminders(runtime: RemindersRuntime): () => void {
@@ -84,10 +73,6 @@ export function bindReminders(runtime: RemindersRuntime): () => void {
   return () => {
     if (bound === runtime) bound = null;
   };
-}
-
-export function registerEventLookup(lookup: EventLookup | null): void {
-  eventLookup = lookup;
 }
 
 function runtime(): RemindersRuntime {

@@ -30,9 +30,6 @@ Each takes `Db | Tx` first, so Calendar can call it inside its own transaction.
   is sent within a minute, marked Late.
 - `deleteEventReminders(tx, { eventId, occurrenceStart? })` when the event (without
   `occurrenceStart`: every occurrence) or one occurrence is deleted. Returns how many.
-- `registerEventLookup((db, userId, { eventId, occurrenceStart? }) => Promise<EventStart | null>)`
-  at start-up, so Remind me in the event panel can check access and find the start (null when it
-  doesn't exist or the person can't open it).
 - `EventStart` is `{ start: Date }` or `{ allDay: 'YYYY-MM-DD' }`. `minutesBefore` counts back from
   the start; all-day events count from 00:00 on the wall clock (-540 is 9:00 AM on the day, 900 is
   9:00 AM the day before). `occurrenceStart` names one occurrence as on notice cards and must
@@ -52,8 +49,10 @@ it returns the store, the scheduled `jobs`, the `notices` sent, and `runDueJobs(
 ## Next
 
 - Postgres store and migration, the routes under `/api/reminders` (Remind me on pages, the list,
-  changes, delete), Snooze and Done, and the registration line.
+  changes, delete), Snooze and Done, and the registration line. For Calendar:
+  `registerEventLookup` (Remind me in the event panel), `remapEventReminders` (series edits) and
+  `userIds` on `deleteEventReminders` (people removed from a meeting).
 - The web: Remind me in the page "…" menu, the event panel and Ctrl+K; the Reminders list for
   Home's `/reminders`; browser tests.
-- Push for reminders, the Home section's data, date reminders (HR-16), the Calendar default
-  reminder on every occurrence of a repeating event.
+- Push for reminders, the Home section's data, date reminders (HR-16), and the Calendar default
+  reminder on every occurrence of a repeating event (`registerNextOccurrenceLookup`).
