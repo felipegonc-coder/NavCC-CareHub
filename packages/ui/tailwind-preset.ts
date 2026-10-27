@@ -1,12 +1,48 @@
 import type { Config } from 'tailwindcss';
 import plugin from 'tailwindcss/plugin';
+import { colorNames, colorVariables, darkColors, lightColors } from './src/palette';
+import {
+  fontStacks,
+  fontWeights,
+  layers,
+  outlineOffsets,
+  radii,
+  scaleVariables,
+  shadows,
+  spacing,
+  typeScale,
+  widths,
+} from './src/scale';
 import { cssVariables, darkTokens, lightTokens, tokenNames } from './src/tokens';
 
-const colors = Object.fromEntries(
-  tokenNames.map((name) => [name, `rgb(var(--ch-${name}) / <alpha-value>)`]),
-);
+const colors = Object.fromEntries([
+  ...tokenNames.map((name) => [name, `rgb(var(--ch-${name}) / <alpha-value>)`]),
+  // Picked colours: `text-blue-text`, `bg-blue-bg` ...
+  ...colorNames.flatMap((name) =>
+    ['text', 'bg'].map((part) => [
+      `${name}-${part}`,
+      `rgb(var(--ch-${name}-${part}) / <alpha-value>)`,
+    ]),
+  ),
+]);
 
-/** Care Hub Tailwind preset: colour tokens, system font, type scale, 8 px corners. */
+type FontSize = [
+  size: string,
+  options: { lineHeight: string; fontWeight?: string; letterSpacing?: string },
+];
+
+const fontSize: Record<string, FontSize> = {};
+for (const [name, style] of Object.entries(typeScale)) {
+  const options: FontSize[1] = { lineHeight: style.leading };
+  if (style.weight) options.fontWeight = style.weight;
+  if (style.tracking) options.letterSpacing = style.tracking;
+  fontSize[name] = [style.size, options];
+}
+
+/**
+ * Care Hub Tailwind preset: colour tokens, picked colours, sizes and type from src/scale.ts, and
+ * all of them as CSS variables for plain CSS.
+ */
 const preset = {
   content: [],
   darkMode: 'class',
@@ -14,44 +50,15 @@ const preset = {
     extend: {
       colors,
       borderColor: { DEFAULT: 'rgb(var(--ch-border))' },
-      borderRadius: { DEFAULT: '8px' },
-      fontFamily: {
-        sans: [
-          'ui-sans-serif',
-          '-apple-system',
-          'BlinkMacSystemFont',
-          '"Segoe UI"',
-          'system-ui',
-          'Roboto',
-          '"Helvetica Neue"',
-          'Arial',
-          'sans-serif',
-          '"Apple Color Emoji"',
-          '"Segoe UI Emoji"',
-          '"Segoe UI Symbol"',
-          '"Noto Color Emoji"',
-        ],
-        mono: [
-          'ui-monospace',
-          'SFMono-Regular',
-          'Menlo',
-          'Consolas',
-          '"Liberation Mono"',
-          'monospace',
-        ],
-      },
-      fontSize: {
-        title: ['2.25rem', { lineHeight: '2.75rem', fontWeight: '700', letterSpacing: '-0.01em' }],
-        body: ['1rem', { lineHeight: '1.5rem' }],
-        small: ['0.875rem', { lineHeight: '1.25rem' }],
-        label: ['0.75rem', { lineHeight: '1rem' }],
-      },
-      maxWidth: { page: '48rem' },
-      spacing: { sidebar: '16rem' },
-      boxShadow: {
-        menu: '0 4px 16px rgb(0 0 0 / 0.08), 0 1px 3px rgb(0 0 0 / 0.06)',
-        dialog: '0 16px 48px rgb(0 0 0 / 0.16), 0 2px 8px rgb(0 0 0 / 0.08)',
-      },
+      borderRadius: { ...radii },
+      spacing: { ...spacing, sidebar: widths.sidebar },
+      maxWidth: { page: widths.page, dialog: widths.dialog, toast: widths.toast },
+      fontFamily: { sans: [...fontStacks.sans], mono: [...fontStacks.mono] },
+      fontSize,
+      fontWeight: { ...fontWeights },
+      boxShadow: { ...shadows },
+      outlineOffset: { ...outlineOffsets },
+      zIndex: { ...layers },
       keyframes: {
         'ch-fade-in': { from: { opacity: '0' } },
         'ch-pop-in': { from: { opacity: '0', scale: '0.97' } },
@@ -66,7 +73,14 @@ const preset = {
   },
   plugins: [
     plugin(({ addBase }) => {
-      addBase({ ':root': cssVariables(lightTokens), '.dark': cssVariables(darkTokens) });
+      addBase({
+        ':root': {
+          ...cssVariables(lightTokens),
+          ...colorVariables(lightColors),
+          ...scaleVariables(),
+        },
+        '.dark': { ...cssVariables(darkTokens), ...colorVariables(darkColors) },
+      });
     }),
   ],
 } satisfies Config;

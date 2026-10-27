@@ -1,7 +1,10 @@
 import type { CourseStatus, Id, LearningPath } from '../format/index';
 
+/** Overall states of a learner on a learning path. */
+export const PATH_STATUSES = ['not_started', 'in_progress', 'completed'] as const;
+
 /** Overall state of a learner on a learning path. */
-export type PathStatus = 'not_started' | 'in_progress' | 'completed';
+export type PathStatus = (typeof PATH_STATUSES)[number];
 
 /** A learner's progress through one learning path. */
 export type PathProgress = {
@@ -22,7 +25,8 @@ export type StatusByCourse = ReadonlyMap<Id, CourseStatus> | Readonly<Record<Id,
 
 const isFinished = (status: CourseStatus): boolean => status === 'completed' || status === 'passed';
 
-function statusOf(statusByCourse: StatusByCourse, courseId: Id): CourseStatus {
+/** A course's status in `statusByCourse` (not started when missing). Internal to paths/. */
+export function statusOf(statusByCourse: StatusByCourse, courseId: Id): CourseStatus {
   if (statusByCourse instanceof Map) return statusByCourse.get(courseId) ?? 'not_started';
   const record = statusByCourse as Readonly<Record<Id, CourseStatus>>;
   return Object.hasOwn(record, courseId) ? (record[courseId] ?? 'not_started') : 'not_started';
