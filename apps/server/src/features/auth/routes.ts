@@ -1,6 +1,7 @@
 import type { MeResponse } from '@carehub/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import { httpError } from '../../core/errors';
+import { getDefaultWorkspace, memberJson } from '../workspaces';
 import { sessionOf } from './cookies';
 import { deleteSession } from './sessions';
 
@@ -11,8 +12,10 @@ const authRoutes: FastifyPluginAsync = async (app) => {
     { config: { allowTemporaryPassword: true } },
     async (request): Promise<MeResponse> => {
       if (!request.user) throw httpError(401, 'signed_out');
-      // `member` and `workspace` arrive with workspaces and roles (the next accounts PR).
-      return { user: request.user, member: null, workspace: null };
+      const workspace = await getDefaultWorkspace(app.db);
+      if (!workspace) throw new Error('The current workspace is missing.');
+      const member = request.member && memberJson(request.member);
+      return { user: request.user, member, workspace };
     },
   );
 
