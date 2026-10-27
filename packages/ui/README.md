@@ -79,7 +79,8 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
   and invalid state for screen readers.
 - **Overlays:** `DropdownMenu`, `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
   and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
-  focus back.
+  focus back. A toast can carry one button, `action: { label: 'Undo', onClick }`; it then stays
+  8 seconds instead of 5.
 - **Shell parts:** `SheetContent` (a panel sliding in from the left, inside `Dialog`), and
   `SidebarGroup` and `sidebarRowClasses` for blocks and rows in the sidebar. Below
   `breakpoints.md` (768px, `md:`) the app shell shows the phone layout.
