@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { eq, sql } from 'drizzle-orm';
@@ -13,7 +13,7 @@ import {
   type TestApp,
   type TestUser,
 } from '../../testing';
-import { registerFileScope } from './index';
+import { deleteFiles, getFiles, registerFileScope, removeDeletedFiles } from './index';
 import { files } from './schema';
 import { FILE_CSP } from './serve';
 
@@ -79,6 +79,17 @@ describe.skipIf(!hasDatabase)('files', () => {
     });
   const get = (user: TestUser, url: string, headers: Record<string, string> = {}) =>
     injectAs(testApp.app, user, { method: 'GET', url, headers });
+  /** Where a file's bytes are on disk. */
+  const storedPath = async (id: string) => {
+    const [row] = await testApp.db.select().from(files).where(eq(files.id, id));
+    const key = row?.storageKey ?? '';
+    return path.join(filesDir, key.slice(0, 2), key.slice(2, 4), key);
+  };
+  const exists = (file: string) =>
+    access(file).then(
+      () => true,
+      () => false,
+    );
 
   it('keeps an upload and gives it back with safe headers', async () => {
     const text = 'Fictional notes for a test.\n';
@@ -108,9 +119,7 @@ describe.skipIf(!hasDatabase)('files', () => {
     expect(read.headers.etag).toMatch(/^"[0-9a-f]{64}"$/);
 
     const [row] = await testApp.db.select().from(files).where(eq(files.id, body.id));
-    const key = row?.storageKey ?? '';
-    const stored = path.join(filesDir, key.slice(0, 2), key.slice(2, 4), key);
-    expect(await readFile(stored, 'utf8')).toBe(text);
+    expect(await readFile(await storedPath(body.id), 'utf8')).toBe(text);
     expect(row?.uploadedBy).toBe(editor.id);
     expect(await readdir(path.join(filesDir, 'tmp'))).toEqual([]);
   });
@@ -266,6 +275,61 @@ describe.skipIf(!hasDatabase)('files', () => {
     expect((await injectAs(testApp.app, editor, { method: 'DELETE', url })).statusCode).toBe(204);
     expect((await get(editor, url)).statusCode).toBe(404);
     expect((await injectAs(testApp.app, editor, { method: 'DELETE', url })).statusCode).toBe(404);
+  });
+
+  it('tells other features about files, without an access check', async () => {
+    const { id } = (await upload(editor, 'Fictional notes', 'facts.txt')).json();
+    const found = await getFiles(testApp.db, [id, id, randomUUID(), 'not-a-file']);
+    expect([...found.keys()]).toEqual([id]);
+    expect(found.get(id)).toEqual({
+      id,
+      name: 'facts.txt',
+      size: 15,
+      mimeType: 'text/plain',
+      scope: 'test:open',
+      uploadedBy: editor.id,
+      createdAt: expect.any(Date),
+    });
+    expect(await getFiles(testApp.db, [])).toEqual(new Map());
+  });
+
+  it("deletes files in the caller's transaction, and their bytes at the clean-up", async () => {
+    const kept = (await upload(editor, 'Fictional', 'kept.txt')).json();
+    const gone = (await upload(editor, 'Fictional', 'gone.txt')).json();
+    const keptPath = await storedPath(kept.id);
+    const gonePath = await storedPath(gone.id);
+
+    const rollback = new Error('Rolled back.');
+    await expect(
+      testApp.db.transaction(async (tx) => {
+        expect(await deleteFiles(tx, [kept.id, kept.id])).toBe(1);
+        expect(await getFiles(tx, [kept.id])).toEqual(new Map());
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+    expect((await getFiles(testApp.db, [kept.id])).has(kept.id)).toBe(true);
+
+    await testApp.db.transaction(async (tx) => {
+      expect(await deleteFiles(tx, [gone.id, randomUUID(), 'not-a-file'])).toBe(1);
+    });
+    expect((await get(editor, gone.url)).statusCode).toBe(404);
+    expect(await exists(gonePath)).toBe(true);
+    expect(await removeDeletedFiles(testApp.db)).toBeGreaterThanOrEqual(1);
+    expect(await exists(gonePath)).toBe(false);
+    expect(await testApp.db.select().from(files).where(eq(files.id, gone.id))).toEqual([]);
+    expect(await exists(keptPath)).toBe(true);
+
+    // Bytes that another file still uses stay.
+    const [original] = await testApp.db.select().from(files).where(eq(files.id, kept.id));
+    if (!original) throw new Error('The file was not saved.');
+    const [copy] = await testApp.db
+      .insert(files)
+      .values({ ...original, id: randomUUID(), createdAt: new Date() })
+      .returning();
+    expect(await deleteFiles(testApp.db, [kept.id])).toBe(1);
+    expect(await removeDeletedFiles(testApp.db)).toBe(1);
+    expect(await exists(keptPath)).toBe(true);
+    expect((await getFiles(testApp.db, [copy?.id ?? ''])).size).toBe(1);
   });
 
   it('creates the files table exactly as the Drizzle definition describes it', async () => {

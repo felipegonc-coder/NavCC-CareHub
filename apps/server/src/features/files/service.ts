@@ -1,20 +1,138 @@
 import { fileParamsSchema, fileUrl, type UploadedFile } from '@carehub/shared';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
 import { files } from './schema';
+import { readFilesSettings } from './settings';
+import { fileStore } from './storage';
 
 /** A row of `files`. */
 export type StoredFile = typeof files.$inferSelect;
 
+/** What other features learn about a file with getFiles. */
+export interface FileInfo {
+  id: string;
+  name: string;
+  /** In bytes. */
+  size: number;
+  /** Found from the contents. */
+  mimeType: string;
+  /** Where it was uploaded: `<feature>:<id>`, for example `messages:<channel id>`. */
+  scope: string;
+  /** Null once the person's account is deleted. */
+  uploadedBy: string | null;
+  createdAt: Date;
+}
+
+const isFileId = (id: string): boolean => fileParamsSchema.shape.id.safeParse(id).success;
+
+/** Postgres takes at most 65,535 parameters in one query. */
+const BATCH = 1000;
+function* batches<T>(items: readonly T[]): Generator<T[]> {
+  for (let start = 0; start < items.length; start += BATCH) {
+    yield items.slice(start, start + BATCH);
+  }
+}
+
 /** A file that isn't deleted, or null: for example to check an icon is a picture of at most 5 MB. */
 export async function getFile(db: Db | Tx, id: string): Promise<StoredFile | null> {
-  if (!fileParamsSchema.shape.id.safeParse(id).success) return null;
+  if (!isFileId(id)) return null;
   const [file] = await db
     .select()
     .from(files)
     .where(and(eq(files.id, id), isNull(files.deletedAt)))
     .limit(1);
   return file ?? null;
+}
+
+/**
+ * The files with these IDs that aren't deleted (other IDs are left out). It doesn't check access: check
+ * that each file's `scope` is one of yours, and that the person may use it there.
+ */
+export async function getFiles(
+  db: Db | Tx,
+  ids: readonly string[],
+): Promise<Map<string, FileInfo>> {
+  const found = new Map<string, FileInfo>();
+  for (const batch of batches([...new Set(ids)].filter(isFileId))) {
+    const rows = await db
+      .select({
+        id: files.id,
+        name: files.name,
+        size: files.size,
+        mimeType: files.mimeType,
+        scopeFeature: files.scopeFeature,
+        scopeId: files.scopeId,
+        uploadedBy: files.uploadedBy,
+        createdAt: files.createdAt,
+      })
+      .from(files)
+      .where(and(inArray(files.id, batch), isNull(files.deletedAt)));
+    for (const { scopeFeature, scopeId, ...file } of rows) {
+      found.set(file.id, { ...file, scope: `${scopeFeature}:${scopeId}` });
+    }
+  }
+  return found;
+}
+
+/**
+ * Deletes files as part of the caller's transaction, for example with the message they belong to. They're
+ * gone at once; their bytes stay on disk until the nightly clean-up, so a rollback keeps them. No access
+ * check. Returns how many were deleted.
+ */
+export async function deleteFiles(db: Db | Tx, ids: readonly string[]): Promise<number> {
+  let deleted = 0;
+  for (const batch of batches([...new Set(ids)].filter(isFileId))) {
+    const rows = await db
+      .update(files)
+      .set({ deletedAt: sql`now()` })
+      .where(and(inArray(files.id, batch), isNull(files.deletedAt)))
+      .returning({ id: files.id });
+    deleted += rows.length;
+  }
+  return deleted;
+}
+
+/**
+ * For the nightly clean-up (Data settings, DS-02): removes from disk the bytes of files deleted before
+ * `deletedBefore` that no other file shares, then their rows. Bytes that can't be removed keep their row,
+ * so they're tried again next time. Returns how many files it removed.
+ */
+export async function removeDeletedFiles(
+  db: Db,
+  { deletedBefore = new Date(), root = readFilesSettings().FILES_DIR } = {},
+): Promise<number> {
+  const store = fileStore(root);
+  let removed = 0;
+  for (;;) {
+    const deleted = await db
+      .select({ id: files.id, storageKey: files.storageKey })
+      .from(files)
+      .where(lt(files.deletedAt, deletedBefore))
+      .orderBy(asc(files.deletedAt))
+      .limit(BATCH);
+    if (deleted.length === 0) return removed;
+    const keys = [...new Set(deleted.map((file) => file.storageKey))];
+    const shared = await db
+      .selectDistinct({ storageKey: files.storageKey })
+      .from(files)
+      .where(and(inArray(files.storageKey, keys), isNull(files.deletedAt)));
+    const inUse = new Set(shared.map((file) => file.storageKey));
+    const done = new Set<string>();
+    for (const key of keys) {
+      if (inUse.has(key)) {
+        done.add(key);
+        continue;
+      }
+      await store.remove(store.pathOf(key)).then(
+        () => done.add(key),
+        () => undefined,
+      );
+    }
+    const ids = deleted.filter((file) => done.has(file.storageKey)).map((file) => file.id);
+    if (ids.length > 0) await db.delete(files).where(inArray(files.id, ids));
+    removed += ids.length;
+    if (ids.length < deleted.length || deleted.length < BATCH) return removed;
+  }
 }
 
 /** The answer of POST /api/files. */

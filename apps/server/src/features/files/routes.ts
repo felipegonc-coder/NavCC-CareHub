@@ -1,6 +1,5 @@
 import { fileParamsSchema, fileReadQuerySchema, fileUploadQuerySchema } from '@carehub/shared';
 import multipart from '@fastify/multipart';
-import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { HttpError, httpError } from '../../core/errors';
 import { detectFileType, hasBlockedEnding } from './detect';
@@ -8,7 +7,7 @@ import { cleanFileName, tooLargeMessage } from './names';
 import { files } from './schema';
 import { canUseFileScope, hasFileScope, type FileScopeContext } from './scopes';
 import { FILE_CSP, sendStoredFile } from './serve';
-import { getFile, uploadedFileJson, type StoredFile } from './service';
+import { deleteFiles, getFile, uploadedFileJson, type StoredFile } from './service';
 import { readFilesSettings } from './settings';
 import { fileStore } from './storage';
 
@@ -20,7 +19,7 @@ const NO_FILE = 'Choose a file to upload.';
 
 /** /api/files: upload, show or download, and delete files (decision 0007, section 4.3). */
 const filesRoutes: FastifyPluginAsync = async (app) => {
-  const store = fileStore(readFilesSettings().FILES_DIR);
+  const store = fileStore(readFilesSettings(app.log).FILES_DIR);
   await store.prepare();
   await app.register(multipart, {
     limits: {
@@ -71,7 +70,7 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     const ctx = context(request, scope.slice(feature.length + 1));
     if (!(await canUseFileScope('write', feature, ctx))) throw httpError(403, 'forbidden');
 
-    const limitMb = readFilesSettings().FILES_MAX_MB;
+    const limitMb = readFilesSettings(app.log).FILES_MAX_MB;
     const declared = Number(request.headers['content-length'] ?? 0);
     if (declared > limitMb * MB + WRAPPING_BYTES) {
       throw httpError(413, 'too_large', tooLargeMessage(declared, limitMb));
@@ -143,13 +142,10 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     },
   });
 
-  // Marks the file deleted; the nightly clean-up removes its bytes after the Trash period.
+  // The file is gone at once; the nightly clean-up removes its bytes (Data settings, DS-02).
   app.delete('/:id', guarded, async (request, reply) => {
     const file = await findFile(request, 'write');
-    await app.db
-      .update(files)
-      .set({ deletedAt: new Date() })
-      .where(and(eq(files.id, file.id), isNull(files.deletedAt)));
+    await deleteFiles(app.db, [file.id]);
     return reply.code(204).send();
   });
 };
