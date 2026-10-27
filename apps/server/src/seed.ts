@@ -82,7 +82,7 @@ export async function seedFeatures(ctx: SeedContext): Promise<void> {
 
   // feature: home
 
-  // feature: calendar
+  await (await import('./features/calendar/seed')).seed(ctx);
 
   // feature: meetings
 
