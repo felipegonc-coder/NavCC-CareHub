@@ -5,8 +5,9 @@ import type {
   HistoryResponse,
   MessageResponse,
   NewChatResponse,
+  UnreadResponse,
 } from '@carehub/team-chat';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -19,7 +20,7 @@ import {
 } from '../../testing';
 import { workspaceMembers } from '../workspaces';
 import type { MessageCreatedEvent } from './events';
-import { msgMessages } from './schema';
+import { msgMembers, msgMessages } from './schema';
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
@@ -102,15 +103,22 @@ describe.skipIf(!hasDatabase)('/api/messages: chats and messages', () => {
 
     const list = (await call(sam, 'GET', '/chats')).json<ChatListResponse>();
     const chat = list.chats.find(({ id }) => id === chatId);
-    expect(chat).toMatchObject({ type: 'direct', name: null, lastSeq: message.seq, muted: false });
-    expect(chat?.lastReadSeq).toBeLessThan(message.seq);
+    expect(chat).toMatchObject({
+      type: 'direct',
+      name: null,
+      lastSeq: message.seq,
+      lastReadSeq: 0,
+      unread: 1,
+      mentions: 0,
+      muted: false,
+    });
     expect(chat?.members.map(({ userId }) => userId).sort()).toEqual([avery.id, sam.id].sort());
     expect(chat?.lastMessage).toMatchObject({ id: message.id, clientId: null });
     expect(list.people[avery.id]).toEqual({ name: 'Avery Lin' });
 
     // The sender has read their own message, and sees its clientId.
     const own = (await call(avery, 'GET', `/chats/${chatId}`)).json<ChatResponse>();
-    expect(own.chat.lastReadSeq).toBe(message.seq);
+    expect(own.chat).toMatchObject({ lastReadSeq: message.seq, unread: 0 });
     expect(own.chat.lastMessage?.clientId).toBe(message.clientId);
     expect(own.people[sam.id]).toEqual({ name: 'Sam Ortiz' });
   });
@@ -262,6 +270,29 @@ describe.skipIf(!hasDatabase)('/api/messages: chats and messages', () => {
     expect((await startChat(avery, [sam.id, riley.id], { name: 'x'.repeat(101) })).status).toBe(
       400,
     );
+  });
+
+  it('counts unread messages and @mentions for the list and the badge (MS-06)', async () => {
+    const badge = async (user: TestUser) =>
+      (await call(user, 'GET', '/unread')).json<UnreadResponse>().count;
+    const before = await badge(sam);
+    const { chatId } = (await startChat(avery, [sam.id, riley.id], { startNew: true })).body;
+    await send(avery, chatId, 'The rota draft is up');
+    await send(avery, chatId, `<@${sam.id}> can you check Tuesday?`);
+    await send(riley, chatId, 'Tuesday works for me');
+    const unread = (await call(sam, 'GET', '/chats?unread=true')).json<ChatListResponse>();
+    expect(unread.chats.find(({ id }) => id === chatId)).toMatchObject({ unread: 3, mentions: 1 });
+    expect(unread.chats.filter((chat) => chat.unread === 0)).toEqual([]);
+    expect(await badge(sam)).toBe(before + 3);
+    const latest = (await call(sam, 'GET', '/chats?limit=1')).json<ChatListResponse>();
+    expect(latest.chats.map(({ id }) => id)).toEqual([chatId]);
+
+    // Muted: only the @mention counts.
+    await testApp.db
+      .update(msgMembers)
+      .set({ muted: true })
+      .where(and(eq(msgMembers.chatId, chatId), eq(msgMembers.userId, sam.id)));
+    expect(await badge(sam)).toBe(before + 1);
   });
 
   it("keeps guests and outsiders out, and they can't be messaged (RP-D2)", async () => {

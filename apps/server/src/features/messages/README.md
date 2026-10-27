@@ -8,7 +8,8 @@ Members only (`requireMember`): guests have just their 🔔 chat (RP-D2). Every 
 
 | Route | Body or query | Answer |
 | --- | --- | --- |
-| `GET /chats` | | `ChatListResponse`: the person's chats, latest message first |
+| `GET /chats` | `?unread=true` (only chats with unread messages), `&limit=` (1–100) | `ChatListResponse`: the person's chats, latest message first, with `unread` and `mentions` counts |
+| `GET /unread` | | `UnreadResponse` `{ count }`: the Messages part of the sidebar badge (MS-06) |
 | `POST /chats` | `{ userIds, name?, startNew? }` | `NewChatResponse` `{ chatId, existing }`: 201 for a new chat, 200 for an existing one |
 | `GET /chats/:chatId` | | `ChatResponse` |
 | `GET /chats/:chatId/messages` | `?before=` or `?after=` (a `seq`), `&limit=` (1–50, default 50) | `HistoryResponse`: oldest first, with `hasMore` |
@@ -20,6 +21,7 @@ Members only (`requireMember`): guests have just their 🔔 chat (RP-D2). Every 
 - **Sending:** text up to 4,000 characters, checked here too (MS-14). `clientId` is a UUID made in the browser: a resend after a dropped connection answers with the message saved the first time (MS-08). A `clientId` already used in another chat is a 409. A direct chat with someone removed from the workspace takes no new messages (409). Files come in a later part (400 for now).
 - **Editing and deleting:** only the sender (MS-05). Deleting erases the text, mentions and cards from the database; "This message was deleted" stays in their place.
 - **Order:** each chat numbers its messages 1, 2, 3, … (`seq`) in the order the server saves them.
+- **Unread:** messages from others after the person's read marker (`lastReadSeq`), not system lines or deleted messages. Sending marks the chat read up to your message. The badge counts unread messages in unmuted chats and @mentions in muted ones; the 🔔 chat adds its notices on the web.
 
 Request and answer types are in `@carehub/team-chat` (`api.ts`).
 

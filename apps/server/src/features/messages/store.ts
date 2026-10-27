@@ -1,5 +1,19 @@
-import type { SystemEvent } from '@carehub/team-chat';
-import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt } from 'drizzle-orm';
+import type { SystemEvent, UnreadCounts } from '@carehub/team-chat';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import {
@@ -24,6 +38,7 @@ export interface ChatItem {
   /** The viewer's own membership. */
   member: MemberRow;
   last: MessageRow | null;
+  counts: UnreadCounts;
 }
 
 const byJoined = [asc(msgMembers.joinedAt), asc(msgMembers.userId)];
@@ -63,10 +78,61 @@ async function lastMessages(db: Executor, chats: readonly ChatRow[]) {
   return new Map(rows.map((row) => [row.chatId, row]));
 }
 
+const countMentionsOf = (userId: string) =>
+  sql<number>`count(*) filter (where ${userId}::uuid = any(${msgMessages.mentions}))`.mapWith(
+    Number,
+  );
+
+/**
+ * Unread messages in the person's current chats in the workspace (or only `chatIds`): messages
+ * from others after their read marker, not deleted (as `countsAsUnread`), and those mentioning
+ * them. Chats with nothing unread are left out.
+ */
+export async function countUnread(
+  db: Executor,
+  workspaceId: string,
+  userId: string,
+  chatIds?: readonly string[],
+): Promise<Map<string, UnreadCounts & { muted: boolean }>> {
+  if (chatIds?.length === 0) return new Map();
+  const rows = await db
+    .select({
+      chatId: msgMessages.chatId,
+      muted: msgMembers.muted,
+      unread: count(),
+      mentions: countMentionsOf(userId),
+    })
+    .from(msgMessages)
+    .innerJoin(msgChats, eq(msgChats.id, msgMessages.chatId))
+    .innerJoin(
+      msgMembers,
+      and(
+        eq(msgMembers.chatId, msgMessages.chatId),
+        eq(msgMembers.userId, userId),
+        isNull(msgMembers.leftAt),
+      ),
+    )
+    .where(
+      and(
+        eq(msgChats.workspaceId, workspaceId),
+        chatIds ? inArray(msgMessages.chatId, [...chatIds]) : undefined,
+        gt(msgMessages.seq, msgMembers.lastReadSeq),
+        eq(msgMessages.kind, 'message'),
+        isNull(msgMessages.deletedAt),
+        or(isNull(msgMessages.senderId), ne(msgMessages.senderId, userId)),
+      ),
+    )
+    .groupBy(msgMessages.chatId, msgMembers.muted);
+  return new Map(rows.map(({ chatId, ...counts }) => [chatId, counts]));
+}
+
+const NOTHING_UNREAD: UnreadCounts = { unread: 0, mentions: 0 };
+
 function toItems(
   chats: readonly ChatRow[],
   members: readonly MemberRow[],
   last: ReadonlyMap<string, MessageRow>,
+  counts: ReadonlyMap<string, UnreadCounts>,
   userId: string,
 ): ChatItem[] {
   const byChat = new Map<string, MemberRow[]>();
@@ -78,7 +144,10 @@ function toItems(
   return chats.flatMap((chat) => {
     const current = (byChat.get(chat.id) ?? []).filter((row) => row.leftAt === null);
     const member = current.find((row) => row.userId === userId);
-    return member ? [{ chat, members: current, member, last: last.get(chat.id) ?? null }] : [];
+    if (!member) return [];
+    const { unread, mentions } = counts.get(chat.id) ?? NOTHING_UNREAD;
+    const item = { chat, members: current, member, last: last.get(chat.id) ?? null };
+    return [{ ...item, counts: { unread, mentions } }];
   });
 }
 
@@ -102,20 +171,17 @@ export async function listChats(
     .where(eq(msgChats.workspaceId, workspaceId))
     .orderBy(desc(msgChats.lastMessageAt), asc(msgChats.id));
   if (chats.length === 0) return [];
-  const members = await db
-    .select()
-    .from(msgMembers)
-    .where(
-      and(
-        inArray(
-          msgMembers.chatId,
-          chats.map((chat) => chat.id),
-        ),
-        isNull(msgMembers.leftAt),
-      ),
-    )
-    .orderBy(...byJoined);
-  return toItems(chats, members, await lastMessages(db, chats), userId);
+  const ids = chats.map((chat) => chat.id);
+  const [members, last, counts] = await Promise.all([
+    db
+      .select()
+      .from(msgMembers)
+      .where(and(inArray(msgMembers.chatId, ids), isNull(msgMembers.leftAt)))
+      .orderBy(...byJoined),
+    lastMessages(db, chats),
+    countUnread(db, workspaceId, userId, ids),
+  ]);
+  return toItems(chats, members, last, counts, userId);
 }
 
 /** One chat for a current member, or null. */
@@ -125,7 +191,11 @@ export async function chatItem(
   members: readonly MemberRow[],
   userId: string,
 ): Promise<ChatItem | null> {
-  const [item] = toItems([chat], members, await lastMessages(db, [chat]), userId);
+  const [last, counts] = await Promise.all([
+    lastMessages(db, [chat]),
+    countUnread(db, chat.workspaceId, userId, [chat.id]),
+  ]);
+  const [item] = toItems([chat], members, last, counts, userId);
   return item ?? null;
 }
 

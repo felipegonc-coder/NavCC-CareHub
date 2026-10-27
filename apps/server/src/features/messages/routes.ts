@@ -2,6 +2,8 @@
 // guests have just their 🔔 Care Hub chat (RP-D2), which is the notices feature's. Every chat
 // request checks that the person is in the chat now, admins included (RP-D1, MS-10).
 import {
+  badgeCount,
+  chatListQuerySchema,
   chatPermissions,
   checkChangeMessage,
   deletedMessageFields,
@@ -18,6 +20,7 @@ import {
   type HistoryResponse,
   type MessageResponse,
   type NewChatResponse,
+  type UnreadResponse,
 } from '@carehub/team-chat';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -99,11 +102,23 @@ const messagesRoutes: FastifyPluginAsync = async (app) => {
     return { message, people } satisfies MessageResponse;
   }
 
+  // The chat list, latest message first. Home asks for the first few with unread messages.
   app.get('/chats', async (request): Promise<ChatListResponse> => {
     const viewer = viewerOf(request);
+    const query = chatListQuerySchema.parse(request.query);
     const items = await store.listChats(app.db, viewer.workspaceId, viewer.userId);
-    const chats = items.map((item) => chatJson(item, viewer.userId));
+    const chats = items
+      .filter((item) => !query.unread || item.counts.unread > 0)
+      .slice(0, query.limit)
+      .map((item) => chatJson(item, viewer.userId));
     return { chats, people: await lookUpPeople(app.db, viewer.workspaceId, peopleInChats(chats)) };
+  });
+
+  // The sidebar badge (MS-06): unread in unmuted chats, @mentions in muted ones.
+  app.get('/unread', async (request): Promise<UnreadResponse> => {
+    const viewer = viewerOf(request);
+    const counts = await store.countUnread(app.db, viewer.workspaceId, viewer.userId);
+    return { count: badgeCount([...counts.values()]) };
   });
 
   // New message: one person opens the pair's direct chat; more start a group of 3 to 50, unless

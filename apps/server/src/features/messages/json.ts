@@ -27,7 +27,8 @@ export function messageJson(row: MessageRow, viewerId: string): MessageJson {
   };
 }
 
-export function chatJson({ chat, members, member, last }: ChatItem, viewerId: string): ChatJson {
+export function chatJson(item: ChatItem, viewerId: string): ChatJson {
+  const { chat, members, member, last, counts } = item;
   return {
     id: chat.id,
     type: chat.type,
@@ -43,6 +44,8 @@ export function chatJson({ chat, members, member, last }: ChatItem, viewerId: st
     })),
     muted: member.muted,
     lastReadSeq: member.lastReadSeq,
+    unread: counts.unread,
+    mentions: counts.mentions,
     lastMessage: last ? messageJson(last, viewerId) : null,
   };
 }
