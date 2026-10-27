@@ -2,6 +2,7 @@ import type { Locator, Page } from '@playwright/test';
 import { expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
 import { png } from '../import-export/zip-files.js';
 import { hasLocation, pictures, type TestFile } from '../messages/files.js';
+import { makePage } from '../pages/page-data.js';
 import { Editor } from './editor-page.js';
 
 // Pages and blocks, sections 3.8 (Copy and paste) and 3.11 (Files): what comes in from outside.
@@ -188,6 +189,40 @@ test.describe('Editor: pasting from other apps', () => {
       ).toBeGreaterThanOrEqual(600);
       await expect(content).not.toContainText('## ');
       await expect(content).not.toContainText('**');
+    });
+  });
+
+  test('PB-26 a pasted Care Hub page link becomes a page mention; a pasted web link stays a link and offers Mention, Bookmark and Embed', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await signInAs(page, 'editor');
+    const title = uniqueName('Fictional QA refund steps');
+    const pageId = await makePage(page, title);
+    const editor = await Editor.onNewPage(page);
+    // YouTube is on the starter list of approved sites (section 3.10); the video is made up.
+    const video = 'https://www.youtube.com/watch?v=FictionalQA';
+
+    await test.step('the Care Hub link becomes a mention that shows the page’s title', async () => {
+      await copyFromAnotherApp(page, { text: new URL(`/p/${pageId}`, page.url()).href });
+      await page.keyboard.press('ControlOrMeta+V');
+      await expect(editor.content.getByText(title)).toBeVisible();
+      await expect(editor.content).not.toContainText(`/p/${pageId}`);
+    });
+
+    await test.step('the web link pastes as a link, with Mention, Bookmark, Embed and Dismiss', async () => {
+      await page.keyboard.press('Enter');
+      await copyFromAnotherApp(page, { text: video });
+      await page.keyboard.press('ControlOrMeta+V');
+      await expect(editor.content.getByRole('link', { name: video })).toBeVisible();
+      const offer = (name: string) =>
+        page
+          .getByRole('menuitem', { name, exact: true })
+          .or(page.getByRole('button', { name, exact: true }));
+      for (const name of ['Mention', 'Bookmark', 'Embed']) await expect(offer(name)).toBeVisible();
+      await offer('Dismiss').click();
+      await expect(offer('Bookmark')).toHaveCount(0);
+      await expect(editor.content.getByRole('link', { name: video })).toBeVisible();
     });
   });
 });

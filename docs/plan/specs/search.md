@@ -1,6 +1,6 @@
 # Search
 
-_Copied from the Notion spec (https://app.notion.com/p/be06de5ee77c4f2ea8a814621e32cfb5) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > 🔎 Phase 1 · Notion parity · Depends on: Pages and blocks, Roles and permissions, Sidebar, spaces and nested pages · Used by: Messages ("Search messages for…"), Knowledge base, Analytics (search terms), every page picker · Related: Databases (toolbar search), Page history and Trash (search in Trash), Data settings (index size)
 
@@ -38,7 +38,7 @@ Finding any page, database or row the person can open, quickly and from anywhere
 
 ### 3.2 Matching and ranking
 
-- Case and accents don't matter ("goncalves" finds "Gonçalves"), and English word forms match ("refunds" finds "refund"). While typing, the last word also matches as a beginning ("ref" finds "Refund steps"). This uses Postgres full-text search, as Messages does.
+- Case and accents don't matter ("cote" finds "Côté"), and English word forms match ("refunds" finds "refund"). While typing, the last word also matches as a beginning ("ref" finds "Refund steps"). This uses Postgres full-text search, as Messages does.
 - All words must match, unless the person uses OR. "Quotes" match an exact phrase, and a minus excludes a word (-draft). A hyphen inside a word, as in QA-17, isn't an exclude.
 - **Did you mean:** when there are fewer than 3 results, Care Hub looks for a title one or two letters off and offers it.
 - **Best match** puts title matches first (exact title, then title starting with the words, then all words in the title), then headings, then text. Within that, pages the person opened in the last 30 days, recently edited pages and ✓ Verified knowledge base pages rank higher, and archived pages (when included) rank lower. Ties go to the most recently edited.
@@ -99,10 +99,10 @@ Finding any page, database or row the person can open, quickly and from anywhere
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **SR-01** Press Ctrl+K on Home, in a database and on a page. → Search opens every time; with text selected in a page, Ctrl+K opens the link editor instead.
-2. ⭐ **SR-03** Type ref, then goncalves. → "Refund steps" shows while you type, and "Felipe Gonçalves" is found without the ç.
+2. ⭐ **SR-03** Type ref, then cote. → "Refund steps" shows while you type, and "Renée Côté" is found without the accents.
 3. ⭐ **SR-02** Open search without typing. → The last 8 pages you opened and your last 5 searches show; Clear empties the searches.
 4. **SR-06** Filter with In: Support and Edited by: Sam Ortiz, then sort by Edited, newest first. → The results follow both filters and the sort.
 5. **SR-09** Rename a page, then move another to Trash. → The new name is found within 2 seconds, and the trashed page is gone at once.
@@ -114,7 +114,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 
 - **SR-01** Ctrl+K and Ctrl+P open search on every screen; with text selected in the editor, Ctrl+K opens the link editor instead.
 - **SR-02** Before typing, the last 8 opened pages and the last 5 searches show; Clear empties the recent searches.
-- **SR-03** "ref" finds "Refund steps" while typing, "refunds" finds "refund", "goncalves" finds "Gonçalves", and case doesn't matter.
+- **SR-03** "ref" finds "Refund steps" while typing, "refunds" finds "refund", "cote" finds "Côté", and case doesn't matter.
 - **SR-04** Quotes, minus and OR work as described; searching QA-17 finds that row.
 - **SR-05** A title match ranks above a text match, a ✓ Verified page ranks above an otherwise equal page, and ties are most recently edited first.
 - **SR-06** Each filter and sort works on its own and combined with the others.
@@ -124,11 +124,11 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **SR-10** Text inside a PDF, a Word file and an Excel file is found with the file name and page in the snippet (SR-D1); a scanned PDF shows "No text found" in its file details.
 - **SR-11** No results shows Did you mean (for a close title), Clear filters and Search in Trash.
 - **SR-12** "Search messages for…" opens Messages search with the same text; guests don't see it.
-- **SR-13** With 50,000 pages and 5,000 files, 95% of searches answer within 500 ms on the ThinkCentre.
+- **SR-13** With 50,000 pages and 5,000 files, 95% of searches answer within 500 ms on the server.
 - **SR-14** Find in page finds matches in closed toggles and table cells and moves between them; Replace all changes 12 matches in one undo step; a viewer has no Replace.
 - **SR-15** Search terms in Analytics never show who searched, and a term searched by only one person isn't listed.
 - **SR-16** Everything works by keyboard and screen reader; axe finds no serious problems; the phone layout works.
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **SR-D1** Search the text inside uploaded PDF, Word, Excel and PowerPoint files. It means background work after uploads and an index about a tenth of the files' size. **Default:** yes.

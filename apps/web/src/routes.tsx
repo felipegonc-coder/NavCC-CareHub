@@ -17,7 +17,7 @@ import { NotFoundPage } from './shell/NotFoundPage';
 // feature: shell
 
 // feature: home
-import { HomePage } from './HomePage'; // placeholder until the home line takes /
+import { routes as homeRoutes } from './features/home/routes';
 
 // feature: pages
 
@@ -79,7 +79,7 @@ export const appRoutes: RouteObject[] = [
   // feature: shell
 
   // feature: home
-  { index: true, element: <HomePage /> }, // placeholder until the home line takes /
+  ...homeRoutes,
 
   // feature: pages
 

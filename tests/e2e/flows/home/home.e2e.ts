@@ -189,11 +189,14 @@ test.describe('Home: Upcoming', () => {
   test('HR-02 Upcoming shows only today and tomorrow, and Join shows from 10 minutes before a Zoom meeting until it ends', async ({
     page,
   }) => {
-    test.setTimeout(6 * MINUTE); // waits for Join to come and go
+    test.slow(); // five events, and the browser's clock moves on twice
     // Val's own calendar, so events from other flows don't crowd Upcoming's 6.
     await signInAs(page, 'viewer');
     const zoom = 'https://us02web.zoom.us/j/1234567890?pwd=fictional';
     const now = Date.now();
+    // The browser works out Join from the start time and its own clock, so the test moves that
+    // clock on (page.clock) instead of waiting. The server keeps the real time.
+    await page.clock.install({ time: now });
     const tomorrow = home.addDays(home.dateAndTime(now).date, 1);
     const event = (label: string, start: number, end: number): data.FictionalEvent => ({
       title: uniqueName(`Fictional QA ${label}`),
@@ -201,10 +204,9 @@ test.describe('Home: Upcoming', () => {
       end,
       videoLink: zoom,
     });
-    // The spec's meeting starts in 12 minutes; 11 means a minute less of waiting.
-    const soon = event('standup', now + 11 * MINUTE, now + 41 * MINUTE);
+    const soon = event('standup', now + 12 * MINUTE, now + 42 * MINUTE);
     const close = event('huddle', now + 9 * MINUTE, now + 39 * MINUTE);
-    const underWay = event('review', now - 20 * MINUTE, now + 3 * MINUTE);
+    const underWay = event('review', now - 20 * MINUTE, now + 6 * MINUTE);
     const nextDay = event(
       'planning',
       home.momentAt(tomorrow, '12:00'),
@@ -223,24 +225,29 @@ test.describe('Home: Upcoming', () => {
         await expect(item(later)).toHaveCount(0);
       });
 
-      await test.step('Join shows for the one under way and the one in 9 minutes, not yet for the one in 11', async () => {
+      await test.step('Join shows for the one under way and the one in 9 minutes, not yet for the one in 12', async () => {
         await expect(home.joinIn(item(underWay))).toBeVisible();
         await expect(home.joinIn(item(close))).toBeVisible();
         await expect(home.joinIn(item(soon))).toHaveCount(0);
       });
 
-      await test.step('Join shows for that one once it is 10 minutes away', async () => {
+      await test.step('Join shows for that one once it is 10 minutes away, not before', async () => {
         const from = soon.start - 10 * MINUTE;
-        await expect(home.joinIn(item(soon))).toBeVisible({ timeout: from - Date.now() + MINUTE });
-        expect(Date.now(), 'not before 10 minutes to go').toBeGreaterThanOrEqual(from - 1_000);
+        await page.clock.pauseAt(from - 5_000);
+        // Nothing should change yet, so give the screen a moment to go wrong.
+        await page.waitForTimeout(500);
+        await expect(home.joinIn(item(soon)), '5 seconds before').toHaveCount(0);
+        // A minute goes by, with every timer the screen set firing on time.
+        await page.clock.runFor(MINUTE + 5_000);
+        await expect(home.joinIn(item(soon))).toBeVisible();
       });
 
       await test.step('Join stays until the meeting ends, then goes', async () => {
-        await expect(home.joinIn(item(underWay))).toBeVisible();
-        await expect(home.joinIn(item(underWay))).toHaveCount(0, {
-          timeout: underWay.end - Date.now() + MINUTE,
-        });
-        expect(Date.now(), 'not before it ends').toBeGreaterThanOrEqual(underWay.end - 1_000);
+        await page.clock.pauseAt(underWay.end - 5_000);
+        await page.waitForTimeout(500);
+        await expect(home.joinIn(item(underWay)), '5 seconds before the end').toBeVisible();
+        await page.clock.runFor(MINUTE + 5_000);
+        await expect(home.joinIn(item(underWay))).toHaveCount(0);
       });
     } finally {
       for (const id of ids) await data.deleteEvent(page, id);

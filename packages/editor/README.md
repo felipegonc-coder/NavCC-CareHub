@@ -12,7 +12,8 @@ import { BlockEditor } from '@carehub/editor';
   y-websocket; anything with `awareness`) and the `user` to show carets and selections with names.
 - `BlockEditor` imports its own content styles, built on the `@carehub/ui` tokens for colors,
   sizes and type (`--ch-*`).
-- `@carehub/editor/schema` has the page schema with no UI (no DOM, no React) for the server.
+- `@carehub/editor/schema` has the page schema with no UI (no DOM, no React) for the server,
+  and `sanitizeRichText` for rich text field values.
 
 ## Props
 
@@ -29,7 +30,7 @@ import { BlockEditor } from '@carehub/editor';
 | `nodeViews`   | `{}`               | React views of lane blocks by node name (read on creation).    |
 | `slashItems`  | `[]`               | More "/" menu entries (`SlashItem`); can change at any time.   |
 | `linkPickers` | `[]`               | More link targets in the link panel (`LinkPicker`).            |
-| `bubbleItems` | `[]`               | More selection toolbar buttons (`BubbleItem`).                 |
+| `bubbleItems` | `[]`               | More selection toolbar buttons (`BubbleItem`), see below.      |
 | `extensions`  | `[]`               | Shortcuts and plugins, not nodes or marks (read on creation).  |
 
 ## Block groups
@@ -75,11 +76,14 @@ right, like `#` or `---`.
 
 ## The selection toolbar
 
-Selecting text (outside code) shows a toolbar above it: Bold, Italic, Underline, Strikethrough,
-Inline code and Link, then any `bubbleItems`. It's a `toolbar` with arrow-key movement; Alt+F10
-moves focus into it and Escape goes back to the text. The link panel takes a web or email address
-(`example.com` becomes `https://example.com`, `robin@example.com` becomes `mailto:`), shows a
-message for anything else, and lists the `linkPickers`:
+Selecting text (outside code) shows a toolbar above it, in the spec's order: Link, Comment (the
+`bubbleItems` entry with the id `comment`), Bold, Italic, Underline, Strikethrough and Inline code,
+then the other `bubbleItems`. Turn into, Equation, Color and "…" come with their block groups. In a
+read-only editor, selecting text shows only the `bubbleItems` marked `readOnly` (like Comment for
+people who can comment), or no toolbar if there are none. It's a `toolbar` with arrow-key movement;
+Alt+F10 moves focus into it and Escape goes back to the text. The link panel takes a web or email
+address (`example.com` becomes `https://example.com`, `robin@example.com` becomes `mailto:`), shows
+a message for anything else, and lists the `linkPickers`:
 
 ```tsx
 const lessonPicker: LinkPicker = {
@@ -92,6 +96,38 @@ const lessonPicker: LinkPicker = {
 Links from the panel or a picker go through `safeHref` and open like every other link: other
 sites in a new tab; Care Hub (like `/p/<pageId>`), `mailto` and `tel` links in the same tab. An
 address starting with `//` becomes `https://`, and an unsafe href from a picker is ignored.
+
+## RichTextField
+
+A small rich text input for forms and properties, without live co-editing: paragraphs, hard
+breaks (Shift+Enter) and the marks you allow, with the same selection toolbar.
+
+```tsx
+import { RichTextField, type JSONContent } from '@carehub/editor';
+
+const [description, setDescription] = useState<JSONContent>({ type: 'doc', content: [] });
+<RichTextField
+  value={description}
+  onChange={setDescription}
+  ariaLabel="Lesson description"
+  marks={['bold', 'italic', 'link']}
+  onPickPage={pickPage} // adds "Link to a page", which links to /p/<pageId>
+/>;
+```
+
+- `value` is Tiptap JSON. Whatever it holds, the field shows (and `onChange` sends) only
+  paragraphs of text and hard breaks with the allowed marks and safe links; anything nested more
+  than 64 levels deep is dropped. `sanitizeRichText` does the same cleanup, for example on the
+  server before saving (from `@carehub/editor/schema` there).
+- A link keeps only its `href`, through `safeHref` (`//host` becomes `https://host`). Where it
+  opens comes from the href when it's drawn, as in the page editor.
+- `singleLine`: Enter adds nothing, and pasted or dropped lines join with spaces.
+- `ariaLabel` names the text box, so make it match the visible label: a `<label htmlFor>` doesn't
+  name or focus a contenteditable. `id` goes on the text box, as a target for other elements'
+  `aria-labelledby` or `aria-describedby`; `ariaDescribedBy` points to a hint.
+- Also `placeholder` (also given as `aria-placeholder`), `autoFocus`, `readOnly` and
+  `linkPickers`. With no `marks`, selecting text shows no toolbar. Changing `marks` or
+  `singleLine` makes a new editor.
 
 ## Lane blocks and extension points (shared contract, see docs/decisions/0007)
 
@@ -142,7 +178,8 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
 - Links keep only `http`, `https`, `mailto`, `tel` and relative hrefs (like `/p/<pageId>`); other
   schemes are dropped when typed, pasted or loaded from HTML, and never drawn as an href, even when
   another client sends one. A href starting with `//` goes to another site, so it is only kept as
-  `https://...`. `safeHref(href)` gives the href to use, or null.
+  `https://...`. `safeHref(href)` gives the href to use, or null. It trims spaces and invisible
+  characters (like U+00A0 and U+200B) and reads the scheme without them.
 - Where a link opens comes from its href each time it is drawn, never from a stored or pasted
   `target` or `rel`: other sites open in a new tab with `rel="noopener noreferrer"`; Care Hub,
   `mailto` and `tel` links open in the same tab.

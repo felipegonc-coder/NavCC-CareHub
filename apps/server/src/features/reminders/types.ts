@@ -44,6 +44,10 @@ export interface Reminder {
 export interface ReminderView {
   id: string;
   target: ReminderTarget;
+  /** The page or event title, or null when the person can't open it. */
+  title: string | null;
+  /** Where Open goes: `/p/<pageId>`, or the event (occurrence) in Calendar. */
+  href: string;
   minutesBefore: number | null;
   dueAt: string;
   note: string;
