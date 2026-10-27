@@ -1,7 +1,7 @@
 # Databases and Forms lane: guide for builders
 
 Lead: the Databases and Forms lead (reviews and squash-merges every `feat/db-*` and `feat/forms-*` pull request).
-Specs: [Databases](https://app.notion.com/p/fe27d484cabc4a74ae11028f8d43465f), [Forms](https://app.notion.com/p/6640881fdf6d41c390c8576c2c971b1d) and the lane's [additions](additions.md) (Felipe's decisions of Oct 26 and Notion-parity items). Wave plan and parts: [PLAN.md](PLAN.md). Status: [STATUS.md](STATUS.md).
+Specs: Databases and Forms (in Notion; see the [specs index](../plan/specs/README.md)), [Formulas](../plan/specs/formulas.md) and the lane's [additions](additions.md) (the decisions of Oct 26 and Notion-parity items). Wave plan and parts: [PLAN.md](PLAN.md). Status: [STATUS.md](STATUS.md).
 
 ## 1. Clean room (most important)
 
@@ -14,14 +14,14 @@ Specs: [Databases](https://app.notion.com/p/fe27d484cabc4a74ae11028f8d43465f), [
 
 ## 2. Folders this lane owns
 
-| Folder | What |
-| --- | --- |
-| `packages/databases` (`@carehub/databases`) | Pure logic shared by web and server: values, filters, sorts, groups, totals, formulas, rollups, CSV, form logic, row access |
-| `apps/server/src/features/databases`, `apps/server/src/features/forms` | API, permissions, jobs |
-| `apps/web/src/features/databases`, `apps/web/src/features/forms` | Screens |
-| `tests/e2e/databases`, `tests/e2e/forms` | Browser tests |
-| `apps/server/migrations/*_databases_*.sql`, `*_forms_*.sql` | Migrations |
-| `docs/databases/` | This guide, the plan, status |
+| Folder                                                                 | What                                                                                                                        |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `packages/databases` (`@carehub/databases`)                            | Pure logic shared by web and server: values, filters, sorts, groups, totals, formulas, rollups, CSV, form logic, row access |
+| `apps/server/src/features/databases`, `apps/server/src/features/forms` | API, permissions, jobs                                                                                                      |
+| `apps/web/src/features/databases`, `apps/web/src/features/forms`       | Screens                                                                                                                     |
+| `tests/e2e/databases`, `tests/e2e/forms`                               | Browser tests                                                                                                               |
+| `apps/server/migrations/*_databases_*.sql`, `*_forms_*.sql`            | Migrations                                                                                                                  |
+| `docs/databases/`                                                      | This guide, the plan, status                                                                                                |
 
 Anything else (root files, CI, design kit, pages, editor, sign-in) belongs to the main lead: ask the lane lead, never edit it yourself.
 
@@ -29,16 +29,16 @@ Anything else (root files, CI, design kit, pages, editor, sign-in) belongs to th
 
 `packages/databases/src/types.ts` defines every stored shape: property configs, stored values, rows, views, filters, sorts, groups, forms and row-access rules. The foundation modules are already written and tested:
 
-| Module | Gives you |
-| --- | --- |
-| `types.ts` | All shapes and limits (`LIMITS`) |
-| `dates.ts` | Calendar dates, time zones (`todayIn`, `zonedToInstant`, `instantToCalendarDate`), relative ranges (`resolveDateRef`, `resolveDateWindow`), date formatting |
-| `decimal.ts` | Exact decimals for Number: canonical strings, BigInt arithmetic, `formatDecimal` |
-| `richtext.ts` | Rich text helpers and `sanitizeRichText` for untrusted input |
-| `text.ts` | `compareText` (ignores case and accents, natural numbers), `foldText`, `textIncludes` |
-| `row.ts` | `readValue(row, property, ctx)`: the value of any property, automatic ones included |
-| `schema.ts` | Default configs, `newDatabaseSchema`, `defaultView`, type labels |
-| `ids.ts` | `newId()` |
+| Module        | Gives you                                                                                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`    | All shapes and limits (`LIMITS`)                                                                                                                            |
+| `dates.ts`    | Calendar dates, time zones (`todayIn`, `zonedToInstant`, `instantToCalendarDate`), relative ranges (`resolveDateRef`, `resolveDateWindow`), date formatting |
+| `decimal.ts`  | Exact decimals for Number: canonical strings, BigInt arithmetic, `formatDecimal`                                                                            |
+| `richtext.ts` | Rich text helpers and `sanitizeRichText` for untrusted input                                                                                                |
+| `text.ts`     | `compareText` (ignores case and accents, natural numbers), `foldText`, `textIncludes`                                                                       |
+| `row.ts`      | `readValue(row, property, ctx)`: the value of any property, automatic ones included                                                                         |
+| `schema.ts`   | Default configs, `newDatabaseSchema`, `defaultView`, type labels                                                                                            |
+| `ids.ts`      | `newId()`                                                                                                                                                   |
 
 Rules:
 
