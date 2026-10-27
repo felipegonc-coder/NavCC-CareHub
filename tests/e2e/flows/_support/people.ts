@@ -10,3 +10,12 @@ export const people = {
 } as const;
 
 export type PersonKey = keyof typeof people;
+
+/**
+ * People from a lane's own seed. They aren't `PersonKey`s (maps keyed by role stay complete); sign
+ * them in by email: `signInAs(page, lanePeople.trainer.email)`.
+ */
+export const lanePeople = {
+  /** Learning seed: builds courses in Studio. */
+  trainer: { role: 'trainer', name: 'Tara Trainer', email: 'tara.trainer@example.test' },
+} as const;
