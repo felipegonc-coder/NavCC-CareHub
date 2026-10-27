@@ -1,8 +1,9 @@
 /**
  * Repeating database templates (Templates and buttons 3.2): the moments a template makes its rows,
  * what the repeat job should make now (a run missed by less than 24 hours still runs once; older
- * ones are skipped), the new rows' names and "Created by" label, when a repeat pauses and the
- * notice it sends, and checks before a schedule is saved. Pure: the time is always an input.
+ * ones are skipped), counting down a repeat that ends after a number of times, the new rows'
+ * names and "Created by" label, when a repeat pauses and the notice it sends, and checks before a
+ * schedule is saved. Pure: the time is always an input.
  */
 import { can } from './access';
 import {
@@ -47,6 +48,8 @@ export const REPEAT_MESSAGES = {
   month: 'Pick a month.',
   time: 'Pick a time on the quarter hour.',
   date: 'Enter a date.',
+  times: 'Enter a number from 1 to 1,000.',
+  oneEnd: 'End on a date or after a number of times, not both.',
   paused: 'A repeating template was paused because the person who set it up no longer has access.',
 } as const;
 const M = REPEAT_MESSAGES;
@@ -73,14 +76,20 @@ const MONDAY_TO_FRIDAY = [1, 2, 3, 4, 5];
  * week (weeks start on Sunday); every N months on the chosen day (1–28 or the last day; otherwise
  * the start's day, or the month's last day when it's shorter); every N years on that day of the
  * chosen month (otherwise the start's). The local time holds across clock changes, so no run is
- * skipped or doubled; a time the clock skips moves forward. Paused or not (dueRuns checks that);
- * an invalid schedule gives none.
+ * skipped or doubled; a time the clock skips moves forward. No more than its times left. Paused
+ * or not (dueRuns checks that); an invalid schedule gives none.
  */
 export function nextRuns(
   schedule: RepeatSchedule,
   after: Instant | Date,
   count: number,
 ): Instant[] {
+  const left = schedule.timesLeft ?? null;
+  return runsAfter(schedule, after, left === null ? count : Math.min(count, left));
+}
+
+/** nextRuns without the times-left limit: dueRuns looks past it for the latest missed run. */
+function runsAfter(schedule: RepeatSchedule, after: Instant | Date, count: number): Instant[] {
   const first = parseCalendarDate(schedule.start);
   const afterMs = typeof after === 'string' ? Date.parse(after) : after.getTime();
   if (!first || !Number.isFinite(afterMs) || validateSchedule(schedule) !== null) return [];
@@ -149,26 +158,30 @@ function dayIn(s: RepeatSchedule, y: number, m: number, startDay: number): Calen
  * What a repeating template should make now (the job checks every 15 minutes). The latest run
  * after `lastRunAt` (the last row made; before the first, when the schedule was saved) that came
  * less than 24 hours ago runs once, even if several were missed while Care Hub was down; older
- * ones are skipped. Paused schedules never run, nor ones with no times left: `timesLeft` is for
- * "ending after a number of times", which RepeatSchedule doesn't hold yet (null: no such limit).
+ * ones are skipped. Paused schedules never run, nor ones with no times left; when the run now is
+ * the last time, there's no next one. After making the row, the server saves afterRun(schedule).
  */
-export function dueRuns(
-  schedule: RepeatSchedule,
-  lastRunAt: Instant | null,
-  now: Date,
-  opts: { timesLeft?: number | null } = {},
-): DueRuns {
-  const left = opts.timesLeft ?? null;
+export function dueRuns(schedule: RepeatSchedule, lastRunAt: Instant | null, now: Date): DueRuns {
+  const left = schedule.timesLeft ?? null;
   if (schedule.paused || (left !== null && left < 1))
     return { run: null, skipped: false, next: null };
   const nowMs = now.getTime();
   const since = Math.max(lastRunAt === null ? -Infinity : Date.parse(lastRunAt), nowMs - DAY_MS);
-  const due = nextRuns(schedule, new Date(since), 3).filter((t) => Date.parse(t) <= nowMs);
-  const missed = lastRunAt === null ? undefined : nextRuns(schedule, lastRunAt, 1)[0];
+  const due = runsAfter(schedule, new Date(since), 3).filter((t) => Date.parse(t) <= nowMs);
+  const missed = lastRunAt === null ? undefined : runsAfter(schedule, lastRunAt, 1)[0];
   const skipped = due.length > 1 || (missed !== undefined && Date.parse(missed) <= nowMs - DAY_MS);
   const run = due.at(-1) ?? null;
   const next = run !== null && left === 1 ? null : (nextRuns(schedule, now, 1)[0] ?? null);
   return { run, skipped, next };
+}
+
+/**
+ * The schedule to save after the job made a row: one time fewer when it ends after a number of
+ * times (skipped runs don't count); otherwise unchanged.
+ */
+export function afterRun(schedule: RepeatSchedule): RepeatSchedule {
+  const left = schedule.timesLeft ?? null;
+  return left === null ? schedule : { ...schedule, timesLeft: Math.max(0, left - 1) };
 }
 
 /**
@@ -199,8 +212,9 @@ export function shouldPause(owner: {
 /**
  * Checks a schedule before it's saved; the first problem, or null. Every N is 1 to 365; weekly
  * needs at least one day, each once; monthly days are 1 to 28 or the last day; months 1 to 12; the
- * time is on the quarter hour; the time zone is known; the end isn't before the start. With the
- * database's `templates` and the `templateId` it's for, an 11th repeating template is refused.
+ * time is on the quarter hour; the time zone is known; the end isn't before the start; a number of
+ * times is 1 to 1,000 (LIMITS.repeatTimes) and isn't set with an end date. With the database's
+ * `templates` and the `templateId` it's for, an 11th repeating template is refused.
  */
 export function validateSchedule(
   schedule: RepeatSchedule,
@@ -224,6 +238,9 @@ export function validateSchedule(
   if (!isValidTimeZone(s.timeZone)) return M.timeZone;
   if (!isCalendarDate(s.start) || (s.end !== null && !isCalendarDate(s.end))) return M.date;
   if (s.end !== null && s.end < s.start) return M.endBeforeStart;
+  const left = s.timesLeft ?? null;
+  if (left !== null && !whole(left, 1, LIMITS.repeatTimes)) return M.times;
+  if (left !== null && s.end !== null) return M.oneEnd;
   const others = (opts.templates ?? []).filter((t) => t.repeat && t.id !== opts.templateId);
   return others.length >= LIMITS.repeatingTemplates ? M.tooMany : null;
 }
