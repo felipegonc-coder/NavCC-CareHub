@@ -18,7 +18,11 @@ export interface ToastOptions {
    * Hovering or focusing it pauses the timer.
    */
   duration?: number | undefined;
-  /** Screen readers hear its label with the message; F8 takes keyboard focus to it. */
+  /**
+   * Screen readers hear its label with the message; F8 takes keyboard focus to it. Since the timer
+   * stops while the toast has the pointer or focus, an Undo can come after the server's window:
+   * the server answers 409 `conflict`, and the screen shows a short "Too late to undo" toast.
+   */
   action?: ToastAction | undefined;
 }
 
