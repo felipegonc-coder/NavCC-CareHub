@@ -1,6 +1,10 @@
 # Browser tests (Playwright, Chromium only), see tests/e2e/README.md. They cost CI minutes, so
-# they run only on request (the label "e2e" on a pull request, or by hand) and nightly on main
-# after new commits. The quick checks are in ci.yml.
+# they run only on request (the label "e2e" or "e2e-linux" on a pull request, or by hand) and
+# nightly on main after new commits. The quick checks are in ci.yml.
+#
+# Two jobs (decision 0011, issue #8): "e2e" installs, builds and tests the code with a read-only
+# token and uploads the results; "publish" holds the write permissions, runs none of the code and
+# only reads the uploaded files, as data.
 name: Browser tests
 
 on:
@@ -13,48 +17,61 @@ on:
 # One run per branch: a new request cancels the running one. Events for other labels land in a
 # group of their own, so adding another label does not cancel a run.
 concurrency:
-  group: e2e-${{ github.head_ref || github.ref_name }}-${{ github.event_name != 'pull_request' || github.event.label.name == 'e2e' }}
+  group: e2e-${{ github.head_ref || github.ref_name }}-${{ github.event_name != 'pull_request' || github.event.label.name == 'e2e' || github.event.label.name == 'e2e-linux' }}
   cancel-in-progress: true
 
 permissions:
-  contents: write # push screenshots to the ci-screenshots branch
-  pull-requests: write # the report comment
-  issues: write # the nightly issue
+  contents: read
 
 jobs:
   e2e:
     name: Browser tests
-    if: github.event_name != 'pull_request' || github.event.label.name == 'e2e'
+    # Only pull requests from branches of this repository: code from forks never runs here.
+    if: >-
+      github.event_name != 'pull_request' ||
+      ((github.event.label.name == 'e2e' || github.event.label.name == 'e2e-linux') &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    # When the Mac runner is online (decision 0006), the label "e2e" moves to it by changing only
+    # this line; "e2e-linux" keeps ubuntu-latest. The steps work on both: no sudo, no system
+    # packages, and nothing written outside the job's folder and $RUNNER_TEMP.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 15
     defaults:
       run:
         shell: bash # bash -eo pipefail, so "| tee" keeps the exit code
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: carehub
-          POSTGRES_DB: carehub
-          POSTGRES_HOST_AUTH_METHOD: trust # a throwaway database that only this job can reach
-        ports: ['5432:5432']
-        options: --health-cmd "pg_isready -U carehub" --health-interval 5s --health-timeout 5s --health-retries 12
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      runner: ${{ steps.gate.outputs.runner }}
     env:
-      DATABASE_URL: postgres://carehub@localhost:5432/carehub
+      # The throwaway database that tests/e2e/ci/postgres.mjs starts, only on 127.0.0.1.
+      DATABASE_URL: postgres://carehub@127.0.0.1:55432/carehub
       # Fictional and throwaway, like the database: the password of the seeded test accounts.
       CAREHUB_SEED_PASSWORD: e2e-only-fictional-password
-      E2E_BASE_URL: http://127.0.0.1:3000
+      E2E_BASE_URL: http://127.0.0.1:38080
     # Every step that can fail has an id and keeps its output in $RUNNER_TEMP/ci-logs/<id>.log, so
-    # the report step at the end can show the end of the log.
+    # the report can show the end of the log.
     steps:
       - name: Check out
         id: checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
+      # Also keeps npm, Playwright and temporary files in $RUNNER_TEMP, which the runner empties
+      # after each job.
       - name: Skip the nightly run when main has no new commits
         id: gate
         run: |
-          mkdir -p "$RUNNER_TEMP/ci-logs"
+          mkdir -p "$RUNNER_TEMP/ci-logs" "$RUNNER_TEMP/home" "$RUNNER_TEMP/tmp"
+          {
+            echo "HOME=$RUNNER_TEMP/home"
+            echo "TMPDIR=$RUNNER_TEMP/tmp"
+            echo "npm_config_cache=$RUNNER_TEMP/npm-cache"
+            echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/ms-playwright"
+          } >> "$GITHUB_ENV"
+          echo "runner=$RUNNER_OS $RUNNER_ARCH, $RUNNER_ENVIRONMENT" >> "$GITHUB_OUTPUT"
           age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
           if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$age" -gt 86400 ]; then
             echo "No commit on main in the last 24 hours, so there is nothing new to test."
@@ -76,14 +93,27 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         uses: actions/cache@v4
         with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package.json', 'apps/*/package.json', 'packages/*/package.json', 'tests/*/package.json', 'package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
+          path: ${{ runner.temp }}/npm-cache
+          key: e2e-npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package.json', 'apps/*/package.json', 'packages/*/package.json', 'tests/*/package.json', 'package-lock.json') }}
+          restore-keys: e2e-npm-${{ runner.os }}-${{ runner.arch }}-
 
+      # Without install scripts (decision 0011). npm ci needs a lockfile in sync with every
+      # package.json; when a pull request adds a dependency without updating it, npm install is
+      # the fallback.
       - name: Install
         id: install
         if: steps.gate.outputs.run == 'true'
-        run: npm install --no-audit --no-fund 2>&1 | tee "$RUNNER_TEMP/ci-logs/install.log"
+        run: |
+          log="$RUNNER_TEMP/ci-logs/install.log"
+          if npm ci --ignore-scripts --no-audit --no-fund 2>&1 | tee "$log"; then exit 0; fi
+          if ! grep -q 'can only install' "$log"; then exit 1; fi
+          echo '::warning::package-lock.json does not match package.json, so this run used npm install. Update the lockfile.'
+          npm install --ignore-scripts --no-audit --no-fund 2>&1 | tee -a "$log"
+
+      - name: Start PostgreSQL
+        id: postgres
+        if: steps.gate.outputs.run == 'true'
+        run: node tests/e2e/ci/postgres.mjs start "$RUNNER_TEMP/postgres" 2>&1 | tee "$RUNNER_TEMP/ci-logs/postgres.log"
 
       - name: Build
         id: build
@@ -113,8 +143,9 @@ jobs:
         id: server
         if: steps.gate.outputs.run == 'true'
         run: |
-          PORT=3000 HOST=127.0.0.1 nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server-output.log" 2>&1 &
+          PORT=38080 HOST=127.0.0.1 nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server-output.log" 2>&1 &
           pid=$!
+          echo "$pid" > "$RUNNER_TEMP/server.pid"
           for _ in $(seq 60); do
             if curl -fsS -o /dev/null "$E2E_BASE_URL/api/health" 2> /dev/null; then exit 0; fi
             if ! kill -0 "$pid" 2> /dev/null; then break; fi
@@ -134,20 +165,15 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-headless-shell
+          path: ${{ runner.temp }}/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}-chromium-headless-shell
 
+      # Only the browser, no system packages: GitHub's Ubuntu image already has Chromium's
+      # libraries, and macOS needs none.
       - name: Install Chromium
         id: browser
         if: steps.gate.outputs.run == 'true'
-        env:
-          CACHE_HIT: ${{ steps.browser-cache.outputs.cache-hit }}
-        run: |
-          if [ "$CACHE_HIT" = true ]; then
-            npx playwright install-deps chromium 2>&1 | tee "$RUNNER_TEMP/ci-logs/browser.log"
-          else
-            npx playwright install --with-deps --only-shell chromium 2>&1 | tee "$RUNNER_TEMP/ci-logs/browser.log"
-          fi
+        run: npx playwright install --only-shell chromium 2>&1 | tee "$RUNNER_TEMP/ci-logs/browser.log"
 
       - name: Run the browser tests
         id: e2e
@@ -157,6 +183,14 @@ jobs:
           { echo; echo 'End of the server output:'; tail -n 30 "$RUNNER_TEMP/server-output.log"; } \
             | tee -a "$RUNNER_TEMP/ci-logs/e2e.log"
           exit 1
+
+      # Also after a failure or a cancel, so no process outlives the job.
+      - name: Stop the server and PostgreSQL
+        id: stop
+        if: always() && steps.gate.outputs.run == 'true'
+        run: |
+          if [ -f "$RUNNER_TEMP/server.pid" ]; then kill "$(cat "$RUNNER_TEMP/server.pid")" 2> /dev/null || true; fi
+          node tests/e2e/ci/postgres.mjs stop "$RUNNER_TEMP/postgres" || true
 
       - name: Upload the Playwright report
         if: failure() && steps.gate.outputs.run == 'true'
@@ -169,42 +203,216 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # Publishes the screenshots on the branch ci-screenshots and writes the results with the
-      # screenshot table to the job summary and to e2e-report.md for the report step.
+      # The counts and failed checks, for the job summary and the report.
       - name: Summarize
+        id: summary
         if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
         continue-on-error: true
-        env:
-          FOLDER: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
         run: |
-          shopt -s nullglob
-          files=(tests/e2e/screenshots/*.png)
-          if [ ${#files[@]} -gt 0 ]; then
-            folder=${FOLDER//\//-}
-            if sha=$(bash tests/e2e/ci/push-screenshots.sh "$folder" "${files[@]}"); then
-              export SCREENSHOT_SHA=$sha SCREENSHOT_FOLDER=$folder
-            else
-              echo '::warning::The screenshots could not be pushed to the branch ci-screenshots.'
-            fi
-          fi
-          node tests/e2e/ci/report.mjs > "$RUNNER_TEMP/e2e-report.md"
-          if [ -s "$RUNNER_TEMP/e2e-report.md" ]; then
-            { echo '### Browser tests'; echo; cat "$RUNNER_TEMP/e2e-report.md"; } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          node tests/e2e/ci/report.mjs > "$RUNNER_TEMP/e2e-summary.md"
+          { echo '### Browser tests'; echo; cat "$RUNNER_TEMP/e2e-summary.md"; } >> "$GITHUB_STEP_SUMMARY"
 
-      # Keep this step last. One comment on the pull request, updated on later runs: passed or
-      # failed, the results and screenshots, and the end of each failed step's log. Nightly runs
-      # open the issue "Nightly browser tests failing" or comment on it; a pass closes it.
-      - name: Report
+      # The report (passed or failed, the summary, the end of each failed step's log) and the
+      # screenshots go into the artifact e2e-results, which the publish job posts. No token here.
+      - name: Write the report
         id: report
         if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
         continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           STEPS_JSON: ${{ toJSON(steps) }}
           REPORT_NAME: Browser tests
-          REPORT_EXTRA_FILE: ${{ runner.temp }}/e2e-report.md
-          REPORT_ISSUE_TITLE: ${{ github.event_name == 'schedule' && 'Nightly browser tests failing' || '' }}
-        run: node .github/scripts/ci-report.mjs
+          REPORT_EXTRA_FILE: ${{ runner.temp }}/e2e-summary.md
+          REPORT_BODY_FILE: ${{ runner.temp }}/e2e-results/report.md
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e-results/screenshots"
+          node .github/scripts/ci-report.mjs
+          shopt -s nullglob
+          files=(tests/e2e/screenshots/*.png)
+          if [ ${#files[@]} -gt 0 ]; then cp "${files[@]}" "$RUNNER_TEMP/e2e-results/screenshots/"; fi
+
+      - name: Upload the results
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: ${{ runner.temp }}/e2e-results/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # Posts what the e2e job uploaded: the screenshots to the branch ci-screenshots, the report as a
+  # comment on the pull request (or, for nightly runs, on the issue "Nightly browser tests
+  # failing"). It checks out nothing and runs no npm, so no code from the pull request or its
+  # dependencies ever sees this job's write token. File names and sizes are checked before use.
+  publish:
+    name: Publish the results
+    needs: e2e
+    # !cancelled() instead of always(): after a failed e2e job too, so failures are reported, but
+    # not after a cancel, for example by a newer run for the same pull request.
+    if: ${{ !cancelled() && needs.e2e.outputs.run == 'true' }}
+    runs-on: ubuntu-latest # always GitHub-hosted: the only job with write permissions
+    timeout-minutes: 5
+    permissions:
+      contents: write # push screenshots to the ci-screenshots branch
+      pull-requests: write # the report comment
+      issues: write # the nightly issue
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download the results
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-results
+          path: ${{ runner.temp }}/e2e-results
+
+      # One commit without parents on ci-screenshots; each run replaces only its own folder
+      # (pr-<number>, or the branch name). Only git objects are written, from $RUNNER_TEMP.
+      - name: Push the screenshots
+        id: push
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS: ${{ runner.temp }}/e2e-results
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          list="$RUNNER_TEMP/screenshots.txt"
+          : > "$list"
+          pattern='^[a-z0-9]+(-[a-z0-9]+)*-(desktop|phone)-(light|dark)\.png$'
+          for file in "$RESULTS"/screenshots/*; do
+            name=${file##*/}
+            if [[ -f $file && ! -L $file && $name =~ $pattern ]] && [ "$(wc -c < "$file")" -le 10485760 ]; then
+              echo "$name" >> "$list"
+            elif [ -e "$file" ]; then
+              echo "::warning::Skipped a file that is not a screenshot of up to 10 MB: ${name//[^A-Za-z0-9._-]/?}"
+            fi
+          done
+          if [ ! -s "$list" ]; then echo 'There are no screenshots.'; exit 0; fi
+
+          if [ -n "$PR_NUMBER" ]; then folder="pr-$PR_NUMBER"; else folder=${REF_NAME//[^A-Za-z0-9._-]/-}; fi
+          branch=ci-screenshots
+          git init --quiet "$RUNNER_TEMP/screenshots-git"
+          cd "$RUNNER_TEMP/screenshots-git"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$GITHUB_SERVER_URL/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          export GIT_AUTHOR_NAME='github-actions[bot]'
+          export GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
+          export GIT_COMMITTER_NAME=$GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL=$GIT_AUTHOR_EMAIL
+          remote="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+
+          files=$(while read -r name; do
+            printf '100644 blob %s\t%s\n' "$(git hash-object -w -- "$RESULTS/screenshots/$name")" "$name"
+          done < "$list" | git mktree)
+          for attempt in 1 2 3; do
+            old='' others=''
+            if git fetch --quiet --depth=1 "$remote" "+refs/heads/$branch:refs/remotes/origin/$branch" 2> /dev/null; then
+              old=$(git rev-parse "refs/remotes/origin/$branch")
+              others=$(git ls-tree "$old" | awk -F '\t' -v folder="$folder" '$2 != folder')
+            fi # else the branch does not exist yet
+            tree=$(printf '%s\n040000 tree %s\t%s\n' "$others" "$files" "$folder" | sed '/^$/d' | git mktree)
+            commit=$(git commit-tree "$tree" -m "Screenshots for $folder")
+            if git push --quiet --force-with-lease="refs/heads/$branch:$old" "$remote" "$commit:refs/heads/$branch"; then
+              { echo "sha=$commit"; echo "folder=$folder"; } >> "$GITHUB_OUTPUT"
+              echo "Pushed $(wc -l < "$list") screenshots to $branch/$folder."
+              exit 0
+            fi
+            echo "Pushing to $branch failed (attempt $attempt of 3)."
+            sleep $((attempt * 3))
+          done
+          exit 1
+
+      - name: Post the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS: ${{ runner.temp }}/e2e-results
+          E2E_RESULT: ${{ needs.e2e.result }}
+          RUNNER_TEXT: ${{ needs.e2e.outputs.runner }}
+          SHA: ${{ steps.push.outputs.sha }}
+          FOLDER: ${{ steps.push.outputs.folder }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          marker='<!-- carehub-ci-report: browser-tests -->'
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="$RUNNER_TEMP/comment.md"
+          report="$RESULTS/report.md"
+          # The report from the e2e job, up to 60 000 bytes, if it is one; GitHub takes 65 536.
+          if [ -f "$report" ] && [ ! -L "$report" ] && [ "$(head -n 1 "$report")" = "$marker" ]; then
+            head -c 60000 "$report" > "$body"
+          else
+            if [ "$E2E_RESULT" = success ]; then result='✅ Browser tests passed'; else result='❌ Browser tests failed'; fi
+            printf '%s\n\n### %s on %s\n\n[Run](%s)\n\nThe test job left no report; see the run.\n' \
+              "$marker" "$result" "${HEAD_SHA:0:7}" "$run_url" > "$body"
+          fi
+
+          # The screenshot table: a row per screen, a column per project, each image linked to
+          # its full size. Rows that would make the comment too long are left out.
+          list="$RUNNER_TEMP/screenshots.txt"
+          if [ -s "$list" ]; then
+            runner=${RUNNER_TEXT//[^A-Za-z0-9 ,._-]/}
+            printf '\n**Screenshots** from %s (desktop 1280×800, phone 390×844)\n\n' "${runner:-the test runner}" >> "$body"
+            if [ -z "$SHA" ]; then
+              echo 'The screenshots could not be published; see the run.' >> "$body"
+            else
+              base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$SHA/$FOLDER"
+              echo '| Screen | Desktop, light | Desktop, dark | Phone, light | Phone, dark |' >> "$body"
+              echo '| --- | --- | --- | --- | --- |' >> "$body"
+              left=0
+              for screen in $(sed -E 's/-(desktop|phone)-(light|dark)\.png$//' "$list" | sort -u); do
+                row="| $screen |"
+                for project in desktop-light desktop-dark phone-light phone-dark; do
+                  file="$screen-$project.png"
+                  if grep -qxF "$file" "$list"; then
+                    row+=" <a href=\"$base/$file\"><img src=\"$base/$file?raw=true\" width=\"180\" alt=\"$screen, $project\"></a> |"
+                  else
+                    row+=' – |'
+                  fi
+                done
+                if [ $(( $(wc -c < "$body") + ${#row} )) -lt 64500 ]; then echo "$row" >> "$body"; else left=$((left + 1)); fi
+              done
+              if [ "$left" -gt 0 ]; then
+                printf '\n%s more screens did not fit; they are in the artifact e2e-results of the [run](%s).\n' "$left" "$run_url" >> "$body"
+              fi
+            fi
+          fi
+          cat "$body" >> "$GITHUB_STEP_SUMMARY"
+
+          repo="repos/$GITHUB_REPOSITORY"
+          if [ -n "$PR_NUMBER" ]; then
+            ids=$(gh api --paginate "$repo/issues/$PR_NUMBER/comments" \
+              --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body // \"\" | contains(\"$marker\"))) | .id")
+            id=${ids%%$'\n'*}
+            if [ -n "$id" ]; then
+              gh api --method PATCH "$repo/issues/comments/$id" -F body=@"$body" > /dev/null
+              echo 'Updated the Browser tests report comment.'
+            else
+              gh api --method POST "$repo/issues/$PR_NUMBER/comments" -F body=@"$body" > /dev/null
+              echo 'Posted a Browser tests report comment.'
+            fi
+          elif [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            # A failure opens the issue or comments on it; a pass comments and closes it.
+            title='Nightly browser tests failing'
+            numbers=$(gh api --paginate "$repo/issues?state=open" \
+              --jq ".[] | select(.pull_request == null and .user.login == \"github-actions[bot]\" and .title == \"$title\") | .number")
+            issue=${numbers%%$'\n'*}
+            if [ "$E2E_RESULT" != success ] && [ -n "$issue" ]; then
+              gh api --method POST "$repo/issues/$issue/comments" -F body=@"$body" > /dev/null
+              echo "Commented on issue #$issue."
+            elif [ "$E2E_RESULT" != success ]; then
+              printf '\n_Opened by the run above. Later failures add comments; a pass closes it._\n' >> "$body"
+              number=$(gh api --method POST "$repo/issues" -f title="$title" -F body=@"$body" --jq .number)
+              echo "Opened issue #$number."
+            elif [ -n "$issue" ]; then
+              printf '\nThis run passed, so the issue is closed.\n' >> "$body"
+              gh api --method POST "$repo/issues/$issue/comments" -F body=@"$body" > /dev/null
+              gh api --method PATCH "$repo/issues/$issue" -f state=closed -f state_reason=completed > /dev/null
+              echo "Closed issue #$issue."
+            else
+              echo "Passed, and no issue \"$title\" is open; nothing to report."
+            fi
+          fi

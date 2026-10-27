@@ -10,19 +10,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 // Runs .github/scripts/ci-report.mjs, which e2e.yml uses for its comment, against a fake GitHub API.
 const script = fileURLToPath(new URL('../../../.github/scripts/ci-report.mjs', import.meta.url));
-const TITLE = 'Nightly browser tests failing';
 const BOT = { login: 'github-actions[bot]' };
 const PERSON = { login: 'fictional-person' };
 const RUN = 'https://github.example/carehub/fictional/actions/runs/42';
 
 interface Issue {
   number: number;
-  title: string;
-  body?: string;
-  state: string;
-  state_reason?: string;
   user: { login: string };
-  pull_request?: object;
 }
 interface Comment {
   id: number;
@@ -50,21 +44,6 @@ function handle(
   const page = <T>(items: T[]) =>
     items.slice((Number(query.get('page') ?? 1) - 1) * size).slice(0, size);
   switch (`${method} ${route.replace(/\d+/, ':id')}`) {
-    case 'GET /issues':
-      return page(issues.filter(({ state }) => state === query.get('state')));
-    case 'POST /issues': {
-      const created = {
-        number: nextId++,
-        title: body.title ?? '',
-        body: body.body,
-        state: 'open',
-        user: BOT,
-      };
-      issues.push(created);
-      return created;
-    }
-    case 'PATCH /issues/:id':
-      return issue && Object.assign(issue, body);
     case 'GET /issues/:id/comments':
       return issue && page(comments.filter((item) => item.issue === id));
     case 'POST /issues/:id/comments': {
@@ -142,9 +121,7 @@ async function report(vars: Record<string, string>, logs: Record<string, string>
 
 describe('.github/scripts/ci-report.mjs', () => {
   it('keeps one comment per report name on the pull request', async () => {
-    issues = [
-      { number: 7, title: 'feat: fictional', state: 'open', user: PERSON, pull_request: {} },
-    ];
+    issues = [{ number: 7, user: PERSON }];
     // A full first page, so the script has to read the second one to find its comments.
     comments = Array.from({ length: 100 }, (_, i) => ({
       id: 1000 + i,
@@ -192,43 +169,26 @@ describe('.github/scripts/ci-report.mjs', () => {
     );
   });
 
-  it('opens an issue for a failing run without a pull request and closes it on a pass', async () => {
-    issues = [
-      { number: 1, title: TITLE, state: 'open', user: PERSON }, // opened by a person: left alone
-      { number: 2, title: TITLE, state: 'open', user: BOT, pull_request: {} },
-    ];
-    const nightly = { REPORT_NAME: 'Browser tests', REPORT_ISSUE_TITLE: TITLE };
+  it('writes the comment to REPORT_BODY_FILE instead of posting it', async () => {
+    const file = path.join(temp, 'report.md');
+    const vars = { REPORT_NAME: 'Browser tests', REPORT_BODY_FILE: file, GITHUB_TOKEN: '' };
 
-    expect(await report({ ...nightly, STEPS_JSON: steps({ e2e: 'success' }) })).toBe(
-      `Passed, and no issue "${TITLE}" is open; nothing to report.`,
+    expect(await report({ ...vars, STEPS_JSON: steps({ seed: 'failure' }) })).toBe(
+      `Wrote the Browser tests report to ${file}.`,
     );
-    expect(await report({ ...nightly, STEPS_JSON: steps({ e2e: 'failure' }) })).toBe(
-      'Opened issue #10.',
+    expect(fs.readFileSync(file, 'utf8')).toBe(
+      `<!-- carehub-ci-report: browser-tests -->\n\n### ❌ Browser tests failed on 0123456: \`seed\`\n\n[Run](${RUN})\n\n\`seed\` failed before writing a log; see the [run](${RUN}).\n`,
     );
-    expect(await report({ ...nightly, STEPS_JSON: steps({ seed: 'failure' }) })).toBe(
-      'Commented on issue #10.',
+    expect(await report({ ...vars, PR_NUMBER: '7', STEPS_JSON: steps({ e2e: 'success' }) })).toBe(
+      `Wrote the Browser tests report to ${file}.`,
     );
-    expect(await report({ ...nightly, STEPS_JSON: steps({ e2e: 'success' }) })).toBe(
-      'Closed issue #10.',
+    expect(fs.readFileSync(file, 'utf8')).toBe(
+      `<!-- carehub-ci-report: browser-tests -->\n\n### ✅ Browser tests passed on 0123456\n\n[Run](${RUN})\n`,
     );
-
-    const opened = issues.find(({ number }) => number === 10);
-    expect(opened).toMatchObject({ title: TITLE, state: 'closed', state_reason: 'completed' });
-    expect(opened?.body).toMatch(
-      /^<!-- carehub-ci-report: browser-tests -->\n\n### ❌ Browser tests failed on 0123456: `e2e`\n/,
-    );
-    expect(opened?.body).toContain('`e2e` failed before writing a log; see the [run]');
-    expect(comments.map(({ issue, body }) => [issue, body.split('\n\n')[1]])).toEqual([
-      [10, '### ❌ Browser tests failed on 0123456: `seed`'],
-      [10, '### ✅ Browser tests passed on 0123456'],
-    ]);
-    expect(comments[1]?.body).toMatch(/\n\nThis run passed, so the issue is closed\.$/);
-    expect(issues.filter(({ state }) => state === 'open').map(({ number }) => number)).toEqual([
-      1, 2,
-    ]);
+    expect(requests).toEqual([]);
   });
 
-  it('does nothing without a pull request or an issue title', async () => {
+  it('does nothing without a pull request', async () => {
     expect(await report({ STEPS_JSON: steps({ e2e: 'failure' }) })).toBe(
       'Not a pull request run; nothing to report.',
     );

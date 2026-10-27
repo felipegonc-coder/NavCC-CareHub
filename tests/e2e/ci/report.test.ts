@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { renderSummary, screenshotTable, summarize } from './report.mjs';
+import { renderSummary, summarize } from './report.mjs';
 
 const red = (text: string) => `\u001b[31m${text}\u001b[39m`;
 const failed = (projectName: string, ...messages: string[]) => ({
@@ -82,33 +82,9 @@ describe('summarize', () => {
   });
 });
 
-describe('screenshotTable', () => {
-  it('has a row per screen and a column per project', () => {
-    const base = 'https://github.com/o/r/blob/abc/pr-7';
-    expect(
-      screenshotTable(
-        ['notes-phone-dark.png', 'home-desktop-light.png', 'home-phone-dark.png', 'other.png'],
-        base,
-      ),
-    ).toEqual([
-      '| Screen | Desktop, light | Desktop, dark | Phone, light | Phone, dark |',
-      '| --- | --- | --- | --- | --- |',
-      `| home | <a href="${base}/home-desktop-light.png"><img src="${base}/home-desktop-light.png?raw=true" width="180" alt="home, desktop-light"></a> | – | – | <a href="${base}/home-phone-dark.png"><img src="${base}/home-phone-dark.png?raw=true" width="180" alt="home, phone-dark"></a> |`,
-      `| notes | – | – | – | <a href="${base}/notes-phone-dark.png"><img src="${base}/notes-phone-dark.png?raw=true" width="180" alt="notes, phone-dark"></a> |`,
-    ]);
-    expect(screenshotTable(['readme.txt'], base)).toEqual([]);
-  });
-});
-
 describe('renderSummary', () => {
-  const base = 'https://github.com/o/r/blob/abc/pr-7';
-
-  it('lists the counts, the failed checks and the screenshots', () => {
-    const text = renderSummary({
-      results: summarize(report),
-      screenshots: ['home-desktop-light.png'],
-      imageBase: base,
-    });
+  it('lists the counts and the failed checks', () => {
+    const text = renderSummary(summarize(report));
     expect(
       text.startsWith('5 passed, 3 failed, 1 flaky, 0 skipped in 1m 23s\n\n**Failed checks**\n\n'),
     ).toBe(true);
@@ -118,52 +94,30 @@ describe('renderSummary', () => {
     expect(text).toContain(
       '- `signed in › notes /notes` (phone-light): Test timeout of 30000ms exceeded.\n',
     );
-    expect(text).toContain('- Error: Process from config.webServer exited early.\n');
-    expect(text).toContain('**Screenshots** (desktop 1280×800, phone 390×844)\n\n| Screen |');
-    expect(text).toContain(`<img src="${base}/home-desktop-light.png?raw=true"`);
+    expect(text.endsWith('- Error: Process from config.webServer exited early.\n')).toBe(true);
   });
 
   it('leaves out what is not there', () => {
-    expect(
-      renderSummary({
-        results: summarize({ stats: { expected: 4 } }),
-        screenshots: [],
-        imageBase: base,
-      }),
-    ).toBe('4 passed, 0 failed, 0 flaky, 0 skipped in 0m 0s\n');
-    expect(renderSummary({ results: null, screenshots: [], imageBase: null })).toBe('');
-    expect(
-      renderSummary({ results: null, screenshots: ['home-phone-dark.png'], imageBase: null }),
-    ).toBe(
-      'No test results: the browser tests did not finish.\n\n**Screenshots** (desktop 1280×800, phone 390×844)\n\nThe screenshots could not be published; see the run.\n',
+    expect(renderSummary(summarize({ stats: { expected: 4 } }))).toBe(
+      '4 passed, 0 failed, 0 flaky, 0 skipped in 0m 0s\n',
     );
+    expect(renderSummary(null)).toBe('No test results: the browser tests did not finish.\n');
   });
 });
 
 describe('report.mjs', () => {
-  it('prints the summary of the files named in the environment', () => {
+  it('prints the summary of the file named in E2E_RESULTS', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'carehub-e2e-report-'));
     try {
-      fs.mkdirSync(path.join(dir, 'screenshots'));
-      fs.writeFileSync(path.join(dir, 'screenshots', 'home-desktop-light.png'), 'png');
       fs.writeFileSync(path.join(dir, 'results.json'), JSON.stringify(report));
       const script = fileURLToPath(new URL('./report.mjs', import.meta.url));
-      const text = execFileSync(process.execPath, [script], {
-        encoding: 'utf8',
-        env: {
-          PATH: process.env.PATH,
-          E2E_RESULTS: path.join(dir, 'results.json'),
-          E2E_SCREENSHOTS: path.join(dir, 'screenshots'),
-          SCREENSHOT_SHA: 'abc123',
-          SCREENSHOT_FOLDER: 'pr-7',
-          GITHUB_SERVER_URL: 'https://github.example',
-          GITHUB_REPOSITORY: 'carehub/fictional',
-        },
-      });
-      expect(text.startsWith('5 passed, 3 failed')).toBe(true);
-      expect(text).toContain(
-        '<img src="https://github.example/carehub/fictional/blob/abc123/pr-7/home-desktop-light.png?raw=true"',
-      );
+      const run = (file: string) =>
+        execFileSync(process.execPath, [script], {
+          encoding: 'utf8',
+          env: { PATH: process.env.PATH, E2E_RESULTS: path.join(dir, file) },
+        });
+      expect(run('results.json').startsWith('5 passed, 3 failed')).toBe(true);
+      expect(run('missing.json')).toBe('No test results: the browser tests did not finish.\n');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

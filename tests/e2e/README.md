@@ -59,16 +59,35 @@ Browser tests cost CI minutes, so they do not run on every push
    **At most 2 runs per pull request** without asking the lead first.
 3. The run writes one comment on the pull request, separate from the quick checks' comment, and
    updates it on later runs: "Browser tests passed" or "failed on <commit>", the counts, the
-   failed checks, a table with the screenshots (linked to full size) and, on failure, the end of
-   the failed step's log (for the tests also the end of the server output). On failure the
-   Playwright report is also uploaded as the artifact `playwright-report`.
+   failed checks, on failure the end of the failed step's log (for the tests also the end of the
+   server output), and a table with the screenshots (linked to full size) that names the runner
+   that made them. On failure the Playwright report is also uploaded as the artifact
+   `playwright-report`.
 4. Put the result and the link to that comment in your pull request description, for example
    `Browser tests: passed (run 1 of 2), screenshots: <link to the comment>`.
 
-Before the tests, the workflow builds the app, starts PostgreSQL, runs
-`node apps/server/dist/cli.js seed` (once the server has that command) and starts the server on
-port 3000. The screenshots are stored on the branch `ci-screenshots`, one folder per pull request
-(`pr-12/`). That branch has a single commit and is rewritten on every run; do not base work on it.
+For now `e2e` runs on GitHub's Ubuntu runner. Once the Mac runner is online (decision 0006), `e2e`
+runs on the Mac and the label `e2e-linux` runs the same tests on `ubuntu-latest`, for example when
+the Mac is offline. Both labels count towards the 2 runs. Pull requests from forks never run them.
+
+### What a run does
+
+Two jobs, so that no code from a pull request or its dependencies gets a token that can write
+(decision 0011):
+
+- **Browser tests** has a read-only token and does not keep it after the checkout. It installs
+  with `npm ci --ignore-scripts` (`npm install --ignore-scripts` when `package-lock.json` is out
+  of date), starts PostgreSQL from the npm package `embedded-postgres`
+  ([`ci/postgres.mjs`](ci/postgres.mjs)), builds, runs `node apps/server/dist/cli.js seed` (once
+  the server has that command), starts the server on port 38080, installs Chromium and runs the
+  tests. npm, Playwright, the database and temporary files stay in `$RUNNER_TEMP`, and the server
+  and PostgreSQL are stopped even when a step fails. The report and the screenshots are uploaded
+  as the artifact `e2e-results` (kept 7 days).
+- **Publish the results** always runs on GitHub's Ubuntu runner and is the only job that can
+  write. It checks out nothing and runs no npm: it downloads `e2e-results`, checks the file names
+  and sizes, pushes the screenshots to the branch `ci-screenshots`, one folder per pull request
+  (`pr-12/`), and writes the comment. That branch has a single commit and is rewritten on every
+  run; do not base work on it.
 
 The workflow also runs every night at 01:00 UTC on `main` when `main` had a commit in the last
 24 hours, and can be started by hand (Actions → Browser tests → Run workflow). A failing nightly
@@ -83,5 +102,12 @@ npm run e2e                         # fewer: npm run e2e -w tests/e2e -- --proje
 ```
 
 To test a server that is already running (for example one with a seeded database), set its
-address: `E2E_BASE_URL=http://localhost:3000`. The screenshots end up in
-`tests/e2e/screenshots/`, the HTML report in `tests/e2e/playwright-report/` (both ignored by git).
+address: `E2E_BASE_URL=http://localhost:3000`. A throwaway database like the one in CI:
+
+```sh
+export DATABASE_URL=postgres://carehub@127.0.0.1:55432/carehub
+node tests/e2e/ci/postgres.mjs start /tmp/carehub-postgres   # and later: stop /tmp/carehub-postgres
+```
+
+The screenshots end up in `tests/e2e/screenshots/`, the HTML report in
+`tests/e2e/playwright-report/` (both ignored by git).
