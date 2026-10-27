@@ -6,15 +6,7 @@ import { createBlockExtensions } from './extensions';
 import { PAGE_FIELD } from './schema';
 import { SlashMenu } from './SlashMenu';
 import { SlashMenuStore } from './slash';
-import { SelectionToolbar } from './Toolbar';
-import type {
-  BubbleItem,
-  CollabProvider,
-  EditorUser,
-  LinkPicker,
-  NodeViews,
-  SlashItem,
-} from './types';
+import type { CollabProvider, EditorUser, NodeViews, SlashItem } from './types';
 import './styles.css';
 
 export interface BlockEditorProps {
@@ -43,10 +35,6 @@ export interface BlockEditorProps {
    * `heading1`) replaces it. Can change at any time.
    */
   slashItems?: SlashItem[];
-  /** More ways to choose a link target in the link panel, like "Link to a lesson". */
-  linkPickers?: LinkPicker[];
-  /** More buttons in the selection toolbar, after the formatting ones. */
-  bubbleItems?: BubbleItem[];
   /**
    * More behavior that isn't a node or mark, like shortcuts or plugins. Read when the editor is
    * created: remount the editor (with a `key`) to change them.
@@ -55,8 +43,8 @@ export interface BlockEditorProps {
 }
 
 /**
- * The page editor: blocks, the "/" menu, the selection toolbar and Markdown shortcuts on a Y.Doc,
- * live with a collab provider.
+ * The page editor: blocks, the "/" menu and Markdown shortcuts on a Y.Doc, live with a collab
+ * provider.
  */
 export function BlockEditor({
   ydoc,
@@ -70,8 +58,6 @@ export function BlockEditor({
   onReady,
   nodeViews,
   slashItems,
-  linkPickers,
-  bubbleItems,
   extensions,
 }: BlockEditorProps) {
   const awareness = provider?.awareness ?? null;
@@ -127,12 +113,7 @@ export function BlockEditor({
   return (
     <div className={className ? `ch-block-editor ${className}` : 'ch-block-editor'}>
       <EditorContent editor={editor} />
-      {editable && (
-        <>
-          <SlashMenu editor={editor} store={slashMenu} />
-          <SelectionToolbar editor={editor} linkPickers={linkPickers} bubbleItems={bubbleItems} />
-        </>
-      )}
+      {editable && <SlashMenu editor={editor} store={slashMenu} />}
     </div>
   );
 }

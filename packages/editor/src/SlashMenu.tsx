@@ -1,17 +1,63 @@
 import type { Editor } from '@tiptap/core';
-import { useEffect, useId, useSyncExternalStore, type CSSProperties } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { groupOf, type SlashMenuStore } from './slash';
 import type { SlashItem } from './types';
 
-const MENU_HEIGHT = 320;
+/** Space between the menu and the "/", and the least space between the menu and a screen edge. */
+const GAP = 4;
+const EDGE = 8;
 
-function position(rect: DOMRect | null): CSSProperties {
-  if (!rect) return { left: 0, top: 0 };
-  const below = rect.bottom + MENU_HEIGHT + 8 <= window.innerHeight || rect.top < MENU_HEIGHT;
-  return below
-    ? { left: rect.left, top: rect.bottom + 4 }
-    : { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+/** A part of the window, in the coordinates that `position: fixed` uses. */
+export interface Area {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+type Viewport = Pick<VisualViewport, 'offsetLeft' | 'offsetTop' | 'width' | 'height'>;
+
+/** The part of the page you can see: with the on-screen keyboard open, the part above it. */
+export function visibleArea(view: Viewport | null = window.visualViewport): Area {
+  if (!view) return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+  return { left: view.offsetLeft, top: view.offsetTop, width: view.width, height: view.height };
+}
+
+/**
+ * Where the menu goes for the "/" at `caret`, inside `area`. It opens below the "/" if it fits
+ * there at its tallest (`maxHeight`), otherwise on the side with more room, and is never taller
+ * than that room. It stays at least EDGE px from the left and right edges, so on a phone it
+ * stays on screen (in an area narrower than the menu, it keeps to the left).
+ */
+export function placeMenu(
+  caret: { left: number; top: number; bottom: number },
+  menu: { width: number; height: number; maxHeight: number },
+  area: Area,
+): { left: number; top: number; maxHeight: number } {
+  const right = area.left + area.width - menu.width - EDGE;
+  const left = Math.max(area.left + EDGE, Math.min(caret.left, right));
+  const below = area.top + area.height - EDGE - (caret.bottom + GAP);
+  const above = caret.top - GAP - (area.top + EDGE);
+  const down = below >= menu.maxHeight || below >= above;
+  const maxHeight = Math.max(0, Math.min(menu.maxHeight, down ? below : above));
+  const top = down ? caret.bottom + GAP : caret.top - GAP - Math.min(menu.height, maxHeight);
+  return { left, top, maxHeight };
+}
+
+/** Puts `menu` next to the "/" at `caret`, measuring its width and tallest height from its CSS. */
+function placeAt(menu: HTMLElement, caret: DOMRect) {
+  menu.style.maxHeight = '';
+  const height = menu.offsetHeight;
+  const tallest = Number.parseFloat(getComputedStyle(menu).maxHeight);
+  const spot = placeMenu(
+    caret,
+    { width: menu.offsetWidth, height, maxHeight: Number.isNaN(tallest) ? height : tallest },
+    visibleArea(),
+  );
+  menu.style.left = `${spot.left}px`;
+  menu.style.top = `${spot.top}px`;
+  menu.style.maxHeight = `${spot.maxHeight}px`;
 }
 
 /** Consecutive entries of the same group (the store already keeps groups together). */
@@ -31,6 +77,25 @@ export function SlashMenu({ editor, store }: { editor: Editor; store: SlashMenuS
   const listId = `${useId()}slash`;
   const optionId = (index: number) => `${listId}-${index}`;
   const activeId = state && state.items.length > 0 ? optionId(state.index) : null;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const rect = state?.rect ?? null;
+  const count = state?.items.length ?? 0;
+
+  // Placed before the browser paints, and again when the visible part of the page changes (the
+  // on-screen keyboard opens, or the page scrolls under it).
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const view = window.visualViewport;
+    if (!menu || !rect) return;
+    const place = () => placeAt(menu, rect);
+    place();
+    view?.addEventListener('resize', place);
+    view?.addEventListener('scroll', place);
+    return () => {
+      view?.removeEventListener('resize', place);
+      view?.removeEventListener('scroll', place);
+    };
+  }, [rect, count]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -45,10 +110,9 @@ export function SlashMenu({ editor, store }: { editor: Editor; store: SlashMenuS
   }, [editor, listId, activeId]);
 
   if (!state) return null;
-  const count = state.items.length;
 
   return createPortal(
-    <div className="ch-slash-menu" style={position(state.rect)}>
+    <div ref={menuRef} className="ch-slash-menu">
       {count === 0 ? (
         <p className="ch-slash-empty">No results</p>
       ) : (

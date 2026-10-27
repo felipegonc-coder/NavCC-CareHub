@@ -3,7 +3,7 @@ export type { BlockEditorProps } from './BlockEditor';
 export { createBlockExtensions, DEFAULT_PLACEHOLDER } from './extensions';
 export type { BlockExtensionsOptions } from './extensions';
 export { filterSlashItems, mergeSlashItems } from './slash';
-export { isSafeHref } from './links';
+export { isSafeHref, safeHref } from './links';
 export { createPageSchema, LINK_OPTIONS, PAGE_FIELD, pageExtensions } from './schema';
 export type {
   BubbleItem,

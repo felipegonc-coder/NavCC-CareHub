@@ -2,6 +2,7 @@ import type { Editor } from '@tiptap/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { blockSlashItems } from '../src/blocks/ui';
 import { filterSlashItems, groupOf, mergeSlashItems, SlashMenuStore } from '../src/slash';
+import { placeMenu, visibleArea, type Area } from '../src/SlashMenu';
 import type { SlashItem } from '../src/types';
 import { createTestEditor, flush, pressKey, typeText } from './helpers';
 
@@ -290,5 +291,68 @@ describe('Suggested', () => {
       'quote',
       'paragraph',
     ]);
+  });
+});
+
+describe('menu position', () => {
+  // A 390 px wide phone, and the menu at its design size: 18rem wide, at most 20rem tall.
+  const phone: Area = { left: 0, top: 0, width: 390, height: 844 };
+  const menu = { width: 288, height: 160, maxHeight: 320 };
+  const slashAt = (left: number, top: number) => ({ left, top, bottom: top + 20 });
+
+  it('opens below the "/" and keeps 8 px from the left and right edges of a phone', () => {
+    expect(placeMenu(slashAt(40, 100), menu, phone)).toEqual({
+      left: 40,
+      top: 124,
+      maxHeight: 320,
+    });
+    expect(placeMenu(slashAt(300, 100), menu, phone).left).toBe(94); // 390 - 288 - 8
+    expect(placeMenu(slashAt(2, 100), menu, phone).left).toBe(8);
+  });
+
+  it('opens above the "/" when it does not fit below', () => {
+    expect(placeMenu(slashAt(40, 700), menu, phone)).toEqual({
+      left: 40,
+      top: 536,
+      maxHeight: 320,
+    });
+  });
+
+  it('stays above the on-screen keyboard', () => {
+    // The keyboard covers all but the top 450 px.
+    const aboveKeyboard: Area = { ...phone, height: 450 };
+    expect(placeMenu(slashAt(40, 300), menu, phone).top).toBe(324);
+    expect(placeMenu(slashAt(40, 300), menu, aboveKeyboard)).toEqual({
+      left: 40,
+      top: 136,
+      maxHeight: 288,
+    });
+    // Scrolled 200 px down under the keyboard, the visible part starts lower.
+    const scrolled: Area = { ...aboveKeyboard, top: 200 };
+    expect(placeMenu(slashAt(40, 500), { ...menu, height: 320 }, scrolled)).toEqual({
+      left: 40,
+      top: 208,
+      maxHeight: 288,
+    });
+  });
+
+  it('takes the side with more room and gets shorter when it fits on neither', () => {
+    const short: Area = { ...phone, height: 300 };
+    expect(placeMenu(slashAt(40, 100), menu, short)).toEqual({
+      left: 40,
+      top: 124,
+      maxHeight: 168,
+    });
+  });
+
+  it('reads the visible part of the page from visualViewport when there is one', () => {
+    const keyboardOpen = { offsetLeft: 0, offsetTop: 120, width: 390, height: 420 };
+    expect(visibleArea(keyboardOpen)).toEqual({ left: 0, top: 120, width: 390, height: 420 });
+    expect(visibleArea(null)).toEqual({
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
   });
 });
