@@ -11,8 +11,13 @@ export type DraftSaving = {
   status: SaveStatus;
   /** After a conflict: save this version over the newer one. */
   keepMine(): Promise<void>;
-  /** After a conflict: fetch the newer version to load in the editor (this version's changes are dropped). */
-  loadTheirs(): Promise<Course>;
+  /**
+   * Fetches the saved draft to load in the editor and carries on saving from it: after a conflict (this
+   * version's changes are dropped) or a roll back.
+   */
+  reload(): Promise<Course>;
+  /** Saves any change still waiting, now. Resolves to where the draft stands afterwards. */
+  flush(): Promise<SaveStatus>;
 };
 
 /**
@@ -59,7 +64,7 @@ export function useDraftAutosave(courseId: Id, revision: number, course: Course)
     saver.current?.resume(latest.revision);
   }, [client, courseId]);
 
-  const loadTheirs = useCallback(async () => {
+  const reload = useCallback(async () => {
     const latest = await client.getCourse(courseId);
     queued.current = latest.course;
     setStatus('saved');
@@ -67,5 +72,10 @@ export function useDraftAutosave(courseId: Id, revision: number, course: Course)
     return latest.course;
   }, [client, courseId]);
 
-  return { status, keepMine, loadTheirs };
+  const flush = useCallback(
+    async (): Promise<SaveStatus> => (saver.current ? saver.current.flush() : 'saved'),
+    [],
+  );
+
+  return { status, keepMine, reload, flush };
 }

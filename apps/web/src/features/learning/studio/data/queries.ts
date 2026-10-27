@@ -9,7 +9,9 @@ export const studioKeys = {
   courses: (archived: boolean) =>
     ['learning', 'studio', 'courses', archived ? 'archived' : 'active'] as const,
   draft: (courseId: Id) => ['learning', 'studio', 'draft', courseId] as const,
+  preview: (courseId: Id) => ['learning', 'studio', 'draft', courseId, 'preview'] as const,
   examples: ['learning', 'studio', 'examples'] as const,
+  versions: (courseId: Id) => ['learning', 'studio', 'versions', courseId] as const,
 };
 
 /** The Studio list: the courses in use, or the archived ones. */
@@ -41,6 +43,17 @@ export function useStudioDraft(courseId: Id) {
     queryKey: studioKeys.draft(courseId),
     queryFn: () => client.getCourse(courseId),
     staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+/** The saved draft for the preview: its own query, so it never shows the copy an editor opened with. */
+export function usePreviewDraft(courseId: Id) {
+  const client = useStudioClient();
+  return useQuery({
+    queryKey: studioKeys.preview(courseId),
+    queryFn: () => client.getCourse(courseId),
     gcTime: 0,
     retry: false,
   });

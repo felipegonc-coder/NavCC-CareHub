@@ -24,7 +24,10 @@ export type StudioCourseSummary = {
 /** A draft with the revision to send back when saving it. */
 export type StudioDraft = { course: Course; revision: number; liveVersion: number | null };
 
-/** Who hears about a new version: nobody, people who finished (told), or they must take it again. */
+/**
+ * What a new version means for people who already started (0311): nobody moves (`none`), runs in progress move
+ * and those people are told (`tell`), or everyone who started begins again (`retake`).
+ */
 export type PublishNotify = 'none' | 'tell' | 'retake';
 
 /** A published version, newest first in lists. */
