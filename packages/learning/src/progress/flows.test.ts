@@ -85,7 +85,7 @@ describe('Phase 1 flows', () => {
     // Later, on a phone: the server replays everything it has.
     const phone = computer;
     phone.open('l2', 3_600);
-    phone.answer('l2', 'kc2', 'wrong');
+    phone.answer('l2', 'kc2', false);
     phone.pass('l2', 'c3');
     phone.complete('l2');
     expect(reduceProgress(course, phone.events).resume).toEqual({ lessonId: 'quiz' });

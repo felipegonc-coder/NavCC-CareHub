@@ -6,13 +6,29 @@ export { MAX_ACTIVE_SECONDS_PER_EVENT, checkProgressEvents, reduceProgress } fro
 export type { CheckedProgressEvents } from './reduce';
 export {
   LearnerCourseStateSchema,
+  MAX_EVENTS_PER_LEARNER_COURSE,
   MAX_EVENTS_PER_REQUEST,
   ProgressEventsRequestSchema,
   ProgressEventsResponseSchema,
   ProgressNoteRequestSchema,
+  QuizAttemptStartRequestSchema,
   progressEventsReply,
 } from './api';
-export type { ProgressEventsRequest, ProgressEventsResponse, ProgressNoteRequest } from './api';
+export type {
+  ProgressEventsRequest,
+  ProgressEventsResponse,
+  ProgressNoteRequest,
+  QuizAttemptStartRequest,
+} from './api';
+export { quizAttemptStart, quizSubmissionTime } from './attempts';
+export type { QuizAttemptStart } from './attempts';
+export { courseUpdateFor, withManualCompletion } from './updates';
+export type {
+  CourseUpdate,
+  CourseUpdateNotice,
+  CourseUpdateNotify,
+  ManualCompletion,
+} from './updates';
 export { canCompleteLesson, nextLesson, visibleBlocks } from './gating';
 export type { CanCompleteLesson, LessonBlocker } from './gating';
 export type {

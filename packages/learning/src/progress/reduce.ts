@@ -6,13 +6,12 @@ import type {
   Id,
   KnowledgeCheckBlock,
   Lesson,
-  QuestionResponse,
   QuizLesson,
   ScenarioBlock,
 } from '../format/index';
-import { isResponseFor, scoreQuestion } from '../questions/index';
 import {
   isPlanFor,
+  paperResponses,
   quizStatus,
   scoreAttempt,
   type AttemptPlan,
@@ -20,7 +19,7 @@ import {
 } from '../quiz/index';
 import { replayScenario, scenarioResult } from '../scenario/index';
 import { firstClosedContinue, lessonBlocker, missingBeforeContinue } from './gating';
-import { ProgressEventSchema, type ProgressEvent } from './schema';
+import { ProgressEventSchema, type ProgressEvent, type ProgressEventType } from './schema';
 import type {
   KnowledgeCheckProgress,
   LearnerCourseState,
@@ -78,27 +77,43 @@ function readString(raw: unknown, key: string): string | null {
   return typeof value === 'string' ? value.slice(0, 100) : null;
 }
 
-/** A batch split by ProgressEventSchema: the events that pass, and invalid_event for the rest. */
+/** A browser's batch after checkProgressEvents: the events to store, and the refused ones. */
 export type CheckedProgressEvents = { valid: ProgressEvent[]; rejected: RejectedEvent[] };
 
+/** Events only the server records: quiz attempts start on the server (decision 0302). */
+const SERVER_ONLY: ReadonlySet<ProgressEventType> = new Set(['quiz_attempt_started']);
+
+/** One raw event read with ProgressEventSchema, or its invalid_event rejection. */
+function readEvent(raw: unknown): { event: ProgressEvent } | { rejection: RejectedEvent } {
+  const parsed = ProgressEventSchema.safeParse(raw);
+  if (parsed.success && Number.isFinite(Date.parse(parsed.data.at))) return { event: parsed.data };
+  const rejection: RejectedEvent = {
+    eventId: readString(raw, 'id'),
+    type: readString(raw, 'type'),
+    at: readString(raw, 'at'),
+    reason: 'invalid_event',
+  };
+  return { rejection };
+}
+
 /**
- * Checks each event on its own, so one bad event doesn't spoil a batch. Rejections keep the id,
- * type and time when they can be read, so the player can drop the event from its queue.
+ * Checks a browser's batch for POST /courses/:id/events, each event on its own, so one bad event
+ * doesn't spoil the batch. Refused and never stored: invalid_event when it isn't a progress event,
+ * server_only for quiz_attempt_started (see quizAttemptStart). Rejections keep the id, type and
+ * time when they can be read, so the player can drop the event from its queue.
  */
 export function checkProgressEvents(events: readonly unknown[]): CheckedProgressEvents {
   const valid: ProgressEvent[] = [];
   const rejected: RejectedEvent[] = [];
   for (const raw of events) {
-    const parsed = ProgressEventSchema.safeParse(raw);
-    if (parsed.success && Number.isFinite(Date.parse(parsed.data.at))) {
-      valid.push(parsed.data);
+    const read = readEvent(raw);
+    if ('rejection' in read) {
+      rejected.push(read.rejection);
+    } else if (SERVER_ONLY.has(read.event.type)) {
+      const { id, type, at } = read.event;
+      rejected.push({ eventId: id, type, at, reason: 'server_only' });
     } else {
-      rejected.push({
-        eventId: readString(raw, 'id'),
-        type: readString(raw, 'type'),
-        at: readString(raw, 'at'),
-        reason: 'invalid_event',
-      });
+      valid.push(read.event);
     }
   }
   return { valid, rejected };
@@ -113,12 +128,20 @@ export function checkProgressEvents(events: readonly unknown[]): CheckedProgress
  * answer is scored again here.
  */
 export function reduceProgress(course: Course, events: readonly unknown[]): LearnerCourseState {
-  const { valid, rejected } = checkProgressEvents(events);
-  const ordered = valid
-    .map((event) => ({ event, time: Date.parse(event.at), key: JSON.stringify(event) }))
-    .sort(
-      (a, b) => a.time - b.time || compareText(a.event.id, b.event.id) || compareText(a.key, b.key),
-    );
+  const rejected: RejectedEvent[] = [];
+  const ordered: { event: ProgressEvent; time: number; key: string }[] = [];
+  for (const raw of events) {
+    const read = readEvent(raw);
+    if ('rejection' in read) {
+      rejected.push(read.rejection);
+      continue;
+    }
+    const { event } = read;
+    ordered.push({ event, time: Date.parse(event.at), key: JSON.stringify(event) });
+  }
+  ordered.sort(
+    (a, b) => a.time - b.time || compareText(a.event.id, b.event.id) || compareText(a.key, b.key),
+  );
   const run = new CourseRun(course);
   const seen = new Set<Id>();
   for (const { event, time } of ordered) {
@@ -232,7 +255,7 @@ class CourseRun {
     if (gate !== -1 && index > gate) return { reason: 'hidden' };
     let rejection: Rejection | null = null;
     if (event.type === 'knowledge_check_answered' && block.type === 'knowledge_check') {
-      rejection = this.answerCheck(lesson.id, block, event.response, at);
+      rejection = this.answerCheck(lesson.id, block, event.correct, at);
     } else if (event.type === 'scenario_finished' && block.type === 'scenario') {
       rejection = this.finishScenario(lesson.id, block, event.choiceIds, at);
     } else if (block.type === 'continue' && block.requires === 'complete_above') {
@@ -246,21 +269,18 @@ class CourseRun {
   private answerCheck(
     lessonId: Id,
     block: KnowledgeCheckBlock,
-    response: QuestionResponse,
+    correct: boolean,
     at: string,
   ): Rejection | null {
     const key = blockKey(lessonId, block.id);
     const previous = this.checks.get(key);
     if (previous && !block.allowRetry) return { reason: 'already_answered' };
-    if (!isResponseFor(block.question, response)) return { reason: 'bad_response' };
-    const result = scoreQuestion(block.question, response);
     this.checks.set(key, {
       lessonId,
       blockId: block.id,
       answers: (previous?.answers ?? 0) + 1,
-      firstCorrect: previous?.firstCorrect ?? result.correct,
-      response,
-      result,
+      firstCorrect: previous?.firstCorrect ?? correct,
+      lastCorrect: correct,
       firstAnsweredAt: previous?.firstAnsweredAt ?? at,
       lastAnsweredAt: at,
     });
@@ -325,7 +345,9 @@ class CourseRun {
         return response ? [[id, response] as const] : [];
       }),
     );
-    const result = scoreAttempt(lesson, open.plan, responses);
+    // Answers come on the attempt's paper, whose matching and ordering ids are per attempt; they
+    // are mapped back to the quiz's own ids before scoring (decision 0314).
+    const result = scoreAttempt(lesson, open.plan, paperResponses(lesson, open.plan, responses));
     quiz.attempts.push({
       attemptId: open.plan.attemptId,
       ...open,
