@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { Action } from '@carehub/team-automations/automation';
 import { describe, expect, it } from 'vitest';
 import type { SendNoticeInput } from '../notices';
+import type { Person } from './access';
 import type { Automation, Run } from './domain/types';
-import type { StepContext } from './running';
-import { createSendMessage, noticeWords, recipientsAmong, type Person } from './sendMessage';
+import { AccessLost, type StepContext } from './running';
+import { createSendMessage, noticeWords, recipientsAmong } from './sendMessage';
 
 type SendMessageAction = Extract<Action, { kind: 'sendMessage' }>;
 
@@ -66,7 +67,6 @@ function message(overrides: Partial<SendMessageAction> = {}): SendMessageAction 
 function setUp(people: Person[] = [avery, riley, sam], open: Record<string, string[]> = {}) {
   const notices: SendNoticeInput[] = [];
   const send = createSendMessage({
-    people: async (id) => (id === workspaceId ? people : []),
     pagesOpenTo: async (userId, pageIds) =>
       new Set(pageIds.filter((pageId) => open[userId]?.includes(pageId))),
     sendNotice: async (input) => {
@@ -77,6 +77,8 @@ function setUp(people: Person[] = [avery, riley, sam], open: Record<string, stri
     automation,
     run,
     step: 0,
+    owner: avery,
+    people,
     onlyTo: null,
     signal: new AbortController().signal,
     ...overrides,
@@ -173,6 +175,19 @@ describe('Send a message', () => {
     expect(notices[1]).not.toHaveProperty('buttons');
     // Sam can open none of them, and there are no words to send.
     expect(done).toEqual({ message: 'Messaged 2 people', recipients: 2 });
+  });
+
+  it("pauses instead when its owner can't open a page card anymore (AU-20)", async () => {
+    const [handbook, rota] = [randomUUID(), randomUUID()];
+    const { notices, send, ctx } = setUp([avery, riley, sam], {
+      [avery.userId]: [handbook],
+      [riley.userId]: [handbook, rota],
+    });
+    const action = message({ pageIds: [handbook, rota] });
+    const sent = send(action, ctx());
+    await expect(sent).rejects.toThrow("Avery Lin can't open one of its pages anymore.");
+    await expect(sent).rejects.toBeInstanceOf(AccessLost);
+    expect(notices).toEqual([]);
   });
 
   it('messages up to 500 people and says how many more there were', async () => {

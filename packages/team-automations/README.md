@@ -41,17 +41,18 @@ A `Schedule` is `once` (on a `date`), `daily`, `weekdays` (Monday to Friday), `w
 
 Triggers and actions are stored as JSON, so new kinds need no migration.
 
-| Export                                         | What it's for                                                                                                                                  |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Trigger`                                      | `schedule` (a `Schedule`), `rowAdded` (`databaseId`, and `includeImports`, off by default) or `formResponse` (`databaseId`, `formId`)          |
-| `Action`                                       | `sendMessage` (`recipients`, `text` with fill-ins such as {first name}, up to 3 `pageIds`) or `addRow` (`databaseId`, `templateId`, `values`)  |
-| `Recipient`                                    | A `person`, a `role`, `everyone`, or the row's `personProperty`                                                                                |
-| `ValueSource`, `PropertyValue`                 | Where an Add a row value comes from: a `value`, `now`, `today`, `triggeredBy`, a `rowProperty` or a `formula`                                  |
-| `Variable`                                     | A named formula, worked out before the actions run                                                                                             |
-| `RunKind`, `RunResult`, `RunStep`, `RunSource` | Run history: `scheduled`, `test`, `manual` or `triggered`; `sent`, `failed`, `skipped` or `missed`; each step's result; the row that fired it  |
-| `MAX_AUTOMATIONS`, `RUNS_KEPT`, `LIMITS`       | 50 per workspace, the latest 100 runs kept, and the editor's limits (10 actions, 10 variables, 500 recipients, 2,000 characters, 3 page cards) |
-| `databasesUsed(trigger, actions)`              | Every database an automation uses, for the list's database filter                                                                              |
-| `Json`, `TriggerKind`, `ActionKind`            | The types                                                                                                                                      |
+| Export                                                  | What it's for                                                                                                                                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Trigger`                                               | `schedule` (a `Schedule`), `rowAdded` (`databaseId`, and `includeImports`, off by default) or `formResponse` (`databaseId`, `formId`)                                         |
+| `Action`                                                | `sendMessage` (`recipients`, `text` with fill-ins such as {first name}, up to 3 `pageIds`) or `addRow` (`databaseId`, `templateId`, `values`)                                 |
+| `Recipient`                                             | A `person`, a `role`, `everyone`, or the row's `personProperty`                                                                                                               |
+| `ValueSource`, `PropertyValue`                          | Where an Add a row value comes from: a `value`, `now`, `today`, `triggeredBy`, a `rowProperty` or a `formula`                                                                 |
+| `Variable`                                              | A named formula, worked out before the actions run                                                                                                                            |
+| `RunKind`, `RunResult`, `RunStep`, `RunSource`          | Run history: `scheduled`, `test`, `manual` or `triggered`; `sent`, `failed`, `skipped` or `missed`; each step's result; the row that fired it                                 |
+| `MAX_AUTOMATIONS`, `RUNS_KEPT`, `LIMITS`                | 50 per workspace, the latest 100 runs kept, and the editor's limits (10 actions, 10 variables, 500 recipients, 2,000 characters, 3 page cards)                                |
+| `databasesUsed(trigger, actions)`                       | Every database an automation uses, for the list's database filter                                                                                                             |
+| `newRowFires(trigger, row)`, `AddedRow`, `ChangeSource` | Whether a new row (`{ databaseId, source, formId? }`) fires the trigger. Never for rows added by automations, so automations can't loop; imports only with Include imports on |
+| `Json`, `TriggerKind`, `ActionKind`                     | The types                                                                                                                                                                     |
 
 ## Checks: `validate`
 

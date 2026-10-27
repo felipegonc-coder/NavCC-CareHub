@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { SendNoticeInput } from '../notices';
 import { createMemoryAutomationStore } from './domain/memoryStore';
 import type { NewAutomation } from './domain/types';
-import { createOwnerLeft, OWNER_LEFT } from './owners';
-import type { Person } from './sendMessage';
+import { OWNER_LEFT, type Person } from './access';
+import { createOwnerLeft } from './owners';
 
 const workspaceId = randomUUID();
 const avery: Person = { userId: randomUUID(), name: 'Avery Lin', roleId: 'admin', isAdmin: true };

@@ -106,6 +106,30 @@ export interface RunSource {
   responseId?: string;
 }
 
+/** Who added or changed a row: the `source` of decision 0200's row events. */
+export type ChangeSource = 'user' | 'import' | 'form' | 'automation' | 'button' | 'template';
+
+/** A row that was just added, as its `databases.row.created` event tells it. */
+export interface AddedRow {
+  databaseId: string;
+  source: ChangeSource;
+  /** The form a response came through. */
+  formId?: string;
+}
+
+/**
+ * Whether a new row fires this trigger. Changes made by automations never fire automations, so
+ * automations can't trigger each other or loop. Rows from a CSV import count only with Include
+ * imports on; Form response fires only for responses through its form.
+ */
+export function newRowFires(trigger: Trigger, row: AddedRow): boolean {
+  if (row.source === 'automation' || trigger.kind === 'schedule') return false;
+  if (trigger.databaseId !== row.databaseId) return false;
+  if (trigger.kind === 'formResponse')
+    return row.source === 'form' && row.formId === trigger.formId;
+  return row.source !== 'import' || trigger.includeImports;
+}
+
 /** Every database the trigger and actions use: the list's database filter. */
 export function databasesUsed(trigger: Trigger, actions: readonly Action[]): string[] {
   const ids = new Set<string>();

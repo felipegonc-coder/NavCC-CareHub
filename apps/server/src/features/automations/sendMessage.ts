@@ -17,23 +17,13 @@ import {
   type NoticeCard,
   type SendNoticeInput,
 } from '../notices';
-import { senderFor, type StepContext, type StepDone } from './running';
+import type { Person } from './access';
+import { AccessLost, senderFor, type StepContext, type StepDone } from './running';
 
 type SendMessageAction = Extract<Action, { kind: 'sendMessage' }>;
 
-/** A member of the workspace, as recipients are worked out. */
-export interface Person {
-  userId: string;
-  name: string;
-  roleId: string | null;
-  /** Admins hear about automations that switched off. */
-  isAdmin: boolean;
-}
-
 export interface SendMessageOptions {
-  /** The workspace's members now. Guests are left out: they have no Messages. */
-  people: (workspaceId: string) => Promise<readonly Person[]>;
-  /** Of these pages, the ones this person can open (at least 'view'). */
+  /** Of these pages, the ones this person can open now (at least 'view'). */
   pagesOpenTo: (userId: string, pageIds: readonly string[]) => Promise<ReadonlySet<string>>;
   /** `sendNotice` from features/notices. */
   sendNotice: (input: SendNoticeInput) => Promise<unknown>;
@@ -101,8 +91,11 @@ export function createSendMessage(options: SendMessageOptions) {
     action: SendMessageAction,
     ctx: StepContext,
   ): Promise<StepDone> {
-    const { automation, run, step, onlyTo, signal } = ctx;
-    const people = await options.people(automation.workspaceId);
+    const { automation, run, step, owner, people, onlyTo, signal } = ctx;
+    // It acts with its owner's access: a page they can't open now pauses it (AU-20).
+    if ((await openPages(owner.userId, action.pageIds)).length < action.pageIds.length) {
+      throw new AccessLost(`${owner.name} can't open one of its pages anymore.`);
+    }
     const everyone =
       onlyTo === null
         ? recipientsAmong(action.recipients, people)

@@ -5,11 +5,8 @@
  */
 import type { SendNoticeInput } from '../notices';
 import type { Automation, AutomationStore } from './domain/types';
+import { OWNER_LEFT, type Person } from './access';
 import { senderFor } from './running';
-import type { Person } from './sendMessage';
-
-/** The paused reason of an automation whose owner left. */
-export const OWNER_LEFT = 'Its owner left the workspace.';
 
 export interface OwnerLeftOptions {
   store: AutomationStore;
