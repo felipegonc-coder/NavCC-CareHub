@@ -28,6 +28,23 @@ _Filled in by the templates PRs._
 
 _Filled in by the import and export PRs._
 
+### Export, Print and PDF
+
+- **Routes:**
+  - `/p/:pageId/print`: the Print view, the page alone. `?dialog=1` (page menu → Print) and `?pdf=1` (Export → PDF) open the browser's print dialog once the page and its pictures have loaded; `?pdf=1` also says to choose Save as PDF.
+  - `/exports/:exportId`: a background export's download, for the person who made it (the 🔔 notice's Download button).
+- **Endpoints**, under `/api/import-export`:
+  - `POST /exports` `{ pageId, format: 'markdown' | 'html', includeSubpages, includeFiles, databases: 'view' | 'all' }`. Up to 50 pages and 100 MB it answers `status: 'ready'` with `downloadUrl`; bigger exports answer `running`, and a 🔔 notice brings the download. A fourth export while three run is refused (429).
+  - `GET /exports/:id` (its maker only, else 403) and `GET /exports/:id/download` (the zip; 410 after 7 days).
+  - `GET /exports/allowed?pageId=`: `{ allowed }`, false for members when exports are turned off (IE-16).
+  - `GET /print/:pageId`: what the Print view shows. Can view is enough, also with exports off.
+- **Controls:**
+  - Page menu items "Export" (hidden when not allowed) and "Print".
+  - The "Export" dialog: radios "Markdown and CSV", "HTML" and "PDF"; checkboxes "Include sub-pages" and "Include files and pictures"; combobox "Databases" (for a database, or with sub-pages); button "Export"; while it runs, progressbar "Preparing your export".
+  - The Print view: link "Back to page", switch "Open all toggles", button "Print".
+  - The download screen: link "Download".
+- **IE-13:** Playwright can't drive the print dialog. Check the paper version with `page.emulateMedia({ media: 'print' })` or `page.pdf()`: only the page shows, colours are kept, and pictures aren't split.
+
 ## Knowledge base
 
 _Filled in by the knowledge base PRs._

@@ -1,0 +1,50 @@
+/*
+ * The Print view (PrintScreen.tsx) on paper: only the view prints, in its colours (callouts,
+ * highlights), with pictures never split across pages and long tables split by row, repeating
+ * their header row. Plain CSS because Tailwind has no print-color-adjust. PrintScreen switches
+ * to the light theme while printing, so these colours are the light ones.
+ */
+.ch-print-root {
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+@media print {
+  html.ch-printing body > :not(.ch-print-root) {
+    display: none !important;
+  }
+
+  html.ch-printing,
+  html.ch-printing body {
+    height: auto;
+    overflow: visible;
+  }
+
+  .ch-print-root {
+    position: static;
+    height: auto;
+    overflow: visible;
+  }
+
+  .ch-print-root img,
+  .ch-print-root figure,
+  .ch-print-root tr,
+  .ch-print-root .ch-print-callout {
+    break-inside: avoid;
+  }
+
+  .ch-print-root thead {
+    display: table-header-group;
+  }
+
+  .ch-print-root h1,
+  .ch-print-root h2,
+  .ch-print-root h3,
+  .ch-print-root h4 {
+    break-after: avoid;
+  }
+
+  .ch-print-root .ch-print-columns {
+    flex-direction: row;
+  }
+}
