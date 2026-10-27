@@ -124,14 +124,14 @@ describe.skipIf(!hasDatabase)('search on Postgres', () => {
 
   it('finds beginnings, word forms and names without accents, in any case (SR-03)', async () => {
     await addPage('Refund steps', { text: 'Ask the customer for the order number.' });
-    await addPage('Team list', { text: 'Felipe Gonçalves leads the refund desk.' });
+    await addPage('Team list', { text: 'Lúcia Assunção leads the refund desk.' });
     await addPage('Shipping times');
     expect(await titles(sam, { text: 'ref' })).toEqual(['Refund steps', 'Team list']);
     expect(await titles(sam, { text: 'REFUNDS ' })).toEqual(['Refund steps', 'Team list']);
-    const [found] = (await search(sam, { text: 'goncalves' })).results;
+    const [found] = (await search(sam, { text: 'assuncao' })).results;
     expect(found).toMatchObject({ title: 'Team list', path: ['Support'], kind: 'page' });
-    expect(found?.snippet?.text).toBe('Felipe Gonçalves leads the refund desk.');
-    expect(found?.snippet?.ranges).toEqual([[7, 16]]);
+    expect(found?.snippet?.text).toBe('Lúcia Assunção leads the refund desk.');
+    expect(found?.snippet?.ranges).toEqual([[6, 14]]);
     expect(found?.editedBy).toEqual({ id: sam.id, name: 'Sam Ortiz' });
     expect(found?.icon).toEqual({ type: 'emoji', emoji: '📄' });
   });
@@ -155,6 +155,8 @@ describe.skipIf(!hasDatabase)('search on Postgres', () => {
     expect(qa).toMatchObject({ title: 'Printer jam', kind: 'row', rowIn: 'Tickets' });
     expect(qa?.path).toEqual(['Support', 'Tickets']);
     expect(await titles(sam, { text: 'qa-1' })).toEqual(['Printer jam']);
+    expect(await titles(sam, { text: 'QA-17 ' })).toEqual(['Printer jam']);
+    expect(await titles(sam, { text: '"QA-17"' })).toEqual(['Printer jam']);
     expect(await titles(sam, { text: '-draft' })).toEqual([]);
   });
 
