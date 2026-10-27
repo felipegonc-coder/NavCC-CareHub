@@ -3,7 +3,7 @@
 // answer of GET /:id and every settings write (the database as this person may see it).
 import type { DatabaseGrant } from '@carehub/databases';
 import { atLeast, can, type DbAction } from '@carehub/databases/access';
-import type { RequestResult } from '@carehub/databases/schemas';
+import { parseRequest, type RequestResult } from '@carehub/databases/schemas';
 import type { FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
 import type { Db } from '../../db';
@@ -11,12 +11,21 @@ import { getAccessForPages, pageAccessOf } from '../pages';
 import { DATABASE_MESSAGES, forbidden, invalidRequest, notFound } from './errors';
 import { databaseMeta, mentionedPageIds, type DatabaseAnswer } from './meta';
 import type { DatabaseRecord } from './record';
+import { versionRequest } from './requests';
 import { loadPropertyViewer, loadRelatedProperties } from './store';
 
 /** The checked body, or 400 with the fixed message. */
 export function accept<T>(result: RequestResult<T>): T {
   if (!result.ok) throw invalidRequest();
   return result.value;
+}
+
+/** The version a DELETE was made from, sent in the body or as ?version=. */
+export function versionOf(request: FastifyRequest): number {
+  const query = (request.query ?? {}) as Record<string, unknown>;
+  const fromQuery = typeof query.version === 'string' ? Number(query.version) : query.version;
+  const body = request.body ?? { version: fromQuery };
+  return accept(parseRequest(versionRequest, body)).version;
 }
 
 export function signedIn(request: FastifyRequest): { id: string } {

@@ -8,6 +8,7 @@ import {
   propertySchema,
   richTextSchema,
   rowPageLayoutSchema,
+  viewSchema,
 } from '@carehub/databases/schemas';
 import { z } from 'zod';
 
@@ -78,3 +79,39 @@ export const propertyChangeRequest = z.strictObject({
 
 /** Settings writes that need only the version: delete (also as ?version=), restore, duplicate. */
 export const versionRequest = z.strictObject({ version: versionSchema });
+
+const view = viewSchema.shape;
+
+/**
+ * POST /api/databases/:id/views: a new view with the defaults of its layout, after `afterViewId`
+ * (or last), or a tile of the dashboard `dashboardId`. `type` is another name for `layout` (the
+ * decision's test steps send `type: 'form'`); send one of them.
+ */
+export const newViewRequest = z
+  .strictObject({
+    version: versionSchema,
+    layout: view.layout.optional(),
+    type: view.layout.optional(),
+    name: view.name.optional(),
+    afterViewId: idSchema.optional(),
+    dashboardId: idSchema.optional(),
+  })
+  .refine((r) => (r.layout === undefined) !== (r.type === undefined));
+export type NewViewRequest = z.infer<typeof newViewRequest>;
+
+/**
+ * PATCH /api/databases/:id/views/:vid: the view settings that change. Not its id, the dashboard it
+ * belongs to or its manual row order (PUT /:id/views/:vid/order keeps that).
+ */
+export const viewChangeRequest = z
+  .strictObject(view)
+  .omit({ id: true, dashboardId: true, manualOrder: true })
+  .partial()
+  .extend({ version: versionSchema });
+export type ViewChangeRequest = z.infer<typeof viewChangeRequest>;
+
+/** PUT /api/databases/:id/views/order: every view tab's id once, in the new order. */
+export const viewOrderRequest = z.strictObject({
+  version: versionSchema,
+  viewIds: z.array(idSchema).max(LIMITS.views),
+});

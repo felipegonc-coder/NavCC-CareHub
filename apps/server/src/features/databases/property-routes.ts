@@ -27,7 +27,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db, Tx } from '../../db';
 import { getAccessForPages } from '../pages';
 import { DATABASE_MESSAGES, forbidden, invalid, invalidRequest, notFound } from './errors';
-import { accept, allow, answerFor, databasePage, signedIn } from './http';
+import { accept, allow, answerFor, databasePage, signedIn, versionOf } from './http';
 import {
   addToViews,
   clearedOptions,
@@ -73,14 +73,6 @@ const hasValue = (row: Row, propertyId: Id): boolean => {
   const v = row.values[propertyId];
   return v !== undefined && v !== null;
 };
-
-/** DELETE sends its version in the body or as ?version=. */
-function versionOf(request: FastifyRequest): number {
-  const query = (request.query ?? {}) as Record<string, unknown>;
-  const fromQuery = typeof query.version === 'string' ? Number(query.version) : query.version;
-  const body = request.body ?? { version: fromQuery };
-  return accept(parseRequest(versionRequest, body)).version;
-}
 
 const propertyIdOf = (request: FastifyRequest): string => {
   const params = request.params as { pid?: unknown };
