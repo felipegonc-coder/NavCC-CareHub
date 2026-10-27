@@ -106,10 +106,10 @@ export const onMain = {
   automations: false,
 
   /**
-   * Jobs' test hook (#361), which runs a periodic task once at a chosen time, with
+   * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with
    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.
    */
-  jobsTestHook: false,
+  jobsTestHooks: false,
 
   /** Analytics (Admins only). */
   analytics: false,

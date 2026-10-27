@@ -18,7 +18,7 @@ import { AutomationList } from './automation-list.js';
 // .workspace.e2e.ts: it runs after the others, on its own.
 
 /** The periodic task that runs scheduled automations when they're due. */
-// Assumed name: the Automations lane's scheduler isn't on main yet.
+// Assumed name: the Automations scheduler isn't on main yet.
 const SCHEDULER = 'automations.schedule';
 
 /** Runs the scheduler once, as if the time were `now`. Site admins only, such as Avery. */
@@ -31,7 +31,7 @@ onlyIn('desktop-light');
 
 test.describe('Automations on a schedule, by the clock', () => {
   // Live updates (#288) bring each run's message to Eli's open 🔔 chat without a reload.
-  needs('signIn', 'automations', 'notices', 'liveUpdates', 'jobsTestHook');
+  needs('signIn', 'automations', 'notices', 'liveUpdates', 'jobsTestHooks');
 
   test('AU-01 Weekday stand-up nudge, left on, reaches each Agent at 9:00 AM Denver time, on weekdays only', async ({
     page,
