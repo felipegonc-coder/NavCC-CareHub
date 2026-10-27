@@ -446,6 +446,21 @@ describe('private link sync', () => {
     expect(t.memory.connection(id)).toMatchObject({ status: 'ok', lastError: null, failures: 0 });
   });
 
+  it('backs off on a calendar too complex to read, as after a failed fetch', async () => {
+    const t = setup();
+    const id = t.addLink();
+    t.link.answer = async () => {
+      throw Object.assign(new Error('This calendar is too complex for Care Hub to read.'), {
+        name: 'IcalParseError',
+        code: 'too-complex',
+      });
+    };
+
+    await t.sync.runDue();
+    expect(t.memory.connection(id)).toMatchObject({ status: 'error', failures: 1 });
+    expect(t.memory.connection(id)?.nextSyncAt.getTime()).toBe(t.google.now().getTime() + 60_000);
+  });
+
   it('gives each changed occurrence its own id', () => {
     expect(linkEventId(lesson)).toBe('lesson-1@school.example.org');
     const recurrenceId = { kind: 'utc', instant: '2026-11-02T15:00:00Z' } as const;

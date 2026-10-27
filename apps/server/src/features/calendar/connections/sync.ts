@@ -119,7 +119,7 @@ class SyncFailure extends Error {
 }
 
 /** Errors from the link reader: FetchLinkError (with `retryable`) and IcalParseError. */
-const isReaderError = (error: unknown): error is Error & { retryable?: unknown } =>
+const isReaderError = (error: unknown): error is Error & { retryable?: unknown; code?: unknown } =>
   error instanceof Error && (error.name === 'FetchLinkError' || error.name === 'IcalParseError');
 
 function classify(error: unknown): SyncFailure {
@@ -135,7 +135,9 @@ function classify(error: unknown): SyncFailure {
     return new SyncFailure(error.retryable ? 'temporary' : 'broken', error.message);
   }
   if (isReaderError(error)) {
-    return new SyncFailure(error.retryable === true ? 'temporary' : 'broken', error.message);
+    // Too complex to read in time may pass, so it backs off like a failed fetch.
+    const retry = error.retryable === true || error.code === 'too-complex';
+    return new SyncFailure(retry ? 'temporary' : 'broken', error.message);
   }
   return new SyncFailure('temporary', UNKNOWN);
 }
