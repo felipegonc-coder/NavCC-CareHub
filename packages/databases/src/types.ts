@@ -14,9 +14,25 @@ export type Instant = string;
 
 // ---------------------------------------------------------------- access
 
-/** Access levels from Phase 1 sharing, lowest to highest. */
-export const ACCESS_LEVELS = ['none', 'view', 'comment', 'edit', 'full'] as const;
+/**
+ * Access levels, lowest to highest (decision 0007). Compare with their position, never by name.
+ * edit_content ("Can edit content", databases only): edit rows and their content, but not properties,
+ * views, settings or new select options. Rows inherit it as edit.
+ */
+export const ACCESS_LEVELS = ['none', 'view', 'comment', 'edit_content', 'edit', 'full'] as const;
 export type AccessLevel = (typeof ACCESS_LEVELS)[number];
+
+/**
+ * What a share grants on a database. 'rows_only' ("Only rows they're in") is grant-only: it means view
+ * on the database page; rows start at none and row access rules lift the rows the person is in.
+ */
+export type DatabaseGrant = AccessLevel | 'rows_only';
+
+/** Someone a setting can name: one person, a group, or everyone with a workspace role. */
+export interface Principal {
+  type: 'user' | 'group' | 'role';
+  id: Id;
+}
 
 // ---------------------------------------------------------------- viewer
 
@@ -33,6 +49,12 @@ export interface Viewer {
   hour12: boolean;
   /** The current moment. Always injected (tests pass a fixed date). */
   now: Date;
+  /** Workspace role, for property access lists that name roles. */
+  roleId?: Id;
+  /** Groups the viewer belongs to (GET /api/workspace/groups), for lists that name groups. */
+  groupIds?: readonly Id[];
+  /** Guests can be picked in Person properties and see only what is shared with them. */
+  isGuest?: boolean;
 }
 
 // ---------------------------------------------------------------- options
@@ -98,14 +120,30 @@ export interface DateValue {
   start: string;
   end: string | null;
   hasTime: boolean;
+  /**
+   * Dates with a time only: show this value in a fixed IANA time zone (for example "America/Chicago")
+   * instead of each viewer's own. Absent: the viewer's zone.
+   */
+  timeZone?: string;
+  /** Remind the people in the row's Person properties (sent as a notice; the bell icon in the cell). */
+  reminder?: DateReminder;
 }
 
+/**
+ * When a date reminds. Dates with a time: minutes before the start (0 = at the time). Dates without a
+ * time: days before, at 9:00 AM in each person's time zone (0 = on the day).
+ */
+export type DateReminder =
+  { minutesBefore: 0 | 5 | 10 | 15 | 30 | 60 | 120 | 1440 | 2880 } | { daysBefore: 0 | 1 | 2 | 7 };
+
 export interface FileRef {
-  /** Upload id from the Phase 1 uploads API. */
+  /** Upload id from the Phase 1 uploads API (for a web link: a new id of its own). */
   id: Id;
   name: string;
   size: number;
   mime: string;
+  /** Set for a web link instead of an upload (size 0, mime ""). Must pass isSafeWebLink. */
+  url?: string;
 }
 
 export interface ChecklistItem {
@@ -257,8 +295,58 @@ export const AGGREGATES = [
 /** Column totals (view calculations) and rollups share these. show_original and show_unique are rollup-only. */
 export type Aggregate = (typeof AGGREGATES)[number];
 
+/**
+ * How a button or template changes one property. `set` takes a stored value, a DynamicDate, ME or
+ * THIS_PAGE; `formula` is worked out when the button is pressed; add/remove change list items
+ * (multi-select, person, relation); addNumber adds an exact decimal (negative to subtract).
+ */
+export type ValueEdit =
+  { set: unknown } | { formula: string } | { add: Id[] } | { remove: Id[] } | { addNumber: string };
+
+/**
+ * One step of a Button property (up to LIMITS.buttonActions, run in order). See the Templates and
+ * buttons spec. set_values is "Edit this row".
+ */
 export type ButtonAction =
-  { kind: 'set_values'; values: Record<Id, unknown> } | { kind: 'open_link'; url: string };
+  | {
+      kind: 'set_values';
+      /** Plain stored values (older buttons). */
+      values: Record<Id, unknown>;
+      /** Richer changes: Today, Now, Me, a formula, add or remove items, add to a number. */
+      edits?: Record<Id, ValueEdit>;
+    }
+  | {
+      kind: 'add_row';
+      /** This database or another one the presser can edit. */
+      databaseId: Id;
+      templateId?: Id | null;
+      edits: Record<Id, ValueEdit>;
+      /** Open the new row afterwards. */
+      open?: 'side_peek' | 'center_peek' | 'full_page' | null;
+    }
+  | {
+      kind: 'edit_rows';
+      databaseId: Id;
+      /** Which rows (up to LIMITS.buttonEditRows); null: all of them. */
+      filter: FilterGroup | null;
+      edits: Record<Id, ValueEdit>;
+    }
+  | {
+      kind: 'open_page';
+      /** null: the row an earlier "Add a row" step made. */
+      pageId: Id | null;
+      openIn: 'side_peek' | 'center_peek' | 'full_page' | 'new_tab';
+    }
+  /** http and https only (isSafeWebLink), checked when saved and again before opening. */
+  | { kind: 'open_link'; url: string }
+  | {
+      kind: 'send_message';
+      /** People, plus everyone in these Person properties of the row (up to LIMITS.buttonMessagePeople). */
+      to: { userIds: Id[]; propertyIds: Id[] };
+      message: string;
+    }
+  | { kind: 'confirm'; title: string; message: string; confirmLabel: string }
+  | { kind: 'define_variables'; variables: { id: Id; name: string; formula: string }[] };
 
 export type PropertyConfig =
   | { type: 'title' }
@@ -298,7 +386,15 @@ export type PropertyConfig =
       number: NumberDisplay | null;
     }
   | { type: 'unique_id'; prefix: string | null }
-  | { type: 'button'; label: string; actions: ButtonAction[] };
+  | {
+      type: 'button';
+      label: string;
+      actions: ButtonAction[];
+      icon?: string | null;
+      color?: OptionColor;
+      /** Who can press it: people who can edit the row (default), or everyone who can view it. */
+      whoCanPress?: 'editors' | 'viewers';
+    };
 
 export type PropertyType = PropertyConfig['type'];
 export type ConfigOf<T extends PropertyType> = Extract<PropertyConfig, { type: T }>;
@@ -337,6 +433,18 @@ export interface Property<C extends PropertyConfig = PropertyConfig> {
   config: C;
   /** How it shows on row pages (per database). */
   rowPage: 'always' | 'hide_when_empty' | 'always_hide';
+  /** Who can see and change it (set with Full access). Absent: everyone with access. Ignored for Name. */
+  access?: PropertyAccess;
+}
+
+/**
+ * Property access lists. null: everyone with access to the database. The server strips properties a
+ * viewer can't see from every response (rows, views, totals, exports, search, formulas they feed).
+ */
+export interface PropertyAccess {
+  see: Principal[] | null;
+  /** Only people who can also see it. */
+  change: Principal[] | null;
 }
 
 // ---------------------------------------------------------------- rows
@@ -467,8 +575,11 @@ export interface Grouping {
   textBy?: 'exact' | 'alphabetical';
   /** Numbers: buckets of `step` from `start` to `end`. */
   numberRange?: { start: number; end: number; step: number } | null;
-  /** Group order: manual (uses `order`), or by value. */
-  sort?: 'manual' | 'asc' | 'desc';
+  /**
+   * Group order: option order, A to Z, Z to A, or manual (uses `order`). Unset: option order for
+   * select, multi-select and status; A to Z for everything else. Relative dates go newest first.
+   */
+  sort?: 'option' | 'manual' | 'asc' | 'desc';
   /** Group keys in manual order; new groups go at the end. */
   order?: string[];
   /** Group keys hidden in this view (for example EMPTY_GROUP for "No value"). */
@@ -487,6 +598,8 @@ export const VIEW_LAYOUTS = [
   'timeline',
   'chart',
   'form',
+  'feed',
+  'dashboard',
 ] as const;
 export type ViewLayout = (typeof VIEW_LAYOUTS)[number];
 
@@ -513,6 +626,8 @@ export interface BoardOptions {
   cardSize: 's' | 'm' | 'l';
   fitImage: boolean;
   colorColumns: boolean;
+  /** The figure in each column header. Absent: Count all. */
+  headerCalculation?: { propertyId: Id | null; aggregate: Aggregate };
 }
 export interface GalleryOptions {
   cardPreview: CardPreview;
@@ -533,6 +648,12 @@ export interface TimelineOptions {
   scale: 'hours' | 'day' | 'week' | 'bi_week' | 'month' | 'quarter' | 'year';
   showTable: boolean;
   tableProperties: ViewPropertySetting[];
+  /** Absent: true. */
+  showWeekends?: boolean;
+  /** Properties shown on the bars. */
+  barPropertyIds?: Id[];
+  /** Draw dependency arrows (needs dependencies turned on). */
+  showDependencies?: boolean;
 }
 export interface ChartOptions {
   kind: 'bar' | 'horizontal_bar' | 'line' | 'pie' | 'donut';
@@ -552,6 +673,50 @@ export interface ChartOptions {
   stacked: boolean;
   cumulative: boolean;
   height: 's' | 'm' | 'l' | 'xl';
+  /** Bars side by side instead of stacked (when split). */
+  grouped?: boolean;
+  /** Line charts: smooth curves. */
+  smooth?: boolean;
+  /** Labels on bars, points and slices. */
+  dataLabels?: boolean;
+  /** Value axis range; null ends are automatic. */
+  axisRange?: { min: number | null; max: number | null };
+  referenceLine?: { value: number; label: string } | null;
+  palette?: 'default' | 'colorful' | 'colorblind' | 'mono';
+  /** Donut: the figure in the middle. */
+  centerValue?: boolean;
+}
+
+/** Feed: rows as posts, newest first, with their page content and comments. */
+export interface FeedOptions {
+  /** Show each row's page content (true) or only its title and properties. */
+  showContent: boolean;
+  showComments: boolean;
+}
+
+/** Dashboard: tiles in rows of up to LIMITS.dashboardColumns, up to LIMITS.dashboardWidgets. */
+export interface DashboardWidget {
+  id: Id;
+  /** A view of this database (marked with dashboardId) drawn as the tile. */
+  viewId: Id;
+  /** Columns it spans. */
+  width: 1 | 2 | 3 | 4;
+  height: 's' | 'm' | 'l';
+}
+export interface DashboardOptions {
+  /** Row by row, left to right. */
+  widgets: DashboardWidget[];
+}
+
+/**
+ * Conditional color: the first matching row rule colors the row; a matching property rule colors that
+ * cell and beats the row color. Colors must keep text readable (4.5:1) in light and dark.
+ */
+export interface ColorRule {
+  id: Id;
+  filter: FilterGroup;
+  target: { kind: 'row' } | { kind: 'property'; propertyId: Id };
+  color: Exclude<OptionColor, 'default'>;
 }
 
 export interface View {
@@ -571,8 +736,8 @@ export interface View {
   manualOrder: Id[];
   openPagesIn: 'side_peek' | 'center_peek' | 'full_page';
   showPageIcon: boolean;
-  /** Rows shown before "Load more" (per group). */
-  loadLimit: 10 | 25 | 50 | 100;
+  /** Rows shown before "Load more" (per group). Default 50 in every layout. */
+  loadLimit: 10 | 25 | 50 | 100 | 200;
   /** Column totals: property id → calculation. */
   calculations: Partial<Record<Id, Aggregate>>;
   /** Template used by New in this view. undefined: the database default; null: an empty row. */
@@ -584,6 +749,20 @@ export interface View {
   timeline?: TimelineOptions;
   chart?: ChartOptions;
   form?: FormDefinition;
+  feed?: FeedOptions;
+  dashboard?: DashboardOptions;
+  /** Set on a view that is a tile of this dashboard view: it isn't listed in the view tabs. */
+  dashboardId?: Id;
+  /** Up to LIMITS.colorRules, first match wins. */
+  colorRules?: ColorRule[];
+  /** Sub-items (when on for the database): nested under parents, flat, or only top-level rows. */
+  subItems?: 'nested' | 'flattened' | 'parents_only';
+  /** Show the Name column or card title. Absent: true. */
+  showTitle?: boolean;
+  /** Wrap all property text (list, gallery, board, timeline). Absent: false. */
+  wrapText?: boolean;
+  /** Linked views and database blocks: views as tabs or a dropdown. Absent: tabs. */
+  tabsAs?: 'tabs' | 'dropdown';
 }
 
 /** What someone without Can edit changed for themselves ("Changed for you only · Reset"). Never saved. */
@@ -660,6 +839,17 @@ export interface FormDefinition {
   anonymous: boolean;
   /** People who asked to be notified about new responses. */
   notifyUserIds: Id[];
+  /**
+   * Who can respond. Absent: members. 'anyone': anyone on the network without signing in (FM-D2,
+   * off by default): always anonymous, no Person or Relation questions.
+   */
+  audience?: 'members' | 'members_and_guests' | 'anyone';
+  /** Stops taking responses at this moment ("This form closed on Oct 30, 2026."). */
+  closeAt?: Instant | null;
+  /** Stops after this many responses ("This form isn't taking more responses."). */
+  maxResponses?: number | null;
+  cover?: FileRef | null;
+  icon?: string | null;
 }
 
 // ---------------------------------------------------------------- row-level access
@@ -673,8 +863,35 @@ export interface RowAccessRule {
 
 // ---------------------------------------------------------------- row templates and databases
 
-/** A preset date that resolves when the row is made: today's date, or this moment. */
-export type DynamicDate = { dynamic: 'today' | 'now' };
+/** A preset date that resolves when the row is made: today's date, or this moment, plus offsetDays ("Today + 3 days"). */
+export type DynamicDate = { dynamic: 'today' | 'now'; offsetDays?: number };
+
+/** In a template's or button's relation value: the page the template or button runs from. */
+export const THIS_PAGE = 'this_page';
+
+/**
+ * Repeating template: makes a row on a schedule ("Weekly huddle – Oct 26"), as "Created by Sam Ortiz
+ * (repeating)". Up to LIMITS.repeatingTemplates per database. A run missed by less than 24 hours still runs.
+ */
+export interface RepeatSchedule {
+  every: 'day' | 'weekday' | 'week' | 'month' | 'year';
+  /** Every N days, weeks, months or years. Absent: 1. */
+  interval?: number;
+  /** Weekly: which days (0 = Sunday). */
+  weekDays?: WeekDay[];
+  /** Monthly: day 1–28, or the last day. */
+  monthDay?: number | 'last';
+  /** Yearly: month 1–12 (the day comes from monthDay). */
+  month?: number;
+  /** "HH:MM", in quarter hours. */
+  time: string;
+  timeZone: string;
+  start: CalendarDate;
+  end: CalendarDate | null;
+  paused: boolean;
+  /** Whose name the rows are created under; pausing notices go to them. */
+  ownerId: Id;
+}
 
 /**
  * A template for new rows. Its icon, cover and content live on its own page (id), which is never
@@ -686,6 +903,17 @@ export interface RowTemplate {
   icon: string | null;
   /** Preset values in stored form. A date may be a DynamicDate; a person list may contain ME (the person creating the row). */
   values: Partial<Record<Id, unknown>>;
+  repeat?: RepeatSchedule | null;
+}
+
+/** How row pages look in this database (Customize page). */
+export interface RowPageLayout {
+  /** Up to LIMITS.rowPagePinned properties shown under the title. */
+  pinned: Id[];
+  /** The other properties: listed in the page, in a side panel, or hidden. */
+  properties: 'in_page' | 'panel' | 'hidden';
+  comments: 'full' | 'compact' | 'off';
+  backlinks: 'list' | 'count' | 'off';
 }
 
 /** A database as the API returns it (its id is its page id). */
@@ -706,7 +934,18 @@ export interface DatabaseMeta {
   /** Database-wide default template; null: New makes an empty row. */
   defaultTemplateId: Id | null;
   /** The viewer's access. 'rows_only': no access to the database itself, only rows that rules give them. */
-  viewerAccess: AccessLevel | 'rows_only';
+  viewerAccess: DatabaseGrant;
+  /** With 'rows_only': the share also lets them add rows ("Can add rows"). */
+  viewerCanAddRows?: boolean;
+  rowPageLayout?: RowPageLayout;
+  /** Sub-items: a "Parent item" relation to this database and its two-way "Sub-items" pair. */
+  subItems?: { parentPropertyId: Id; childrenPropertyId: Id } | null;
+  /** Dependencies: "Blocked by" and "Blocking" relations; moving a blocker shifts what it blocks, or not. */
+  dependencies?: {
+    blockedByPropertyId: Id;
+    blockingPropertyId: Id;
+    shift: 'shift' | 'none';
+  } | null;
 }
 
 // ---------------------------------------------------------------- evaluation context
@@ -721,6 +960,8 @@ export interface EvalContext {
   rowTitle?(id: Id): string | undefined;
   /** Value of a formula or rollup property for a row. */
   computed?(row: Row, propertyId: Id): ComputedValue;
+  /** true for people who were removed from the workspace (their name shows as "Name (removed)"). */
+  isRemovedUser?(id: Id): boolean;
 }
 
 // ---------------------------------------------------------------- limits
@@ -771,9 +1012,31 @@ export const LIMITS = {
   /** Nesting depth of a formula expression. */
   formulaNesting: 100,
   /** Longest chain of formulas and rollups that read other formulas and rollups, across databases. */
-  computedChain: 5,
+  computedChain: 10,
+  /** Formulas read related rows at most this many relations away. */
+  formulaRelationDepth: 2,
+  /** Time per formula per row before "⚠ Too slow". */
+  formulaTimeMs: 50,
+  /** Pattern functions (test, match, replace, replaceAll): longest pattern and longest text searched. */
+  formulaPatternLength: 200,
+  formulaPatternInput: 10_000,
+  /** List items a cell shows before "+12 more". */
+  formulaListShown: 100,
   rowAccessRules: 10,
   templates: 50,
   /** Rows per database query response (the client asks for more as you scroll). */
   queryPageRows: 100,
+  loadLimitMax: 200,
+  /** Responses per minute for one form anyone can fill in, from everyone together. */
+  formAnyoneResponsesPerMinute: 30,
+  colorRules: 10,
+  subItemDepth: 10,
+  rowPagePinned: 4,
+  dashboardWidgets: 12,
+  dashboardColumns: 4,
+  repeatingTemplates: 10,
+  buttonActions: 10,
+  buttonEditRows: 500,
+  buttonMessagePeople: 50,
+  buttonRunLog: 50,
 } as const;
