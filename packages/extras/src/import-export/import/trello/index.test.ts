@@ -124,10 +124,10 @@ describe('trelloPlan', () => {
       },
     ]);
     expect(plan.problems).toEqual([
-      { file: 'intake.json', what: 'Archived cards', why: '2 archived cards were left out.' },
+      { file: 'intake.json', what: 'Left out', why: '2 cards are archived.' },
       {
-        file: 'intake.json',
-        what: 'Label "Calls, follow-ups"',
+        file: 'intake.json: Label "Calls, follow-ups"',
+        what: 'Renamed',
         why: `Options can't have commas, so it's "Calls follow-ups".`,
       },
     ]);
@@ -157,11 +157,11 @@ describe('trelloPlan', () => {
     expect(database?.rows[0]?.cells[0]).toHaveLength(500);
     expect(database?.rows[0]?.cells[1]).toHaveLength(100);
     expect(plan.problems.map((problem) => problem.why)).toEqual([
-      '2 archived cards were left out.',
-      'It was cut to 100 characters.',
+      '2 cards are archived.',
+      'Only the first 100 characters were kept.',
       `Options can't have commas, so it's "Calls follow-ups".`,
-      'It was cut to 500 characters.',
-      'It was cut to 500 characters.',
+      'Only the first 500 characters were kept.',
+      'Only the first 500 characters were kept.',
     ]);
   });
 

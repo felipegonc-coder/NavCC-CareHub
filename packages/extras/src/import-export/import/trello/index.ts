@@ -58,10 +58,8 @@ export function trelloPlan(
   if (cards.length > IMPORT_LIMITS.rows) throw new ImportFileError(TOO_MANY_CARDS);
   const leftOut = board.cards.length - cards.length;
   if (leftOut > 0) {
-    out.problem(
-      'Archived cards',
-      `${leftOut.toLocaleString('en-US')} archived ${leftOut === 1 ? 'card was' : 'cards were'} left out.`,
-    );
+    const count = leftOut.toLocaleString('en-US');
+    out.problem(null, 'Left out', `${count} ${leftOut === 1 ? 'card is' : 'cards are'} archived.`);
   }
 
   const option = (name: string, what: string) => out.cut(name, OPTION_CHARS, what);
@@ -73,10 +71,8 @@ export function trelloPlan(
       // A multi-select cell lists its options with commas between them.
       const name = label.name.replace(/\s*,\s*/g, ' ').trim() || 'Label';
       if (name !== label.name) {
-        out.problem(
-          `Label "${shortName(label.name)}"`,
-          `Options can't have commas, so it's "${name}".`,
-        );
+        const why = `Options can't have commas, so it's "${name}".`;
+        out.problem(`Label "${shortName(label.name)}"`, 'Renamed', why);
       }
       return [label.id, option(name, `Label "${shortName(name)}"`)];
     }),
@@ -137,7 +133,7 @@ export function trelloPlan(
     rows,
     source: fileName,
   });
-  return out.plan;
+  return out.done();
 }
 
 export const trelloImporter: Importer = {
