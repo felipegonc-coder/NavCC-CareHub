@@ -1,20 +1,30 @@
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
+import type { ImportResult } from '../csv';
 import { utf8, xlsxFile, type FixtureSheet, type FixtureWorkbook } from './fixtures';
-import { columnIndex, firstVisibleSheet, readSheet, readXlsxFile } from './sheet';
+import {
+  columnIndex,
+  firstVisibleSheet,
+  readSheet,
+  readXlsxFile,
+  withExcelRowNumbers,
+} from './sheet';
 import { openXlsx, XLSX_ERRORS } from './workbook';
 import type { InflateRaw } from './zip';
 
 const inflate: InflateRaw = (b, max) => inflateRawSync(b, { maxOutputLength: max });
 
-/** The table of a one-sheet workbook with these rows (the inside of <sheetData>). */
-function table(rows: string, book: Omit<FixtureWorkbook, 'sheets'> = {}): string[][] {
+/** The table and skipped rows of a one-sheet workbook with these rows (the inside of <sheetData>). */
+function read(rows: string, book: Omit<FixtureWorkbook, 'sheets'> = {}) {
   const r = readXlsxFile(xlsxFile({ ...book, sheets: [{ name: 'Reviews', rows }] }), {
     inflateRaw: inflate,
   });
   if (!r.ok) throw new Error(`readXlsxFile refused: ${r.error}`);
-  return r.table;
+  return { table: r.table, skippedRows: r.skippedRows };
 }
+
+const table = (rows: string, book: Omit<FixtureWorkbook, 'sheets'> = {}): string[][] =>
+  read(rows, book).table;
 
 /** The error for a one-sheet workbook, or "ok". */
 function problem(sheet: Omit<FixtureSheet, 'name'>, firstRowIsHeaders?: boolean): string {
@@ -166,11 +176,31 @@ describe('sheet cells', () => {
 });
 
 describe('sheet layout', () => {
-  it('keeps cells in their columns and rows at their numbers', () => {
+  it('keeps cells in their columns and empty rows between rows', () => {
     const rows =
       row(2, '<c r="A2" t="inlineStr"><is><t>Avery Lin</t></is></c>' + num('C2', 3)) +
       row(4, num('B4', 5));
-    expect(table(rows)).toEqual([[], ['Avery Lin', '', '3'], [], ['', '5']]);
+    expect(read(rows)).toEqual({ table: [['Avery Lin', '', '3'], [], ['', '5']], skippedRows: 1 });
+  });
+
+  it('starts at the first row with a value and counts the empty rows above it', () => {
+    const rows =
+      '<row r="1"/>' +
+      row(2, '<c r="A2" s="0"/><c r="B2" t="s"/>') +
+      row(3, '<c r="B3" t="inlineStr"><is><t>  </t></is></c>') +
+      row(5, '<c r="B5" t="inlineStr"><is><t>Name</t></is></c>') +
+      row(7, '<c r="B7" t="inlineStr"><is><t>Avery Lin</t></is></c>');
+    expect(read(rows)).toEqual({ table: [['', 'Name'], [], ['', 'Avery Lin']], skippedRows: 4 });
+    expect(read(row(1, num('A1', 1)))).toEqual({ table: [['1']], skippedRows: 0 });
+    expect(read(row(1_048_576, num('A1048576', 1)))).toEqual({
+      table: [['1']],
+      skippedRows: 1_048_575,
+    });
+  });
+
+  it('puts rows numbered out of order right after the row before', () => {
+    const rows = row(5, num('A5', 1)) + row(2, num('A2', 2)) + row(5, num('A5', 3));
+    expect(read(rows)).toEqual({ table: [['1'], ['2'], ['3']], skippedRows: 4 });
   });
 
   it('leaves out empty cells at the end of a row and empty rows at the end', () => {
@@ -210,7 +240,9 @@ describe('sheet layout', () => {
   });
 
   it('gives an empty table for an empty sheet', () => {
-    expect(table('')).toEqual([]);
+    expect(read('')).toEqual({ table: [], skippedRows: 0 });
+    const blank = '<row r="1"/>' + row(2, '<c r="A2" t="inlineStr"><is><t> </t></is></c>');
+    expect(read(blank)).toEqual({ table: [], skippedRows: 0 });
     const xml = '<worksheet><sheetData/></worksheet>';
     const r = readXlsxFile(xlsxFile({ sheets: [{ name: 'Reviews', xml }] }), {
       inflateRaw: inflate,
@@ -233,6 +265,14 @@ describe('sheet limits', () => {
     expect(problem(last(20_001), false)).toBe('This file has more than 20,000 rows.');
     expect(problem(last(20_000), false)).toBe('ok');
     expect(problem(last(1_048_576))).toBe('This file has more than 20,000 rows.');
+  });
+
+  it('counts rows from the first row with a value', () => {
+    const last = (r: number) => ({ rows: row(3, num('A3', 1)) + row(r, num(`A${r}`, 1)) });
+    expect(problem(last(20_003))).toBe('ok');
+    expect(problem(last(20_004))).toBe('This file has more than 20,000 rows.');
+    expect(problem(last(20_002), false)).toBe('ok');
+    expect(problem(last(20_003), false)).toBe('This file has more than 20,000 rows.');
   });
 
   it('counts every row up to the limit', () => {
@@ -270,6 +310,7 @@ describe('picking a sheet', () => {
       sheets,
       sheet: 'Q3 reviews',
       table: [['Name']],
+      skippedRows: 0,
     });
   });
 
@@ -301,10 +342,12 @@ describe('picking a sheet', () => {
     expect(readSheet(opened.file, 'Vendors')).toEqual({
       ok: true,
       table: [['Blue Pine Plumbing']],
+      skippedRows: 0,
     });
     expect(readSheet(opened.file, 'Q3 reviews', { firstRowIsHeaders: false })).toEqual({
       ok: true,
       table: [['Name']],
+      skippedRows: 0,
     });
     expect(readSheet(opened.file, 'Q4')).toEqual({
       ok: false,
@@ -337,6 +380,38 @@ describe('picking a sheet', () => {
       sheets: [{ name: 'Q3 reviews', hidden: false }],
       sheet: 'Q3 reviews',
       table: [['Avery Lin', '2026-10-26']],
+      skippedRows: 0,
     });
+  });
+});
+
+describe('withExcelRowNumbers', () => {
+  const reason = "This isn't a number.";
+  const result: ImportResult = {
+    rows: [
+      { rowNumber: 2, title: 'Avery Lin', values: {} },
+      { rowNumber: 4, title: 'Jordan Park', values: {} },
+    ],
+    newProperties: [],
+    newOptions: {},
+    problems: [{ row: 4, column: 'Score', value: 'n/a', reason }],
+    problemCount: 1,
+  };
+
+  it('adds the skipped rows to row numbers and problem rows', () => {
+    expect(withExcelRowNumbers(result, 3)).toEqual({
+      ...result,
+      rows: [
+        { rowNumber: 5, title: 'Avery Lin', values: {} },
+        { rowNumber: 7, title: 'Jordan Park', values: {} },
+      ],
+      problems: [{ row: 7, column: 'Score', value: 'n/a', reason }],
+    });
+    expect(result.rows[0]?.rowNumber).toBe(2);
+    expect(result.problems[0]?.row).toBe(4);
+  });
+
+  it('gives the same result when no rows were skipped', () => {
+    expect(withExcelRowNumbers(result, 0)).toBe(result);
   });
 });
