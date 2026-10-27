@@ -151,7 +151,7 @@ function PageView({ page }: { page: PageDetail }) {
       <PageHeader
         page={page}
         editable={editable}
-        autoFocus={focusTitle && editable}
+        focusTitle={focusTitle && editable}
         onEnter={() => {
           setStarted(true);
           editor?.commands.focus('start');
