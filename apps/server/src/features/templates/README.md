@@ -25,6 +25,9 @@ feature's Markdown, where blocks without a Markdown form are kept whole as place
 Links between the template's own pages are stored as `{{template-page:<key>}}` tokens, so each
 copy's links point to the new copies. Variable chips (`templateVariable`) are filled in when the
 template is used. Databases are copied on use with the Databases lane's `duplicateDatabase`.
+A starter's databases (Projects, Agents, QA reviews and the rest) are written out in
+`@carehub/extras/templates` and made on use with `createDatabase`: new ids, Me and Today
+filled in for the sample rows, and the row templates kept as they are.
 Changing or deleting a template never changes pages made from it; `tpl_made_from` keeps
 "Made from Weekly huddle" for the page's Updates (`getMadeFrom`).
 
@@ -37,6 +40,6 @@ refuses until it's bound (403, or "missing" and 404), and is marked `// stand-in
 - pages, levels, sub-pages, spaces, `createPage`, `setPageTitle`, `getPrivateSpaceId`: pages #49;
 - `getPageMarkdown`, `setPageContentFromMarkdown`, `page.updated`: collab #197/#200;
 - `saveVersionNow`: history (HT-02);
-- `duplicateDatabase` and row counts: the Databases lane's `api.ts`.
+- `duplicateDatabase`, `createDatabase` and row counts: the Databases lane's `api.ts`.
 
 Tests bind fakes with `bindTemplatesCore`. When a feature lands, its line in `core.ts` calls it.
