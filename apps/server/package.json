@@ -20,11 +20,13 @@
     "drizzle-orm": "^0.44.2",
     "fastify": "^5",
     "fastify-plugin": "^5.0.1",
+    "markdown-it": "^14.1.0",
     "pg": "^8.16.0",
     "yjs": "^13.6.8",
     "zod": "^4"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14",
     "@types/node": "^24",
     "@types/pg": "^8.15.0",
     "esbuild": "^0.25",
