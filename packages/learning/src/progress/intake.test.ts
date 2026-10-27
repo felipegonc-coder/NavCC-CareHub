@@ -90,6 +90,22 @@ describe('progressIntake', () => {
     });
   });
 
+  it('refuses events made before the progress started over, with two minutes of slack', () => {
+    // Reset at 09:10; this browser's clock is a minute slow, and one event waited offline.
+    const runStartedAt = '2026-10-27T09:10:00.000Z';
+    const offline = learner('2026-10-27T09:05:00.000Z').open('l1');
+    const l = learner('2026-10-27T09:08:59.000Z');
+    const opened = l.open('l1');
+    const beat = l.add({ type: 'time_active', lessonId: 'l1', seconds: 30 }, 30);
+    const result = stored(progressIntake(course, [], [offline, opened, beat], now, runStartedAt));
+    expect(result.events).toEqual([opened, beat]);
+    expect(result.reply.rejected).toEqual([
+      { eventId: offline.id, type: 'lesson_opened', at: offline.at, reason: 'restarted' },
+    ]);
+    expect(result.reply.state.activeSeconds).toBe(30);
+    expect(stored(progressIntake(course, [], [offline], now)).events).toEqual([offline]);
+  });
+
   it('refuses a batch that would go past the most events one course keeps', () => {
     const l = learner();
     l.open('l1');

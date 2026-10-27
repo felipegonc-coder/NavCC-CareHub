@@ -20,10 +20,10 @@ export type ProgressIntake =
   | { kind: 'too_many'; message: string };
 
 /**
- * One browser batch for POST /courses/:id/events, given the learner's stored events for the
- * course and the server's clock (`now`). The events to store leave out refused ones
- * (checkProgressEvents) and ids already stored or repeated in the batch, so a batch sent again
- * stores nothing new. Each quiz_attempt_submitted is timed after its attempt's server-made start
+ * One browser batch for POST /courses/:id/events, given the stored events of the learner's
+ * current run, the server's clock (`now`) and when that run began (`runStartedAt`, null for a
+ * first run). The events to store leave out refused ones (checkProgressEvents) and ids already
+ * stored or repeated in the batch, so a batch sent again stores nothing new. Each quiz_attempt_submitted is timed after its attempt's server-made start
  * (quizSubmissionTime). The reply's state is reduced from the stored events and the new ones, and
  * its refusals cover every event of the batch. too_many when the new events would take the course
  * past MAX_EVENTS_PER_LEARNER_COURSE.
@@ -33,8 +33,9 @@ export function progressIntake(
   stored: readonly ProgressEvent[],
   batch: readonly unknown[],
   now: IsoDateTime,
+  runStartedAt: IsoDateTime | null = null,
 ): ProgressIntake {
-  const checked = checkProgressEvents(batch, now);
+  const checked = checkProgressEvents(batch, now, runStartedAt);
   const seen = new Set(stored.map((event) => event.id));
   const fresh: ProgressEvent[] = [];
   for (const event of checked.valid) {

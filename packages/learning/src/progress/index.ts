@@ -34,6 +34,7 @@ export type {
   CourseUpdate,
   CourseUpdateNotice,
   CourseUpdateNotify,
+  CourseUpdateRun,
   ManualCompletion,
 } from './updates';
 export { canCompleteLesson, nextLesson, visibleBlocks } from './gating';

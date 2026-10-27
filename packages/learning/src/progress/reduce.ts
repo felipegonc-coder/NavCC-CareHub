@@ -49,6 +49,14 @@ export function isDatedAhead(at: string, now: IsoDateTime): boolean {
   return !(Date.parse(at) <= Date.parse(now) + MAX_SECONDS_AHEAD * 1000);
 }
 
+/**
+ * True when `at` is more than MAX_SECONDS_AHEAD (the same slack, for clocks that run a little
+ * slow) before `runStartedAt`, when the learner's progress last started over.
+ */
+function isDatedBeforeRun(at: string, runStartedAt: IsoDateTime): boolean {
+  return !(Date.parse(at) >= Date.parse(runStartedAt) - MAX_SECONDS_AHEAD * 1000);
+}
+
 const FINISHED: ReadonlySet<CourseStatus> = new Set(['completed', 'passed', 'failed']);
 
 type Rejection = Omit<RejectedEvent, 'eventId' | 'type' | 'at'>;
@@ -115,12 +123,15 @@ function readEvent(raw: unknown): { event: ProgressEvent } | { rejection: Reject
  * Checks a browser's batch for POST /courses/:id/events, each event on its own, so one bad event
  * doesn't spoil the batch. Refused and never stored: invalid_event when it isn't a progress event,
  * server_only for quiz_attempt_started (see quizAttemptStart), future when it's dated more than
- * MAX_SECONDS_AHEAD after `now` (the server's clock). Rejections keep the id, type and time when
- * they can be read, so the player can drop the event from its queue.
+ * MAX_SECONDS_AHEAD after `now` (the server's clock), and restarted when it's dated before
+ * `runStartedAt`, the last time the learner's progress started over (a reset or a retake), such
+ * as an event that waited offline: it was made for the earlier run. Rejections keep the id, type
+ * and time when they can be read, so the player can drop the event from its queue.
  */
 export function checkProgressEvents(
   events: readonly unknown[],
   now: IsoDateTime,
+  runStartedAt: IsoDateTime | null = null,
 ): CheckedProgressEvents {
   const valid: ProgressEvent[] = [];
   const rejected: RejectedEvent[] = [];
@@ -135,6 +146,8 @@ export function checkProgressEvents(
       rejected.push({ eventId: id, type, at, reason: 'server_only' });
     } else if (isDatedAhead(at, now)) {
       rejected.push({ eventId: id, type, at, reason: 'future' });
+    } else if (runStartedAt !== null && isDatedBeforeRun(at, runStartedAt)) {
+      rejected.push({ eventId: id, type, at, reason: 'restarted' });
     } else {
       valid.push(read.event);
     }
