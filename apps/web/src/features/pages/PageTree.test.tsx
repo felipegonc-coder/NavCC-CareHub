@@ -133,6 +133,18 @@ describe('PageTree', () => {
     expect(onboarding).toHaveFocus();
   });
 
+  it("puts an open entry's sub-pages in a group inside it, for screen readers", () => {
+    render(<Harness open={['s:a1']} />);
+    const onboarding = screen.getByRole('treeitem', { name: 'Onboarding' });
+    expect(onboarding).toHaveAccessibleName('Onboarding');
+    const inside = within(onboarding).getByRole('group');
+    expect(
+      within(inside)
+        .getAllByRole('treeitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Week one']);
+  });
+
   it('shows "No pages inside" for an open page without sub-pages', () => {
     render(<Harness open={['s:b1']} />);
     expect(screen.getByRole('treeitem', { name: 'Untitled' })).toHaveAttribute(
