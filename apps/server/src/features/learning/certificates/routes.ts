@@ -2,10 +2,10 @@ import { CertificateListQuerySchema } from '@carehub/learning';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { registerPeriodicTask } from '../../jobs';
-import { viewerOf } from '../auth';
 import { parseInput } from '../errors';
 import { CERTIFICATE_NOTICES_TASK, sendCertificateNotices } from './expiry';
 import * as certificates from './service';
+import { viewerOf } from './viewer';
 
 const HOUR_MS = 60 * 60 * 1000;
 const CertificateParams = z.object({ id: z.string().max(64) });

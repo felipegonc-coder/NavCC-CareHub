@@ -16,11 +16,11 @@ import {
   type IsoDate,
 } from '@carehub/learning';
 import { and, desc, eq, type SQL } from 'drizzle-orm';
+import type { Db, Tx } from '../../../db';
 import { users } from '../../auth/schema';
-import type { Viewer } from '../auth';
-import type { Db, Tx } from '../db';
 import { httpError } from '../errors';
 import { learningCertificates as certificates } from './schema';
+import type { Viewer } from './viewer';
 
 // Certificates (docs/learning/api.md): the server issues one when a learner's finish earns it, and
 // the learner and people with learning.analytics read them. Every query stays inside the viewer's

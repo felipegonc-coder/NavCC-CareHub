@@ -11,12 +11,12 @@ import type { Db } from '../../../db';
 import { createTestApp, createUser, hasDatabase, type TestApp } from '../../../testing';
 import { users } from '../../auth/schema';
 import { bindMemoryNotices, type MemoryNoticeStore } from '../../notices/testing';
-import type { LearningPermission, Viewer } from '../auth';
 import { canSeeCourse } from '../courses/access';
 import { LearningError } from '../errors';
 import { isLearningEnabled } from '../public';
 import { sendCertificateNotices } from './expiry';
 import * as certificates from './service';
+import type { Viewer } from './viewer';
 
 vi.mock('../courses/access', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../courses/access')>()),
@@ -45,8 +45,10 @@ const passed = (completedAt: string, score: number | null = 90): CertificateFini
   score,
 });
 
-function viewer(workspaceId: string, userId: string, ...permissions: LearningPermission[]) {
-  const can = (permission: LearningPermission) => permissions.includes(permission);
+type Permission = Parameters<Viewer['can']>[0];
+
+function viewer(workspaceId: string, userId: string, ...permissions: Permission[]) {
+  const can = (permission: Permission) => permissions.includes(permission);
   return { workspaceId, userId, can } satisfies Viewer;
 }
 

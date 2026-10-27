@@ -8,10 +8,10 @@ import {
   type SentCertificateNotice,
 } from '@carehub/learning';
 import { and, asc, eq, inArray, isNotNull, lte, not, or, sql } from 'drizzle-orm';
+import type { Db } from '../../../db';
 import { users } from '../../auth/schema';
 import { sendNotice } from '../../notices';
 import { canSeeCourse } from '../courses/access';
-import type { Db } from '../db';
 import { isLearningEnabled } from '../public';
 import {
   learningCertificateNotices as notices,
