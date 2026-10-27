@@ -98,7 +98,13 @@ export async function cleanJpeg(file: PictureFile): Promise<CleanerResult> {
       at = data;
     }
   }
-  return { width, height, sideways: turnsSideways(orientation), pieces: out.done() };
+  return {
+    width,
+    height,
+    orientation: orientation || 1,
+    sideways: turnsSideways(orientation),
+    pieces: out.done(),
+  };
 }
 
 /** Where the next marker starts (image data escapes 0xFF as 0xFF 0x00), or the file's size. */

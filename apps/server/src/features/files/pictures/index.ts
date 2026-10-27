@@ -1,11 +1,8 @@
 import { PictureError, type CleanedPicture, type CleanerResult, type PictureFile } from './bytes';
-import { cleanGif } from './gif';
-import { cleanHeif } from './heif';
 import { cleanJpeg } from './jpeg';
 import { cleanPng } from './png';
-import { cleanWebp } from './webp';
 
-export { PictureError, piecesLength, type CleanedPicture, type Piece } from './bytes';
+export { PictureError, type CleanedPicture, type Piece } from './bytes';
 
 /** The largest width or height kept (a PostgreSQL integer). */
 const MAX_SIDE = 2 ** 31 - 1;
@@ -13,11 +10,6 @@ const MAX_SIDE = 2 ** 31 - 1;
 const CLEANERS: Readonly<Record<string, (file: PictureFile) => Promise<CleanerResult>>> = {
   'image/jpeg': cleanJpeg,
   'image/png': cleanPng,
-  'image/gif': cleanGif,
-  'image/webp': cleanWebp,
-  'image/heic': cleanHeif,
-  'image/heif': cleanHeif,
-  'image/avif': cleanHeif,
 };
 
 /**
@@ -32,10 +24,12 @@ export async function cleanPicture(
   const clean = CLEANERS[mimeType];
   if (!clean) return null;
   try {
-    const { width, height, sideways, pieces } = await clean(file);
+    const { width, height, orientation = 1, sideways, pieces } = await clean(file);
     const fits = (side: number) => side >= 1 && side <= MAX_SIDE;
-    if (!fits(width) || !fits(height)) return { width: null, height: null, pieces };
-    return sideways ? { width: height, height: width, pieces } : { width, height, pieces };
+    if (!fits(width) || !fits(height)) return { width: null, height: null, orientation, pieces };
+    return sideways
+      ? { width: height, height: width, orientation, pieces }
+      : { width, height, orientation, pieces };
   } catch (error) {
     throw error instanceof RangeError ? new PictureError() : error;
   }

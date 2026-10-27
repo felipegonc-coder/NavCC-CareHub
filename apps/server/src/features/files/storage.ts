@@ -1,6 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { access, mkdir, open, rename, rm, statfs } from 'node:fs/promises';
+import {
+  access,
+  mkdir,
+  open,
+  readdir,
+  rename,
+  rm,
+  stat,
+  statfs,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -19,10 +29,12 @@ export interface ReceivedFile {
 
 /**
  * The bytes of files on disk, at FILES_DIR/<2>/<2>/<storage key> and never under their names. Uploads go
- * to FILES_DIR/tmp first and are moved in only once they've passed every check.
+ * to FILES_DIR/tmp first and are moved in only once they've passed every check. FILES_DIR/pending notes
+ * the keys of bytes moved in until it's clear their file was recorded (settle).
  */
 export function fileStore(root: string) {
   const tmp = path.join(root, 'tmp');
+  const pending = path.join(root, 'pending');
   const pathOf = (key: string): string => {
     if (!KEY.test(key)) throw new Error('Invalid storage key.');
     return path.join(root, key.slice(0, 2), key.slice(2, 4), key);
@@ -82,13 +94,27 @@ export function fileStore(root: string) {
         close: () => handle.close(),
       };
     },
-    /** Moves a checked upload into place under a new storage key, and returns the key. */
+    /** Moves a checked upload into place under a new storage key, noted in pending, and returns the key. */
     async keep(tempPath: string): Promise<string> {
       const key = randomUUID();
       const target = pathOf(key);
+      await mkdir(pending, { recursive: true, mode: 0o700 });
+      await writeFile(path.join(pending, key), '', { flag: 'wx', mode: 0o600 });
       await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
       await rename(tempPath, target);
       return key;
+    },
+    /** The bytes' file is recorded, or they're gone: their note goes. */
+    settle: (key: string): Promise<void> =>
+      rm(path.join(pending, path.basename(pathOf(key))), { force: true }).catch(() => undefined),
+    /** Keys noted in pending before `before`. */
+    async pendingBefore(before: Date): Promise<string[]> {
+      const keys: string[] = [];
+      for (const key of await readdir(pending).catch(() => [] as string[])) {
+        const noted = KEY.test(key) ? await stat(path.join(pending, key)).catch(() => null) : null;
+        if (noted && noted.mtime < before) keys.push(key);
+      }
+      return keys;
     },
     exists: (filePath: string): Promise<boolean> =>
       access(filePath).then(

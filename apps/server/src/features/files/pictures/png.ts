@@ -71,5 +71,11 @@ export async function cleanPng(file: PictureFile): Promise<CleanerResult> {
     at = end;
     if (type === 'IEND') break; // anything after the end is left out
   }
-  return { width, height, sideways: turnsSideways(orientation), pieces: out.done() };
+  return {
+    width,
+    height,
+    orientation: orientation || 1,
+    sideways: turnsSideways(orientation),
+    pieces: out.done(),
+  };
 }
