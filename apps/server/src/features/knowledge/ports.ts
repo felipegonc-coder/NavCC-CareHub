@@ -51,6 +51,9 @@ export interface KnowledgePorts {
   ): Promise<void>;
   // stand-in: archivePage(tx, pageId, by) from features/pages (pages PR 2).
   archivePage(tx: Tx, pageId: string, by: string): Promise<void>;
+  // stand-in: the people with at least `min` on a page, from features/pages (#49): reports on a
+  // page without an owner go to the knowledge base's Full access people.
+  usersWithAccess(db: Executor, pageId: string, min: AccessLevel): Promise<string[]>;
 }
 
 const unavailable = () => httpError(409, 'conflict', "Knowledge bases aren't available yet.");
@@ -65,6 +68,7 @@ const denyAll: KnowledgePorts = {
   archivePage: async () => {
     throw unavailable();
   },
+  usersWithAccess: async () => [],
 };
 
 let ports: KnowledgePorts = denyAll;

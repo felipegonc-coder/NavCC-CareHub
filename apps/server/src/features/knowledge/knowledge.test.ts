@@ -8,7 +8,6 @@ import {
   wikiRowLimiter,
   type KbPageInfo,
 } from '@carehub/extras/knowledge';
-import type { AccessLevel } from '@carehub/shared';
 import { eq, sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -21,31 +20,12 @@ import {
   type TestUser,
 } from '../../testing';
 import { users } from '../auth/schema';
-import { bindKnowledgePorts, rowAccessLimiter, type WikiBase, type WikiRow } from './ports';
+import { createFakeKnowledge } from './fakes';
+import { rowAccessLimiter } from './ports';
 import { kbBases, kbPages } from './schema';
 
-const workspaceId = randomUUID();
-/** The stand-in Databases lane and page model: wiki databases, their rows and each level. */
-const bases = new Map<string, WikiBase>();
-const rows = new Map<string, WikiRow>();
-const levels = new Map<string, Map<string, AccessLevel>>();
-const archived = new Set<string>();
-
-function bindFakes() {
-  return bindKnowledgePorts({
-    accessForPages: async (_db, userId, pageIds) =>
-      new Map(pageIds.map((id) => [id, levels.get(id)?.get(userId) ?? 'none'])),
-    getBase: async (_db, id) => bases.get(id) ?? null,
-    getRow: async (_db, id) => structuredClone(rows.get(id) ?? null),
-    writeValues: async (_tx, { rowId, values }) => {
-      const row = rows.get(rowId);
-      if (row) row.values = { ...row.values, ...values };
-    },
-    archivePage: async (_tx, pageId) => {
-      archived.add(pageId);
-    },
-  });
-}
+const fake = createFakeKnowledge();
+const { rows } = fake;
 
 describe.skipIf(!hasDatabase)('knowledge base pages on Postgres', () => {
   let test: TestApp;
@@ -65,50 +45,22 @@ describe.skipIf(!hasDatabase)('knowledge base pages on Postgres', () => {
     sam = await createUser(test.db, { name: 'Sam Ortiz', email: 'sam.ortiz@example.test' });
     morgan = await createUser(test.db, { name: 'Morgan Diaz', email: 'morgan.diaz@example.test' });
     riley = await createUser(test.db, { name: 'Riley Chen', email: 'riley.chen@example.test' });
-    unbind = bindFakes();
+    unbind = fake.bind();
   });
   afterAll(async () => {
     unbind?.();
     await test?.close();
   });
 
-  function newBase(): string {
-    const id = randomUUID();
-    bases.set(id, { id, workspaceId, title: 'Support handbook' });
-    levels.set(
-      id,
-      new Map<string, AccessLevel>([
-        [avery.id, 'full'],
-        [sam.id, 'edit'],
-        [morgan.id, 'edit_content'],
-        [riley.id, 'view'],
-      ]),
-    );
-    return id;
-  }
-  /** A new row, as the Databases lane makes it: no knowledge base values yet. */
-  function addPage(databaseId: string, by: TestUser, values: Record<string, unknown> = {}) {
-    const id = randomUUID();
-    rows.set(id, {
-      id,
-      databaseId,
-      workspaceId,
-      title: 'Refund policy',
-      createdBy: by.id,
-      values,
-      tags: [],
-    });
-    levels.set(
-      id,
-      new Map<string, AccessLevel>([
-        [avery.id, 'full'],
-        [sam.id, 'edit'],
-        [morgan.id, 'edit'],
-        [riley.id, 'view'],
-      ]),
-    );
-    return id;
-  }
+  const newBase = () =>
+    fake.newBase([
+      [avery.id, 'full'],
+      [sam.id, 'edit'],
+      [morgan.id, 'edit_content'],
+      [riley.id, 'view'],
+    ]);
+  const addPage = (databaseId: string, by: TestUser, values: Record<string, unknown> = {}) =>
+    fake.addPage(databaseId, by.id, values);
   const call = (
     user: TestUser,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -264,7 +216,7 @@ describe.skipIf(!hasDatabase)('knowledge base pages on Postgres', () => {
     expect((needsChanges.json() as KbPageInfo).verification?.until).toBe(until);
     expect((await review(riley, 'archive')).statusCode).toBe(403);
     expect((await review(sam, 'archive')).statusCode).toBe(204);
-    expect(archived.has(pageId)).toBe(true);
+    expect(fake.archived.has(pageId)).toBe(true);
   });
 
   it('answers 404 for pages outside a knowledge base and checks IDs', async () => {
@@ -285,7 +237,7 @@ describe.skipIf(!hasDatabase)('knowledge base pages on Postgres', () => {
         404,
       );
     } finally {
-      unbind = bindFakes();
+      unbind = fake.bind();
     }
     expect((await page(avery, pageId)).statusCode).toBe(200);
   });
