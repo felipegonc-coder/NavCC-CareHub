@@ -2,11 +2,7 @@ import { Logo, sidebarRowClasses, ThemeSwitch, VisuallyHidden } from '@carehub/u
 import { Settings } from 'lucide-react';
 import { Component, Suspense, type ReactNode } from 'react';
 import { NavLink } from 'react-router';
-import type { SidebarItem, SidebarSection } from './types';
-
-function byOrder(a: { id: string; order: number }, b: { id: string; order: number }): number {
-  return a.order - b.order || a.id.localeCompare(b.id);
-}
+import type { SidebarItem, SidebarSection } from '../../slots';
 
 /** Keeps one feature's broken sidebar piece from taking the whole shell down with it. */
 class SlotBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -57,6 +53,7 @@ function SidebarLink({ to, onNavigate, children }: SidebarLinkProps) {
 }
 
 export interface ShellSidebarProps {
+  /** In slot order (apps/web/src/slots.ts sorts them). */
   items: readonly SidebarItem[];
   sections: readonly SidebarSection[];
   /** Called when one of the sidebar's own links is followed, to close the phone menu. */
@@ -77,10 +74,12 @@ export function ShellSidebar({ items, sections, onNavigate }: ShellSidebarProps)
       >
         {items.length > 0 && (
           <ul className="flex flex-col gap-0.5">
-            {[...items].sort(byOrder).map(({ id, label, icon: Icon, to, useBadge }) => (
+            {items.map(({ id, label, icon: Icon, to, useBadge }) => (
               <li key={id}>
                 <SidebarLink to={to} onNavigate={onNavigate}>
-                  <Icon aria-hidden />
+                  <span aria-hidden className="flex shrink-0">
+                    <Icon className="size-4" />
+                  </span>
                   <span className="truncate">{label}</span>
                   {useBadge && (
                     <SlotBoundary>
@@ -92,7 +91,7 @@ export function ShellSidebar({ items, sections, onNavigate }: ShellSidebarProps)
             ))}
           </ul>
         )}
-        {[...sections].sort(byOrder).map(({ id, Component: Section }) => (
+        {sections.map(({ id, Component: Section }) => (
           <SlotBoundary key={id}>
             <Section />
           </SlotBoundary>

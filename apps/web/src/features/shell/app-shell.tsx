@@ -1,13 +1,21 @@
-import { cn, Dialog, DialogTrigger, IconButton, SheetContent, useMediaQuery } from '@carehub/ui';
+import {
+  breakpoints,
+  cn,
+  Dialog,
+  DialogTrigger,
+  IconButton,
+  SheetContent,
+  useMediaQuery,
+} from '@carehub/ui';
 import { Menu } from 'lucide-react';
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import { useLocation } from 'react-router';
+import type { SidebarItem, SidebarSection } from '../../slots';
 import { HeaderTargetContext } from './header-context';
 import { ShellSidebar } from './sidebar';
-import type { SidebarItem, SidebarSection } from './types';
 
-/** Tailwind's `md`: the sidebar is fixed from here up, and a slide-in menu below. */
-const DESKTOP = '(min-width: 768px)';
+/** The kit's `md` (768px): the sidebar is fixed from here up, and a slide-in menu below. */
+const DESKTOP = `(min-width: ${breakpoints.md})`;
 
 function skipToContent(event: MouseEvent<HTMLAnchorElement>) {
   event.preventDefault();

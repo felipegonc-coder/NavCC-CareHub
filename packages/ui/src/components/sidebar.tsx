@@ -4,7 +4,7 @@ import { cn } from '../lib/cn';
 /** One link row in the sidebar; `active` marks the current screen. 44 px tall on phones. */
 export function sidebarRowClasses({ active = false }: { active?: boolean } = {}): string {
   return cn(
-    'flex h-8 items-center gap-2 rounded px-2 text-small text-muted transition-colors hover:bg-fill-hover hover:text-fg focus-visible:outline-offset-[-2px] max-md:h-11 [&_svg]:size-4 [&_svg]:shrink-0',
+    'flex h-8 items-center gap-2 rounded px-2 text-small text-muted transition-colors hover:bg-fill-hover hover:text-fg focus-visible:outline-offset-inset max-md:h-11 [&_svg]:size-4 [&_svg]:shrink-0',
     active && 'bg-fill-hover font-medium text-fg',
   );
 }

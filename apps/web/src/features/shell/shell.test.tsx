@@ -1,12 +1,14 @@
 import { ThemeProvider } from '@carehub/ui';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { House, MessageSquare } from 'lucide-react';
+import type { ReactElement } from 'react';
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppLayout } from '../../shell/AppLayout';
+import { NotFoundPage } from '../../shell/NotFoundPage';
+import { loadSlots, mergeSlots, type SidebarItem, type SidebarSection } from '../../slots';
 import { AppShell } from './app-shell';
 import { ShellHeader } from './header';
-import { Component as NotFound } from './not-found';
-import type { SidebarItem, SidebarSection } from './types';
 
 // A fake window width for the shell's media query.
 let width = 1280;
@@ -37,7 +39,7 @@ afterEach(() => {
   listeners.clear();
 });
 
-const items: SidebarItem[] = [
+const unsortedItems: SidebarItem[] = [
   {
     id: 'messages',
     label: 'Messages',
@@ -48,6 +50,8 @@ const items: SidebarItem[] = [
   },
   { id: 'home', label: 'Home', icon: House, to: '/', order: 10 },
 ];
+// The shell shows slots as merged: sorted by order.
+const items = mergeSlots([{ sidebarItems: unsortedItems }]).sidebarItems;
 
 // Browsers read "Messages, 3 new"; jsdom puts a space between the spans ("Messages , 3 new").
 const badgeName = /^Messages ?, 3 new$/;
@@ -64,21 +68,26 @@ function Screen({ title }: { title: string }) {
 }
 
 // MemoryRouter rather than a data router: jsdom's AbortSignal breaks data-router navigation.
-function renderShell(path: string, sections: SidebarSection[] = []) {
+function renderShell(path: string, sections: SidebarSection[] = [], layout?: ReactElement) {
   render(
     <ThemeProvider>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route
             element={
-              <AppShell items={items} sections={sections}>
-                <Outlet />
-              </AppShell>
+              layout ?? (
+                <AppShell
+                  items={items}
+                  sections={mergeSlots([{ sidebarSections: sections }]).sidebarSections}
+                >
+                  <Outlet />
+                </AppShell>
+              )
             }
           >
             <Route path="/" element={<Screen title="Home" />} />
             <Route path="/messages" element={<Screen title="Messages" />} />
-            <Route path="*" element={<NotFound />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -102,7 +111,7 @@ describe('AppShell', () => {
     expect(screen.queryByRole('button', { name: 'Open menu' })).not.toBeInTheDocument();
   });
 
-  it('shows sections in order and hides one that breaks', () => {
+  it('shows sections in slot order and hides one that breaks', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     renderShell('/', [
       { id: 'upcoming', order: 20, Component: () => <p>Upcoming events</p> },
@@ -164,5 +173,30 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: 'Go to Home' })).toHaveAttribute('href', '/');
     expect(screen.getAllByRole('main')).toHaveLength(1);
     expect(document.title).toBe('Care Hub · Not found');
+  });
+});
+
+describe('AppLayout', () => {
+  afterEach(() => loadSlots([]));
+
+  it('reads the sidebar items and sections from the loaded slots', async () => {
+    await loadSlots([
+      async () => ({
+        slots: {
+          sidebarItems: unsortedItems,
+          sidebarSections: [{ id: 'upcoming', order: 10, Component: () => <p>Upcoming events</p> }],
+        },
+      }),
+    ]);
+    renderShell('/', [], <AppLayout />);
+    const nav = screen.getByRole('navigation', { name: 'Sidebar' });
+    const links = within(nav).getAllByRole('link');
+    expect(links.map((link: HTMLElement) => link.textContent)).toEqual([
+      'Home',
+      expect.stringMatching(/^Messages/),
+      'Settings',
+    ]);
+    expect(within(nav).getByText('Upcoming events')).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toBeVisible();
   });
 });

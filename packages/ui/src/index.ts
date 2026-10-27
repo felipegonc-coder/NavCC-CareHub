@@ -28,6 +28,8 @@ export * from './components/logo';
 export * from './components/misc';
 export * from './components/popover';
 export * from './components/select';
+export * from './components/sheet';
+export * from './components/sidebar';
 export * from './components/spinner';
 export * from './components/switch';
 export * from './components/tabs';

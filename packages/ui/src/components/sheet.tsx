@@ -26,11 +26,11 @@ export function SheetContent({
 }: SheetContentProps) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/50" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-40 animate-fade-in bg-overlay/50" />
       <DialogPrimitive.Content
         aria-describedby={undefined}
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-sidebar max-w-[85vw] animate-slide-in-left flex-col bg-bg text-fg shadow-dialog focus:outline-none',
+          'fixed inset-y-0 left-0 z-50 flex w-sidebar max-w-full animate-slide-in-left flex-col bg-bg text-fg shadow-dialog focus:outline-none',
           className,
         )}
         {...props}

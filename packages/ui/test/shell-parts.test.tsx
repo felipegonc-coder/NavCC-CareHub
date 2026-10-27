@@ -2,7 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Menu, Plus } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
+import preset from '../tailwind-preset';
 import {
+  breakpoints,
   Dialog,
   DialogTrigger,
   IconButton,
@@ -68,5 +70,12 @@ describe('SidebarGroup', () => {
     const group = screen.getByRole('group', { name: 'Favorites' });
     expect(group).toContainElement(screen.getByRole('link', { name: 'Visit notes' }));
     expect(group).toContainElement(screen.getByRole('button', { name: 'New page' }));
+  });
+});
+
+describe('breakpoints', () => {
+  it('gives md: the width where the app shell switches to the phone layout', () => {
+    expect(breakpoints.md).toBe('768px');
+    expect(preset.theme.extend.screens).toEqual({ md: breakpoints.md });
   });
 });

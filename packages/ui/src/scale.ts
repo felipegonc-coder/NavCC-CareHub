@@ -73,6 +73,9 @@ export const outlineOffsets = { inset: '-2px' } as const;
 /** `z-toast`: toasts stay above dialogs and menus (`z-50`). */
 export const layers = { toast: '100' } as const;
 
+/** `md:` starts at 768px, as in Tailwind. Narrower is the phone layout (the sidebar slides in). */
+export const breakpoints = { md: '768px' } as const;
+
 /**
  * The CSS variables (`--ch-space-2`, `--ch-radius`, `--ch-text-small` ...), with the same values
  * as the Tailwind classes. Step 1.5 is written `--ch-space-1_5`.
