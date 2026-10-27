@@ -78,22 +78,20 @@ function readString(raw: unknown, key: string): string | null {
   return typeof value === 'string' ? value.slice(0, 100) : null;
 }
 
+/** A batch split by ProgressEventSchema: the events that pass, and invalid_event for the rest. */
+export type CheckedProgressEvents = { valid: ProgressEvent[]; rejected: RejectedEvent[] };
+
 /**
- * Replays one learner's events for one course version into their state. Deterministic: events are
- * sorted by time, then id, and a repeated id is dropped. Events that aren't valid or come too early
- * (locked lesson, hidden block, minimum time not spent, ...) change nothing and are listed in
- * `rejected` with a reason. Anti-tamper: a time_active event counts 1 to 60 s, total active time
- * never exceeds the span of the accepted events + 60 s, quiz plans must pass isPlanFor, and every
- * answer is scored again here.
+ * Checks each event on its own, so one bad event doesn't spoil a batch. Rejections keep the id,
+ * type and time when they can be read, so the player can drop the event from its queue.
  */
-export function reduceProgress(course: Course, events: readonly unknown[]): LearnerCourseState {
+export function checkProgressEvents(events: readonly unknown[]): CheckedProgressEvents {
+  const valid: ProgressEvent[] = [];
   const rejected: RejectedEvent[] = [];
-  const valid: { event: ProgressEvent; time: number; key: string }[] = [];
   for (const raw of events) {
     const parsed = ProgressEventSchema.safeParse(raw);
-    const time = parsed.success ? Date.parse(parsed.data.at) : Number.NaN;
-    if (parsed.success && Number.isFinite(time)) {
-      valid.push({ event: parsed.data, time, key: JSON.stringify(parsed.data) });
+    if (parsed.success && Number.isFinite(Date.parse(parsed.data.at))) {
+      valid.push(parsed.data);
     } else {
       rejected.push({
         eventId: readString(raw, 'id'),
@@ -103,12 +101,27 @@ export function reduceProgress(course: Course, events: readonly unknown[]): Lear
       });
     }
   }
-  valid.sort(
-    (a, b) => a.time - b.time || compareText(a.event.id, b.event.id) || compareText(a.key, b.key),
-  );
+  return { valid, rejected };
+}
+
+/**
+ * Replays one learner's events for one course version into their state. Deterministic: events are
+ * sorted by time, then id, and a repeated id is dropped. Events that aren't valid or come too early
+ * (locked lesson, hidden block, minimum time not spent, ...) change nothing and are listed in
+ * `rejected` with a reason. Anti-tamper: a time_active event counts 1 to 60 s, total active time
+ * never exceeds the span of the accepted events + 60 s, quiz plans must pass isPlanFor, and every
+ * answer is scored again here.
+ */
+export function reduceProgress(course: Course, events: readonly unknown[]): LearnerCourseState {
+  const { valid, rejected } = checkProgressEvents(events);
+  const ordered = valid
+    .map((event) => ({ event, time: Date.parse(event.at), key: JSON.stringify(event) }))
+    .sort(
+      (a, b) => a.time - b.time || compareText(a.event.id, b.event.id) || compareText(a.key, b.key),
+    );
   const run = new CourseRun(course);
   const seen = new Set<Id>();
-  for (const { event, time } of valid) {
+  for (const { event, time } of ordered) {
     if (seen.has(event.id)) continue;
     seen.add(event.id);
     const rejection = run.apply(event, time);
