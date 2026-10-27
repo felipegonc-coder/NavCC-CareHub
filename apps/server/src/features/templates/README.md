@@ -63,12 +63,11 @@ refuses until it's bound (403, or "missing" and 404), and is marked `// stand-in
 - the person and their permissions: core's `request.member` (accounts 1b);
 - pages, levels, sub-pages, spaces, `createPage`, `setPageTitle`, `getPrivateSpaceId`: pages #49;
 - `getPageMarkdown`, `setPageContentFromMarkdown`, `page.updated`: collab #197/#200;
-- `saveVersionNow`: History's, from `../history` once #317 is on main; until then no version is saved,
-  as with History's own until pages land;
 - `duplicateDatabase`, `createDatabase`, row counts, `runRowWrites`, `createRow`, `updateRows`,
   `findRowIds`, `trashRows` and `readRow`: the Databases lane's `api.ts`;
 - the people a button's message reaches (people, groups, roles, everyone): accounts S1.
 
-`sendNotice` is the notices feature's own.
+`sendNotice` is the notices feature's own, and `saveVersionNow` is History's (it saves no version
+until pages land).
 
 Tests bind fakes with `bindTemplatesCore`. When a feature lands, its line in `core.ts` calls it.
