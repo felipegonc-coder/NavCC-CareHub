@@ -1,7 +1,8 @@
 import { createPageSchema } from '@carehub/editor/schema';
 import MarkdownIt from 'markdown-it';
-import { isSafeValue, type SchemaInfo } from './check';
-import { MAX_DEPTH, isRecord, toText, type PageMark, type PageNode } from './ydoc';
+import type { SchemaInfo } from './check';
+import { cleanContent } from './clean';
+import { MAX_DEPTH, toText, type PageMark, type PageNode } from './ydoc';
 
 /**
  * Page content as Markdown, for export, imports and templates (decision 0007, section 4.2).
@@ -27,6 +28,19 @@ const HTML_MARKS = new Map<string, string>([
   ['del', 'strike'],
 ]);
 const PLACEHOLDER = /^<!--\s*carehub:(block|inline)\s+(\{[\s\S]*\})\s*-->$/;
+/**
+ * Lists and quotes nested deeper than this go out as one comment each: every level indents
+ * all the lines inside it, so deep nesting would multiply the size of the export.
+ */
+const MARKDOWN_DEPTH = 8;
+/**
+ * A code block in lists and quotes takes their indent on every line. When that adds more than
+ * this and more than the code itself, the block goes out as a comment instead.
+ */
+const CODE_GROWTH = 4_096;
+const CONTAINERS = new Set(['blockquote', 'bulletList', 'orderedList', 'taskList']);
+/** CommonMark list numbers have at most nine digits. */
+const MAX_LIST_NUMBER = 999_999_999;
 
 // Raw HTML is read only to find placeholders and <u>/<br>; anything else stays visible as text.
 // Tables read as text until pages have a table block.
@@ -41,17 +55,22 @@ let schema: PageSchema | undefined;
 // --- Export ---------------------------------------------------------------------------------
 
 export function toMarkdown(nodes: readonly PageNode[], info: SchemaInfo): string {
-  const text = blocksToMarkdown(nodes, info, 0);
+  const text = blocksToMarkdown(nodes, info, { depth: 0, indent: 0 });
   return text ? `${text}\n` : '';
+}
+
+/** Where blocks go: how many lists and quotes are around them, and how far that indents them. */
+interface Level {
+  depth: number;
+  indent: number;
 }
 
 function blocksToMarkdown(
   nodes: readonly PageNode[],
   info: SchemaInfo,
-  depth: number,
+  level: Level,
   inItem = false,
 ): string {
-  if (depth > MAX_DEPTH) return '';
   const blocks: string[] = [];
   let previous = '';
   let alt = false;
@@ -59,7 +78,7 @@ function blocksToMarkdown(
     // Lists of one kind next to each other would read as one list, so they take turns at markers.
     const kind = LIST_KINDS[node.type] ?? '';
     alt = kind !== '' && kind === previous ? !alt : false;
-    const text = blockToMarkdown(node, info, depth, alt);
+    const text = blockToMarkdown(node, info, level, alt);
     if (text === '' && !(inItem && blocks.length === 0)) continue;
     blocks.push(text);
     previous = kind;
@@ -75,13 +94,18 @@ const LIST_KINDS: Record<string, string> = {
   orderedList: 'ordered',
 };
 
-function blockToMarkdown(node: PageNode, info: SchemaInfo, depth: number, alt: boolean): string {
+function blockToMarkdown(node: PageNode, info: SchemaInfo, level: Level, alt: boolean): string {
+  if (level.depth >= MARKDOWN_DEPTH && CONTAINERS.has(node.type)) return placeholder('block', node);
   const content = node.content ?? [];
+  const inside = (prefix: string): Level => ({
+    depth: level.depth + 1,
+    indent: level.indent + prefix.length,
+  });
   const items = (marker: (item: PageNode, index: number) => [string, string]) =>
     content
       .map((item, index) => {
         const [first, rest] = marker(item, index);
-        const body = blocksToMarkdown(item.content ?? [], info, depth + 1, true);
+        const body = blocksToMarkdown(item.content ?? [], info, inside(rest), true);
         return prefixLines(body, first, rest);
       })
       .join('\n');
@@ -89,15 +113,15 @@ function blockToMarkdown(node: PageNode, info: SchemaInfo, depth: number, alt: b
     case 'paragraph':
       return inlineToMarkdown(content, info, true);
     case 'heading': {
-      const level = Math.min(3, Math.max(1, Number(node.attrs?.level) || 1));
-      return `${'#'.repeat(level)} ${inlineToMarkdown(content, info)}`;
+      const hashes = '#'.repeat(Math.min(3, Math.max(1, Number(node.attrs?.level) || 1)));
+      return `${hashes} ${inlineToMarkdown(content, info)}`;
     }
     case 'blockquote':
-      return prefixLines(blocksToMarkdown(content, info, depth + 1), '> ', '> ');
+      return prefixLines(blocksToMarkdown(content, info, inside('> ')), '> ', '> ');
     case 'bulletList':
       return items(() => [alt ? '* ' : '- ', '  ']);
     case 'orderedList': {
-      const start = Number(node.attrs?.start ?? 1) || 1;
+      const start = listStart(node.attrs?.start, content.length);
       return items((_, index) => {
         const marker = `${start + index}${alt ? ')' : '.'} `;
         return [marker, ' '.repeat(marker.length)];
@@ -106,7 +130,7 @@ function blockToMarkdown(node: PageNode, info: SchemaInfo, depth: number, alt: b
     case 'taskList':
       return items((item) => [`${alt ? '*' : '-'} [${item.attrs?.checked ? 'x' : ' '}] `, '  ']);
     case 'codeBlock':
-      return codeBlockToMarkdown(node);
+      return codeBlockToMarkdown(node, level.indent);
     case 'horizontalRule':
       return '---';
     default:
@@ -114,12 +138,27 @@ function blockToMarkdown(node: PageNode, info: SchemaInfo, depth: number, alt: b
   }
 }
 
-function codeBlockToMarkdown(node: PageNode): string {
+/** A list's first number: a whole number from 0 that keeps the last one within nine digits. */
+function listStart(value: unknown, items: number): number {
+  const start = Math.trunc(Number(value ?? 1));
+  if (!Number.isFinite(start)) return 1;
+  return Math.max(0, Math.min(start, MAX_LIST_NUMBER - Math.max(0, items - 1)));
+}
+
+function codeBlockToMarkdown(node: PageNode, indent: number): string {
   const code = (node.content ?? []).map((child) => child.text ?? '').join('');
+  let lines = 2; // and the fences
+  for (let at = code.indexOf('\n'); at >= 0; at = code.indexOf('\n', at + 1)) lines += 1;
+  if (indent * lines > Math.max(CODE_GROWTH, code.length)) return placeholder('block', node);
   const language = typeof node.attrs?.language === 'string' ? node.attrs.language : '';
-  const longest = Math.max(2, ...(code.match(/`+/g) ?? []).map((run) => run.length));
-  const fence = '`'.repeat(longest + 1);
+  const fence = '`'.repeat(Math.max(2, longestBackticks(code)) + 1);
   return `${fence}${language.replace(/[`\s]/g, '')}\n${code}\n${fence}`;
+}
+
+function longestBackticks(text: string): number {
+  let longest = 0;
+  for (const [run] of text.matchAll(/`+/g)) longest = Math.max(longest, run.length);
+  return longest;
 }
 
 /**
@@ -149,8 +188,11 @@ function serializeInline(nodes: readonly PageNode[], info: SchemaInfo, html: boo
   const closeTo = (keep: number) => {
     if (open.length <= keep) return;
     // Emphasis can't end after a space, so trailing spaces move past the closing delimiters.
-    const trailing = /[ \t]*$/.exec(out)?.[0] ?? '';
-    out = out.slice(0, out.length - trailing.length);
+    // Found from the end: a /[ \t]*$/ search takes quadratic time on a long run of spaces.
+    let end = out.length;
+    while (end > 0 && (out[end - 1] === ' ' || out[end - 1] === '\t')) end -= 1;
+    const trailing = out.slice(end);
+    out = out.slice(0, end);
     while (open.length > keep) {
       const mark = open.pop();
       if (mark) out += closer(mark, html);
@@ -248,8 +290,7 @@ function closer(mark: PageMark, html: boolean): string {
 }
 
 function codeSpan(text: string): string {
-  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
-  const fence = '`'.repeat(longest + 1);
+  const fence = '`'.repeat(longestBackticks(text) + 1);
   // Markdown drops one space from each end of a code span that has both, and needs one by a `.
   const spaced = text.trim() !== '' && text.startsWith(' ') && text.endsWith(' ');
   const pad = spaced || text.startsWith('`') || text.endsWith('`') ? ' ' : '';
@@ -313,7 +354,7 @@ export function fromMarkdown(markdown: string, info: SchemaInfo): PageNode[] {
         open({ type: 'bulletList' });
         break;
       case 'ordered_list_open': {
-        const start = Number(token.attrGet('start') ?? 1) || 1;
+        const start = listStart(token.attrGet('start'), 1);
         open(start === 1 ? { type: 'orderedList' } : { type: 'orderedList', attrs: { start } });
         break;
       }
@@ -327,7 +368,7 @@ export function fromMarkdown(markdown: string, info: SchemaInfo): PageNode[] {
           tasks.set(item, box[1] !== ' ');
         }
         const content = inlineNodes(token.children ?? [], info);
-        if (content.length > 0) (current().content ??= []).push(...content);
+        if (content.length > 0) current().content = [...(current().content ?? []), ...content];
         break;
       }
       case 'fence':
@@ -344,9 +385,11 @@ export function fromMarkdown(markdown: string, info: SchemaInfo): PageNode[] {
       case 'hr':
         append({ type: 'horizontalRule' });
         break;
-      case 'html_block':
-        append(readPlaceholder(token.content, 'block', info) ?? htmlParagraph(token.content, info));
+      case 'html_block': {
+        const node = readPlaceholder(token.content, 'block', info, stack.length - 1);
+        append(node ?? htmlParagraph(token.content, info));
         break;
+      }
       default:
         if (token.nesting === -1) stack.pop();
     }
@@ -412,7 +455,7 @@ function inlineNodes(tokens: readonly Token[], info: SchemaInfo): PageNode[] {
         } else if (type) marks.push({ type });
         else if (/^<br\s*\/?>$/i.test(html)) breakLine();
         else {
-          const node = readPlaceholder(html, 'inline', info);
+          const node = readPlaceholder(html, 'inline', info, 0);
           if (node) nodes.push(node);
           else add(html);
         }
@@ -492,57 +535,24 @@ function stripTaskBox(item: PageNode): void {
   if (paragraph.content?.length === 0) delete paragraph.content;
 }
 
+/** The node in a `carehub:` comment, if the comment is one and its node is safe. */
 function readPlaceholder(
   html: string,
   kind: 'block' | 'inline',
   info: SchemaInfo,
+  depth: number,
 ): PageNode | null {
   const match = PLACEHOLDER.exec(html.trim());
   if (!match || match[1] !== kind || !match[2]) return null;
+  let node: PageNode | null;
   try {
-    return cleanNode(JSON.parse(match[2]), info, 0);
+    node = cleanContent(JSON.parse(match[2]), info, depth);
   } catch {
     return null;
   }
-}
-
-/** A node from a placeholder, kept only if the schema knows it and its values are safe. */
-function cleanNode(value: unknown, info: SchemaInfo, depth: number): PageNode | null {
-  if (!isRecord(value) || typeof value.type !== 'string' || depth > MAX_DEPTH) return null;
-  if (value.type === 'text') {
-    if (typeof value.text !== 'string' || value.text === '') return null;
-    const marks = cleanMarks(value.marks, info);
-    return marks.length > 0
-      ? { type: 'text', text: value.text, marks }
-      : { type: 'text', text: value.text };
-  }
-  if (value.type === 'doc' || !info.nodes.has(value.type)) return null;
-  const node: PageNode = { type: value.type };
-  if (value.attrs !== undefined) {
-    if (!isSafeRecord(value.attrs, info)) return null;
-    node.attrs = value.attrs;
-  }
-  if (Array.isArray(value.content)) {
-    node.content = value.content.flatMap(
-      (child: unknown) => cleanNode(child, info, depth + 1) ?? [],
-    );
-  }
-  return node;
-}
-
-function cleanMarks(value: unknown, info: SchemaInfo): PageMark[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((mark: unknown) => {
-    if (!isRecord(mark) || typeof mark.type !== 'string' || !info.marks.has(mark.type)) return [];
-    if (mark.attrs === undefined) return [{ type: mark.type }];
-    return isSafeRecord(mark.attrs, info) ? [{ type: mark.type, attrs: mark.attrs }] : [];
-  });
-}
-
-function isSafeRecord(value: unknown, info: SchemaInfo): value is Record<string, unknown> {
-  return (
-    isRecord(value) && Object.entries(value).every(([key, item]) => isSafeValue(key, item, info, 1))
-  );
+  // Text is never kept in a comment, and only inline nodes go between words.
+  if (!node || node.type === 'text') return null;
+  return kind === 'block' || info.inline.has(node.type) ? node : null;
 }
 
 /**
