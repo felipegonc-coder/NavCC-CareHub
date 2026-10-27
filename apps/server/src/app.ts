@@ -80,11 +80,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(import('./features/notices/routes'), { prefix: '/api/notices' });
 
-  // feature: live
+  await app.register(import('./features/live/routes'), {
+    prefix: '/api/live',
+    getUserId: (request) => request.user?.id,
+  });
 
   await app.register(import('./features/push/routes'), { prefix: '/api/push' });
 
-  // feature: jobs
+  await app.register(import('./features/jobs/routes'), { prefix: '/api/jobs' });
 
   await app.register(import('./features/reminders/routes'), { prefix: '/api/reminders' });
 
