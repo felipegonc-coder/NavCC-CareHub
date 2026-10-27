@@ -163,8 +163,9 @@ test.describe('Forms: building and filling in', () => {
     });
 
     await test.step('A hand-made request with hidden answers is taken', async () => {
+      // The Name question's answer is the title itself, a plain string.
       const response = await sendAnswers(eli, form.form.linkCode, {
-        [name.id]: value.text(handMade),
+        [name.id]: handMade,
         [category.id]: optionId(category, 'Scheduling'),
         [urgent.id]: false,
         [reason.id]: value.text('Fictional hidden reason'),
@@ -228,7 +229,7 @@ test.describe('Forms: building and filling in', () => {
       await expect(fill.errors('Tick this box to continue.')).toHaveCount(1);
     });
 
-    await test.step('Hidden again it doesn\'t block; the tick box does', async () => {
+    await test.step("Hidden again it doesn't block; the tick box does", async () => {
       await fill.choose('Category', 'Billing');
       await fill.submit();
       await expect(fill.errors('Answer this question.')).toHaveCount(0);
