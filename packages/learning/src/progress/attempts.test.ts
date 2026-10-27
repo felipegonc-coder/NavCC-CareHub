@@ -14,8 +14,10 @@ const course = makeCourse({
   lessonOrder: 'sequential',
   lessons: [content('l1', [blocks.paragraph('p1')]), quiz('quiz', { maxAttempts: 2 })],
 });
-const attempt = (n: number) => ({ attemptId: `a${n}`, eventId: `start-${n}`, seed: 40 + n });
 const nine = (time: string) => `2026-10-27T09:${time}Z`;
+/** The server's clock for every request below. */
+const now = nine('30:00.000');
+const attempt = (n: number) => ({ attemptId: `a${n}`, eventId: `start-${n}`, seed: 40 + n, now });
 
 /** A learner who has finished lesson 1, so the quiz is open. */
 function readyForQuiz() {
@@ -35,7 +37,7 @@ describe('checkProgressEvents from a browser', () => {
       correct: true,
     };
     const withAnswer = { ...answered, id: 'ev-2', response: { type: 'true_false', value: true } };
-    expect(checkProgressEvents([answered, withAnswer])).toEqual({
+    expect(checkProgressEvents([answered, withAnswer], now)).toEqual({
       valid: [answered],
       rejected: [
         {
@@ -51,7 +53,7 @@ describe('checkProgressEvents from a browser', () => {
   it('refuses quiz_attempt_started, since only the server starts attempts', () => {
     const plan = planAttempt(quizLesson(course, 'quiz'), 7, 'a1');
     const started = { id: 'ev-1', at: nine('00:00.000'), type: 'quiz_attempt_started', plan };
-    expect(checkProgressEvents([{ ...started, lessonId: 'quiz' }])).toEqual({
+    expect(checkProgressEvents([{ ...started, lessonId: 'quiz' }], now)).toEqual({
       valid: [],
       rejected: [
         { eventId: 'ev-1', type: 'quiz_attempt_started', at: started.at, reason: 'server_only' },
@@ -99,6 +101,22 @@ describe('quizAttemptStart', () => {
       at: nine('06:00.000'),
     });
     expect(again).toEqual({ kind: 'resume', plan: first.event.plan, startedAt: first.event.at });
+  });
+
+  it("refuses a start dated more than 2 minutes after the server's clock", () => {
+    const events = readyForQuiz().events;
+    const start = (at: string) =>
+      quizAttemptStart(course, events, { lessonId: 'quiz', ...attempt(1), at });
+    expect(start(nine('32:00.000')).kind).toBe('start');
+    expect(start(nine('32:00.001'))).toEqual({
+      kind: 'refused',
+      rejection: {
+        eventId: 'start-1',
+        type: 'quiz_attempt_started',
+        at: nine('32:00.001'),
+        reason: 'future',
+      },
+    });
   });
 
   it('refuses unknown lessons, content lessons, locked quizzes and used-up attempts', () => {
