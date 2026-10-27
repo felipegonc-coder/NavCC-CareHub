@@ -36,6 +36,13 @@ export function createMemoryReminderStore(): MemoryReminderStore {
       const reminder = find(id);
       return reminder ? copy(reminder) : null;
     },
+    async listForOwner(_db, { userId, workspaceId }, sentSince) {
+      const sent = (r: Reminder) => (r.sentAt ?? sentSince) >= sentSince;
+      return reminders
+        .filter((r) => r.userId === userId && r.workspaceId === workspaceId)
+        .filter((r) => isPending(r) || ((r.status === 'sent' || r.status === 'done') && sent(r)))
+        .map(copy);
+    },
     async listForEvent(_db, eventId) {
       return reminders
         .filter((r) => r.status !== 'deleted')
@@ -73,6 +80,7 @@ export function bindMemoryReminders(overrides: Partial<RemindersRuntime> = {}) {
       return { noticeId: randomUUID(), grouped: false };
     },
     publish: () => undefined,
+    canOpenPage: async () => true,
     ...overrides,
   };
   const unbind = bindReminders(runtime);

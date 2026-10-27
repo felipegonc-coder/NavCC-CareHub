@@ -47,7 +47,10 @@ export function Field({
   );
   const inline = layout === 'inline';
   const labelElement = (
-    <Label htmlFor={controlId}>
+    <Label
+      htmlFor={controlId}
+      className={cn(inline && 'max-md:flex max-md:min-h-11 max-md:items-center')}
+    >
       {label}
       {required && (
         <span aria-hidden className="text-danger">

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { afterAll, it } from 'vitest';
+import { afterAll, expect, it } from 'vitest';
+import { createJobRunner } from './domain/runner';
 import { describeJobStoreContract } from './domain/storeContract';
 import { sqlRunnerFor, type SqlExecutor } from './sql';
 import { createPostgresJobStore, type SqlRunner } from './store';
@@ -11,7 +12,10 @@ interface PgClient extends SqlRunner {
   end(): Promise<void>;
 }
 type PgModule = { Client: new (config: { connectionString: string }) => PgClient };
-type DrizzleModule = { drizzle: (client: PgClient) => SqlExecutor };
+interface DrizzleDb extends SqlExecutor {
+  transaction<T>(run: (tx: SqlExecutor) => Promise<T>): Promise<T>;
+}
+type DrizzleModule = { drizzle: (client: PgClient) => DrizzleDb };
 
 const url = process.env.DATABASE_URL ?? '';
 
@@ -36,25 +40,31 @@ afterAll(async () => {
   }
 });
 
+/** A client on `schema`, or on a fresh schema made with the real migrations. */
+async function connect(schema?: string): Promise<{ client: PgClient; schema: string }> {
+  if (!pg) throw new Error('pg is missing');
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  const name = schema ?? `jobs_test_${randomUUID().replaceAll('-', '')}`;
+  opened.push({ client, schema: name });
+  if (!schema) await client.query(`CREATE SCHEMA ${name}`);
+  await client.query(`SET search_path TO ${name}`);
+  if (schema) return { client, schema: name };
+  // Every jobs migration, in order.
+  const folder = new URL('../../../migrations/', import.meta.url);
+  const files = (await readdir(folder)).filter((file) => /^\d{12}_jobs_.*\.sql$/.test(file));
+  for (const file of files.sort()) {
+    await client.query(await readFile(new URL(file, folder), 'utf8'));
+  }
+  return { client, schema: name };
+}
+
 // Straight on a node-postgres client, and through Drizzle as on `app.db`.
 const drivers = pg ? (drizzle ? (['pg', 'drizzle'] as const) : (['pg'] as const)) : [];
 
 for (const driver of drivers) {
   describeJobStoreContract(`postgres store (${driver})`, async () => {
-    if (!pg) throw new Error('pg is missing');
-    // A fresh schema per test, made with the real migration.
-    const client = new pg.Client({ connectionString: url });
-    await client.connect();
-    const schema = `jobs_test_${randomUUID().replaceAll('-', '')}`;
-    opened.push({ client, schema });
-    await client.query(`CREATE SCHEMA ${schema}`);
-    await client.query(`SET search_path TO ${schema}`);
-    // Every jobs migration, in order.
-    const folder = new URL('../../../migrations/', import.meta.url);
-    const files = (await readdir(folder)).filter((name) => /^\d{12}_jobs_.*\.sql$/.test(name));
-    for (const name of files.sort()) {
-      await client.query(await readFile(new URL(name, folder), 'utf8'));
-    }
+    const { client } = await connect();
     return createPostgresJobStore(
       driver === 'drizzle' && drizzle ? sqlRunnerFor(drizzle.drizzle(client)) : client,
     );
@@ -62,4 +72,38 @@ for (const driver of drivers) {
 }
 if (drivers.length === 0) {
   it.skip('postgres store contract (needs DATABASE_URL and pg)', () => {});
+} else {
+  it('queues a job through a caller’s transaction, only if it commits', async () => {
+    const { client, schema } = await connect();
+    const other = (await connect(schema)).client;
+    const runner = createJobRunner({ store: createPostgresJobStore(client) });
+    const queue = (key: string, sql: SqlRunner) =>
+      runner.schedule({ kind: 'reminders.fire', payload: {}, key }, { sql });
+
+    await other.query('BEGIN');
+    const kept = await queue('kept', other);
+    expect(await runner.get(kept.jobId)).toBeNull();
+    await other.query('COMMIT');
+    expect(await runner.get(kept.jobId)).toMatchObject({ key: 'kept', status: 'queued' });
+
+    await other.query('BEGIN');
+    const dropped = await queue('dropped', other);
+    await other.query('ROLLBACK');
+    expect(await runner.get(dropped.jobId)).toBeNull();
+
+    if (!drizzle) return;
+    // As features do it: scheduleJob(input, { db: tx }) inside app.db.transaction().
+    const db = drizzle.drizzle(other);
+    let jobId = '';
+    const rolledBack = db.transaction(async (tx) => {
+      jobId = (await queue('drizzle', sqlRunnerFor(tx))).jobId;
+      throw new Error('Roll back.');
+    });
+    await expect(rolledBack).rejects.toThrow('Roll back.');
+    expect(await runner.get(jobId)).toBeNull();
+    await db.transaction(async (tx) => {
+      jobId = (await queue('drizzle', sqlRunnerFor(tx))).jobId;
+    });
+    expect(await runner.get(jobId)).toMatchObject({ key: 'drizzle', status: 'queued' });
+  });
 }
