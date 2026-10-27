@@ -253,6 +253,8 @@ describe('button formulas', () => {
       evaluate: buttonEvaluator(formulas, databaseOf),
       formulaReads: buttonFormulaReads,
       userName: (id) => (id === 'u_avery' ? 'Avery Lin' : undefined),
+      membersOf: () => null,
+      everyone: () => [],
     };
     const plan = planRun(button, CASE_ROW, ctx);
     if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
