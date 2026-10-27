@@ -31,7 +31,7 @@ export const onMain = {
   coEditing: false,
 
   /** Live updates and jobs in app.ts (#288): others' changes show without a reload. */
-  liveUpdates: false,
+  liveUpdates: true,
 
   /** Sharing: the share dialog, access levels, guests and share links. */
   sharing: false,
@@ -104,6 +104,12 @@ export const onMain = {
 
   /** Automations: triggers, actions and "Try it now". */
   automations: false,
+
+  /**
+   * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with
+   * CAREHUB_TEST_HOOKS=1 in the e2e server's env.
+   */
+  jobsTestHooks: false,
 
   /** Analytics (Admins only). */
   analytics: false,
