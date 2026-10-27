@@ -34,7 +34,10 @@ export const historyQuerySchema = z
   });
 export type HistoryQuery = z.infer<typeof historyQuerySchema>;
 
-/** The chat list: `unread=true` keeps chats with unread messages (Home), `limit` the first ones. */
+/**
+ * The chat list: `unread=true` keeps the chats that count toward the badge (Home): unread
+ * messages, or unread @mentions when muted. `limit` keeps the first ones.
+ */
 export const chatListQuerySchema = z.object({
   unread: z.stringbool().default(false),
   limit: z.coerce.number().int().min(1).max(100).optional(),
@@ -111,12 +114,15 @@ export interface ChatJson extends UnreadCounts {
 /** Names for everyone an answer mentions; `removed` for people no longer in the workspace. */
 export type PeopleJson = Record<string, PersonLabel>;
 
+/** `viewerId` is the signed-in person: the web needs it for chat titles and its own messages. */
 export interface ChatListResponse {
+  viewerId: string;
   chats: ChatJson[];
   people: PeopleJson;
 }
 
 export interface ChatResponse {
+  viewerId: string;
   chat: ChatJson;
   people: PeopleJson;
 }
@@ -148,4 +154,17 @@ export interface ReadResponse extends UnreadCounts {
 /** The Messages part of the sidebar badge (`badgeCount`); the 🔔 Care Hub chat adds its own. */
 export interface UnreadResponse {
   count: number;
+}
+
+/** Someone the viewer can message (New message, Add people): members of the workspace, not guests. */
+export interface PersonOptionJson {
+  id: string;
+  name: string;
+  jobTitle: string | null;
+  avatarUrl: string | null;
+}
+
+/** Everyone the viewer can message, by name; the viewer isn't in it. */
+export interface PeopleListResponse {
+  people: PersonOptionJson[];
 }
