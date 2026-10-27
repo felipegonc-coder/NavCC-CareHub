@@ -137,7 +137,12 @@ function PrintPage({ view, openAll }: { view: PrintView; openAll: boolean }) {
           ))}
         </dl>
       )}
-      <PageBlocks blocks={view.blocks} pages={view.pages} openAll={openAll} />
+      <PageBlocks
+        blocks={view.blocks}
+        pages={view.pages}
+        databases={view.databases}
+        openAll={openAll}
+      />
     </>
   );
 }

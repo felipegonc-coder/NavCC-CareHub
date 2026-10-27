@@ -1,5 +1,5 @@
 import { blocksOf } from '@carehub/extras/import-export/export/content';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { PageBlocks, printHref } from './PageBlocks';
 
@@ -69,6 +69,36 @@ describe('PageBlocks', () => {
     const links = screen.getAllByRole('link', { name: '📋 Intake checklist' });
     expect(links).toHaveLength(2);
     for (const link of links) expect(link).toHaveAttribute('href', `/p/${LINKED}`);
+    expect(screen.getByText('No access')).toBeInTheDocument();
+  });
+
+  it('shows the inline databases they can open as their view, as tables', () => {
+    const VIEW = '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e';
+    render(
+      <PageBlocks
+        blocks={blocksOf([
+          { type: 'inlineDatabase', attrs: { databaseId: LINKED, viewId: VIEW } },
+          { type: 'inlineDatabase', attrs: { databaseId: LINKED } },
+          { type: 'inlineDatabase', attrs: { databaseId: HIDDEN } },
+        ])}
+        pages={pages}
+        databases={[
+          {
+            databaseId: LINKED,
+            viewId: VIEW,
+            rows: [['Client', 'Visits'], ['Rowan Diaz', '4'], ['Sam Ortiz']],
+          },
+        ]}
+        openAll={false}
+      />,
+    );
+    const table = screen.getByRole('table', { name: '📋 Intake checklist' });
+    const headers = within(table).getAllByRole('columnheader');
+    expect(headers.map((header) => header.textContent)).toEqual(['Client', 'Visits']);
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    expect(within(table).getAllByRole('cell')).toHaveLength(4);
+    // Without its view's rows it's a link to the database, and No access when they can't open it.
+    expect(screen.getAllByRole('link', { name: '📋 Intake checklist' })).toHaveLength(2);
     expect(screen.getByText('No access')).toBeInTheDocument();
   });
 

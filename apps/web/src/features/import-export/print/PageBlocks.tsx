@@ -19,11 +19,13 @@ import { altOf, iconOf, texOf } from '@carehub/extras/import-export/export/rende
 import { cn, colorClasses } from '@carehub/ui';
 import { Paperclip, Square, SquareCheckBig } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { PrintLinkedPage } from './api';
+import type { PrintDatabase, PrintLinkedPage } from './api';
 
 interface PrintContext {
   /** The pages the content points at: their title if they can open them, else null. */
   pages: Readonly<Record<string, PrintLinkedPage | null>>;
+  /** The inline databases they can open, as their view's rows. */
+  databases: readonly PrintDatabase[];
   openAll: boolean;
 }
 
@@ -213,6 +215,53 @@ function Table({ node, ctx }: { node: ContentNode; ctx: PrintContext }) {
   );
 }
 
+/** An inline database as its view shows it: titled by the database, header row first. */
+function DatabaseTable({
+  id,
+  page,
+  rows,
+}: {
+  id: string;
+  page: PrintLinkedPage;
+  rows: readonly (readonly string[])[];
+}) {
+  const [head, ...body] = rows;
+  if (!head) {
+    return (
+      <p>
+        <PageLink id={id} page={page} />
+      </p>
+    );
+  }
+  return (
+    <table className="w-full table-fixed border-collapse break-words text-small">
+      <caption className="pb-2 text-left font-semibold">
+        <PageLink id={id} page={page} />
+      </caption>
+      <thead>
+        <tr>
+          {head.map((name, index) => (
+            <th key={index} scope="col" className="border p-2 text-left align-top font-semibold">
+              {name}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {body.map((row, index) => (
+          <tr key={index}>
+            {head.map((_, column) => (
+              <td key={column} className="whitespace-pre-line border p-2 align-top">
+                {row[column] ?? ''}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function Picture({ node }: { node: ContentNode }) {
   const fileId = fileIdOf(node);
   const source = attrText(node, 'src', 'url');
@@ -329,9 +378,14 @@ function Block({ node, ctx }: { node: ContentNode; ctx: PrintContext }): ReactNo
       const id = pageIdOf(node);
       if (!isContentId(id)) return null;
       const page = ctx.pages[id];
-      return (
+      if (!page) return <p className="text-muted">No access</p>;
+      const viewId = attrText(node, 'viewId') ?? null;
+      const table = ctx.databases.find((db) => db.databaseId === id && db.viewId === viewId);
+      return roleOf(node) === 'database' && table ? (
+        <DatabaseTable id={id} page={page} rows={table.rows} />
+      ) : (
         <p>
-          {page ? <PageLink id={id} page={page} /> : <span className="text-muted">No access</span>}
+          <PageLink id={id} page={page} />
         </p>
       );
     }
@@ -374,10 +428,14 @@ function Blocks({
 export interface PageBlocksProps {
   blocks: readonly ContentNode[];
   pages: Readonly<Record<string, PrintLinkedPage | null>>;
+  /** The inline databases to show as tables; one without its rows shows as a link. */
+  databases?: readonly PrintDatabase[];
   /** Shows every toggle open; otherwise each is as it was left. */
   openAll: boolean;
 }
 
-export function PageBlocks({ blocks, pages, openAll }: PageBlocksProps) {
-  return <Blocks nodes={blocks} ctx={{ pages, openAll }} />;
+const NO_DATABASES: readonly PrintDatabase[] = [];
+
+export function PageBlocks({ blocks, pages, databases = NO_DATABASES, openAll }: PageBlocksProps) {
+  return <Blocks nodes={blocks} ctx={{ pages, databases, openAll }} />;
 }
