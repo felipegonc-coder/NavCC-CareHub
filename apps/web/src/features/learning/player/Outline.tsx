@@ -1,5 +1,5 @@
 import type { CourseOutline, OutlineLessonStatus } from '@carehub/learning';
-import { cn, VisuallyHidden } from '@carehub/ui';
+import { cn } from '@carehub/ui';
 import { Circle, CircleCheck, CircleDot, Lock, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router';
 
@@ -32,6 +32,7 @@ export function Outline({ outline, onPick }: OutlineProps) {
                 to={row.href}
                 onClick={onPick}
                 aria-current={row.current ? 'page' : undefined}
+                aria-label={`${row.number}. ${row.title}, ${row.statusText}`}
                 title={row.lockedReason}
                 className={cn(
                   'flex min-h-11 items-center gap-3 rounded px-3 py-2 text-small text-fg',
@@ -50,7 +51,6 @@ export function Outline({ outline, onPick }: OutlineProps) {
                 />
                 <span className="min-w-0 flex-1 break-words">
                   {row.number}. {row.title}
-                  <VisuallyHidden>, {row.statusText}</VisuallyHidden>
                 </span>
               </Link>
             </li>
