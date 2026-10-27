@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { meResponseSchema, readCsrfToken } from './index';
+import { meResponseSchema, passwordProblem, readCsrfToken, signInBodySchema } from './index';
 
 describe('readCsrfToken', () => {
   it('reads the __Host- cookie first, then the plain one', () => {
@@ -61,5 +61,69 @@ describe('meResponseSchema', () => {
       { user: { ...user, weekStart: 7 }, member: null, workspace },
     ];
     for (const me of bad) expect(meResponseSchema.safeParse(me).success).toBe(false);
+  });
+});
+
+describe('signInBodySchema', () => {
+  it('trims the email and needs both fields', () => {
+    expect(signInBodySchema.parse({ email: ' Ana@Example.test ', password: 'x' }).email).toBe(
+      'Ana@Example.test',
+    );
+    expect(signInBodySchema.safeParse({ email: ' ', password: 'x' }).success).toBe(false);
+    expect(signInBodySchema.safeParse({ email: 'ana@example.test', password: '' }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('passwordProblem', () => {
+  const email = 'eli.editor@example.test';
+  const TOO_EASY = /too easy to guess/;
+
+  it('needs at least 12 characters, and at most 256', () => {
+    expect(passwordProblem('tide pool b', email)).toBe('Use at least 12 characters.');
+    expect(passwordProblem('x'.repeat(257), email)).toBe('Use at most 256 characters.');
+  });
+
+  it('refuses common passwords, with the usual changes', () => {
+    // Separated by spaces, one string, so nothing here reads like a setting with a password.
+    const common = `
+      password1234 Password123! P@ssw0rd2024! pa55word1234 welcome12345 iloveyou2024 Summer2024!!
+      carehub12345 qwerty123456 Qwertyuiop12 monkey123456 Letmein12345! passwordpassword
+      aaaaaaaaaaaa 121212121212 abcabcabcabc abcdefghijkl zyxwvutsrqpo 123456789012 987654321098
+      000000000000 1q2w3e4r5t6y ab1234567890 abc123456789 !@#$%^&*()_+
+    `;
+    for (const candidate of common.trim().split(/\s+/)) {
+      expect(passwordProblem(candidate, email), candidate).toMatch(TOO_EASY);
+    }
+  });
+
+  it('refuses the email, or its name with numbers or symbols added', () => {
+    for (const candidate of [
+      email,
+      `${email}!`,
+      'eli.editor2024',
+      'Eli.Editor!!!',
+      'elieditor1234',
+    ]) {
+      expect(passwordProblem(candidate, email), candidate).toBe(
+        "Don't use your email in your password.",
+      );
+    }
+  });
+
+  it('accepts passphrases and random passwords', () => {
+    const fine = [
+      'tide pool sandwich lantern',
+      'purple-otter-lamp-river',
+      'Welcome2CareHub-blue',
+      'correct horse battery staple',
+      'k83920174659',
+      '839201746592',
+      'xK9#mQ2$vL5z',
+      'x9#k2%q8^m3&',
+      'q7#x9!k2@m4$',
+    ];
+    for (const candidate of fine) expect(passwordProblem(candidate, email), candidate).toBeNull();
   });
 });
