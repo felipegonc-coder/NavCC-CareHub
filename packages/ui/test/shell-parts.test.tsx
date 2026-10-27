@@ -9,7 +9,6 @@ import {
   SheetContent,
   SidebarGroup,
   sidebarRowClasses,
-  usePageTitle,
 } from '../src';
 
 function PhoneMenu() {
@@ -69,19 +68,5 @@ describe('SidebarGroup', () => {
     const group = screen.getByRole('group', { name: 'Favorites' });
     expect(group).toContainElement(screen.getByRole('link', { name: 'Visit notes' }));
     expect(group).toContainElement(screen.getByRole('button', { name: 'New page' }));
-  });
-});
-
-describe('usePageTitle', () => {
-  function Screen({ title }: { title?: string }) {
-    usePageTitle(title);
-    return null;
-  }
-
-  it('names the browser tab after the screen', () => {
-    const { rerender } = render(<Screen title="Messages" />);
-    expect(document.title).toBe('Care Hub · Messages');
-    rerender(<Screen />);
-    expect(document.title).toBe('Care Hub');
   });
 });

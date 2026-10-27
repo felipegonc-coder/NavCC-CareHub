@@ -2,7 +2,6 @@ export { cssVariables, darkTokens, hexToChannels, lightTokens, tokenNames } from
 export type { TokenName, TokenSet } from './tokens';
 export { cn } from './lib/cn';
 export { useMediaQuery } from './lib/use-media-query';
-export { usePageTitle } from './lib/use-page-title';
 
 export { applyTheme, DARK_QUERY, isTheme, THEME_STORAGE_KEY, useTheme } from './theme/theme';
 export type { ResolvedTheme, Theme, ThemeContextValue } from './theme/theme';

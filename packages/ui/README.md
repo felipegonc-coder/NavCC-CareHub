@@ -41,7 +41,6 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
 - **Overlays:** `DropdownMenu`, `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
   and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
   focus back.
-- **Shell parts:** `SheetContent` (a panel sliding in from the left, inside `Dialog`), `SidebarGroup`
-  and `sidebarRowClasses` for the sidebar, and `usePageTitle('Messages')` for the tab title
-  "Care Hub · Messages".
+- **Shell parts:** `SheetContent` (a panel sliding in from the left, inside `Dialog`), and
+  `SidebarGroup` and `sidebarRowClasses` for blocks and rows in the sidebar.
 - **Icons:** [Lucide](https://lucide.dev) (`lucide-react`), 16 px inside buttons and menus.

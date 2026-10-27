@@ -1,7 +1,7 @@
 import { ThemeProvider } from '@carehub/ui';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { House, MessageSquare } from 'lucide-react';
-import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from './app-shell';
 import { ShellHeader } from './header';
@@ -63,27 +63,25 @@ function Screen({ title }: { title: string }) {
   );
 }
 
+// MemoryRouter rather than a data router: jsdom's AbortSignal breaks data-router navigation.
 function renderShell(path: string, sections: SidebarSection[] = []) {
-  const router = createMemoryRouter(
-    [
-      {
-        element: (
-          <AppShell items={items} sections={sections}>
-            <Outlet />
-          </AppShell>
-        ),
-        children: [
-          { path: '/', element: <Screen title="Home" /> },
-          { path: '/messages', element: <Screen title="Messages" /> },
-          { path: '*', element: <NotFound /> },
-        ],
-      },
-    ],
-    { initialEntries: [path] },
-  );
   render(
     <ThemeProvider>
-      <RouterProvider router={router} />
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route
+            element={
+              <AppShell items={items} sections={sections}>
+                <Outlet />
+              </AppShell>
+            }
+          >
+            <Route path="/" element={<Screen title="Home" />} />
+            <Route path="/messages" element={<Screen title="Messages" />} />
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
     </ThemeProvider>,
   );
 }
