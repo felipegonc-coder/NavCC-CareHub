@@ -24,7 +24,7 @@ function FormSkeleton() {
   }, []);
   if (!late) return null;
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4" aria-busy="true">
+    <div className="mx-auto flex w-full max-w-page flex-col gap-4" aria-busy="true">
       <Skeleton className="h-24 w-full" />
       <Skeleton className="h-28 w-full" />
       <Skeleton className="h-28 w-full" />
@@ -76,7 +76,7 @@ export function FormByCode({ code, setsTitle = false }: { code: string; setsTitl
   }
   if (query.isError) {
     return (
-      <div className="mx-auto flex w-full max-w-2xl flex-col items-start gap-3 rounded border border-border bg-bg p-6">
+      <div className="mx-auto flex w-full max-w-page flex-col items-start gap-3 rounded border border-border bg-bg p-6">
         <p role="alert" className="text-body text-fg">
           {problemText(query.error)}
         </p>
