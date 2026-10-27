@@ -42,7 +42,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: search
 
-  // feature: learning
+  await app.register(import('./features/learning/routes'), { prefix: '/api/learning' });
 
   // feature: databases
 
