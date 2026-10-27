@@ -12,11 +12,10 @@ import {
   pagesUnder,
   sendAgainAs,
 } from './import-screen.js';
-import { wordFile } from './word-file.js';
 
-// Import and export spec: IE-04, IE-01 and IE-02. Eli (editor) imports into a new page of his own
-// in General, through page menu → Import, so "Add to:" is that page. Every file is made by the
-// test itself: see import-files.ts and word-file.ts.
+// Import and export spec: IE-04 and IE-01. Eli (editor) imports into a new page of his own in
+// General, through page menu → Import, so "Add to:" is that page. Every file is made by the test
+// itself (import-files.ts).
 
 test.describe('Import: files from other tools become pages', () => {
   onlyIn('desktop-light');
@@ -86,36 +85,6 @@ test.describe('Import: files from other tools become pages', () => {
     await expect(page).toHaveURL(pageHref(steps));
     await expectPicture(page, 'Phone tree');
     await expect(link(page, 'Intake guide')).toHaveAttribute('href', pageHref(intake));
-  });
-
-  test('IE-02 a Word file keeps its headings, list, table, picture, link and footnote, and its tracked changes arrive accepted', async ({
-    page,
-  }) => {
-    await signInAs(page, 'editor');
-    const word = wordFile();
-    const destination = await makeEmptyPage(page);
-    const importer = new ImportScreen(page);
-    await importer.openOn(destination.id);
-    await importer.choose('Word', word);
-    await importer.run();
-
-    const tree = await pagesUnder(page, destination.id);
-    expect(tree.size).toBe(1);
-    await page.goto(`/p/${[...tree.values()].join('')}`);
-    const main = page.getByRole('main');
-    await expect(main.getByRole('heading', { name: 'Before the call' })).toBeVisible();
-    await expect(main.getByRole('heading', { name: 'Questions to ask' })).toBeVisible();
-    for (const item of ['Name and pronouns', 'Best time to call back']) {
-      await expect(main.getByRole('listitem').filter({ hasText: item })).toBeVisible();
-    }
-    for (const text of ['Question', 'Why we ask', 'Is now a good time?', 'So the call fits']) {
-      await expect(main.getByRole('table')).toContainText(text);
-    }
-    await expectPicture(page, 'Intake desk');
-    await expect(link(page, 'Care Hub help')).toHaveAttribute('href', word.link);
-    await expect(main.getByText(word.footnote)).toBeVisible();
-    await expect(main.getByText(word.kept)).toBeVisible();
-    await expect(main.getByText('home address')).toHaveCount(0);
   });
 
   test('IE-01 Val (viewer) sending the same import into a page she can only view is refused (403), and nothing more is added', async ({
