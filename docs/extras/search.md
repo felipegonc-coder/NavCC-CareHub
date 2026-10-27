@@ -32,6 +32,7 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 - **Filters:** `titleOnly`, `createdBy` and `editedBy` (user IDs), `in` (spaces or pages, with everything under them), `date` (`{ field: 'edited' | 'created', from?, to? }`, `to` not included), `types` (`page`, `database`, `row`; `file` finds nothing until file text is read, SR-D1) and `includeArchived` (archived pages and the pages under them are left out unless it's on). Sorts: `best`, `edited_desc`, `edited_asc`, `created_desc`, `created_asc`.
 - **Access first.** Postgres finds up to 2,000 matches; their access is checked before anything is counted, ranked or shown, and only pages with Can view or more are kept (up to 1,000). Paths leave out parent pages the person can't open. An `in` filter for a space or page the person can't open finds nothing from it. Share-link visitors and people outside the workspace get 403.
 - **Best match** (`best`): exact title, then title starting with the words, then all words in the title, then headings, then text. Within each, boosts reorder: other features' boosts (`registerSearchBoost`, each kept between -2 and 2), +1 for ✓ Verified, +1 when edited in the last 7 days, -2 when archived. Ties go to the most recent edit.
+- **Did you mean** (SR-11): when the search box's first page has fewer than 3 results, the answer adds `didYouMean`, the text with each word no title has swapped for a title word one or two letters off (one for words of 3 or 4 letters). Only titles the person can open count, Trash left out and archived pages only with `includeArchived`. Page pickers (`limit`), later pages and `match: 'any'` don't get it.
 - **Results:** title with the matching words as ranges, icon, path, a snippet of up to 160 characters from the block with the most matching words, created and edited (with the editor's name), "Row in" the database, ✓ Verified and Archived.
 
 ## For other features (`apps/server/src/features/search/index.ts`)
@@ -40,6 +41,23 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 - `reindexForSearch(db, pageIds)`: index pages again when something you own changes their text, such as a row's property values. Safe to call often.
 - `registerSearchBoost(name, (db, { userId, workspaceId, pageIds }) => Promise<Map<pageId, { boost?, verified? }>>)`: ranking help. The Knowledge base marks ✓ Verified pages this way.
 - `runSearch(db, { userId, workspaceId }, request)`: the same search as `POST /query`, with the same access checks; `request` is checked with `searchRequestSchema`. The assistant panel (Claude spec 3.3) passes `{ text: searchWords(question).join(' '), match: 'any' }`: `searchWords` from `@carehub/extras/search` keeps up to 12 words of the question, without common words (`COMMON_WORDS`), repeats or punctuation, and with IDs like "QA-17" whole.
+- `listSearchTerms(db, workspaceId, { from, to })` (days as `'2026-10-01'` or dates, both included): `{ term, searches, people, noResults, opened }[]`, most searched first, for Analytics. A term is listed only once 2 different people searched it on the same day; `people` is the most on one day, because people are counted per day without saving who.
+
+## Before typing, the people chips and search terms
+
+| Endpoint                        | What                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `GET /api/search/recent`        | `{ pages, searches }`: the last 8 pages the person opened and can still open, and their last 5 searches |
+| `DELETE /api/search/recent/:id` | Removes one of the person's own recent searches (✕); anyone else's stay as they are                     |
+| `DELETE /api/search/recent`     | Clear                                                                                                   |
+| `POST /api/search/history`      | A search ended: `{ text, filters, save, found, opened? }` (`searchHistorySchema`)                       |
+| `POST /api/search/visits`       | Stand-in: the window reports the page that's open, until core sends `page.viewed`                       |
+| `GET /api/search/people`        | `?role=created` or `edited`, and `q`: who to offer in the Created by and Edited by chips                |
+
+- **Recent searches** (`search_recent`): saved with `save: true`, when the person opens a result or presses Enter (spec 3.4). The same text again (any case) moves to the top; the last 5 per person and workspace are kept.
+- **Opened pages** (`search_visits`): from `page.viewed` (`{ pageId, userId }` or `{ pageId, by }`), opened results and the stand-in above; only pages the person can open are recorded. Pages opened in the last 30 days rank +1 (`opened-recently` boost).
+- **Search terms** (`search_terms`): per workspace and day (in the workspace's time zone from S1's settings; America/Denver until there is one), the term (lowercase, single spaces, up to 100 characters), searches, people, searches that found nothing and searches that led to an opened result. Who searched isn't saved. To count each person once a day, a hash of (workspace, person, term) is kept with a random key for that day only; both are deleted once the day is over, so the counts can't be traced back to anyone.
+- **People** (`/people`): who created (or last edited) pages the person can open, among the workspace's 2,000 most recently edited pages, most pages first, up to 20. `q` matches the start of the name or of any word in it, accents and case ignored.
 
 ## Stand-ins (deny by default)
 
@@ -52,5 +70,11 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 | `getSpaces(db, userId, spaceIds)`                                      | The spaces API (#49)                                                                       |
 | `memberOf(request)` reads `request.member`                             | Accounts 1b (#55)                                                                          |
 | Polling `page_docs` and reading its `markdown`                         | S4's `page.contentSaved` event and `getPageContent` (#200)                                 |
+| `POST /api/search/visits` from the window                              | Core's `page.viewed` event, or the Sidebar's recent pages                                  |
+| Search term days in America/Denver                                     | The workspace's time zone from S1's settings                                               |
 
 Tests bind fakes with `bindSearchPages` and `bindSearchMember`.
+
+## Agreed with other lanes
+
+- **Search in Trash** (the window's No results): Search goes to `/trash?q=<text>`, and S2's Trash opens as a dialog named "Trash" with its search box filled from `q` (agreed with the Extras lead on 2026-10-27, for S2 to match).
