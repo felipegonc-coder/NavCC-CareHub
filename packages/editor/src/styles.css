@@ -18,26 +18,26 @@
   margin-top: var(--ch-space-1);
 }
 
-.ch-editor h1,
-.ch-editor h2,
-.ch-editor h3 {
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.ch-editor h1 {
-  font-size: 1.875rem;
-  margin-top: 1.5rem;
-}
-
+/* Heading 1 to 3 are drawn as h2 to h4, because the page title is the h1. */
 .ch-editor h2 {
-  font-size: 1.5rem;
-  margin-top: 1.25rem;
+  font-size: var(--ch-text-h1);
+  line-height: var(--ch-leading-h1);
+  font-weight: var(--ch-weight-h1);
+  margin-top: var(--ch-space-6);
 }
 
 .ch-editor h3 {
-  font-size: 1.25rem;
-  margin-top: 1rem;
+  font-size: var(--ch-text-h2);
+  line-height: var(--ch-leading-h2);
+  font-weight: var(--ch-weight-h2);
+  margin-top: var(--ch-space-5);
+}
+
+.ch-editor h4 {
+  font-size: var(--ch-text-h3);
+  line-height: var(--ch-leading-h3);
+  font-weight: var(--ch-weight-h3);
+  margin-top: var(--ch-space-4);
 }
 
 .ch-editor > :first-child {
@@ -70,6 +70,19 @@
 }
 
 .ch-editor ol ol ol {
+  list-style: lower-roman;
+}
+
+/* A style set on the list (typed as "a." or "i.") wins over the depth. */
+.ch-editor ol[type='1'] {
+  list-style: decimal;
+}
+
+.ch-editor ol[type='a'] {
+  list-style: lower-alpha;
+}
+
+.ch-editor ol[type='i'] {
   list-style: lower-roman;
 }
 
@@ -146,7 +159,7 @@
 }
 
 /* Placeholders. */
-.ch-editor :is(p, h1, h2, h3).is-empty::before {
+.ch-editor :is(p, h2, h3, h4).is-empty::before {
   content: attr(data-placeholder);
   color: rgb(var(--ch-faint));
   float: left;
