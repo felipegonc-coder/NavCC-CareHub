@@ -1,12 +1,14 @@
 /**
- * Checking a form response (Forms spec 3 "Submitting"; additions 8). The server runs it on every
- * submit and never trusts the browser; the fill screen runs it too for instant errors.
+ * Checking a form response (Forms spec v2, section 3: Submitting, Anonymous responses). The server
+ * runs it on every submit and never trusts the browser; the fill screen runs it too for instant
+ * errors.
  */
 import { DEFAULT_TIME_ZONE } from '../dates';
 import { isRichTextEmpty } from '../richtext';
 import { LIMITS } from '../types';
 import type { FormDefinition, Id, Property, RichText } from '../types';
 import { walkQuestions, type Respondent } from './logic';
+import { isAnonymousForm } from './questions';
 
 /** The result of checking one answer: its stored value (null when empty), or why it can't be saved. */
 export type AnswerCheck = { ok: true; value: unknown } | { ok: false; error: string };
@@ -16,7 +18,10 @@ export interface SubmissionOptions {
   validate(prop: Property, value: unknown): AnswerCheck;
   /** The respondent's name, for "Response from Avery Lin". Never used for anonymous responses. */
   respondentName: string | null;
-  /** True when the response must not record its sender (the form's setting, or set by the server). */
+  /**
+   * True when the response must not record its sender. Forms with Anonymous responses on, and
+   * forms anyone can fill in, are always anonymous.
+   */
   anonymous: boolean;
   /**
    * The questions (property ids) the respondent's copy of the form had. A required question that
@@ -78,11 +83,12 @@ function responseTitle(opts: SubmissionOptions, anonymous: boolean): string {
 }
 
 /**
- * Checks a response and builds the new row. Answers to hidden or removed questions are dropped
- * (and never checked); visible answers go through `validate`; Required applies only to visible
- * questions ("Answer this question.", or "Tick this box to continue." for a checkbox); Files allow
- * up to 10. Properties that get no answer get their defaults (Status default, checkbox unticked).
- * The title is the Name answer, otherwise "Response from Avery Lin", or "Anonymous response".
+ * Checks a response and builds the new row. Answers to hidden or removed questions, and to
+ * questions the form can't ask, are dropped (and never checked); visible answers go through
+ * `validate`; Required applies only to visible questions ("Answer this question.", or "Tick this
+ * box to continue." for a checkbox); Files allow up to 10. Properties that get no answer get their
+ * defaults (Status default, checkbox unticked). The title is the Name answer, otherwise "Response
+ * from Avery Lin", or "Anonymous response".
  * Failing that, `errors` holds one message per question (keyed by property id) and `summary` the
  * line at the top ("2 questions need answers"). A required question missing from
  * `seenQuestionIds` sets `formChanged` ("This form changed. Please answer the new question.").
@@ -93,13 +99,13 @@ export function checkSubmission(
   answers: Readonly<Partial<Record<Id, unknown>>>,
   opts: SubmissionOptions,
 ): SubmissionResult {
-  const anonymous = opts.anonymous || def.anonymous;
+  const anonymous = opts.anonymous || isAnonymousForm(def);
   const seen = opts.seenQuestionIds ? new Set(opts.seenQuestionIds) : null;
   const errors: Record<Id, string> = {};
   const values: Record<Id, unknown> = {};
   let title = '';
   let newRequired = 0;
-  walkQuestions(def, properties, opts.viewer ?? NOBODY, anonymous, ({ question, prop, shown }) => {
+  walkQuestions(def, properties, opts.viewer ?? NOBODY, ({ question, prop, shown }) => {
     if (!shown) return null;
     const checked = checkAnswer(prop, answers[prop.id], opts);
     if (!checked.ok) {
@@ -134,7 +140,10 @@ export function checkSubmission(
   return { ok: true, title: title || responseTitle(opts, anonymous), values };
 }
 
-/** Where the fill screen keeps unsent answers in the browser: one draft per form and person. */
-export function draftKey(formId: Id, userId: Id): string {
-  return `carehub:form-draft:${formId}:${userId}`;
+/**
+ * Where the fill screen keeps unsent answers in the browser: one draft per form and person
+ * (userId null when nobody is signed in, in a form anyone can fill in).
+ */
+export function draftKey(formId: Id, userId: Id | null): string {
+  return `carehub:form-draft:${formId}:${userId ?? 'signed-out'}`;
 }

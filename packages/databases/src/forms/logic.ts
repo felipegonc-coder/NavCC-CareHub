@@ -1,7 +1,7 @@
 /**
- * "Show if…" logic for forms (Forms spec 3): which questions show for the answers so far, moving
- * questions without breaking a dependency, and cleaning up conditions after a property, option or
- * question goes away.
+ * "Show if…" logic for forms (Forms spec v2, section 3): which questions show for the answers so
+ * far, moving questions without breaking a dependency, and cleaning up conditions after a
+ * property, option or question goes away.
  */
 import { dateValueStartDay, isValidDateValue } from '../dates';
 import { compareDecimal, normalizeDecimal, numberToDecimal } from '../decimal';
@@ -19,7 +19,13 @@ import type {
   RichTextSpan,
   Viewer,
 } from '../types';
-import { conditionProblem, isConditionSet, questionKind, questionLabel } from './questions';
+import {
+  conditionProblem,
+  formAudience,
+  isConditionSet,
+  questionKind,
+  questionLabel,
+} from './questions';
 
 /** Who is answering: their time zone (for date conditions) and their id ("Me" in person conditions). */
 export type Respondent = Pick<Viewer, 'userId' | 'timeZone'>;
@@ -218,19 +224,20 @@ function logicMatches(
  * Goes through the form's questions in order and calls `visit` for each with whether it shows.
  * `visit` returns the answer a shown question ends up with (null or undefined when empty); a hidden
  * question counts as empty for the questions after it. Questions whose property is gone or can't
- * be a question (Files in an anonymous form) are skipped, and so are repeats of a property.
+ * be a question (Person or Relation in a form anyone can fill in) are skipped, and so are repeats
+ * of a property.
  */
 export function walkQuestions(
   def: FormDefinition,
   properties: readonly Property[],
   respondent: Respondent,
-  anonymous: boolean,
   visit: (step: QuestionStep) => unknown,
 ): void {
+  const audience = formAudience(def);
   const earlier = new Map<Id, Answered>();
   for (const question of def.questions) {
     const prop = findProperty(properties, question.propertyId);
-    if (!prop || earlier.has(prop.id) || questionKind(prop, question, { anonymous }) === null) {
+    if (!prop || earlier.has(prop.id) || questionKind(prop, question, { audience }) === null) {
       continue;
     }
     const shown = logicMatches(question, earlier, respondent);
@@ -252,7 +259,7 @@ export function visibleQuestions(
   viewer: Respondent,
 ): Set<Id> {
   const shown = new Set<Id>();
-  walkQuestions(def, properties, viewer, def.anonymous, ({ question, shown: isShown }) => {
+  walkQuestions(def, properties, viewer, ({ question, shown: isShown }) => {
     if (!isShown) return null;
     shown.add(question.propertyId);
     return answers[question.propertyId];
@@ -317,18 +324,20 @@ export interface PruneResult {
 
 /**
  * Cleans a form after a property, option or question goes away. Deleting a property removes its
- * question. A condition is removed, and its question marked "Logic changed", when its question is
- * gone or no longer above, an option it uses was deleted, or it no longer fits its question's type.
- * A question left without conditions has no logic.
+ * question, and so does a property that can no longer be a question (for example one changed to
+ * Person in a form anyone can fill in). A condition is removed, and its question marked "Logic
+ * changed", when its question is gone or no longer above, an option it uses was deleted, or it no
+ * longer fits its question's type. A question left without conditions has no logic.
  */
 export function pruneLogic(def: FormDefinition, properties: readonly Property[]): PruneResult {
+  const audience = formAudience(def);
   const changed: Id[] = [];
   const removed: Id[] = [];
   const questions: FormQuestion[] = [];
   const earlier = new Map<Id, Property>();
   for (const q of def.questions) {
     const prop = findProperty(properties, q.propertyId);
-    if (!prop || questionKind(prop, q) === null) {
+    if (!prop || questionKind(prop, q, { audience }) === null) {
       removed.push(q.propertyId);
       continue;
     }

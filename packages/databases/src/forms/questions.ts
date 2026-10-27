@@ -1,5 +1,5 @@
 /**
- * Form questions (Forms spec 3; additions 8): which properties can be questions and how each one
+ * Form questions (Forms spec v2, section 3): which properties can be questions and how each one
  * shows, the "Show if…" conditions each question type offers, and the checks a whole form passes.
  */
 import { isCalendarDate } from '../dates';
@@ -37,18 +37,35 @@ export type QuestionKind =
 /** Select and multi-select questions list up to this many options as radio buttons or tick boxes; more use a dropdown. */
 export const FORM_CHOICE_LIMIT = 7;
 
+/** Who can respond (Share form → Who can respond). Absent means workspace members. */
+export type FormAudience = NonNullable<FormDefinition['audience']>;
+
+/** Who can respond to the form: members, unless it says otherwise. */
+export function formAudience(def: Pick<FormDefinition, 'audience'>): FormAudience {
+  return def.audience ?? 'members';
+}
+
+/**
+ * True when the form's responses don't record their sender: Anonymous responses is on, or anyone
+ * can fill the form in (always anonymous).
+ */
+export function isAnonymousForm(def: Pick<FormDefinition, 'anonymous' | 'audience'>): boolean {
+  return def.anonymous || formAudience(def) === 'anyone';
+}
+
 /**
  * How a property shows as a question, or null when it can't be one. Status, Checklist, created
- * and edited properties, ID, formulas, rollups and buttons are never offered. Files isn't offered
- * in anonymous forms, because uploads would name their uploader.
+ * and edited properties, ID, formulas, rollups and buttons are never offered, and a form anyone
+ * can fill in has no Person or Relation questions (they would show names and row titles).
  */
 export function questionKind(
   prop: Property,
   question?: Pick<FormQuestion, 'display'> | null,
-  opts: { anonymous?: boolean } = {},
+  opts: { audience?: FormAudience } = {},
 ): QuestionKind | null {
   const c = prop.config;
   const dropdown = question?.display === 'dropdown';
+  const anyone = opts.audience === 'anyone';
   switch (c.type) {
     case 'title':
     case 'text':
@@ -70,11 +87,11 @@ export function questionKind(
     case 'phone':
       return 'phone';
     case 'person':
-      return 'person';
+      return anyone ? null : 'person';
     case 'files':
-      return opts.anonymous ? null : 'files';
+      return 'files';
     case 'relation':
-      return 'relation';
+      return anyone ? null : 'relation';
     case 'status':
     case 'checklist':
     case 'created_time':
@@ -89,16 +106,17 @@ export function questionKind(
   }
 }
 
-/** Properties "+ Add question" can offer: not asked yet and able to be a question, in database order. */
+/**
+ * Properties "+ Add question" can offer: not asked yet and able to be a question for who can
+ * respond, in database order.
+ */
 export function addableProperties(
   def: FormDefinition,
   properties: readonly Property[],
-  anonymous = def.anonymous,
+  audience: FormAudience = formAudience(def),
 ): Property[] {
   const asked = new Set(def.questions.map((q) => q.propertyId));
-  return properties.filter(
-    (p) => !asked.has(p.id) && questionKind(p, null, { anonymous }) !== null,
-  );
+  return properties.filter((p) => !asked.has(p.id) && questionKind(p, null, { audience }) !== null);
 }
 
 /** The words a question shows: its own text, otherwise its property's name. */
@@ -262,29 +280,34 @@ const DESCRIPTION_TOO_LONG = 'Descriptions can be up to 2,000 characters.';
 
 /**
  * Checks a form before it's saved: up to 100 questions, each property asked once and able to be
- * a question (no Files questions in anonymous forms), descriptions and the confirmation message up
- * to 2,000 characters, no logic on the first question, up to 10 conditions, and conditions only on
- * questions above, with a condition and value that fit that question. Returns the first problem,
- * or null.
+ * a question (no Person or Relation questions in a form anyone can fill in), descriptions and the
+ * confirmation message up to 2,000 characters, no logic on the first question, up to 10
+ * conditions, and conditions only on questions above, with a condition and value that fit that
+ * question. An anonymous form can't allow only one response. Returns the first problem, or null.
  */
 export function validateFormDefinition(
   def: FormDefinition,
   properties: readonly Property[],
 ): string | null {
   if (def.questions.length > LIMITS.formQuestions) return 'Up to 100 questions.';
+  if (isAnonymousForm(def) && !def.allowMultiple) {
+    return 'One response per person needs names. Turn off anonymous responses first.';
+  }
   if (
     richTextLength(def.description) > LIMITS.formDescription ||
     richTextLength(def.confirmation) > LIMITS.formDescription
   ) {
     return DESCRIPTION_TOO_LONG;
   }
+  const anyone = formAudience(def) === 'anyone';
   const earlier = new Map<Id, Property>();
   for (const [index, q] of def.questions.entries()) {
     const prop = findProperty(properties, q.propertyId);
     if (!prop) return "That property doesn't exist.";
     if (earlier.has(prop.id)) return `'${prop.name}' is already a question.`;
-    if (prop.config.type === 'files' && def.anonymous)
-      return "Files questions can't be anonymous yet.";
+    if (anyone && (prop.config.type === 'person' || prop.config.type === 'relation')) {
+      return "Forms anyone can fill in can't ask for people or rows.";
+    }
     if (questionKind(prop, q) === null) return `'${prop.name}' can't be a form question.`;
     if (richTextLength(q.description) > LIMITS.formDescription) return DESCRIPTION_TOO_LONG;
     const conditions = q.logic?.conditions ?? [];
@@ -299,4 +322,34 @@ export function validateFormDefinition(
     earlier.set(prop.id, prop);
   }
   return null;
+}
+
+/** Question kinds people type into: their answers can say who they are. */
+const TYPED_KINDS: ReadonlySet<QuestionKind> = new Set([
+  'short',
+  'long',
+  'number',
+  'link',
+  'email',
+  'phone',
+]);
+
+/**
+ * The builder's warning for an anonymous form whose questions could still identify someone:
+ * Person questions, or answers people type. null when the form records senders or has neither.
+ */
+export function anonymityWarning(
+  def: FormDefinition,
+  properties: readonly Property[],
+): string | null {
+  if (!isAnonymousForm(def)) return null;
+  const audience = formAudience(def);
+  const identifying = def.questions.some((q) => {
+    const prop = findProperty(properties, q.propertyId);
+    const kind = prop ? questionKind(prop, q, { audience }) : null;
+    return kind !== null && (kind === 'person' || TYPED_KINDS.has(kind));
+  });
+  return identifying
+    ? 'Answers can still show who sent them (Person questions, or what people type).'
+    : null;
 }

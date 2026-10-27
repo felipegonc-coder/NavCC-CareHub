@@ -15,6 +15,14 @@ describe('@carehub/databases/forms', () => {
       forms.pruneLogic,
       forms.checkSubmission,
       forms.draftKey,
+      forms.formAudience,
+      forms.isAnonymousForm,
+      forms.anonymityWarning,
+      forms.formGate,
+      forms.responseRateLimit,
+      forms.formChangeNeedsFullAccess,
+      forms.anonymousLine,
+      forms.responseNotice,
     ]) {
       expect(typeof fn).toBe('function');
     }
