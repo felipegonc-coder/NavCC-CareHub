@@ -1,12 +1,19 @@
 import {
   checkPublishable,
   createCourse,
+  LIMITS,
+  newId,
   parseCourse,
+  sampleCourses,
+  searchCatalog,
+  type CatalogEntry,
+  type CatalogQuery,
   type Course,
   type CourseState,
   type CourseSummary,
   type CourseVersion,
   type CreateCourseRequest,
+  type ExampleCourse,
   type LiveCourse,
   type PublishNotify,
   type StudioCourse,
@@ -19,8 +26,8 @@ import { onCoursePublished } from '../progress/on-publish';
 import { learningCourses as courses, learningCourseVersions as versions } from './schema';
 
 // Courses (docs/learning/api.md): Studio drafts with a revision check, publishing as numbered live versions,
-// versions and roll back, and the live version for learners. Routes check permissions
-// first; every function here stays inside the actor's workspace.
+// versions and roll back, duplicate, archive and examples, then the catalog and the live version for learners.
+// Routes check permissions first; every function here stays inside the actor's workspace.
 
 /** Who is acting, and in which workspace. */
 export type Actor = { userId: string; workspaceId: string };
@@ -87,14 +94,63 @@ export async function listStudioCourses(
   return rows.map(summaryOf);
 }
 
-/** A new, blank draft with its type's preset. */
+/** A new draft: blank with its type's preset, or a copy of an example of that type. */
 export async function createStudioCourse(
   db: Db | Tx,
   actor: Actor,
   input: CreateCourseRequest,
 ): Promise<StudioCourse> {
-  const draft = createCourse({ type: input.type, title: input.title?.trim() ?? '' });
+  const title = input.title?.trim() ?? '';
+  if (input.exampleId === undefined) {
+    return studioCourse(await insertDraft(db, actor, createCourse({ type: input.type, title })));
+  }
+  const example = sampleCourses.find((course) => course.id === input.exampleId);
+  if (!example) throw httpError(404);
+  if (example.type !== input.type) {
+    throw httpError(400, undefined, [
+      { path: 'exampleId', message: 'This example is a different type of course.' },
+    ]);
+  }
+  const draft = { ...structuredClone(example), id: newId(), title: title || example.title };
   return studioCourse(await insertDraft(db, actor, draft));
+}
+
+/** A new draft with the same content, never published. */
+export async function duplicateCourse(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+): Promise<CourseSummary> {
+  const { draft } = await findCourse(db, actor, id);
+  const title = `Copy of ${draft.title}`.slice(0, LIMITS.title);
+  return summaryOf(await insertDraft(db, actor, { ...draft, id: newId(), title }));
+}
+
+/** Archived courses leave Studio's main list and the catalog; links and assignments still open them. */
+export async function setArchived(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+  archived: boolean,
+): Promise<CourseSummary> {
+  const [row] = await db
+    .update(courses)
+    .set({ archived, updatedAt: new Date() })
+    .where(courseKey(actor.workspaceId, id))
+    .returning();
+  if (!row) throw httpError(404);
+  return summaryOf(row);
+}
+
+/** The fictional sample courses, to start a new course from. */
+export function listExamples(): ExampleCourse[] {
+  return sampleCourses.map(({ id, title, type, summary, lessons }) => ({
+    id,
+    title,
+    type,
+    ...(summary ? { summary } : {}),
+    lessonCount: lessons.length,
+  }));
 }
 
 export async function getStudioCourse(
@@ -273,6 +329,39 @@ export async function rollBack(
   });
 }
 
+const liveVersionOf = and(
+  eq(versions.workspaceId, courses.workspaceId),
+  eq(versions.courseId, courses.id),
+  eq(versions.version, courses.liveVersion),
+);
+
+/** The catalog: live, listed courses that aren't archived, by title. Searches like `searchCatalog`. */
+export async function listCatalog(
+  db: Db | Tx,
+  workspaceId: string,
+  query: CatalogQuery,
+): Promise<CatalogEntry[]> {
+  const rows = await db
+    .select({ course: versions.course, version: versions.version })
+    .from(courses)
+    .innerJoin(versions, liveVersionOf)
+    .where(and(eq(courses.workspaceId, workspaceId), eq(courses.archived, false)));
+  const live = rows.map((row) => ({ ...row.course, liveVersion: row.version }));
+  return searchCatalog(live, query.q ?? '', query.topic || undefined)
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .map(({ id, title, type, summary, cover, topics, estimatedMinutes, lessons, liveVersion }) => ({
+      id,
+      title,
+      type,
+      ...(summary ? { summary } : {}),
+      ...(cover ? { cover } : {}),
+      ...(topics ? { topics } : {}),
+      ...(estimatedMinutes ? { estimatedMinutes } : {}),
+      lessonCount: lessons.length,
+      version: liveVersion,
+    }));
+}
+
 /** The live version of a course, for learners and the other Learning areas. Null when it was never published. */
 export async function getLiveCourse(
   db: Db | Tx,
@@ -282,14 +371,7 @@ export async function getLiveCourse(
   const [row] = await db
     .select({ course: versions.course, version: versions.version })
     .from(courses)
-    .innerJoin(
-      versions,
-      and(
-        eq(versions.workspaceId, courses.workspaceId),
-        eq(versions.courseId, courses.id),
-        eq(versions.version, courses.liveVersion),
-      ),
-    )
+    .innerJoin(versions, liveVersionOf)
     .where(courseKey(workspaceId, courseId));
   return row ?? null;
 }
