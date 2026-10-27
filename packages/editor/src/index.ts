@@ -6,6 +6,10 @@ export { createBlockExtensions, DEFAULT_PLACEHOLDER } from './extensions';
 export type { BlockExtensionsOptions } from './extensions';
 export { filterSlashItems, mergeSlashItems } from './slash';
 export { isSafeHref, safeHref } from './links';
+export { RichTextField } from './RichTextField';
+export type { RichTextFieldProps } from './RichTextField';
+export { RICH_TEXT_MARKS, sanitizeRichText } from './richtext-value';
+export type { RichTextMark, RichTextOptions } from './richtext-value';
 export { createPageSchema, LINK_OPTIONS, PAGE_FIELD, pageExtensions } from './schema';
 export type {
   BubbleItem,

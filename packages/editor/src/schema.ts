@@ -19,6 +19,10 @@ export { BLOCK_ID, blockIdAt, findBlock } from './block-ids';
 /** The XML fragment of the page's Y.Doc that holds its blocks. */
 export const PAGE_FIELD = 'default';
 
+// The cleanup of rich text field values, so the server can run it too.
+export { RICH_TEXT_MARKS, sanitizeRichText } from './richtext-value';
+export type { RichTextMark, RichTextOptions } from './richtext-value';
+
 /** Link settings shared by every editor: only safe addresses, no navigation while editing. */
 export const LINK_OPTIONS = {
   openOnClick: false,
