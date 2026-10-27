@@ -1,6 +1,6 @@
 # Team tools: status
 
-Lane: Team tools (Messages, Home and reminders, notifications, Calendar, Meetings, Automations, Analytics, Status page). The Claude features moved to the Extras lane on Oct 27. Reviewer and merger: the Team tools lead. Updated Oct 27, 2026, about 16:00 UTC.
+Lane: Team tools (Messages, Home and reminders, notifications, Calendar, Meetings, Automations, Analytics, Status page). The Claude features moved to the Extras lane on Oct 27. Reviewer and merger: the Team tools lead. Updated Oct 27, 2026, about 17:40 UTC.
 
 Goal: Felipe's bar for Friday, Oct 30 is everything: Notion parity, but better. First a working basic version of every Team tools feature on main, then polish. The last PR opens by Oct 30; anything not ready by Oct 31 is dropped for now. All colours, fonts, sizes and spacing come from the design kit tokens, so Felipe can restyle Care Hub later.
 
@@ -46,10 +46,17 @@ Goal: Felipe's bar for Friday, Oct 30 is everything: Notion parity, but better. 
 | #207 | Home settings on the server |
 | #209 | Reminders part 2b: Snooze and Done, titles, series edits for Calendar |
 | #354 | `@carehub/team-chat` part 3: notifications, previews, pictures and files, `/api/messages` shapes |
+| #288 | Live updates and jobs registered in `app.ts` (merged by the main lead) |
+| #180 | Home at `/`: the frame and Upcoming (merged by the main lead) |
+| #361 | Jobs: test hook to run a periodic task once at a chosen time |
+| #346 | Calendar editing maths: slots, drag, resize, keyboard |
+| #381 | `@carehub/team-calendar-api` part 2: Calendar settings and Upcoming shapes |
+| #382 | `@carehub/team-repeat` part 3: This event, This and following, All events |
+| #422 | Calendar screen part 1: data hooks, the address (view and date) and shortcuts |
 
 ## Merged without CI
 
-GitHub Actions minutes ran out on Oct 27 (until Nov 1). Under decision 0006 and the main lead's rules, these were reviewed line by line and merged by hand. CI reruns on `main` when minutes are back, and owners fix any break within the hour.
+GitHub Actions minutes ran out on Oct 27 (until Nov 1). Under decision 0006 and the main lead's rules, these were reviewed line by line and merged by hand. Lane-only PRs may merge with route, database or screen tests written but not run ("tests not run"), if they're under about 400 lines and tsc ran where the builder could run it. PRs with permission checks, core files, packages, deploy or CI files go to the main lead. CI reruns on `main` when minutes are back, and owners fix any break within the hour, or the PR is reverted.
 
 | PR | Head commit merged | Notes |
 | --- | --- | --- |
@@ -58,35 +65,46 @@ GitHub Actions minutes ran out on Oct 27 (until Nov 1). Under decision 0006 and 
 | #156 | `f84354b14138ad2c153d108d5043107f780377b2` | CI passed on this head. Own `app.ts` line (main lead's OK). |
 | #207 | `0f5ac9e363511d48ecec38ef8efde1fa2ffbf688` | CI passed on this head. Own `app.ts` line (main lead's OK). |
 | #209 | `05ce438faf749158a6edf66d13d7036486b9ceb9` | CI passed on this head. Own `app.ts` line (main lead's OK). |
+| #361 | `29ce5d27a4af162269fd753388bc6a88965c53b1` | Tests not run: the 4 route tests need Fastify, so they first run in CI. The builder ran tsc, Prettier and 23 runner tests locally. |
+| #346 | `26448c688c1213b1c63efa8113ed2ee5b0e52ecf` | Never ran in CI. The builder ran tsc and 87 layout tests locally. |
+| #381 | `5c0eb30a33cf2bc18e8e634b30e3d19b3da398c9` | Lane package only; never ran in CI. The builder ran tsc and 32 package tests locally. |
+| #382 | `f8379788f9463c764edc733715fb3c36f102a530` | Lane package only; never ran in CI. The builder ran tsc and 120 package tests locally. |
+| #422 | `a83d446fa3b152090404b273c365f1e5b9bd8f3e` | Tests not run: the data and address hook tests first run in CI. The builder ran tsc (real React types) and 10 unit tests locally. |
 
 ## In review
 
 | PR | What | Waits on |
 | --- | --- | --- |
-| #288 | Registers live and jobs in `app.ts` | Main lead (he reviews and merges it) |
+| #355 | Automations part 3: Admin-only `/api/automations` routes | The main lead's merge (it has an Admin-only check). Reviewed; tsc and 51 unit tests ran locally, and its route tests first run in CI |
+| (new) | Jobs test hook: allow-list, the scheduler's lock, a log line, a strict body | W1-F is writing it (the security reviewer's conditions, below) |
+| #357, #398, #399, #358, #372, #378 | Connected calendars in six PRs under 400 lines: tables and storage, layers, sync rules and secrets, sync storage, sync engine, sign-in states | #357 needs one fix (no import of another feature's table); then they merge in order. #399 also needs the security reviewer (secrets) |
+| #404 | Time and size limits on every Google call | The security reviewer (it changes the Google sign-in client) |
+| #380 | Calendar server part 1: event tables and occurrences | Core #393 (`package.json`), main lead |
+| #412 to #421 | Calendar server: items, events, layers, settings, reminders, notices (drafts) | #380 first; #413 also needs core #55 and #388 |
+| #424, #427 | Calendar screens: item blocks, top bar and Month; Day, Week and the `/calendar` route | Hand review, in that order |
+| #429 | The Calendar sidebar line in `slots.ts` and the web package line | Main lead (core files) |
 | #230 | Push: PNG notification icons, headline-only notifications | Main lead (`apps/web/public/sw.js` is a core file), with the security reviewer's OK |
 | #299 | PNG app icons | Main lead (core files) |
 | #365 | iCalendar reader limits (fixes #213) | Main lead (`apps/server/build.mjs`), with the security reviewer's OK |
-| #203 | iCalendar writer and safe link fetcher | #365, then one more push (credentials refused, Tailscale ranges, address checks, size caps) |
-| #180, #215 | Home frame and Upcoming; Customize Home and the sidebar Upcoming | Main lead reviews the core parts and deletes `HomePage.tsx`; the Team tools lead reviews the Home parts |
-| #355 | Automations part 3: Admin-only `/api/automations` routes | Its route tests need Fastify, which no agent computer has, so they first run in CI |
-| #361 | Jobs: test hook to run a periodic task at a chosen time | Same: its route tests first run in CI |
-| #350 | Status part 2: checks, monitor and `/api/status` | Hand review |
-| #357 | Connected calendars: tables and storage | Too big to merge without CI; being split into PRs of about 400 lines |
+| #203 | iCalendar writer and safe link fetcher | #365, and the security reviewer's rules for test calendar origins |
+| #215 | Customize Home and the sidebar Upcoming | W2-N moves it onto `main`; then a hand review |
+| #329, #334, #341, #337 | Notice cards and notice settings | W2-N moves them onto `main`; then hand reviews |
+| #350, #351, #353 | Status part 2, the Status screen, the Analytics screen | Being split into PRs under 400 lines |
+| #376 | Reminders screen (draft) | W1-A |
 
 ## Building now
 
 | Part | Now | Next (basic slice first) |
 | --- | --- | --- |
 | W1-A | Reminders screen (#376) and `usePendingReminders` | The Remind me picker |
-| W1-B | Calendar server: events, items, layers, settings (a stack of PRs); `getProfiles` in `features/auth` (main lead reviews) | Calendar notices; layers from Databases and Learning |
+| W1-B | Calendar server: the stack from #380 (events, items, layers, settings, reminders, notices); `getProfiles` (#388, main lead) | Layers from Databases and Learning |
 | W1-C | Pause notifications, push for new messages and notices | Turn push off on sign-out (the `beforeSignOut` phase) |
-| W1-D | Reader limits (#365), then the writer and safe link fetcher (#203) | Reading links end to end; Meetings: notes from an event, recording notice, private transcription |
-| W1-E | Connected calendars: storage (#357, being split), sync storage and engine (#358, #372, #378) | Google routes; Connect calendars screen |
-| W1-F | Automations part 3 (#355), the jobs test hook (#361) | Part 4: the scheduler and Try it now; then Send a message and Settings → Automations |
-| W1-G | Calendar editing, `useUpcoming` | Calendar screens: day, week, month, side panel, drag, layers |
+| W1-D | Reader limits (#365), the writer and safe link fetcher (#203), Meetings part 1 | Reading links end to end; Meetings: notes from an event, recording notice, private transcription |
+| W1-E | Connected calendars: the six-PR stack from #357, Google call limits (#404) | Google routes; Connect calendars screen |
+| W1-F | The jobs test hook follow-up (due Oct 28) | Part 4: the scheduler and Try it now; then Send a message and Settings → Automations |
+| W1-G | Calendar screens: Day, Week and Month (#424, #427, #429); `useUpcoming` | Click to create and the event panel, dragging, the Layers panel, phone polish |
 | W1-H | `@carehub/team-chat` part 4: reactions and search; Messages server | Messages screens: chats, files, reactions, search |
-| W2-N | Notice cards (#329, #334), notice settings (#341, #337), Home (#180, #215) | Home sections: Reminders, Unread messages, Learning |
+| W2-N | Notice cards (#329, #334), notice settings (#341, #337), Customize Home (#215) | Home sections: Reminders, Unread messages, Learning |
 | W2-S | Status page server (#350) and screen (#351), Analytics screen (#353) | Analytics part 2 |
 
 Every Team tools feature has a builder.
@@ -95,8 +113,9 @@ Every Team tools feature has a builder.
 
 From decision 0007, section 4.4:
 
-- Live updates: the server (`apps/server/src/features/live`) and the web hooks (`apps/web/src/features/live`) are on main, with `hasOpenTabs(userId)`. The routes are registered in `app.ts` by #288.
-- Jobs (`apps/server/src/features/jobs`): on main, with `scheduleJob(input, { db })` and the web `useJob`. The runner starts in the app once #288 merges.
+- Live updates: the server (`apps/server/src/features/live`) and the web hooks (`apps/web/src/features/live`) are on main, with `hasOpenTabs(userId)`. The routes are registered in `app.ts` (#288).
+- Jobs (`apps/server/src/features/jobs`): on main, with `scheduleJob(input, { db })` and the web `useJob`. The runner starts with the app (#288). Browser tests can run a periodic task once with `POST /api/jobs/test/periodic/:name` (#361): only when `CAREHUB_TEST_HOOKS=1`, site admins only. An allow-list of tasks is coming.
+- Calendar shapes (`@carehub/team-calendar-api`): items, layers and events, plus settings and Upcoming (#381): `upcomingResponseSchema`, `isJoinable`, `eventHref`.
 - Notices (`apps/server/src/features/notices`): `sendNotice`, stored notices and `getNotice` are on main (#154), and `bindMemoryNotices()` works in unit tests. The 🔔 Care Hub chat screen is on main (#166).
 - Push (`apps/server/src/features/push`): browsers, settings and `pushToUser` are on main (#156).
 
@@ -113,6 +132,8 @@ See [settings.md](settings.md).
 - In-browser transcription uses `onnxruntime-web` only, with our own Whisper code (security reviewer: `@huggingface/transformers` brings native and LGPL packages). Model files come from `MODELS_DIR`, with their SHA-256 sums in the repository.
 
 - Calendar links with a user name or password in them are refused, with a message saying why.
+
+- Test hooks (the security reviewer's conditions, Oct 27): one switch in core, on only when `CAREHUB_TEST_HOOKS` is exactly `1`, and only with a loopback address. Hook routes exist only when it's on, under `/api/<lane>/test/…`, and deploy never sets it. Each hook is a normal protected route with a strict body and a log line. The jobs hook runs only listed tasks that delete nothing and send nothing outside the server, under the scheduler's lock. Its `now` decides only what's due; stored times use the real clock. Reminder and notice tasks can be listed only if hook runs skip push: the flag travels with the run, push is skipped where it's queued (those notices are marked not for push), and a test shows a hook run makes zero push sends.
 
 - The Claude features, including the meeting summary, are built by the Extras lane. Meetings keeps the Summarize button and the Summary, Decisions and Action items, and calls the Extras lane's `summarizeMeeting`.
 
