@@ -1,5 +1,5 @@
-// What sidebar entries do: add, rename, star, copy link and move to Trash. Edits show at once;
-// if the server refuses one, it's undone and a message says so.
+// What sidebar entries do: add, rename, star, copy link, move and move to Trash. Edits show at
+// once; if the server refuses one, it's undone and a message says so.
 import { useToast } from '@carehub/ui';
 import { useQuery, useQueryClient, type Query, type QueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
@@ -7,16 +7,20 @@ import { useNavigate } from 'react-router';
 import { ApiError } from '../../lib/api';
 import { pageUrl } from './access';
 import {
+  accessChangeOf,
   addFavorite,
   createPage,
   fetchFavorites,
+  movePage,
   pagesKeys,
   removeFavorite,
   renamePage,
   trashPage,
+  type AccessChange,
   type NewPagePlace,
 } from './api';
 import { usePermission } from './me';
+import { movedTrees, type MoveTo } from './move';
 import { useFlagPref } from './prefs';
 import { subtreeIds } from './tree';
 import type { PageLink, TreeNode } from './types';
@@ -31,6 +35,13 @@ export interface EntryActions {
   trash(page: TreeNode): void;
   /** Adds an untitled page and opens it with the cursor in the title. */
   create(place: NewPagePlace): void;
+  move(page: TreeNode, to: MoveTo): void;
+}
+
+/** What the screen using the actions shows for moves (see `useMoveDialogs`). */
+export interface MoveHost {
+  /** Asks whether to go ahead with a move that changes who can open the page. */
+  confirmMove(page: TreeNode, change: AccessChange): Promise<boolean>;
 }
 
 type Change = (data: unknown, key: readonly unknown[]) => unknown;
@@ -67,7 +78,7 @@ async function optimistic(
   }
 }
 
-export function useEntryActions(): EntryActions {
+export function useEntryActions(host: MoveHost): EntryActions {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -154,6 +165,28 @@ export function useEntryActions(): EntryActions {
           (error: unknown) => failed("Couldn't add the page.", error),
         );
       },
+
+      move(page, to) {
+        const trees = new Map<string, TreeNode[]>();
+        for (const [key, data] of queryClient.getQueriesData<TreeNode[]>({
+          queryKey: pagesKeys.trees,
+        })) {
+          if (typeof key[2] === 'string' && Array.isArray(data)) trees.set(key[2], data);
+        }
+        const moved = movedTrees(trees, page.id, to);
+        const change: Change = (data, key) =>
+          key[1] === 'tree' && typeof key[2] === 'string' ? (moved.get(key[2]) ?? data) : data;
+        const run = (confirmed: boolean): Promise<void> =>
+          optimistic(queryClient, change, () => movePage(page.id, to, confirmed)).then(
+            async (error) => {
+              if (!error) return;
+              const access = confirmed ? null : accessChangeOf(error);
+              if (!access) failed("Couldn't move the page.", error);
+              else if (await host.confirmMove(page, access)) await run(true);
+            },
+          );
+        void run(false);
+      },
     } satisfies EntryActions;
-  }, [canCreate, favorites, navigate, queryClient, setStarred, toast]);
+  }, [canCreate, favorites, host, navigate, queryClient, setStarred, toast]);
 }

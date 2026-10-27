@@ -15,7 +15,7 @@ import { MoreHorizontal, Plus } from 'lucide-react';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import { slots } from '../../slots';
-import { pageUrl } from './access';
+import { atLeast, pageUrl } from './access';
 import { useEntryActions, type EntryActions } from './actions';
 import {
   clearRecent,
@@ -26,6 +26,9 @@ import {
   fetchTree,
   pagesKeys,
 } from './api';
+import { useDropZone } from './drag';
+import type { MoveScope } from './move';
+import { useMoveDialogs } from './MoveDialog';
 import { EntryIcon, PageTree, titleOf } from './PageTree';
 import { useFlagPref, useSetPref } from './prefs';
 import { groupChildren } from './tree';
@@ -51,7 +54,8 @@ export default function PagesSidebar() {
   const [expanded, onExpand] = useSetPref('sidebar.expanded');
   const [collapsed, onCollapse] = useSetPref('sidebar.collapsed');
   const [showRecent, onShowRecent] = useFlagPref('sidebar.recent', false);
-  const actions = useEntryActions();
+  const moves = useMoveDialogs();
+  const actions = useEntryActions(moves.host);
   const ctx: Ctx = { expanded, onExpand, collapsed, onCollapse, showRecent, onShowRecent, actions };
 
   if (spaces.isError) return <Retry onRetry={() => void spaces.refetch()} />;
@@ -71,6 +75,7 @@ export default function PagesSidebar() {
       <Shared ctx={ctx} />
       {personal && <Private space={personal} ctx={ctx} />}
       {showRecent && <Recent ctx={ctx} />}
+      {moves.dialogs}
     </div>
   );
 }
@@ -83,16 +88,23 @@ interface SectionProps {
   add?: ReactNode;
   /** Items for the heading's menu, above "Show Recent". */
   menu?: ReactNode;
+  /** Takes entries dragged onto the section. */
+  drop?: ReturnType<typeof useDropZone> | undefined;
   children: ReactNode;
 }
 
 /** A titled block that opens and closes from its heading; right-click the heading for options. */
-function Section({ id, title, ctx, add, menu, children }: SectionProps) {
+function Section({ id, title, ctx, add, menu, drop, children }: SectionProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const headingId = useId();
   const open = !ctx.collapsed.has(id);
   return (
-    <div role="group" aria-labelledby={headingId} className="flex flex-col">
+    <div
+      role="group"
+      aria-labelledby={headingId}
+      className={cn('flex flex-col rounded', drop?.over && 'ring-2 ring-inset ring-primary')}
+      {...drop?.zone}
+    >
       <div className="group flex h-6 items-center gap-1 px-2 max-md:h-11">
         <h2 id={headingId} className="min-w-0 flex-1 truncate text-label font-medium text-muted">
           <button
@@ -148,9 +160,10 @@ interface TreeBodyProps {
   ctx: Ctx;
   /** Shown instead of "No pages inside" when there are no pages. */
   empty?: ReactNode;
+  moves?: MoveScope | undefined;
 }
 
-function TreeBody({ query, label, scope, ctx, empty }: TreeBodyProps) {
+function TreeBody({ query, label, scope, ctx, empty, moves }: TreeBodyProps) {
   const byParent = useMemo(() => groupChildren(query.data ?? []), [query.data]);
   if (query.isError) return <Retry onRetry={() => void query.refetch()} />;
   if (!query.data) return <Loading />;
@@ -166,11 +179,18 @@ function TreeBody({ query, label, scope, ctx, empty }: TreeBodyProps) {
       onExpand={ctx.onExpand}
       actions={ctx.actions}
       renderExtra={renderViews}
+      moves={moves}
     />
   );
 }
 
-/** A space: its name opens and closes its tree; "+" adds a page at its top level. */
+/** Moving needs Full access on the page (Sidebar spec, section 5). */
+const canMove = (page: TreeNode) => atLeast(page.access, 'full');
+
+/**
+ * A space: its name opens and closes its tree and takes dropped entries at its top level; "+"
+ * adds a page there.
+ */
 function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
   const key = `space:${space.id}`;
   const open = !ctx.collapsed.has(key);
@@ -179,10 +199,22 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
     queryFn: () => fetchTree(space.id),
     enabled: open,
   });
-  const canAdd = (space.canAddPages ?? true) && ctx.actions.canCreate;
+  const canAddTop = space.canAddPages ?? true;
+  const canAdd = canAddTop && ctx.actions.canCreate;
+  const drop = useDropZone(
+    (page) => canAddTop && canMove(page),
+    (page) => ctx.actions.move(page, { spaceId: space.id, parentId: null }),
+  );
   return (
     <div className="flex flex-col">
-      <div className={cn(sidebarRowClasses(), 'group gap-1 pr-1')}>
+      <div
+        className={cn(
+          sidebarRowClasses(),
+          'group gap-1 pr-1',
+          drop.over && 'ring-2 ring-inset ring-primary',
+        )}
+        {...drop.zone}
+      >
         <button
           type="button"
           aria-expanded={open}
@@ -204,7 +236,15 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
           </span>
         )}
       </div>
-      {open && <TreeBody query={tree} label={space.name} scope={key} ctx={ctx} />}
+      {open && (
+        <TreeBody
+          query={tree}
+          label={space.name}
+          scope={key}
+          ctx={ctx}
+          moves={{ spaceId: space.id, canAddTop }}
+        />
+      )}
     </div>
   );
 }
@@ -229,6 +269,7 @@ function Private({ space, ctx }: { space: Space; ctx: Ctx }) {
         label="Private"
         scope="private"
         ctx={ctx}
+        moves={{ spaceId: space.id, canAddTop: true }}
         empty={
           canAdd ? (
             <button type="button" onClick={add} className={cn(sidebarRowClasses(), 'w-full')}>
@@ -297,11 +338,15 @@ function Favorites({ ctx, spaces }: { ctx: Ctx; spaces: readonly Space[] }) {
     return merged;
   }, [lists]);
   const roots = useMemo(() => favorites.data?.map(asNode), [favorites.data]);
+  const drop = useDropZone(
+    (page) => !ctx.actions.isFavorite(page.id),
+    (page) => ctx.actions.toggleFavorite(page),
+  );
 
   if (favorites.isError) return <Retry onRetry={() => void favorites.refetch()} />;
   if (!roots || (roots.length === 0 && starred)) return null;
   return (
-    <Section id="favorites" title="Favorites" ctx={ctx}>
+    <Section id="favorites" title="Favorites" ctx={ctx} drop={drop}>
       {roots.length === 0 ? (
         <p className="px-2 py-1 text-small text-faint">Star pages to keep them here.</p>
       ) : (
