@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Row } from '@carehub/databases';
 import { ApiError } from './api';
 import type { ViewData } from './contract';
-import { useDatabase, useTrashRows, useUpdateValues, useViewData } from './hooks';
+import { useDatabase, useMoveRow, useTrashRows, useUpdateValues, useViewData } from './hooks';
 import {
   databaseWrapper,
   JOBS_ID,
@@ -11,6 +11,7 @@ import {
   mockClient,
   PROPS,
   queryData,
+  STATUS,
   VIEWS,
 } from './test-utils';
 
@@ -147,5 +148,79 @@ describe('row changes', () => {
     const notStarted = result.current.view.data?.groups?.find((g) => g.label === 'Not started');
     expect(notStarted?.rows.map((r) => r.id)).toEqual(['row-drain']);
     expect(client.trashRows).toHaveBeenCalledWith(JOBS_ID, ['row-heater']);
+  });
+});
+
+describe('useMoveRow', () => {
+  const toDone = {
+    fromGroupKey: STATUS.notStarted,
+    toGroupKey: STATUS.done,
+    beforeRowId: 'row-boiler',
+  };
+
+  it('shows a card in its new column at once, then saves its value and its place', async () => {
+    const client = mockClient();
+    const answer = deferred<Row>();
+    client.updateRow.mockReturnValueOnce(answer.promise);
+    const { result } = renderHook(
+      () => ({
+        view: useViewData(JOBS_ID, VIEWS.board),
+        move: useMoveRow(JOBS_ID, VIEWS.board),
+      }),
+      { wrapper: databaseWrapper({ client }) },
+    );
+    await waitFor(() => expect(result.current.view.data?.count).toBe(4));
+
+    act(() => {
+      result.current.move.mutate({
+        rowId: 'row-heater',
+        place: toDone,
+        values: { [PROPS.status]: STATUS.done },
+      });
+    });
+    const done = () => result.current.view.data?.groups?.find((g) => g.key === STATUS.done);
+    await waitFor(() =>
+      expect(done()?.rows.map((r) => r.id)).toEqual(['row-heater', 'row-boiler']),
+    );
+    expect(done()?.rows[0]?.values[PROPS.status]).toBe(STATUS.done);
+
+    await act(async () => {
+      answer.resolve(jobsRows()[1] as Row);
+      await answer.promise;
+    });
+    await waitFor(() => expect(client.moveRow).toHaveBeenCalledTimes(1));
+    expect(client.updateRow).toHaveBeenCalledWith(JOBS_ID, 'row-heater', {
+      [PROPS.status]: STATUS.done,
+    });
+    expect(client.moveRow).toHaveBeenCalledWith(JOBS_ID, VIEWS.board, 'row-heater', 'row-boiler');
+  });
+
+  it('only changes the value while the view is sorted', async () => {
+    const client = mockClient();
+    const { result } = renderHook(() => useMoveRow(JOBS_ID, VIEWS.board), {
+      wrapper: databaseWrapper({ client }),
+    });
+    await act(() =>
+      result.current.mutateAsync({
+        rowId: 'row-heater',
+        place: toDone,
+        values: { [PROPS.status]: STATUS.done },
+        keepOrder: false,
+      }),
+    );
+    expect(client.updateRow).toHaveBeenCalledTimes(1);
+    expect(client.moveRow).not.toHaveBeenCalled();
+  });
+
+  it('only saves the place for a move in manual order', async () => {
+    const client = mockClient();
+    const { result } = renderHook(() => useMoveRow(JOBS_ID, VIEWS.table), {
+      wrapper: databaseWrapper({ client }),
+    });
+    await act(() =>
+      result.current.mutateAsync({ rowId: 'row-drain', place: { beforeRowId: null } }),
+    );
+    expect(client.updateRow).not.toHaveBeenCalled();
+    expect(client.moveRow).toHaveBeenCalledWith(JOBS_ID, VIEWS.table, 'row-drain', undefined);
   });
 });

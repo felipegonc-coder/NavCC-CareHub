@@ -324,20 +324,54 @@ export function useRestoreRows(databaseId: Id) {
   });
 }
 
-/** Manual order in one view: the row goes before `beforeRowId`, or to the end. */
+export interface MoveRowInput {
+  rowId: Id;
+  place: CachePlace;
+  /** The values that put the row in its new group or lane, if it changes group. */
+  values?: RowValues;
+  /** false while the view is sorted: dragging only changes groups. */
+  keepOrder?: boolean;
+}
+
+/**
+ * Moves a row in one view: into another group or lane (changing its values) and, unless the view
+ * is sorted, before `beforeRowId` or to the end in manual order.
+ */
 export function useMoveRow(databaseId: Id, viewId: Id) {
   const client = useDatabaseClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ rowId, place }: { rowId: Id; place: CachePlace }) =>
-      client.moveRow(databaseId, viewId, rowId, place.beforeRowId ?? undefined),
-    onMutate: async ({ rowId, place }) => {
+    mutationFn: async ({ rowId, place, values, keepOrder = true }: MoveRowInput) => {
+      if (values && Object.keys(values).length > 0) {
+        await client.updateRow(databaseId, rowId, values);
+      }
+      if (keepOrder)
+        await client.moveRow(databaseId, viewId, rowId, place.beforeRowId ?? undefined);
+    },
+    onMutate: async ({ rowId, place, values }) => {
       const snapshot = await holdQueries(queryClient, databaseId);
-      changeQueries(queryClient, databaseId, (data) => moveInCache(data, rowId, place), viewId);
+      const meta = queryClient.getQueryData<DatabaseWithVersion>(databaseKeys.meta(databaseId));
+      const titleId = titlePropertyId(meta?.properties ?? []);
+      changeQueries(
+        queryClient,
+        databaseId,
+        (data) => {
+          const moved = moveInCache(data, rowId, place);
+          if (!values) return moved;
+          return mapQueryRows(moved, (row) =>
+            row.id === rowId ? withValues(row, values, titleId) : row,
+          );
+        },
+        viewId,
+      );
       return { snapshot };
     },
     onError: (_error, _input, context) => restore(queryClient, context?.snapshot),
-    onSettled: () => refreshQueries(queryClient, databaseId),
+    onSettled: (_result, _error, { rowId }) =>
+      Promise.all([
+        refreshQueries(queryClient, databaseId),
+        queryClient.invalidateQueries({ queryKey: databaseKeys.row(databaseId, rowId) }),
+      ]),
   });
 }
 
