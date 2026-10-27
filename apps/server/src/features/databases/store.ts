@@ -3,7 +3,7 @@
 // saveSettings in one transaction): the database's row is locked with select ... for no key update
 // (so rows can still be added meanwhile), a stale version is refused with 409, and every save bumps
 // the version. Row writes never lock the database row; takeUniqueNumbers is one short update.
-import type { Id, Property, Row } from '@carehub/databases';
+import type { Id, Property, Row, Viewer } from '@carehub/databases';
 import type { PropertyViewer } from '@carehub/databases/access';
 import { eq, sql, type SQL } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
@@ -166,22 +166,19 @@ type RowRow = {
 
 const instant = (value: Date | string) => new Date(value).toISOString();
 
-/**
- * The database's rows (not in Trash), oldest first, as the package's Row with every stored value:
- * strip what the viewer can't see before answering (engine projectRow). `rowIds` picks some.
- */
-export async function loadRows(
+async function selectRows(
   db: Executor,
   databaseId: string,
-  rowIds?: readonly string[],
+  opts: { rowIds?: readonly string[] | undefined; withTrash: boolean },
 ): Promise<Row[]> {
   if (!isUuid(databaseId)) return [];
-  const only = rowIds ? sql`AND r.page_id = ANY(${uuidList(rowIds)})` : sql.raw('');
+  const only = opts.rowIds ? sql`AND r.page_id = ANY(${uuidList(opts.rowIds)})` : sql.raw('');
+  const live = opts.withTrash ? sql.raw('') : sql.raw('AND p.deleted_at IS NULL');
   const { rows } = await db.execute<RowRow>(sql`
     SELECT r.page_id AS id, p.title, p.icon, r."values", r.unique_number, r.created_by,
       r.created_at, r.edited_by, r.edited_at, r.form_view_id
     FROM db_rows r JOIN pages p ON p.id = r.page_id
-    WHERE r.database_id = ${databaseId} AND p.deleted_at IS NULL ${only}
+    WHERE r.database_id = ${databaseId} ${live} ${only}
     ORDER BY r.created_at, r.page_id`);
   return rows.map((r): Row => ({
     id: r.id,
@@ -195,6 +192,125 @@ export async function loadRows(
     icon: iconText(r.icon),
     formId: r.form_view_id,
   }));
+}
+
+/**
+ * The database's rows (not in Trash), oldest first, as the package's Row with every stored value:
+ * strip what the viewer can't see before answering (engine projectRow). `rowIds` picks some.
+ */
+export function loadRows(
+  db: Executor,
+  databaseId: string,
+  rowIds?: readonly string[],
+): Promise<Row[]> {
+  return selectRows(db, databaseId, { rowIds, withTrash: false });
+}
+
+/** Every row of the database, in Trash too, oldest first: for settings writes that change values. */
+export function loadEveryRow(db: Executor, databaseId: string): Promise<Row[]> {
+  return selectRows(db, databaseId, { withTrash: true });
+}
+
+/** One cell to save: null (or undefined) empties it. */
+export type CellWrite = { rowId: Id; propertyId: Id; value: unknown };
+
+const CELL_BATCH = 2_000;
+
+/**
+ * Saves cells of rows in these databases (a settings write's value changes, both sides of a
+ * two-way relation), a few thousand rows per statement. Row edit times stay as they are.
+ */
+export async function writeCells(
+  tx: Executor,
+  databaseIds: readonly string[],
+  cells: readonly CellWrite[],
+): Promise<void> {
+  const byRow = new Map<string, Map<Id, unknown>>();
+  for (const cell of cells) {
+    if (!isUuid(cell.rowId)) continue;
+    let row = byRow.get(cell.rowId);
+    if (!row) byRow.set(cell.rowId, (row = new Map()));
+    row.set(cell.propertyId, cell.value ?? null);
+  }
+  const list = [...byRow].map(([rowId, row]) => {
+    const entries = [...row];
+    return {
+      row_id: rowId,
+      puts: Object.fromEntries(entries.filter(([, v]) => v !== null)),
+      drops: entries.filter(([, v]) => v === null).map(([id]) => id),
+    };
+  });
+  for (let i = 0; i < list.length; i += CELL_BATCH) {
+    const batch = JSON.stringify(list.slice(i, i + CELL_BATCH));
+    await tx.execute(sql`
+      UPDATE db_rows r
+      SET "values" = (r."values" - ARRAY(SELECT jsonb_array_elements_text(c.drops))) || c.puts
+      FROM jsonb_to_recordset(${batch}::jsonb) AS c(row_id uuid, puts jsonb, drops jsonb)
+      WHERE r.page_id = c.row_id AND r.database_id = ANY(${uuidList(databaseIds)})`);
+  }
+}
+
+/** Takes one property's values out of every row of the database: row id → value (for restore). */
+export async function takePropertyValues(
+  tx: Executor,
+  databaseId: string,
+  propertyId: Id,
+): Promise<Record<string, unknown>> {
+  if (!isUuid(databaseId)) return {};
+  const { rows } = await tx.execute<{ id: string; value: unknown }>(sql`
+    UPDATE db_rows r SET "values" = r."values" - ${propertyId}::text
+    FROM (
+      SELECT page_id, "values" -> ${propertyId}::text AS value FROM db_rows
+      WHERE database_id = ${databaseId} AND ("values" -> ${propertyId}::text) IS NOT NULL
+    ) o
+    WHERE r.page_id = o.page_id
+    RETURNING o.page_id AS id, o.value`);
+  return Object.fromEntries(rows.map((r) => [r.id, r.value]));
+}
+
+/** Puts saved values back (restore): row id → value. Rows that no longer exist are skipped. */
+export function putPropertyValues(
+  tx: Executor,
+  databaseId: string,
+  propertyId: Id,
+  values: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  const cells = Object.entries(values).map(([rowId, value]) => ({ rowId, propertyId, value }));
+  return writeCells(tx, [databaseId], cells);
+}
+
+/** Copies one property's values to another property of the same rows (duplicate). */
+export async function copyPropertyValues(
+  tx: Executor,
+  databaseId: string,
+  fromId: Id,
+  toId: Id,
+): Promise<void> {
+  if (!isUuid(databaseId)) return;
+  await tx.execute(sql`
+    UPDATE db_rows SET "values" = "values" || jsonb_build_object(${toId}::text, "values" -> ${fromId}::text)
+    WHERE database_id = ${databaseId} AND ("values" -> ${fromId}::text) IS NOT NULL`);
+}
+
+/**
+ * Gives ID numbers to rows that have none (numberExistingRows worked them out) and moves the
+ * database's counter past them, so they're never given again.
+ */
+export async function numberRows(
+  tx: Executor,
+  databaseId: string,
+  numbers: ReadonlyMap<Id, number>,
+): Promise<void> {
+  const list = [...numbers].filter(([id]) => isUuid(id)).map(([id, n]) => ({ row_id: id, n }));
+  if (!isUuid(databaseId) || list.length === 0) return;
+  const highest = list.reduce((max, r) => Math.max(max, r.n), 0);
+  await tx.execute(sql`
+    UPDATE db_rows r SET unique_number = c.n
+    FROM jsonb_to_recordset(${JSON.stringify(list)}::jsonb) AS c(row_id uuid, n int)
+    WHERE r.page_id = c.row_id AND r.database_id = ${databaseId} AND r.unique_number IS NULL`);
+  await tx.execute(sql`
+    UPDATE db_databases SET next_unique_number = GREATEST(next_unique_number, ${highest + 1}::int)
+    WHERE page_id = ${databaseId}`);
 }
 
 /**
@@ -224,8 +340,32 @@ const relationTargets = (properties: readonly Property[]): string[] => [
 
 /**
  * The properties of the databases these properties relate to, and of the ones those relate to, up
- * to `limit` databases, by property id: what formulas and rollups read across relations, for
- * property access (meta.ts visibleIds and the engine's visiblePropertyIds).
+ * to `limit` databases: database id → its properties. What formulas, rollups and buttons read.
+ */
+export async function loadRelatedDatabases(
+  db: Executor,
+  properties: readonly Property[],
+  limit = 25,
+): Promise<Map<Id, Property[]>> {
+  const out = new Map<Id, Property[]>();
+  const seen = new Set<string>();
+  let next = relationTargets(properties);
+  while (seen.size < limit) {
+    const batch = next.filter((id) => isUuid(id) && !seen.has(id)).slice(0, limit - seen.size);
+    if (batch.length === 0) break;
+    for (const id of batch) seen.add(id);
+    const { rows } = await db.execute<{ id: string; properties: Property[] | null }>(
+      sql`SELECT page_id AS id, properties FROM db_databases WHERE page_id = ANY(${uuidList(batch)})`,
+    );
+    for (const r of rows) out.set(r.id, r.properties ?? []);
+    next = relationTargets(rows.flatMap((r) => r.properties ?? []));
+  }
+  return out;
+}
+
+/**
+ * The properties of related databases (loadRelatedDatabases) by property id: what formulas and
+ * rollups read across relations, for property access (meta.ts visibleIds).
  */
 export async function loadRelatedProperties(
   db: Executor,
@@ -233,18 +373,8 @@ export async function loadRelatedProperties(
   limit = 25,
 ): Promise<Map<Id, Property>> {
   const out = new Map<Id, Property>();
-  const seen = new Set<string>();
-  let next = relationTargets(properties);
-  while (seen.size < limit) {
-    const batch = next.filter((id) => isUuid(id) && !seen.has(id)).slice(0, limit - seen.size);
-    if (batch.length === 0) break;
-    for (const id of batch) seen.add(id);
-    const { rows } = await db.execute<{ properties: Property[] | null }>(
-      sql`SELECT properties FROM db_databases WHERE page_id = ANY(${uuidList(batch)})`,
-    );
-    const found = rows.flatMap((r) => r.properties ?? []);
-    for (const p of found) out.set(p.id, p);
-    next = relationTargets(found);
+  for (const list of (await loadRelatedDatabases(db, properties, limit)).values()) {
+    for (const p of list) out.set(p.id, p);
   }
   return out;
 }
@@ -264,4 +394,50 @@ export async function loadPropertyViewer(
     WHERE workspace_id = ${workspaceId} AND user_id = ${userId}`);
   const roleId = rows[0]?.role_id;
   return roleId ? { userId, roleId, groupIds: [] } : { userId, groupIds: [] };
+}
+
+/** A workspace member, for names in values and Text to Person. */
+export type Member = { id: string; name: string; email: string };
+
+/** The workspace's members with their names and sign-in emails. */
+export async function loadMembers(db: Executor, workspaceId: string): Promise<Member[]> {
+  if (!isUuid(workspaceId)) return [];
+  const { rows } = await db.execute<Member>(sql`
+    SELECT u.id, u.name, u.email FROM workspace_members m JOIN users u ON u.id = m.user_id
+    WHERE m.workspace_id = ${workspaceId}`);
+  return rows;
+}
+
+type ClockRow = { time_zone: string | null; use_24h: boolean | null; week_start: number | null };
+
+const weekDay = (n: number | null | undefined): Viewer['weekStart'] =>
+  n === 1 || n === 2 || n === 3 || n === 4 || n === 5 || n === 6 ? n : 0;
+
+/** The person as the package's Viewer: their time zone, clock and first day of the week. */
+export async function loadViewer(db: Executor, userId: string, now = new Date()): Promise<Viewer> {
+  const { rows } = isUuid(userId)
+    ? await db.execute<ClockRow>(
+        sql`SELECT time_zone, use_24h, week_start FROM users WHERE id = ${userId}`,
+      )
+    : { rows: [] };
+  const row = rows[0];
+  return {
+    userId,
+    timeZone: row?.time_zone || 'America/Denver',
+    weekStart: weekDay(row?.week_start),
+    hour12: row?.use_24h !== true,
+    now,
+  };
+}
+
+/** Titles of pages that aren't in Trash, by id. Check access first. */
+export async function loadPageTitles(
+  db: Executor,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const list = ids.filter(isUuid);
+  if (list.length === 0) return new Map();
+  const { rows } = await db.execute<{ id: string; title: string }>(sql`
+    SELECT id, title FROM pages WHERE id = ANY(${uuidList(list)}) AND deleted_at IS NULL`);
+  return new Map(rows.map((r) => [r.id, r.title]));
 }

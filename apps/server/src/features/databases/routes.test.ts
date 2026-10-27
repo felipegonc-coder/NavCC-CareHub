@@ -3,86 +3,32 @@
 import { defaultConfig, newProperty, type Property } from '@carehub/databases';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Db } from '../../db';
-import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
+import { hasDatabase, type TestUser } from '../../testing';
 import { changeDatabase } from './store';
-
-type Role = 'admin' | 'editor' | 'viewer';
-const PERMISSIONS: Record<Role, string[]> = {
-  admin: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share', 'workspace.admin'],
-  editor: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share'],
-  viewer: [],
-};
-const INVALID = { error: { code: 'invalid', message: "That request isn't valid." } };
+import { INVALID, testWorkspace, type TestWorkspace } from './test-workspace';
 
 describe.skipIf(!hasDatabase)('database routes', () => {
-  let close: () => Promise<void>;
-  let app: Awaited<ReturnType<typeof createTestApp>>['app'];
-  let db: Db;
-  let workspaceId: string;
-  let spaceId: string;
+  let ws: TestWorkspace;
   let pageId: string;
   let databaseId: string;
   const people = {} as Record<'admin' | 'avery' | 'jordan', TestUser>;
 
-  // Stand-ins for the roles pull request's tables (decision 0007 names) until it lands.
-  async function standInWorkspace() {
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS roles (id uuid PRIMARY KEY DEFAULT
-      gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL, permissions text[] NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspace_members (workspace_id uuid NOT NULL,
-      user_id uuid NOT NULL, role_id uuid, kind text NOT NULL DEFAULT 'member',
-      PRIMARY KEY (workspace_id, user_id))`);
-    const { rows } = await db.execute<{ id: string }>(
-      sql`INSERT INTO workspaces (name) VALUES ('Blue Pine Plumbing') RETURNING id`,
-    );
-    workspaceId = rows[0]!.id;
-  }
-
-  async function person(role: Role, name: string): Promise<TestUser> {
-    const { rows } = await db.execute<{ id: string }>(sql`
-      INSERT INTO roles (workspace_id, name, permissions)
-      VALUES (${workspaceId}, ${`${role} for ${name}`}, ${`{${PERMISSIONS[role].join(',')}}`}::text[])
-      RETURNING id`);
-    const user = await createUser(db, { name });
-    await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
-      VALUES (${workspaceId}, ${user.id}, ${rows[0]!.id})`);
-    await db.execute(sql`INSERT INTO space_members (space_id, principal_type, principal_id)
-      VALUES (${spaceId}, 'user', ${user.id})`);
-    return user;
-  }
-
   beforeAll(async () => {
-    ({ app, db, close } = await createTestApp());
-    await standInWorkspace();
-    const space = await db.execute<{ id: string }>(sql`
-      INSERT INTO spaces (workspace_id, kind, name)
-      VALUES (${workspaceId}, 'open', 'Operations') RETURNING id`);
-    spaceId = space.rows[0]!.id;
-    const page = await db.execute<{ id: string }>(sql`
-      INSERT INTO pages (workspace_id, space_id, kind, title, position)
-      VALUES (${workspaceId}, ${spaceId}, 'page', 'Call-outs', 'a0') RETURNING id`);
-    pageId = page.rows[0]!.id;
-    people.admin = await person('admin', 'Morgan Reyes');
-    people.avery = await person('editor', 'Avery Lin');
-    people.jordan = await person('viewer', 'Jordan Park');
+    ws = await testWorkspace();
+    pageId = ws.pageId;
+    people.admin = await ws.person('admin', 'Morgan Reyes');
+    people.avery = await ws.person('editor', 'Avery Lin');
+    people.jordan = await ws.person('viewer', 'Jordan Park');
   });
 
   afterAll(async () => {
-    await close?.();
+    await ws?.close();
   });
 
-  const post = (who: TestUser, payload: unknown) =>
-    injectAs(app, who, { method: 'POST', url: '/api/databases', payload: payload as object });
-  const get = (who: TestUser, id = databaseId) =>
-    injectAs(app, who, { method: 'GET', url: `/api/databases/${id}` });
-  const patch = (who: TestUser, payload: unknown) =>
-    injectAs(app, who, {
-      method: 'PATCH',
-      url: `/api/databases/${databaseId}`,
-      payload: payload as object,
-    });
+  const post = (who: TestUser, payload: object) => ws.send(who, 'POST', '/api/databases', payload);
+  const get = (who: TestUser, id = databaseId) => ws.send(who, 'GET', `/api/databases/${id}`);
+  const patch = (who: TestUser, payload: object) =>
+    ws.send(who, 'PATCH', `/api/databases/${databaseId}`, payload);
 
   it('creates a database under a page, with a Name property and a Table view', async () => {
     const res = await post(people.avery, { parentId: pageId, inline: false, title: 'Jobs' });
@@ -103,7 +49,7 @@ describe.skipIf(!hasDatabase)('database routes', () => {
     expect(body.properties[0]).toMatchObject({ name: 'Name', config: { type: 'title' } });
     expect(body.views).toHaveLength(1);
     expect(body.views[0]).toMatchObject({ name: 'Table', layout: 'table' });
-    const { rows } = await db.execute<{ kind: string; parent_id: string }>(
+    const { rows } = await ws.db.execute<{ kind: string; parent_id: string }>(
       sql`SELECT kind, parent_id FROM pages WHERE id = ${databaseId}`,
     );
     expect(rows[0]).toEqual({ kind: 'database', parent_id: pageId });
@@ -210,7 +156,7 @@ describe.skipIf(!hasDatabase)('database routes', () => {
       resultKind: null,
       number: null,
     });
-    const saved = await changeDatabase(db, databaseId, 6, (current) => ({
+    const saved = await changeDatabase(ws.db, databaseId, 6, (current) => ({
       properties: [...current.properties, gate, copy],
     }));
     expect(saved.version).toBe(7);

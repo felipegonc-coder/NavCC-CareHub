@@ -4,6 +4,8 @@ import { LIMITS } from '@carehub/databases';
 import {
   idSchema,
   lineSchema,
+  propertyAccessSchema,
+  propertySchema,
   richTextSchema,
   rowPageLayoutSchema,
 } from '@carehub/databases/schemas';
@@ -43,3 +45,36 @@ export const databaseSettingsRequest = z.strictObject({
   description: richTextSchema().optional(),
 });
 export type DatabaseSettingsRequest = z.infer<typeof databaseSettingsRequest>;
+
+const property = propertySchema.shape;
+
+/**
+ * POST /api/databases/:id/properties: a new property (the server gives its id). A relation with
+ * any twoWayPropertyId is two-way: the server adds the matching property on the target, named
+ * `twoWayName` or after this database. `viewId` and `afterPropertyId` show it in that view after
+ * that column ("Insert left or right"); otherwise it shows in table views.
+ */
+export const newPropertyRequest = z.strictObject({
+  version: versionSchema,
+  name: property.name,
+  config: property.config,
+  description: property.description.optional(),
+  rowPage: property.rowPage.optional(),
+  access: propertyAccessSchema.optional(),
+  viewId: idSchema.optional(),
+  afterPropertyId: idSchema.optional(),
+  twoWayName: property.name.optional(),
+});
+
+/** PATCH /api/databases/:id/properties/:pid: the parts that change; a new config.type changes the type. */
+export const propertyChangeRequest = z.strictObject({
+  version: versionSchema,
+  name: property.name.optional(),
+  description: property.description.optional(),
+  config: property.config.optional(),
+  rowPage: property.rowPage.optional(),
+  access: propertyAccessSchema.optional(),
+});
+
+/** Settings writes that need only the version: delete (also as ?version=), restore, duplicate. */
+export const versionRequest = z.strictObject({ version: versionSchema });

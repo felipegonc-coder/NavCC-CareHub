@@ -22,10 +22,20 @@ import {
 } from '@carehub/databases/access';
 import { visiblePropertyIds } from '@carehub/databases/engine';
 import { formulaDependencies } from '@carehub/databases/formula';
+import { liveDeleted } from './properties';
 import { iconText, type DatabaseRecord } from './record';
 
-/** What GET /:id and every settings write answer: DatabaseMeta and the version to send back. */
-export type DatabaseAnswer = DatabaseMeta & { version: number };
+/** A deleted property people who can edit may restore (Properties → Deleted), without values. */
+export type DeletedPropertyInfo = { property: Property; deletedAt: string };
+
+/**
+ * What GET /:id and every settings write answer: DatabaseMeta and the version to send back; for
+ * people who can edit, also the properties deleted in the last 30 days.
+ */
+export type DatabaseAnswer = DatabaseMeta & {
+  version: number;
+  deletedProperties?: DeletedPropertyInfo[];
+};
 
 export interface MetaInput {
   record: DatabaseRecord;
@@ -36,6 +46,8 @@ export interface MetaInput {
   related?: ReadonlyMap<Id, Property>;
   /** The pages mentioned in the description and templates that the person can open. */
   openablePages?: ReadonlySet<string>;
+  /** For the 30 days deleted properties are kept. */
+  now?: Date;
 }
 
 /**
@@ -207,7 +219,11 @@ export function databaseMeta(input: MetaInput): DatabaseAnswer {
   const { record, access, viewer } = input;
   const level = databasePageAccess(access);
   const visible = visibleIds(record.properties, viewer, input.related);
-  const hidden = new Set(record.properties.filter((p) => !visible.has(p.id)).map((p) => p.id));
+  // Hidden properties, and deleted ones (views keep pointing at them until they're restored).
+  const hidden = new Set([
+    ...record.properties.filter((p) => !visible.has(p.id)).map((p) => p.id),
+    ...record.deletedProperties.map((d) => d.property.id),
+  ]);
   const openable = input.openablePages ?? new Set<string>();
   const canEdit = atLeast(level, 'edit');
   const meta: DatabaseAnswer = {
@@ -227,6 +243,11 @@ export function databaseMeta(input: MetaInput): DatabaseAnswer {
     dependencies: record.dependencies,
     version: record.version,
   };
+  if (canEdit) {
+    meta.deletedProperties = liveDeleted(record.deletedProperties, input.now ?? new Date())
+      .filter((d) => canSeeProperty(d.property, viewer))
+      .map((d) => ({ property: d.property, deletedAt: d.deletedAt }));
+  }
   if (record.rowPageLayout) {
     const layout = record.rowPageLayout;
     meta.rowPageLayout = { ...layout, pinned: layout.pinned.filter((id) => !hidden.has(id)) };
