@@ -54,7 +54,7 @@ describe.skipIf(!hasDatabase)('Learning courses API', () => {
 
   const call = (
     person: Person | null,
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     url: string,
     body?: object,
   ) =>
@@ -184,5 +184,63 @@ describe.skipIf(!hasDatabase)('Learning courses API', () => {
       message: expect.stringMatching(/^Fix /),
     });
     expect(error.issues.length).toBeGreaterThan(0);
+  });
+
+  it('copies examples and courses, archives them, keeps block templates and serves the catalog', async () => {
+    const examples = await call('trainer', 'GET', '/studio/examples');
+    expect(examples.json()).toContainEqual(
+      expect.objectContaining({ id: sampleStandardCourse.id, type: 'standard' }),
+    );
+    const fromExample = await call('trainer', 'POST', '/studio/courses', {
+      type: 'standard',
+      exampleId: sampleStandardCourse.id,
+    });
+    expect(fromExample.statusCode).toBe(201);
+    const { course } = fromExample.json() as StudioCourse;
+    expect(course.title).toBe(sampleStandardCourse.title);
+    const publish = { notify: 'none' };
+    await call('trainer', 'POST', `/studio/courses/${course.id}/publish`, publish);
+
+    const copy = await call('trainer', 'POST', `/studio/courses/${course.id}/duplicate`);
+    expect(copy.statusCode).toBe(201);
+    expect(copy.json()).toMatchObject({ title: `Copy of ${course.title}`, state: 'draft' });
+
+    const catalog = async (query = '') =>
+      ((await call('learner', 'GET', `/catalog${query}`)).json() as { id: string }[]).map(
+        (entry) => entry.id,
+      );
+    expect(await catalog()).toContain(course.id);
+    expect(await catalog('?q=handling%20calls')).toContain(course.id);
+    expect(await catalog('?topic=Nothing')).toEqual([]);
+    const archived = await call('trainer', 'POST', `/studio/courses/${course.id}/archive`);
+    expect(archived.json()).toMatchObject({ id: course.id, archived: true });
+    expect(await catalog()).not.toContain(course.id);
+    expect((await call('learner', 'GET', `/courses/${course.id}`)).statusCode).toBe(200);
+    await call('trainer', 'POST', `/studio/courses/${course.id}/unarchive`);
+    expect(await catalog()).toContain(course.id);
+    expect((await call('guest', 'GET', '/catalog')).json()).toEqual(FORBIDDEN);
+    expect((await call('learner', 'GET', '/studio/examples')).statusCode).toBe(403);
+
+    const lesson = course.lessons.find((each) => each.kind === 'content');
+    const blocks = lesson?.kind === 'content' ? lesson.blocks.slice(0, 1) : [];
+    const saved = await call('trainer', 'POST', '/studio/block-templates', {
+      name: ' Greeting ',
+      blocks,
+    });
+    expect(saved.statusCode).toBe(201);
+    const template = saved.json() as { id: string; name: string };
+    expect(template.name).toBe('Greeting');
+    expect((await call('trainer', 'GET', '/studio/block-templates')).json()).toEqual([
+      { id: template.id, name: 'Greeting', blocks, createdAt: expect.any(String) },
+    ]);
+    const empty = await call('trainer', 'POST', '/studio/block-templates', {
+      name: 'x',
+      blocks: [],
+    });
+    expect(empty.statusCode).toBe(400);
+    const deleted = await call('trainer', 'DELETE', `/studio/block-templates/${template.id}`);
+    expect(deleted.statusCode).toBe(204);
+    const again = await call('trainer', 'DELETE', `/studio/block-templates/${template.id}`);
+    expect(again.json()).toEqual(NOT_FOUND);
   });
 });

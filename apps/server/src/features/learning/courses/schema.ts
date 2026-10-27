@@ -1,4 +1,4 @@
-import type { Course, PublishNotify } from '@carehub/learning';
+import type { Block, Course, PublishNotify } from '@carehub/learning';
 import {
   boolean,
   foreignKey,
@@ -11,8 +11,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-// Mirrors migrations/202610270312_learning_courses.sql, which is the source of truth (schema.test.ts compares
-// them).
+// Mirrors migrations/202610270312_learning_courses.sql and 202610270420_learning_block_templates.sql, which are
+// the source of truth (schema.test.ts compares them).
 
 const at = (name: string) => timestamp(name, { withTimezone: true }).notNull().defaultNow();
 
@@ -55,4 +55,18 @@ export const learningCourseVersions = pgTable(
       foreignColumns: [learningCourses.workspaceId, learningCourses.id],
     }).onDelete('cascade'),
   ],
+);
+
+/** Blocks an author saved to add again in any course of the workspace. */
+export const learningBlockTemplates = pgTable(
+  'learning_block_templates',
+  {
+    workspaceId: uuid('workspace_id').notNull(),
+    id: text('id').notNull(),
+    name: text('name').notNull(),
+    blocks: jsonb('blocks').$type<Block[]>().notNull(),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: at('created_at'),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.id] })],
 );

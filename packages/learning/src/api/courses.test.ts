@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { createCourse, parseWith } from '../index';
+import { createCourse, parseWith, sampleStandardCourse } from '../index';
 import {
   ApiIssueSchema,
+  BLOCK_TEMPLATE_LIMITS,
+  BlockTemplateSchema,
+  CatalogEntrySchema,
+  CatalogQuerySchema,
   CourseSummarySchema,
+  CreateBlockTemplateRequestSchema,
   CreateCourseRequestSchema,
   LiveCourseSchema,
   PublishRequestSchema,
@@ -20,6 +25,15 @@ describe('course API schemas', () => {
     expect(
       parseWith(CreateCourseRequestSchema, { type: 'certification', title: 'Escalations' }),
     ).toMatchObject({ ok: true, value: { title: 'Escalations' } });
+    expect(
+      parseWith(CreateCourseRequestSchema, {
+        type: 'standard',
+        exampleId: 'course-calls-with-care',
+      }).ok,
+    ).toBe(true);
+    expect(
+      parseWith(CreateCourseRequestSchema, { type: 'standard', exampleId: 'no spaces' }).ok,
+    ).toBe(false);
     const refused = parseWith(CreateCourseRequestSchema, { type: 'webinar' });
     expect(refused.ok).toBe(false);
     if (!refused.ok) expect(refused.issues.map((issue) => issue.path)).toEqual(['type']);
@@ -80,5 +94,44 @@ describe('course API schemas', () => {
       questionId: 'question-3',
     };
     expect(parseWith(ApiIssueSchema, issue)).toEqual({ ok: true, value: issue });
+  });
+
+  it('reads catalog searches and describes catalog entries', () => {
+    expect(parseWith(CatalogQuerySchema, { q: '  calls ', topic: 'Phones' })).toEqual({
+      ok: true,
+      value: { q: 'calls', topic: 'Phones' },
+    });
+    expect(parseWith(CatalogQuerySchema, {})).toEqual({ ok: true, value: {} });
+    const { id, title, type, summary, cover, topics, estimatedMinutes, lessons } =
+      sampleStandardCourse;
+    const entry = { id, title, type, summary, cover, topics, estimatedMinutes };
+    expect(
+      parseWith(CatalogEntrySchema, { ...entry, lessonCount: lessons.length, version: 3 }).ok,
+    ).toBe(true);
+    expect(parseWith(CatalogEntrySchema, { ...entry, lessonCount: 1 }).ok).toBe(false);
+  });
+
+  it('keeps block templates to a name and 1 to 50 valid blocks', () => {
+    const [lesson] = sampleStandardCourse.lessons;
+    const blocks = lesson?.kind === 'content' ? lesson.blocks.slice(0, 1) : [];
+    expect(blocks).toHaveLength(1);
+    expect(parseWith(CreateBlockTemplateRequestSchema, { name: ' Greeting ', blocks })).toEqual({
+      ok: true,
+      value: { name: 'Greeting', blocks },
+    });
+    for (const input of [
+      { name: ' ', blocks },
+      { name: 'Greeting', blocks: [] },
+      { name: 'Greeting', blocks: [{ type: 'not_a_block', id: 'b1' }] },
+      { name: 'Greeting', blocks: Array(BLOCK_TEMPLATE_LIMITS.blocks + 1).fill(blocks[0]) },
+    ])
+      expect(parseWith(CreateBlockTemplateRequestSchema, input).ok).toBe(false);
+    const template = {
+      id: 'template-1',
+      name: 'Greeting',
+      blocks,
+      createdAt: '2026-10-27T09:30:00Z',
+    };
+    expect(parseWith(BlockTemplateSchema, template).ok).toBe(true);
   });
 });
