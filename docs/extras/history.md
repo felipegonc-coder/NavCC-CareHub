@@ -19,6 +19,7 @@ What happened on a page, for its Updates panel (HT-08). An entry (`history_updat
 - **Edits:** every version saved, automatic or before a change, adds an `edited` entry for each person whose edits it holds, in the same transaction. `changes` is how many changes Show changes marks against the version before; a page's first version has none to count.
 - **The page model's events** (#49), after the commit: `page.created` → `created`; `page.updated` with `title: { from, to }` → `renamed`, with `parentId: { from, to }` (null for the top of the space) → `moved`, with `locked: true | false` → `locked` or `unlocked`; `access.changed` → `shared`; `page.archived`, `page.unarchived`, `page.trashed` and `page.restored` → `archived`, `unarchived`, `trashed` and `untrashed`. Each needs `pageId`; `by` is the person (null for automations), and `workspaceId` is looked up when it's missing. Until core declares these events they're read loosely: other fields are ignored, and a payload without a valid `pageId` adds nothing.
 - **Comments and history:** `comment.created` → `commented` (a reply when `newThread` is false); `history.version.restored` → `restored`, with when the restored version was saved.
+- **Who sees what** (HT-08, HT-15): the list needs Can view. A move between pages names each page only if the person can open it; otherwise the place is `{ kind: 'hidden' }` ("a page you can't open"), with no ID or title. Property changes show only to people who can see the property. Only people with Can edit get `versionId`, which Show changes opens in Version history.
 
 ## Show changes and the preview
 
@@ -66,6 +67,7 @@ What happened on a page, for its Updates panel (HT-08). An entry (`history_updat
 | `POST /pages/:pageId/versions { reason: 'replace' \| 'accept_all' }` | Can edit, not locked or archived | 201 `SavedVersionResponse`; nothing new when nothing changed since the newest version                                               |
 | `PATCH /pages/:pageId/versions/:versionId { name }`                  | Can edit, not locked or archived | `SavedVersionResponse`; an empty name or null removes it                                                                            |
 | `POST /pages/:pageId/versions/:versionId/restore`                    | Can edit, not locked or archived | `SavedVersionResponse` with the version saved just before (`createdBy` is the restorer, `restoredFrom` the restored version's time) |
+| `GET /pages/:pageId/updates?before&limit`                            | Can view                         | `UpdateListResponse`: newest first, 50 at a time, as "Who sees what" above says                                                     |
 
 Missing pages, pages in Trash and malformed IDs answer 404; too little access answers 403 "You don't have access to this." without the title (HT-15). A version that's gone answers 404 "This version is too old to show (deleted under the Data settings period)." Shapes are in `@carehub/extras/history`.
 
@@ -82,6 +84,8 @@ Until they're bound nothing is tracked or saved, no queries run and the routes a
 | Polling `page_docs.updated_at`                                       | `versions.ts` (`recordSavedEdits`) | the event `page.contentSaved` (#200), already handled |
 | `history.versionRetentionDays`                                       | `retention.ts`                     | `getWorkspaceSetting` (workspaces 1c)                 |
 | The workspace's time zone for the clean-up                           | `retention.ts`                     | workspaces 1c                                         |
+| Titles of the pages a move went between (`getPageTitles`)            | `pages.ts`                         | `getPageCards` in the page model (#49)                |
+| Which of a row's properties the person sees: none until bound        | `updateList.ts`                    | the Databases lane's property check                   |
 
 The periodic tasks run in the jobs runner, which starts once the jobs routes are registered (#288).
 

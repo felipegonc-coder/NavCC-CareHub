@@ -1,12 +1,14 @@
 // /api/history: versions, Updates and Archive. Extras lane (decision 0400, docs/extras/history.md).
-// Versions need Can edit on the page; restoring and naming also need it unlocked and not archived
-// (HT-15). Open Version history windows hear `history.versions` and `history.restored` on the live
-// topic `history:<pageId>` (Can edit needed).
+// Versions need Can edit on the page; restoring and naming also need it unlocked and not archived;
+// Updates need Can view (HT-15). Open Version history windows hear `history.versions` and
+// `history.restored` on the live topic `history:<pageId>` (Can edit needed).
 import {
   nameVersionSchema,
   saveVersionSchema,
+  updateListQuerySchema,
   versionListQuerySchema,
   type SavedVersionResponse,
+  type UpdateListResponse,
   type VersionListResponse,
   type VersionResponse,
 } from '@carehub/extras/history';
@@ -19,6 +21,7 @@ import type { VersionRestoredEvent } from './events';
 import { historyPages } from './pages';
 import { getVersion, listVersions, nameVersion, restoreVersion, versionSummary } from './service';
 import { startHistoryTracking, TOPIC, versionsChanged } from './tracker';
+import { listUpdates } from './updateList';
 import { saveBeforeVersion } from './versions';
 
 type LooseEvents = { emit(name: string, payload: unknown): void };
@@ -110,6 +113,20 @@ const historyRoutes: FastifyPluginAsync = async (app) => {
       data: { pageId, versionId: saved.id },
     });
     const body: SavedVersionResponse = { version: saved };
+    return body;
+  });
+
+  // The Updates panel (HT-08): viewers see who did what and when; Show changes needs Can edit.
+  app.get('/pages/:pageId/updates', async (request) => {
+    const pageId = pageIdOf(request.params);
+    const userId = userIdOf(request);
+    await pageFor(app.db, userId, pageId, 'view');
+    const query = updateListQuerySchema.parse(request.query);
+    const level = await historyPages().getPageAccess(app.db, userId, pageId);
+    const body: UpdateListResponse = await listUpdates(app.db, userId, pageId, {
+      ...query,
+      canSeeChanges: atLeast(level, 'edit'),
+    });
     return body;
   });
 };
