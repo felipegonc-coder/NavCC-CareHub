@@ -1,7 +1,8 @@
-// The versions API (/api/history/pages/:pageId/versions). The server checks access on every call
-// (HT-15); these only send the requests.
+// The versions and Updates API (/api/history/pages/:pageId/…). The server checks access on every
+// call (HT-15); these only send the requests.
 import type {
   SavedVersionResponse,
+  UpdateListResponse,
   VersionListResponse,
   VersionResponse,
   VersionSummary,
@@ -18,6 +19,7 @@ export const historyKeys = {
   list: (pageId: string) => ['history', pageId, 'versions'] as const,
   version: (pageId: string, versionId: string) =>
     ['history', pageId, 'version', versionId] as const,
+  updates: (pageId: string) => ['history', pageId, 'updates'] as const,
 };
 
 /** One page of versions, newest first; `before` is the previous page's `nextCursor`. */
@@ -28,6 +30,17 @@ export function listVersions(
 ): Promise<VersionListResponse> {
   const query = before ? `?before=${encodeURIComponent(before)}` : '';
   return api.get<VersionListResponse>(`${versionsPath(pageId)}${query}`, { signal });
+}
+
+/** One page of the page's Updates, newest first; `before` is the previous page's `nextCursor`. */
+export function listUpdates(
+  pageId: string,
+  before: string | null,
+  signal?: AbortSignal,
+): Promise<UpdateListResponse> {
+  const query = before ? `?before=${encodeURIComponent(before)}` : '';
+  const path = `/api/history/pages/${encodeURIComponent(pageId)}/updates${query}`;
+  return api.get<UpdateListResponse>(path, { signal });
 }
 
 /** A version's page, with the one before it for Show changes. */
