@@ -179,7 +179,12 @@ test.describe('Design kit: keyboard and screen readers', () => {
       await team.focus();
       await page.keyboard.press('Enter');
       await expect(list).toBeVisible();
-      await expect(team).toHaveAttribute('aria-expanded', 'true');
+      // While the list is open the rest of the page is hidden from screen
+      // readers (aria-hidden), the trigger too, so look it up with
+      // includeHidden. `expanded: true` keeps the match to the open trigger.
+      await expect(
+        page.getByRole('combobox', { name: 'Team', includeHidden: true, expanded: true }),
+      ).toHaveCount(1);
       await expectFocusInside(list);
     });
 
