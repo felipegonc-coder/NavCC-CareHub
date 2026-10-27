@@ -41,7 +41,7 @@ export function errorReply(error: unknown): { status: number; body: ApiErrorBody
     const { code, message, issues } = error;
     return {
       status: error.status,
-      body: { error: issues ? { code, message, issues } : { code, message } },
+      body: { error: issues ? { code, message, issues: firstIssues(issues) } : { code, message } },
     };
   }
   if (error instanceof HttpError && error.statusCode >= 400 && error.statusCode < 500) {
@@ -52,6 +52,15 @@ export function errorReply(error: unknown): { status: number; body: ApiErrorBody
   }
   const status = httpStatusOf(error);
   return { status, body: { error: errorForStatus(status) } };
+}
+
+const MAX_ISSUES = 100;
+
+/** At most 100 issues, then one that says how many more there are. */
+function firstIssues(issues: ApiIssue[]): ApiIssue[] {
+  if (issues.length <= MAX_ISSUES) return issues;
+  const more = issues.length - MAX_ISSUES;
+  return [...issues.slice(0, MAX_ISSUES), { path: '', message: `And ${more} more.` }];
 }
 
 function httpStatusOf(error: unknown): number {

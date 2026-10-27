@@ -42,6 +42,8 @@ export const TRAINER_PERMISSIONS = [
   'pages.share',
   'templates.manage',
   'claude.use',
+  'guests.add',
+  'pages.shareLinks',
   'learning.build',
   'learning.assign',
   'learning.analytics',
