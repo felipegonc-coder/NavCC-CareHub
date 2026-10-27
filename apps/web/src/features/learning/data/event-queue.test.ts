@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clearQueuedEvents,
   createEventQueue,
   isRetryable,
   type DroppedEvents,
@@ -12,13 +13,24 @@ const event = (id: string): TestEvent => ({ id, kind: 'block_viewed' });
 
 class MemoryStorage implements QueueStorage {
   readonly items = new Map<string, string>();
+  get length() {
+    return this.items.size;
+  }
+  key(index: number) {
+    return [...this.items.keys()][index] ?? null;
+  }
   getItem(key: string) {
     return this.items.get(key) ?? null;
   }
   setItem(key: string, value: string) {
     this.items.set(key, value);
   }
+  removeItem(key: string) {
+    this.items.delete(key);
+  }
 }
+
+const KEY = 'carehub.learning.events.v1:';
 
 const offline = () => new LearningApiError(0, 'offline', 'Offline');
 
@@ -86,10 +98,11 @@ describe('offline event queue', () => {
     expect(sent).toEqual(['c1: a']);
   });
 
-  it("never sends one person's events as someone else's", async () => {
+  it("never sends one person's events as someone else's, and drops them when someone else starts", async () => {
     const first = setup({ userId: 'user-1' });
     first.failWith(offline);
     await first.queue.add('c1', [event('a')]);
+    first.storage.setItem('carehub.theme', 'dark');
     const other = createEventQueue<TestEvent>({
       userId: 'user-2',
       storage: first.storage,
@@ -99,7 +112,36 @@ describe('offline event queue', () => {
     });
     expect(other.pending()).toEqual([]);
     await other.flush();
-    expect(first.queue.pending().map((e) => e.id)).toEqual(['a']);
+    expect(first.storage.getItem(`${KEY}user-1`)).toBeNull();
+    expect(first.storage.getItem('carehub.theme')).toBe('dark');
+  });
+
+  it("clears everyone's waiting events on sign-out and nothing else", async () => {
+    const first = setup({ userId: 'user-1' });
+    first.failWith(offline);
+    await first.queue.add('c1', [event('a')]);
+    first.storage.setItem(`${KEY}user-2`, '[]');
+    first.storage.setItem('carehub.theme', 'dark');
+    clearQueuedEvents(first.storage);
+    expect([...first.storage.items.keys()]).toEqual(['carehub.theme']);
+    expect(first.queue.pending()).toEqual([]);
+    expect(() => clearQueuedEvents(null)).not.toThrow();
+  });
+
+  it('sends some events at once without queueing them, after the waiting ones', async () => {
+    const { queue, storage, sent, failWith } = setup();
+    failWith(offline);
+    await queue.add('c1', [event('a')]);
+    const error = await queue.sendNow('c1', [event('quiz')]).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 0, code: 'offline' });
+    expect(queue.pending().map((e) => e.id)).toEqual(['a']);
+    expect(storage.getItem(`${KEY}user-1`)).not.toContain('quiz');
+    failWith(null);
+    await queue.sendNow('c1', [event('quiz')]);
+    expect(sent).toEqual(['c1: a', 'c1: quiz']);
+    expect(queue.pending()).toEqual([]);
+    await queue.sendNow('c1', []);
+    expect(sent).toHaveLength(2);
   });
 
   it('drops a batch the server refuses for good and goes on with the rest', async () => {
@@ -145,10 +187,13 @@ describe('offline event queue', () => {
     const queue = createEventQueue<TestEvent>({
       userId: 'user-1',
       storage: {
+        length: 0,
+        key: () => null,
         getItem: () => null,
         setItem: () => {
           throw new Error('QuotaExceededError');
         },
+        removeItem: () => {},
       },
       send: async (courseId, events) => {
         if (!online) throw offline();
@@ -165,10 +210,10 @@ describe('offline event queue', () => {
 
   it('ignores stored data it cannot read', async () => {
     const storage = new MemoryStorage();
-    storage.setItem('carehub.learning.events.v1:user-1', '{not json');
+    storage.setItem(`${KEY}user-1`, '{not json');
     const queue = createEventQueue<TestEvent>({ userId: 'user-1', storage, send: async () => {} });
     expect(queue.pending()).toEqual([]);
-    storage.setItem('carehub.learning.events.v1:user-1', JSON.stringify([{ courseId: 'c1' }, 'x']));
+    storage.setItem(`${KEY}user-1`, JSON.stringify([{ courseId: 'c1' }, 'x']));
     expect(queue.pending()).toEqual([]);
   });
 

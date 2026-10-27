@@ -1,8 +1,8 @@
 # Comments and mentions
 
-_Copied from the Notion spec (https://app.notion.com/p/3d2731e99d664be08924a99106b1d8e9) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
-> 💭 Phase 1 · Notion parity · Depends on: Pages and blocks, Roles and permissions (sharing, built by core in Phase 1), Messages (the 🔔 chat as the inbox; Team tools lands sendNotice and a minimal 🔔 chat by Oct 28) · Used by: Databases (row pages), Knowledge base, Home and reminders
+> 💭 Phase 1 · Notion parity · Depends on: Pages and blocks, Roles and permissions (sharing, Phase 1), Messages (the 🔔 chat as the inbox, and sendNotice) · Used by: Databases (row pages), Knowledge base, Home and reminders
 
 ## 1. What it's for
 
@@ -92,7 +92,7 @@ Talking about work where it lives: comments on a page, on selected text, on a bl
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **CM-01** Select a sentence and comment on it; Sam replies. → Both see the thread within 2 seconds, and each can edit or delete their own comment.
 2. ⭐ **CM-08** Type @Sam Ortiz in a page. → Sam gets one 🔔 notice with the sentence, and clicking it opens the exact spot.
