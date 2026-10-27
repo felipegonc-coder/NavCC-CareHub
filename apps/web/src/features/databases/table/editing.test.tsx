@@ -179,28 +179,36 @@ describe('TableLayout pasting, undo and redo', () => {
     ]);
   });
 
-  it('clears a block with Delete in one step; Ctrl+Z and Ctrl+Y', () => {
+  it('clears a block with Delete in one step; Ctrl+Z and Ctrl+Y', async () => {
     const props = editingProps();
     const { updateValues } = props.actions;
     render(<TableLayout {...props} />);
     fireEvent.keyDown(cellOf('row-sink', PROPS.name), { key: 'ArrowRight' });
     fireEvent.keyDown(cellOf('row-sink', PROPS.status), { key: 'ArrowRight', shiftKey: true });
     fireEvent.keyDown(cellOf('row-sink', PROPS.priority), { key: 'ArrowDown', shiftKey: true });
+    // Writes go out four at a time (writeQueue), so the later ones wait for earlier ones.
     fireEvent.keyDown(focused(), { key: 'Delete' });
+    await waitFor(() => expect(updateValues).toHaveBeenCalledTimes(2));
     expect(updateValues.mock.calls).toEqual([
       ['row-sink', { [PROPS.status]: null, [PROPS.priority]: null }],
       ['row-heater', { [PROPS.status]: null, [PROPS.priority]: null }],
     ]);
     undo(focused());
+    await waitFor(() => expect(updateValues).toHaveBeenCalledTimes(4));
     expect(updateValues.mock.calls.slice(2)).toEqual([
       ['row-sink', { [PROPS.status]: STATUS.inProgress, [PROPS.priority]: PRIORITY.high }],
       ['row-heater', { [PROPS.status]: STATUS.notStarted, [PROPS.priority]: PRIORITY.high }],
     ]);
     fireEvent.keyDown(focused(), { key: 'y', ctrlKey: true });
-    expect(updateValues).toHaveBeenCalledTimes(6);
+    await waitFor(() => expect(updateValues).toHaveBeenCalledTimes(6));
     undo(focused());
     undo(focused());
-    expect(updateValues).toHaveBeenCalledTimes(8);
+    await waitFor(() => expect(updateValues).toHaveBeenCalledTimes(8));
+    // In order: the last write puts the heater's values back.
+    expect(updateValues).toHaveBeenLastCalledWith('row-heater', {
+      [PROPS.status]: STATUS.notStarted,
+      [PROPS.priority]: PRIORITY.high,
+    });
   });
 
   it('undoes a cleared cell and puts focus back on it', () => {
