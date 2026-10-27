@@ -49,6 +49,7 @@ import { routes as formsRoutes } from './features/forms/routes';
 // feature: messages
 
 // feature: calendar
+import { routes as calendarRoutes } from './features/calendar/routes';
 
 // feature: meetings
 
@@ -110,6 +111,7 @@ export const appRoutes: RouteObject[] = [
   // feature: messages
 
   // feature: calendar
+  ...calendarRoutes,
 
   // feature: meetings
 
