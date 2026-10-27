@@ -21,11 +21,7 @@ afterAll(async () => {
 
 describe('Learning API mount', () => {
   it('answers unknown Learning paths in the Learning error shape', async () => {
-    for (const url of [
-      '/api/learning',
-      '/api/learning/nothing-here',
-      '/api/learning/courses/c1/x',
-    ]) {
+    for (const url of ['/api/learning/nothing-here', '/api/learning/courses/c1/x']) {
       const response = await app.inject({ method: 'GET', url });
       expect(response.statusCode).toBe(404);
       expect(response.json()).toEqual({
@@ -34,9 +30,11 @@ describe('Learning API mount', () => {
     }
   });
 
-  it('leaves paths outside /api/learning to the app', async () => {
-    const response = await app.inject({ method: 'GET', url: '/api/learningx' });
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ statusCode: 404, error: 'Not Found' });
+  it('leaves everything outside /api/learning/ to the app', async () => {
+    for (const url of ['/api/learning', '/api/learningx']) {
+      const response = await app.inject({ method: 'GET', url });
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toMatchObject({ statusCode: 404, error: 'Not Found' });
+    }
   });
 });
