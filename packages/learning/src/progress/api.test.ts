@@ -46,7 +46,7 @@ function partway() {
   l.spend('l1', 30);
   l.complete('l1');
   l.add({ type: 'lesson_opened', lessonId: 'no-such-lesson' });
-  l.answer('l1', 'kc1', 'wrong');
+  l.answer('l1', 'kc1', false);
   l.answer('l1', 'kc1');
   l.play('l1', 'sc1', ['good']);
   l.pass('l1', 'c1');
