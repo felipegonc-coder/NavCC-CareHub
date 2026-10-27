@@ -1,7 +1,10 @@
 import { lazy } from 'react';
 import type { Slots } from '../../slots';
 
-/** The page tree under the top links, then Trash, and "New page" (decision 0007, section 5.3). */
+/**
+ * The page tree under the top links, then Trash; "New page" and "Browse spaces" (decision 0007,
+ * section 5.3).
+ */
 export const slots: Partial<Slots> = {
   sidebarSections: [
     { id: 'pages', order: 50, Component: lazy(() => import('./PagesSidebar')) },
@@ -16,6 +19,13 @@ export const slots: Partial<Slots> = {
       group: 'Pages',
       permission: 'pages.create',
       run: ({ navigate }) => navigate('/new'),
+    },
+    {
+      id: 'browse-spaces',
+      title: 'Browse spaces',
+      keywords: ['join', 'space', 'team'],
+      group: 'Pages',
+      run: ({ navigate }) => navigate('/spaces'),
     },
   ],
 };

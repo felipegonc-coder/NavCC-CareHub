@@ -37,6 +37,18 @@ export interface Space {
   canManage?: boolean | undefined;
 }
 
+/** An Open or Closed space as Browse spaces lists it, whether or not the person is in it. */
+export interface BrowseSpace {
+  id: string;
+  kind: 'open' | 'closed';
+  name: string;
+  icon: PageIcon | null;
+  description?: string | undefined;
+  memberCount?: number | undefined;
+  /** 'requested' while a Closed space's owners haven't answered the person. */
+  membership: 'member' | 'requested' | null;
+}
+
 /** A starred page, or one opened lately. */
 export interface PageLink {
   id: string;

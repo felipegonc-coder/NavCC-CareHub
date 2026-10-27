@@ -14,8 +14,17 @@ import {
 } from '@carehub/ui';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { ChevronRight, MoreHorizontal, Plus } from 'lucide-react';
-import { useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
-import { NavLink } from 'react-router';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
+import { Link, NavLink, useNavigate } from 'react-router';
 import { slots } from '../../slots';
 import { useEntryActions, type EntryActions } from './actions';
 import {
@@ -27,12 +36,13 @@ import {
   fetchTree,
   pagesKeys,
 } from './api';
-import { useDropZone } from './drag';
+import { bothZones, endDrag, startSpaceDrag, useDropZone, useSpaceDrop } from './drag';
 import type { MoveScope } from './move';
 import { useMoveDialogs } from './MoveDialog';
 import { EntryIcon, PageTree, titleOf } from './PageTree';
-import { useFlagPref, useSetPref } from './prefs';
-import { CreateSpaceButton, SpaceMenu } from './SpaceMenu';
+import { useFlagPref, useListPref, useSetPref } from './prefs';
+import { orderSpaces, placeSpace, stepSpace, type SpacePlace } from './space-order';
+import { CreateSpaceButton, SpaceMenu, type SpaceMoves } from './SpaceMenu';
 import { groupChildren } from './tree';
 import type { PageLink, Space, TreeNode } from './types';
 
@@ -56,6 +66,8 @@ export default function PagesSidebar() {
   const [expanded, onExpand] = useSetPref('sidebar.expanded');
   const [collapsed, onCollapse] = useSetPref('sidebar.collapsed');
   const [showRecent, onShowRecent] = useFlagPref('sidebar.recent', false);
+  const [spaceOrder, setSpaceOrder] = useListPref('sidebar.spaceOrder');
+  const navigate = useNavigate();
   const moves = useMoveDialogs();
   const actions = useEntryActions(moves.host);
   const ctx: Ctx = { expanded, onExpand, collapsed, onCollapse, showRecent, onShowRecent, actions };
@@ -63,7 +75,18 @@ export default function PagesSidebar() {
   if (spaces.isError) return <Retry onRetry={() => void spaces.refetch()} />;
   if (!spaces.data) return <Loading />;
   const personal = spaces.data.find((space) => space.kind === 'personal');
-  const team = spaces.data.filter((space) => space.kind !== 'personal');
+  const team = orderSpaces(
+    spaces.data.filter((space) => space.kind !== 'personal'),
+    spaceOrder,
+  );
+  const ids = team.map((space) => space.id);
+  const reorder = (order: string[] | null) => {
+    if (order) setSpaceOrder(order);
+  };
+  const step = (id: string, by: 1 | -1) => {
+    const order = stepSpace(ids, id, by);
+    return order ? () => setSpaceOrder(order) : undefined;
+  };
   return (
     <div className="flex flex-col gap-4">
       <Favorites ctx={ctx} spaces={spaces.data} />
@@ -73,12 +96,28 @@ export default function PagesSidebar() {
           title="Spaces"
           ctx={ctx}
           add={actions.canCreate && <CreateSpaceButton />}
+          menu={
+            <DropdownMenuItem onSelect={() => void navigate('/spaces')}>
+              Browse spaces
+            </DropdownMenuItem>
+          }
         >
           {team.map((space) => (
-            <SpaceTree key={space.id} space={space} ctx={ctx} />
+            <SpaceTree
+              key={space.id}
+              space={space}
+              ctx={ctx}
+              moves={{ up: step(space.id, -1), down: step(space.id, 1) }}
+              onDropSpace={(id, place) => reorder(placeSpace(ids, id, space.id, place))}
+            />
           ))}
           {team.length === 0 && (
-            <p className="py-1 pl-2 text-small text-muted">Spaces you join show here.</p>
+            <p className="py-1 pl-2 text-small text-muted">
+              Spaces you join show here.{' '}
+              <Link to="/spaces" className="font-medium text-fg underline">
+                Browse spaces
+              </Link>
+            </p>
           )}
         </Section>
       )}
@@ -216,14 +255,24 @@ function TreeBody({ query, label, scope, ctx, empty, moves }: TreeBodyProps) {
 /** Moving needs Full access on the page (Sidebar spec, section 5). */
 const canMove = (page: TreeNode) => atLeast(page.access, 'full');
 
+interface SpaceTreeProps {
+  space: Space;
+  ctx: Ctx;
+  /** Moving it in the person's order of spaces. */
+  moves: SpaceMoves;
+  onDropSpace(id: string, place: SpacePlace): void;
+}
+
 /**
  * A space: a group named by its heading. Its name opens and closes its tree and takes dropped
- * entries at its top level; "+" adds a page there.
+ * entries at its top level; "+" adds a page there. Dragging its name, Ctrl+Shift+↑ and ↓, or its
+ * menu put it in another place among the person's spaces.
  */
-function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
+function SpaceTree({ space, ctx, moves, onDropSpace }: SpaceTreeProps) {
   const key = `space:${space.id}`;
   const open = !ctx.collapsed.has(key);
   const nameId = useId();
+  const pointer = useRef('');
   const tree = useQuery({
     queryKey: pagesKeys.tree(space.id),
     queryFn: () => fetchTree(space.id),
@@ -235,21 +284,52 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
     (page) => canAddTop && canMove(page),
     (page) => ctx.actions.move(page, { spaceId: space.id, parentId: null }),
   );
+  const order = useSpaceDrop(space.id, onDropSpace);
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) return;
+    const move =
+      event.key === 'ArrowUp' ? moves.up : event.key === 'ArrowDown' ? moves.down : undefined;
+    if (!move) return;
+    event.preventDefault();
+    const button = event.currentTarget;
+    move();
+    setTimeout(() => button.focus()); // the space moved; keep the keyboard on it
+  };
   return (
     <div role="group" aria-labelledby={nameId} className="flex flex-col">
       <div
+        draggable
+        onPointerDown={(event) => {
+          pointer.current = event.pointerType;
+        }}
+        onDragStart={(event) => {
+          // On touch screens the menu's Move up and Move down put it elsewhere.
+          if (pointer.current === 'touch') event.preventDefault();
+          else startSpaceDrag(event, space.id);
+        }}
+        onDragEnd={endDrag}
         className={cn(
           sidebarRowClasses(),
-          'group gap-1 pr-1',
+          'group relative gap-1 pr-1',
           drop.over && 'ring-2 ring-inset ring-primary',
         )}
-        {...drop.zone}
+        {...bothZones(order.zone, drop.zone)}
       >
+        {order.place && (
+          <span
+            aria-hidden
+            className={cn(
+              'pointer-events-none absolute inset-x-1 h-0.5 rounded bg-primary',
+              order.place === 'before' ? '-top-px' : '-bottom-px',
+            )}
+          />
+        )}
         <h3 className="flex min-w-0 flex-1 self-stretch">
           <button
             type="button"
             aria-expanded={open}
             onClick={() => ctx.onCollapse([key], open)}
+            onKeyDown={onKeyDown}
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
             <EntryIcon icon={space.icon} kind="space" />
@@ -259,7 +339,7 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
           </button>
         </h3>
         <span className="flex items-center md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100 md:has-[[data-state=open]]:opacity-100">
-          <SpaceMenu space={space} />
+          <SpaceMenu space={space} moves={moves} />
           {canAdd && (
             <AddButton
               label={`Add a page to ${space.name}`}

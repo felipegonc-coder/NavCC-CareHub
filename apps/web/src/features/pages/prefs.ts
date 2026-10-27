@@ -51,3 +51,15 @@ export function useSetPref(
   );
   return [items, change];
 }
+
+/** A saved list of strings in the person's order, such as their order of spaces. */
+export function useListPref(key: string): [readonly string[], (items: readonly string[]) => void] {
+  const queryClient = useQueryClient();
+  const value = usePrefs()?.[key];
+  const items = useMemo(() => (Array.isArray(value) ? value.map(String) : []), [value]);
+  const set = useCallback(
+    (list: readonly string[]) => writePref(queryClient, key, [...list]),
+    [queryClient, key],
+  );
+  return [items, set];
+}

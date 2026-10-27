@@ -3,7 +3,15 @@
 import type { AccessLevel } from '@carehub/shared';
 import { api, ApiError } from '../../lib/api';
 import type { MoveTo } from './move';
-import type { PageIcon, PageLink, Space, SpaceAccess, SpaceKind, TreeNode } from './types';
+import type {
+  BrowseSpace,
+  PageIcon,
+  PageLink,
+  Space,
+  SpaceAccess,
+  SpaceKind,
+  TreeNode,
+} from './types';
 
 export const pagesKeys = {
   all: ['pages'] as const,
@@ -17,6 +25,7 @@ export const pagesKeys = {
   trash: ['pages', 'trash'] as const,
   page: (id: string) => ['pages', 'page', id] as const,
   space: (id: string) => ['pages', 'space', id] as const,
+  browse: ['pages', 'browse'] as const,
 };
 
 /** A list from a response that is either the list itself or `{ [field]: list }`. */
@@ -67,6 +76,14 @@ export const leaveSpace = (id: string) => api.post(`/api/spaces/${id}/leave`);
 export const archiveSpace = (id: string) => api.patch(`/api/spaces/${id}`, { archived: true });
 /** Moves the space and all its pages to Trash. */
 export const deleteSpace = (id: string) => api.delete(`/api/spaces/${id}`);
+
+/** Every Open and Closed space in the workspace, for Browse spaces. */
+export const fetchBrowseSpaces = () => getList<BrowseSpace>('/api/spaces/browse', 'spaces');
+/** Joins an Open space, or asks a Closed space's owners to let the person in. */
+export async function joinSpace(id: string): Promise<'member' | 'requested'> {
+  const data = (await api.post(`/api/spaces/${id}/join`)) as { status?: unknown } | null;
+  return data?.status === 'requested' ? 'requested' : 'member';
+}
 
 /** How many pages the space holds, for the Delete space confirm; null when the server doesn't say. */
 export async function fetchPageCount(spaceId: string): Promise<number | null> {
