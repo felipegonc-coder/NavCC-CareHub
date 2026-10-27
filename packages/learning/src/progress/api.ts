@@ -36,7 +36,7 @@ export type ProgressEventsRequest = z.infer<typeof ProgressEventsRequestSchema>;
 export const QuizAttemptStartRequestSchema = z.strictObject({ at: IsoDateTimeSchema });
 export type QuizAttemptStartRequest = z.infer<typeof QuizAttemptStartRequestSchema>;
 
-/** POST /people/:personId/courses/:courseId/reset and .../complete (learning.assign, 0312). */
+/** POST /people/:personId/courses/:courseId/reset and .../complete (learning.analytics). */
 export const ProgressNoteRequestSchema = z.strictObject({
   /** Why, for the record (e.g. "Finished the classroom version"). */
   note: z.string().trim().max(LIMITS.shortText).optional(),

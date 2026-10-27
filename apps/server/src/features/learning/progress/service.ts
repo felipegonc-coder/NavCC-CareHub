@@ -1,8 +1,5 @@
-import { randomInt, randomUUID } from 'node:crypto';
 import {
   progressIntake,
-  quizAttemptStart,
-  quizPaper,
   withManualCompletion,
   type Course,
   type CourseStatus,
@@ -10,24 +7,15 @@ import {
   type LearnerCourseState,
   type ProgressEvent,
   type ProgressEventsResponse,
-  type QuizPaperQuestion,
-  type RejectedEvent,
 } from '@carehub/learning';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
-import { issueCertificate } from '../certificates/service';
 import { canSeeCourse } from '../courses/access';
 import { httpError, LearningError } from '../errors';
 import { courseVersions, type PublishedCourse } from './courses';
-import {
-  learningProgressChanges as changes,
-  learningProgressEvents as events,
-  learningProgress as progress,
-  type ProgressChangeKind,
-} from './schema';
+import { learningProgressEvents as events, learningProgress as progress } from './schema';
 import {
   completionOf,
-  newRunOf,
   progressKey,
   runEvents,
   stateOf,
@@ -43,25 +31,14 @@ import {
 /** The signed-in person, in the workspace they are using. */
 export type Actor = { userId: string; workspaceId: string };
 
-/** The course's live version; 404 when it has none. */
-async function liveCourse(
-  db: Db | Tx,
-  workspaceId: string,
-  courseId: string,
-): Promise<PublishedCourse> {
-  const live = await courseVersions().live(db, workspaceId, courseId);
-  if (!live) throw httpError(404);
-  return live;
-}
-
 /** The course's live version for a learner who can see it; 404 otherwise. */
 async function visibleCourse(
   db: Db | Tx,
   actor: Actor,
   courseId: string,
 ): Promise<PublishedCourse> {
-  const live = await liveCourse(db, actor.workspaceId, courseId);
-  if (!(await canSeeCourse(actor.userId, courseId))) throw httpError(404);
+  const live = await courseVersions().live(db, actor.workspaceId, courseId);
+  if (!live || !(await canSeeCourse(actor.userId, courseId))) throw httpError(404);
   return live;
 }
 
@@ -104,25 +81,6 @@ async function storeEvents(tx: Db | Tx, row: ProgressRow, list: readonly Progres
       list.map((event) => ({ workspaceId, learnerId, courseId, eventId: event.id, run, event })),
     )
     .onConflictDoNothing();
-}
-
-async function recordChange(
-  tx: Db | Tx,
-  row: ProgressRow,
-  change: { kind: ProgressChangeKind; run: number; by: string; note?: string | undefined },
-  at: Date,
-): Promise<void> {
-  const { workspaceId, learnerId, courseId } = row;
-  await tx.insert(changes).values({
-    workspaceId,
-    learnerId,
-    courseId,
-    kind: change.kind,
-    run: change.run,
-    changedBy: change.by,
-    note: change.note || null,
-    changedAt: at,
-  });
 }
 
 const learnerOf = (actor: Actor, courseId: string): Learner => ({
@@ -190,123 +148,8 @@ export async function recordEvents(
         .update(progress)
         .set({ ...summaryOf(state), updatedAt: now })
         .where(progressKey(learner));
-      await issueCertificate(tx, { ...learner, course, version: row.version, finish: state });
     }
     return { ...intake.reply, state };
-  });
-}
-
-/** POST /courses/:id/quizzes/:lessonId/attempts: the attempt and its question paper. */
-export type QuizAttemptPaper = { attemptId: string; questions: QuizPaperQuestion[] };
-
-/** Plain words for a quiz that can't start now, by reason (the error's code). */
-const CANNOT_START: Partial<Record<RejectedEvent['reason'], string>> = {
-  locked: 'Finish the lessons before this quiz first.',
-  no_attempts_left: "You've used all your attempts at this quiz.",
-  future: "Your device's clock is ahead. Set it to the right time, then try again.",
-};
-
-/**
- * POST /courses/:id/quizzes/:lessonId/attempts (decisions 0302 and 0314): starts an attempt on the
- * server in the run's version, planned with a server seed (quizAttemptStart), stores its
- * quiz_attempt_started and sends the paper without answers (quizPaper). An open attempt is sent
- * again, so a reload gets the same paper. 404 when the run's version has no such quiz; 409 when
- * it can't start now, with the reason as the code.
- */
-export async function startQuizAttempt(
-  db: Db,
-  actor: Actor,
-  courseId: string,
-  lesson: { lessonId: string; at: IsoDateTime },
-  now = new Date(),
-): Promise<QuizAttemptPaper> {
-  return db.transaction(async (tx) => {
-    const live = await visibleCourse(tx, actor, courseId);
-    const row = await lockProgress(tx, learnerOf(actor, courseId), live.version);
-    const course = await runCourse(tx, row, live);
-    const quiz = course.lessons.find((candidate) => candidate.id === lesson.lessonId);
-    if (quiz?.kind !== 'quiz') throw httpError(404);
-    const stored = await runEvents(tx, row);
-    const start = quizAttemptStart(course, stored, {
-      lessonId: quiz.id,
-      attemptId: randomUUID(),
-      eventId: randomUUID(),
-      seed: randomInt(2 ** 31),
-      at: lesson.at,
-      now: now.toISOString(),
-    });
-    if (start.kind === 'refused') {
-      const { reason } = start.rejection;
-      const message = CANNOT_START[reason] ?? "This quiz can't start yet.";
-      throw reason === 'hidden' ? httpError(404) : new LearningError(409, reason, message);
-    }
-    if (start.kind === 'resume') {
-      return { attemptId: start.plan.attemptId, questions: quizPaper(quiz, start.plan) };
-    }
-    await storeEvents(tx, row, [start.event]);
-    const state = stateOf(course, row, [...stored, start.event]);
-    await tx
-      .update(progress)
-      .set({ ...summaryOf(state), updatedAt: now })
-      .where(progressKey(row));
-    return { attemptId: start.event.plan.attemptId, questions: quizPaper(quiz, start.event.plan) };
-  });
-}
-
-/**
- * POST /people/:personId/courses/:courseId/reset (learning.assign, decision 0312): the person's
- * progress starts over in a new run on the live version, without a completion marked by hand.
- * Their earlier events are kept. Someone who never started has nothing to reset.
- */
-export async function resetProgress(
-  db: Db,
-  actor: Actor,
-  personId: string,
-  courseId: string,
-  note?: string,
-  now = new Date(),
-): Promise<LearnerCourseState> {
-  return db.transaction(async (tx) => {
-    const live = await liveCourse(tx, actor.workspaceId, courseId);
-    const learner = { workspaceId: actor.workspaceId, learnerId: personId, courseId };
-    const row = await findProgress(tx, learner, true);
-    if (!row) return stateOf(live.course, undefined, []);
-    const next = newRunOf(row, live.version, now);
-    await tx.update(progress).set(next).where(progressKey(learner));
-    await recordChange(tx, row, { kind: 'reset', run: next.run, by: actor.userId, note }, now);
-    return stateOf(live.course, undefined, []);
-  });
-}
-
-/**
- * POST /people/:personId/courses/:courseId/complete (learning.assign, decision 0312): marks the
- * person's current run complete (withManualCompletion), also for someone who never opened the
- * course, and issues the certificate the course gives. Marking it again keeps the first date.
- */
-export async function completeProgress(
-  db: Db,
-  actor: Actor,
-  personId: string,
-  courseId: string,
-  note?: string,
-  now = new Date(),
-): Promise<LearnerCourseState> {
-  return db.transaction(async (tx) => {
-    const live = await liveCourse(tx, actor.workspaceId, courseId);
-    const learner = { workspaceId: actor.workspaceId, learnerId: personId, courseId };
-    const row = await lockProgress(tx, learner, live.version);
-    const markedCompleteAt = row.markedCompleteAt ?? now;
-    const course = await runCourse(tx, row, live);
-    const state = stateOf(course, { markedCompleteAt }, await runEvents(tx, row));
-    if (!row.markedCompleteAt) {
-      await tx
-        .update(progress)
-        .set({ ...summaryOf(state), markedCompleteAt, updatedAt: now })
-        .where(progressKey(learner));
-      await recordChange(tx, row, { kind: 'complete', run: row.run, by: actor.userId, note }, now);
-      await issueCertificate(tx, { ...learner, course, version: row.version, finish: state });
-    }
-    return state;
   });
 }
 
