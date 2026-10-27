@@ -25,6 +25,8 @@ export interface FileInfo {
 
 const isFileId = (id: string): boolean => fileParamsSchema.shape.id.safeParse(id).success;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** Postgres takes at most 65,535 parameters in one query. */
 const BATCH = 1000;
 function* batches<T>(items: readonly T[]): Generator<T[]> {
@@ -93,17 +95,21 @@ export async function deleteFiles(db: Db | Tx, ids: readonly string[]): Promise<
 }
 
 /**
- * For the nightly clean-up (Data settings, DS-02): removes from disk the bytes of files deleted before
+ * For the clean-up (cleanUpFiles, Data settings DS-02): removes from disk the bytes of files deleted before
  * `deletedBefore` that no other file shares, then their rows. Bytes that can't be removed keep their row,
  * so they're tried again next time. Returns how many files it removed.
  */
 export async function removeDeletedFiles(
   db: Db,
-  { deletedBefore = new Date(), root = readFilesSettings().FILES_DIR } = {},
+  {
+    deletedBefore = new Date(),
+    root = readFilesSettings().FILES_DIR,
+    signal,
+  }: { deletedBefore?: Date; root?: string; signal?: AbortSignal } = {},
 ): Promise<number> {
   const store = fileStore(root);
   let removed = 0;
-  for (;;) {
+  while (!signal?.aborted) {
     const deleted = await db
       .select({ id: files.id, storageKey: files.storageKey })
       .from(files)
@@ -133,6 +139,23 @@ export async function removeDeletedFiles(
     removed += ids.length;
     if (ids.length < deleted.length || deleted.length < BATCH) return removed;
   }
+  return removed;
+}
+
+/**
+ * The hourly clean-up (routes.ts registers it): removes files deleted over a day ago, so the night's
+ * backup still has their bytes (Data settings, DS-02).
+ */
+export async function cleanUpFiles(
+  db: Db,
+  {
+    now = new Date(),
+    root = readFilesSettings().FILES_DIR,
+    signal,
+  }: { now?: Date; root?: string; signal?: AbortSignal } = {},
+): Promise<{ removed: number }> {
+  const deletedBefore = new Date(now.getTime() - DAY_MS);
+  return { removed: await removeDeletedFiles(db, { deletedBefore, root, signal }) };
 }
 
 /** The answer of POST /api/files. */

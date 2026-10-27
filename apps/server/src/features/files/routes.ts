@@ -2,16 +2,18 @@ import { fileParamsSchema, fileReadQuerySchema, fileUploadQuerySchema } from '@c
 import multipart from '@fastify/multipart';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { HttpError, httpError } from '../../core/errors';
+import { registerPeriodicTask } from '../jobs';
 import { detectFileType, hasBlockedEnding } from './detect';
 import { cleanFileName, tooLargeMessage } from './names';
 import { files } from './schema';
 import { canUseFileScope, hasFileScope, type FileScopeContext } from './scopes';
 import { FILE_CSP, sendStoredFile } from './serve';
-import { deleteFiles, getFile, uploadedFileJson, type StoredFile } from './service';
+import { cleanUpFiles, deleteFiles, getFile, uploadedFileJson, type StoredFile } from './service';
 import { readFilesSettings } from './settings';
 import { fileStore, type FileStore } from './storage';
 
 const MB = 1024 * 1024;
+const HOUR_MS = 60 * 60 * 1000;
 /** Room for the multipart wrapping around a file, when an upload is judged by its Content-Length. */
 const WRAPPING_BYTES = 64 * 1024;
 const PROGRAMS = "Programs can't be uploaded.";
@@ -20,8 +22,13 @@ const CANCELLED = 'The upload was cancelled.';
 
 /** /api/files: upload, show or download, and delete files (decision 0007, section 4.3). */
 const filesRoutes: FastifyPluginAsync = async (app) => {
-  const store = fileStore(readFilesSettings(app.log).FILES_DIR);
+  const root = readFilesSettings(app.log).FILES_DIR;
+  const store = fileStore(root);
   await store.prepare();
+  // Every hour, one run at a time across servers (Team tools' jobs).
+  registerPeriodicTask('files.clean-up', HOUR_MS, async ({ signal }) => {
+    await cleanUpFiles(app.db, { root, signal });
+  });
   await app.register(multipart, {
     limits: {
       fieldNameSize: 100,
