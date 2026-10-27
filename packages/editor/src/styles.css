@@ -199,6 +199,12 @@
   border-radius: var(--ch-radius-sm);
 }
 
+/* A block opened from a link to it (revealBlock), for 2 seconds. */
+.ch-editor .ch-block-flash {
+  border-radius: var(--ch-radius-sm);
+  background: rgb(var(--ch-ring) / 15%);
+}
+
 /* A lane block whose view isn't loaded. */
 .ch-lane-block {
   border: 1px dashed rgb(var(--ch-border));

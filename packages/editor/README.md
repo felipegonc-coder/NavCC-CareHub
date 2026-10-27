@@ -139,6 +139,8 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
   `blockquote` and `horizontalRule` in `callout`; `codeBlock` (`language`) in `code`; plus the
   lane nodes.
 - Marks: `bold`, `italic`, `underline`, `strike`, `code`, `link` (`href`, `target`, `rel`).
+  Inline code drops the other formatting marks, links too, but keeps marks that may overlap
+  anything, like comments.
 - Links keep only `http`, `https`, `mailto`, `tel` and relative hrefs (like `/p/<pageId>`); other
   schemes are dropped when typed, pasted or loaded from HTML, and never drawn as an href, even when
   another client sends one. A href starting with `//` goes to another site, so it is only kept as
@@ -148,6 +150,27 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
   `mailto` and `tel` links open in the same tab.
 - Names are part of the stored data: never rename or remove a node, mark or attribute once it is
   on main; only add new ones.
+
+## Block IDs
+
+Every line and one-piece block has a `blockId`: a UUID, stored as an attribute of its Y.Doc
+element and drawn as `data-block-id`. Links to a block (`/p/<pageId>#<blockId>`), block comments
+and search use it.
+
+- Lines are paragraphs, headings and code blocks, also in lists, to-do items and quotes; one-piece
+  blocks are dividers and atom blocks, like a lane's database. Lists, list items and quotes have
+  no ID of their own (a list item goes by its first line), so Turn into keeps the ID.
+- Your editor fills IDs in for your own changes; a read-only editor adds none, and an empty page's
+  line gets one with the first thing typed. A new block gets a new ID, and so does a copy: pasted
+  blocks (IDs are never read from HTML, so cut and paste is a copy too), the copy in a duplicate
+  and the second part of a split line (Enter at the start leaves the ID with the text). Turn into,
+  Markdown shortcuts, drag and drop and undo keep IDs. A block loaded without one gets it when you
+  edit it.
+- `@carehub/editor/schema` has `blockIdAt(doc, pos)` (the block a position belongs to),
+  `findBlock(doc, blockId)` (`{ node, pos }` or null) and `withBlockIds(json)`, for content made
+  outside an editor (import, templates, the API).
+- `revealBlock(editor, blockId)` scrolls to the block and highlights it for 2 seconds (PB-18), or
+  returns false if the page has no such block.
 
 ## Keyboard
 
