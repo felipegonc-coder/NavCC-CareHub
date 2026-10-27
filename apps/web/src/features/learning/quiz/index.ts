@@ -1,2 +1,2 @@
-// The quiz lesson view (B2); the player (B5) and Studio's preview (B8) mount it.
+// The quiz lesson view; the player and Studio's preview mount it.
 export { QuizLessonView, type QuizLessonViewProps } from './QuizLessonView';

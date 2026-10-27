@@ -23,7 +23,7 @@ import {
   type Sheet,
 } from './runs';
 
-/** What the player (B5) and Studio's preview (B8) pass (docs/learning/PLAN.md, "Quiz"). */
+/** What the player and Studio's preview pass (docs/learning/PLAN.md, "Quiz"). */
 export type QuizLessonViewProps = {
   course: PlayerCourse;
   lesson: QuizLesson | LearnerQuizLesson;
