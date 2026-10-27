@@ -4,6 +4,7 @@ import type {
   Course,
   CourseStatus,
   Id,
+  IsoDateTime,
   KnowledgeCheckBlock,
   Lesson,
   QuizLesson,
@@ -32,6 +33,21 @@ import type {
 
 /** The most one time_active event counts for, and the slack on the wall-clock cap. */
 export const MAX_ACTIVE_SECONDS_PER_EVENT = 60;
+
+/**
+ * How far after the server's clock a browser may date an event, for device clocks that run a
+ * little fast. Later events are refused as `future`, because the reducer trusts `at` for the order
+ * of events and for the wall-clock cap on active time.
+ */
+export const MAX_SECONDS_AHEAD = 120;
+
+/**
+ * True when `at` is more than MAX_SECONDS_AHEAD after `now` (the server's clock), or when either
+ * time can't be read, so a bad clock refuses events instead of letting them through.
+ */
+export function isDatedAhead(at: string, now: IsoDateTime): boolean {
+  return !(Date.parse(at) <= Date.parse(now) + MAX_SECONDS_AHEAD * 1000);
+}
 
 const FINISHED: ReadonlySet<CourseStatus> = new Set(['completed', 'passed', 'failed']);
 
@@ -98,19 +114,27 @@ function readEvent(raw: unknown): { event: ProgressEvent } | { rejection: Reject
 /**
  * Checks a browser's batch for POST /courses/:id/events, each event on its own, so one bad event
  * doesn't spoil the batch. Refused and never stored: invalid_event when it isn't a progress event,
- * server_only for quiz_attempt_started (see quizAttemptStart). Rejections keep the id, type and
- * time when they can be read, so the player can drop the event from its queue.
+ * server_only for quiz_attempt_started (see quizAttemptStart), future when it's dated more than
+ * MAX_SECONDS_AHEAD after `now` (the server's clock). Rejections keep the id, type and time when
+ * they can be read, so the player can drop the event from its queue.
  */
-export function checkProgressEvents(events: readonly unknown[]): CheckedProgressEvents {
+export function checkProgressEvents(
+  events: readonly unknown[],
+  now: IsoDateTime,
+): CheckedProgressEvents {
   const valid: ProgressEvent[] = [];
   const rejected: RejectedEvent[] = [];
   for (const raw of events) {
     const read = readEvent(raw);
     if ('rejection' in read) {
       rejected.push(read.rejection);
-    } else if (SERVER_ONLY.has(read.event.type)) {
-      const { id, type, at } = read.event;
+      continue;
+    }
+    const { id, type, at } = read.event;
+    if (SERVER_ONLY.has(type)) {
       rejected.push({ eventId: id, type, at, reason: 'server_only' });
+    } else if (isDatedAhead(at, now)) {
+      rejected.push({ eventId: id, type, at, reason: 'future' });
     } else {
       valid.push(read.event);
     }
