@@ -4,6 +4,7 @@
  * the same input gives the same answer whatever order the rows come in.
  */
 import { viewTotals, type ViewTotal } from '../aggregate';
+import { rowColorer } from '../color';
 import { filterPredicate, pruneFilter } from '../filter';
 import { groupRows, type RowGroup } from '../group';
 import { rowSearchText, searchWords, textHasWords } from '../search';
@@ -58,6 +59,8 @@ interface Prepared {
   ctx: ComputeContext;
   properties: Property[];
   hiddenMeta: Set<string>;
+  /** The ids of the properties the viewer can see (formulas and rollups over hidden ones aren't). */
+  visible: ReadonlySet<Id>;
   /** Every counted row, in view order. */
   counted: Row[];
   /** Ungrouped views. */
@@ -129,7 +132,7 @@ function prepare(input: ViewQueryInput): Prepared | ViewQueryBlocked {
     });
   };
 
-  const base = { view, ctx, properties, state, placed: Boolean(arrange) };
+  const base = { view, ctx, properties, visible, state, placed: Boolean(arrange) };
   const hiddenMeta = hiddenMetaFields(input.properties, visible);
   if (!grouping) {
     const lines = linesOf(sorted);
@@ -202,7 +205,7 @@ type Page = { rows: QueryRow[]; next: string | null };
  *    feeds newest first), then groups and board sub-groups.
  * 5. Totals over every matching row, overall and per group.
  * 6. One page per group (the load limit; at most LIMITS.queryPageRows rows in all), with cursors.
- * 7. Rows carry only what the viewer may see (see projectRow).
+ * 7. Rows carry only what the viewer may see (see projectRow), with their conditional colors.
  * Formula and rollup results are worked out once per row and property, guarded against loops, and
  * stop with "⚠ Too slow" once the time budget runs out.
  */
@@ -213,11 +216,14 @@ export function runViewQuery(input: ViewQueryInput): ViewQueryResult {
   const size = pageSize(view);
   const continued = Boolean(input.cursor);
   const cursor = input.cursor ? decodeCursor(input.cursor) : null;
+  // Color rules see only what the viewer sees: a formula or rollup over a hidden property is hidden.
+  const colorOf = rowColorer(view, { ...ctx, canSeeProperty: (id) => prep.visible.has(id) });
   const proj: Projection = {
     properties: prep.properties,
     ctx,
     hiddenMeta: prep.hiddenMeta,
     titles: {},
+    colorOf,
   };
   const page = (lines: readonly ArrangedLine[], path: string[], start: number, n: number): Page => {
     const { page: part, next } = takePage(lines, (l) => l.row.id, path, start, n);

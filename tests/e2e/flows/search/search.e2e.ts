@@ -67,12 +67,12 @@ test.describe('Search: matching and the recent lists', () => {
   onlyIn('desktop-light');
   needs('signIn', 'appShell', 'pages', 'search');
 
-  test('SR-03 "ref" finds "Refund steps" while typing, "refunds" finds refund, "goncalves" finds Gonçalves, and case doesn\'t matter', async ({
+  test('SR-03 "ref" finds "Refund steps" while typing, "refunds" finds refund, "cote" finds Côté, and case doesn\'t matter', async ({
     page,
   }) => {
     const word = uniqueWord();
     const refund = `Fictional QA Refund steps ${word}`;
-    const person = `Fictional QA Rita Gonçalves ${word}`;
+    const person = `Fictional QA Renée Côté ${word}`;
     await signInAs(page, 'editor');
     await makePage(page, refund);
     await makePage(page, person);
@@ -80,7 +80,7 @@ test.describe('Search: matching and the recent lists', () => {
     await page.goto('/');
     await search.openWith();
     await search.waitUntilFound(`${word} steps`, refund);
-    await search.waitUntilFound(`${word} rita`, person);
+    await search.waitUntilFound(`${word} renée`, person);
     await search.searchFor('');
 
     await test.step('"ref" finds "Refund steps" while typing, before Enter', async () => {
@@ -96,14 +96,14 @@ test.describe('Search: matching and the recent lists', () => {
       await expect(search.result(person)).toHaveCount(0);
     });
 
-    await test.step('"goncalves" finds "Gonçalves": accents don\'t matter', async () => {
-      await search.searchFor(`${word} goncalves`);
+    await test.step('"cote" finds "Côté": accents don\'t matter', async () => {
+      await search.searchFor(`${word} cote`);
       await expect(search.result(person)).toBeVisible();
       await expect(search.result(refund)).toHaveCount(0);
     });
 
     await test.step("Case doesn't matter", async () => {
-      await search.searchFor(`${word.toUpperCase()} GONCALVES`);
+      await search.searchFor(`${word.toUpperCase()} COTE`);
       await expect(search.result(person)).toBeVisible();
       await search.searchFor(`${word.toUpperCase()} REFUND STEPS`);
       await expect(search.result(refund)).toBeVisible();
