@@ -214,6 +214,15 @@ describe('row access rules', () => {
     expect(can('edit_rows', accessToRow(r1, averyRows), { locked: false })).toBe(false);
   });
 
+  it('keeps Jordan to rows naming him, and no adding rows with Can add rows off (AX-07)', () => {
+    const jordanRows = subject('u-jordan', 'rows_only');
+    const his = row('r7', { 'p-agent': ['u-jordan'] });
+    expect(openableRows([...rows, his], jordanRows)).toEqual([his]);
+    expect(accessToRow(r1, jordanRows)).toBe('none');
+    expect(can('add_rows', 'rows_only', { locked: false })).toBe(false);
+    expect(can('view', 'rows_only', { locked: false })).toBe(true);
+  });
+
   it('shows team leads with Can edit every row', () => {
     const leads = subject('u-jordan', 'edit');
     expect(openableRows(rows, leads)).toEqual(rows);
