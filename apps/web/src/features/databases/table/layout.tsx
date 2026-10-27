@@ -67,6 +67,7 @@ import { HeaderCell, PropertiesMenu, type ColumnChanges } from './header';
 import { EditHistory, type AddedRow, type Step, type ValueChange } from './history';
 import { TABLE_TEXT } from './messages';
 import { Notice } from './notice';
+import { WRITES_AT_ONCE, writeQueue } from './queue';
 import {
   allTicked,
   extendTo,
@@ -208,6 +209,9 @@ function inAnswer(data: ViewData, rowId: Id): boolean {
   return data.rows.some((r) => r.id === rowId);
 }
 
+/** Most rows one paste changes, updated and added together (as for POST /rows/bulk). */
+const PASTE_ROWS = 500;
+
 /** The Table layout: rows and columns, grouped or not, with editing in the cells. */
 export default function TableLayout({ meta, view, data, viewer, actions, readOnly }: LayoutProps) {
   const options = tableOptions(view);
@@ -250,6 +254,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
   // Undo and redo: the person's changes in this database while it's open here.
   const [history] = useState(() => new EditHistory());
+  // Row writes go out a few at a time and in order (a paste can change 500 rows).
+  const [queue] = useState(() => writeQueue(WRITES_AT_ONCE));
   const notices = useRef(0);
   // A header being dragged to a new place: where the pointer is, px from the table's left edge.
   const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
@@ -409,7 +415,10 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     return true;
   };
 
-  /** One updateValues per row; rows made here show the values until the answer has them. */
+  /**
+   * One updateValues per row, through the queue. Rows made here show the values until the answer
+   * has them.
+   */
   const writeValues = (values: readonly ValueChange[], side: 'before' | 'after') => {
     const byRow = new Map<Id, Partial<Record<Id, unknown>>>();
     for (const change of values) {
@@ -424,7 +433,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             )
           : list,
       );
-      actions.updateValues(rowId, patch).catch(() => undefined);
+      queue(() => actions.updateValues(rowId, patch)).catch(() => undefined);
     }
   };
 
@@ -449,7 +458,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     const before = data;
     for (const item of added) {
       if (item.undone) continue;
-      const row = await actions.createRow(item.input).catch(() => null);
+      const row = await queue(() => actions.createRow(item.input)).catch(() => null);
       if (!row) return;
       if (item.rowId !== null) history.rename(item.rowId, row.id);
       item.rowId = row.id;
@@ -637,7 +646,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   /**
    * Ctrl+V: a block from a spreadsheet, from the active cell (or the block of cells' top left; a
    * single value fills the block). Values are read as CSV import reads them, rows are added after
-   * the last one, and values that don't fit are skipped and counted. One step for Ctrl+Z.
+   * the last one, and values that don't fit are skipped and counted, as are those past the first
+   * PASTE_ROWS rows. One step for Ctrl+Z.
    */
   const paste = (text: string, line: Line, columnIndex: number) => {
     const clip = fromTsv(text);
@@ -661,6 +671,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       const property = columns[column]?.property;
       const target = lines[row];
       if (
+        row - top >= PASTE_ROWS ||
         !property ||
         !canEdit(property) ||
         !PASTE_TYPES.has(property.config.type) ||
