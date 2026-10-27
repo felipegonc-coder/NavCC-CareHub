@@ -283,14 +283,18 @@ const DESCRIPTION_TOO_LONG = 'Descriptions can be up to 2,000 characters.';
  * a question (no Person or Relation questions in a form anyone can fill in), descriptions and the
  * confirmation message up to 2,000 characters, no logic on the first question, up to 10
  * conditions, and conditions only on questions above, with a condition and value that fit that
- * question. An anonymous form can't allow only one response. Returns the first problem, or null.
+ * question. Anonymous forms, and forms anyone can fill in, can't limit responses per person.
+ * Returns the first problem, or null.
  */
 export function validateFormDefinition(
   def: FormDefinition,
   properties: readonly Property[],
 ): string | null {
   if (def.questions.length > LIMITS.formQuestions) return 'Up to 100 questions.';
-  if (isAnonymousForm(def) && !def.allowMultiple) {
+  if (!def.allowMultiple && formAudience(def) === 'anyone') {
+    return "Forms anyone can fill in can't limit responses per person.";
+  }
+  if (!def.allowMultiple && def.anonymous) {
     return 'One response per person needs names. Turn off anonymous responses first.';
   }
   if (

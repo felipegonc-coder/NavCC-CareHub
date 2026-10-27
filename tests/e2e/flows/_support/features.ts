@@ -54,8 +54,14 @@ export const onMain = {
   /** Settings and members: profile, members, roles. */
   settings: false,
 
+  /** Groups: in Settings → Members, in the share dialog and for assigning courses. */
+  groups: false,
+
   /** Database screens: table view, properties, rows as pages. */
   databases: false,
+
+  /** Formulas: the formula property, its editor, results and errors. */
+  formulas: false,
 
   /** CSV import and export screens of a database. */
   databaseCsv: false,
@@ -66,11 +72,17 @@ export const onMain = {
   /** Form screens: build a form, fill it in, answers arrive as rows. */
   forms: false,
 
+  /** Forms anyone with the link can fill in without signing in, file uploads included. */
+  publicForms: false,
+
   /** Messages: direct and group chats, unread counts. */
   messages: false,
 
-  /** Home and reminders ("Remind me"). */
+  /** Home: the start screen after signing in, with its sections. */
   home: false,
+
+  /** Reminders: "Remind me" on pages, events and dates, and the Reminders list. */
+  reminders: false,
 
   /** The Calendar screens: day, week and month, events and layers. */
   calendar: false,
@@ -86,6 +98,12 @@ export const onMain = {
 
   /** The public status page at /status. */
   statusPage: false,
+
+  /** Knowledge base: turn a page into one, owners, verification, Draft and Published, reports. */
+  knowledgeBase: false,
+
+  /** Data settings: Settings → Data (keeping data, storage, uploads) and Export my content. */
+  dataSettings: false,
 
   /** Learning: Studio, the course player and My learning. */
   learning: false,

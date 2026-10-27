@@ -1,0 +1,22 @@
+{
+  "name": "@carehub/team-automations",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "Automation schedules and the automation shapes shared by the server and the web app, for the Team tools lane.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@carehub/team-time": "*",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "vitest": "^3.2"
+  }
+}

@@ -9,7 +9,7 @@ export interface LogoProps extends Omit<ComponentProps<'svg'>, 'children' | 'vie
   decorative?: boolean;
 }
 
-/** The Care Hub mark: a white "C" on a dark rounded square. Brand colours, the same in both themes. */
+/** The Care Hub mark: a white "C" on a dark rounded square (`brand` tokens, the same in both themes). */
 export function Logo({ size = 32, title = 'Care Hub', decorative = false, ...props }: LogoProps) {
   return (
     <svg
@@ -22,8 +22,11 @@ export function Logo({ size = 32, title = 'Care Hub', decorative = false, ...pro
       focusable="false"
       {...props}
     >
-      <rect width="32" height="32" rx="8" fill="#191919" />
-      <path d="M22.5 7.38A9.5 9.5 0 1 0 22.5 24.62V19A5 5 0 1 1 22.5 13Z" fill="#FFFFFF" />
+      <rect width="32" height="32" rx="8" className="fill-brand" />
+      <path
+        d="M22.5 7.38A9.5 9.5 0 1 0 22.5 24.62V19A5 5 0 1 1 22.5 13Z"
+        className="fill-brand-fg"
+      />
     </svg>
   );
 }

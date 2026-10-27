@@ -93,6 +93,20 @@ Turning a page into a team knowledge base, like Notion's wikis, so people can tr
 - Badges and statuses always have words as well as colors. Screen readers hear "Verified by Riley Chen until January 20, 2027" and "Draft".
 - **Phone:** the strip wraps under the title; Report a problem is at the page bottom; the review bar sticks to the bottom of the screen; Reports is a list that opens each report full screen.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **KB-01** Turn Support handbook (24 sub-pages) into a knowledge base. → 24 pages with Owner, Published and Not verified; their addresses, links, comments and history stay.
+2. ⭐ **KB-03** Add a new page, then open the knowledge base as Riley, a reader. → The page starts as Draft, and Riley can't see it anywhere, including search.
+3. ⭐ **KB-04** Publish it, then choose Back to draft. → Riley sees it at once, and after the confirm it's hidden again.
+4. ⭐ **KB-05** Verify Refund policy for 90 days; then, with test data, let its until date arrive. → The badge shows your name and the date; at 9:00 AM in the owner's time zone it turns Expired, and readers see the banner.
+5. **KB-07** On an expired page choose Review now → Verify, and on another Review now → Needs changes. → The first gets a new date; the second stays Expired and opens for editing.
+6. **KB-08** As Riley, use Report a problem on Refund policy ("The phone number is wrong"), then reply and close it as the owner. → It shows in Reports and in the owner's 🔔 chat, and Riley is told about the reply and the closing.
+7. **KB-11** Turn on Editing removes verification, then edit a verified page. → It becomes Not verified, and its owners are notified.
+8. **KB-12** Search for a word that's on a verified page and on an unverified one. → The verified page comes first.
+9. **KB-02** Turn the knowledge base back into a page. → The confirm lists what goes, the pages become sub-pages again, and drafts stay hidden from readers.
+
 ## 7. Acceptance checks
 
 - **KB-01** Turning a page with 24 sub-pages into a knowledge base gives 24 pages with Owner, Published and Not verified, and keeps the address, links, comments and history.
