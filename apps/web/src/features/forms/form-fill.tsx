@@ -105,6 +105,8 @@ export interface FormFillProps {
   data: FillForm;
   /** The code in the form link, for sending the response. */
   code: string;
+  /** Nobody is signed in (a form anyone can fill in): the response goes through the public route. */
+  signedOut?: boolean;
   /** Asks for the form again after the server says it changed. */
   onReload?: () => void;
 }
@@ -114,7 +116,7 @@ export interface FormFillProps {
  * questions that show for the answers so far, checks on submit, the confirmation, and a message
  * instead of the form when it can't be filled in. Unsent answers stay in the browser.
  */
-export function FormFill({ data, code, onReload }: FormFillProps) {
+export function FormFill({ data, code, signedOut = false, onReload }: FormFillProps) {
   const client = useFormsClient();
   const titleId = useId();
   const { formId, databaseId, properties, respondent, gate, form: def } = data;
@@ -226,7 +228,10 @@ export function FormFill({ data, code, onReload }: FormFillProps) {
     sendingNow.current = true;
     setSending(true);
     try {
-      await client.submitResponse(code, responseAnswers(inputs, shown));
+      const response = responseAnswers(inputs, shown);
+      await (signedOut
+        ? client.submitPublicResponse(code, response)
+        : client.submitResponse(code, response));
       clearDraft(key);
       setAnswers({});
       setSent(true);
