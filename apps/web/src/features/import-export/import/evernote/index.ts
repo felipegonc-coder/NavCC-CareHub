@@ -3,7 +3,6 @@
 // with a row per note, its tags as a multi-select and its created and updated dates. Pictures show
 // in place, other attachments become files, and checklists become to-dos.
 import {
-  clip,
   contentSize,
   IMPORT_LIMITS,
   ImportFileError,
@@ -12,9 +11,9 @@ import {
   type Importer,
   type PlanColumn,
   type PlanContent,
-  type PlanNode,
 } from '@carehub/extras/import-export/import/plan';
 import type { HtmlToContent } from '@carehub/extras/import-export/import/writer/html-reader';
+import { fitPage } from '@carehub/extras/import-export/import/writer/fit-page';
 import { PlanWriter, shortName } from '@carehub/extras/import-export/import/writer/plan-writer';
 import { NOT_ENEX, readEnex, TAG_CHARS, type EnexNote, type EnexResource } from './enex';
 import { enmlToHtml, type EnmlAttachment } from './enml';
@@ -53,27 +52,6 @@ const counted = (count: number, one: string, many: string) =>
 /** A file's name without its folders and its .enex or .zip ending. */
 export const notebookName = (fileName: string) =>
   (fileName.split('/').at(-1) ?? fileName).replace(/\.(?:enex|zip)$/i, '').trim();
-
-/** A page's content within a page's limit: a document keeps the blocks that fit. */
-function fitPage(content: PlanContent, out: PlanWriter, item: string): PlanContent {
-  const max = IMPORT_LIMITS.pageChars;
-  if (contentSize(content) <= max) return content;
-  out.problem(
-    item,
-    'Cut short',
-    `Only the first ${max.toLocaleString('en-US')} characters were kept.`,
-  );
-  if ('markdown' in content) return { markdown: clip(content.markdown, max) };
-  const kept: PlanNode[] = [];
-  let size = JSON.stringify({ ...content.doc, content: [] }).length;
-  for (const block of content.doc.content ?? []) {
-    const more = JSON.stringify(block).length + (kept.length > 0 ? 1 : 0);
-    if (size + more > max) break;
-    size += more;
-    kept.push(block);
-  }
-  return { doc: { ...content.doc, content: kept.length > 0 ? kept : [{ type: 'paragraph' }] } };
-}
 
 /** Tags as a multi-select cell: its options are listed with commas between them. */
 function tagCell(tags: readonly string[], out: PlanWriter, item: string): string {
