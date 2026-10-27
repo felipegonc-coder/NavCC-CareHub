@@ -69,3 +69,53 @@ export async function createDatabasePage(tx: Tx, page: NewDatabasePage): Promise
   if (!id) throw new Error('The database page was not saved.');
   return id;
 }
+
+export interface NewTemplatePage {
+  id: string;
+  databaseId: string;
+  workspaceId: string;
+  spaceId: string;
+  title: string;
+  createdBy: string;
+}
+
+/**
+ * A database template's page (decision 0200): a row page under the database with no db_rows
+ * entry, so nothing that lists rows ever shows it.
+ */
+export async function createTemplatePage(tx: Tx, page: NewTemplatePage): Promise<void> {
+  await tx.execute(sql`
+    INSERT INTO pages
+      (id, workspace_id, space_id, parent_id, kind, title, position, created_by, updated_by)
+    VALUES (${page.id}, ${page.workspaceId}, ${page.spaceId}, ${page.databaseId}, 'row',
+      ${page.title},
+      COALESCE(
+        (SELECT max(position) || 'V' FROM pages WHERE space_id = ${page.spaceId} AND parent_id = ${page.databaseId}),
+        'a0'),
+      ${page.createdBy}, ${page.createdBy})`);
+}
+
+/** Only a template's page: under this database, a row page, and not a row. */
+const templatePageOf = (id: string, databaseId: string) => sql`
+  id = ${id} AND parent_id = ${databaseId} AND kind = 'row'
+  AND NOT EXISTS (SELECT 1 FROM db_rows WHERE page_id = ${id})`;
+
+/** A template page's title follows the template's Name preset. */
+export async function setTemplatePageTitle(
+  tx: Tx,
+  id: string,
+  databaseId: string,
+  title: string,
+  by: string,
+): Promise<void> {
+  if (!isUuid(id) || !isUuid(databaseId)) return;
+  await tx.execute(sql`
+    UPDATE pages SET title = ${title}, updated_by = ${by}, updated_at = now()
+    WHERE ${templatePageOf(id, databaseId)}`);
+}
+
+/** Deletes a template's page for good, with everything under it. */
+export async function deleteTemplatePage(tx: Tx, id: string, databaseId: string): Promise<void> {
+  if (!isUuid(id) || !isUuid(databaseId)) return;
+  await tx.execute(sql`DELETE FROM pages WHERE ${templatePageOf(id, databaseId)}`);
+}

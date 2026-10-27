@@ -5,8 +5,9 @@
 // the version. A write that changes two databases (both sides of a two-way relation) locks them in
 // id order through changeDatabase's alsoLock. Row writes never lock the database row;
 // takeUniqueNumbers is one short update.
-import type { Id, Property, Row, Viewer } from '@carehub/databases';
+import type { Id, Property, Row, RowTemplate, Viewer } from '@carehub/databases';
 import type { PropertyViewer } from '@carehub/databases/access';
+import { nextRuns } from '@carehub/databases/repeat';
 import { eq, sql, type SQL } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
 import { changed, notFound } from './errors';
@@ -444,6 +445,35 @@ export async function takeUniqueNumbers(
   const first = rows[0]?.first;
   if (first === undefined) throw notFound();
   return Array.from({ length: count }, (_, i) => first + i);
+}
+
+/**
+ * Keeps a repeating template's state for the repeat job (db_repeat_state) when its schedule is
+ * saved: the next run after `now` (none while it's paused or past its end), `now` as the last run
+ * (so no earlier moment runs) and no pause reason. A template without a schedule has none.
+ */
+export async function saveRepeatState(
+  tx: Executor,
+  databaseId: string,
+  template: Pick<RowTemplate, 'id' | 'repeat'>,
+  now: Date,
+): Promise<void> {
+  const schedule = template.repeat;
+  if (!schedule) {
+    await dropRepeatState(tx, template.id);
+    return;
+  }
+  const next = schedule.paused ? null : (nextRuns(schedule, now, 1)[0] ?? null);
+  await tx.execute(sql`
+    INSERT INTO db_repeat_state (template_id, database_id, next_run_at, last_run_at, paused_reason)
+    VALUES (${template.id}, ${databaseId}, ${next}, ${now.toISOString()}, NULL)
+    ON CONFLICT (template_id) DO UPDATE SET database_id = EXCLUDED.database_id,
+      next_run_at = EXCLUDED.next_run_at, last_run_at = EXCLUDED.last_run_at, paused_reason = NULL`);
+}
+
+/** Drops a template's repeat state (it stopped repeating, or it was deleted). */
+export async function dropRepeatState(tx: Executor, templateId: string): Promise<void> {
+  await tx.execute(sql`DELETE FROM db_repeat_state WHERE template_id = ${templateId}`);
 }
 
 const relationTargets = (properties: readonly Property[]): string[] => [

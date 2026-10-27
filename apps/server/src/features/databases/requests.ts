@@ -8,6 +8,7 @@ import {
   propertySchema,
   richTextSchema,
   rowPageLayoutSchema,
+  rowTemplateSchema,
   viewSchema,
 } from '@carehub/databases/schemas';
 import { z } from 'zod';
@@ -29,9 +30,11 @@ export const newDatabaseRequest = z.strictObject({
 export type NewDatabaseRequest = z.infer<typeof newDatabaseRequest>;
 
 /**
- * PATCH /api/databases/:id. `subItems: true` adds the "Parent item" and "Sub-items" relations;
- * false turns sub-items off and keeps the properties. `dependencies` with a shift adds "Blocked by"
- * and "Blocking" (or just changes the shift when they're on); null turns them off the same way.
+ * PATCH /api/databases/:id. `defaultTemplateId` is "Set as default for all views": the database's
+ * default (null: an empty row), and views drop their own defaults. `subItems: true` adds the
+ * "Parent item" and "Sub-items" relations; false turns sub-items off and keeps the properties.
+ * `dependencies` with a shift adds "Blocked by" and "Blocking" (or just changes the shift when
+ * they're on); null turns them off the same way.
  */
 export const databaseSettingsRequest = z.strictObject({
   version: versionSchema,
@@ -111,3 +114,20 @@ export const viewOrderRequest = z.strictObject({
   version: versionSchema,
   viewIds: z.array(idSchema).max(LIMITS.views),
 });
+
+const template = rowTemplateSchema.shape;
+
+/**
+ * POST /api/databases/:id/templates (a new template; without a name it's "New template", numbered
+ * when taken) and PATCH /:id/templates/:tid (the parts that change). `values` holds every preset
+ * the person can see (presets on properties they can't see stay as saved). A schedule runs as the
+ * person who saves it: its ownerId is replaced, unless the schedule comes back unchanged.
+ */
+export const templateRequest = z.strictObject({
+  version: versionSchema,
+  name: template.name.optional(),
+  icon: template.icon.optional(),
+  values: template.values.optional(),
+  repeat: template.repeat,
+});
+export type TemplateRequest = z.infer<typeof templateRequest>;

@@ -10,9 +10,15 @@ import { sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Tx } from '../../db';
 import { notFound } from './errors';
-import { accept, allow, answerFor, databasePage, signedIn, versionOf } from './http';
-import { visibleIds } from './meta';
-import type { DatabaseRecord } from './record';
+import {
+  accept,
+  allow,
+  answerFor,
+  databasePage,
+  hiddenProperties,
+  signedIn,
+  versionOf,
+} from './http';
 import {
   newViewRequest,
   versionRequest,
@@ -20,7 +26,7 @@ import {
   viewOrderRequest,
   type ViewChangeRequest,
 } from './requests';
-import { changeDatabase, loadPropertyViewer, loadRelatedProperties } from './store';
+import { changeDatabase } from './store';
 import {
   hasOpenFormAccess,
   planDeleteView,
@@ -43,14 +49,6 @@ const viewIdOf = (request: FastifyRequest): string => {
 /** The sent settings (a checked body never holds undefined). */
 const patchOf = (sent: Omit<ViewChangeRequest, 'version'>): ViewPatch =>
   Object.fromEntries(Object.entries(sent).filter(([, value]) => value !== undefined)) as ViewPatch;
-
-/** The ids of the database's properties this person can't see (meta.ts visibleIds). */
-async function hiddenProperties(tx: Tx, userId: string, record: DatabaseRecord): Promise<Set<Id>> {
-  const viewer = await loadPropertyViewer(tx, userId, record.workspaceId);
-  const related = await loadRelatedProperties(tx, record.properties);
-  const visible = visibleIds(record.properties, viewer, related);
-  return new Set(record.properties.map((p) => p.id).filter((id) => !visible.has(id)));
-}
 
 /** Keeps a new form's link code, so the forms API finds the form by it. */
 async function keepLinkCode(tx: Tx, databaseId: Id, view: View): Promise<void> {

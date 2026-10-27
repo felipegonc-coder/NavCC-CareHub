@@ -1,7 +1,7 @@
 // What the database route files share (decision 0200): the checked body, the signed-in person, the
 // database page requirePageAccess found, permission checks with the Lock structure message, and the
 // answer of GET /:id and every settings write (the database as this person may see it).
-import type { DatabaseGrant } from '@carehub/databases';
+import type { DatabaseGrant, Id } from '@carehub/databases';
 import { atLeast, can, type DbAction } from '@carehub/databases/access';
 import { parseRequest, type RequestResult } from '@carehub/databases/schemas';
 import type { FastifyRequest } from 'fastify';
@@ -9,10 +9,10 @@ import { httpError } from '../../core/errors';
 import type { Db } from '../../db';
 import { getAccessForPages, pageAccessOf } from '../pages';
 import { DATABASE_MESSAGES, forbidden, invalidRequest, notFound } from './errors';
-import { databaseMeta, mentionedPageIds, type DatabaseAnswer } from './meta';
+import { databaseMeta, mentionedPageIds, visibleIds, type DatabaseAnswer } from './meta';
 import type { DatabaseRecord } from './record';
 import { versionRequest } from './requests';
-import { loadPropertyViewer, loadRelatedProperties } from './store';
+import { loadPropertyViewer, loadRelatedProperties, type Executor } from './store';
 
 /** The checked body, or 400 with the fixed message. */
 export function accept<T>(result: RequestResult<T>): T {
@@ -67,4 +67,16 @@ export async function answerFor(
   const levels = mentioned.length > 0 ? await getAccessForPages(db, user.id, mentioned) : null;
   const openablePages = new Set(mentioned.filter((id) => atLeast(levels?.get(id), 'view')));
   return databaseMeta({ record, access, viewer, related, openablePages });
+}
+
+/** The ids of the database's properties this person can't see (meta.ts visibleIds). */
+export async function hiddenProperties(
+  db: Executor,
+  userId: string,
+  record: DatabaseRecord,
+): Promise<Set<Id>> {
+  const viewer = await loadPropertyViewer(db, userId, record.workspaceId);
+  const related = await loadRelatedProperties(db, record.properties);
+  const visible = visibleIds(record.properties, viewer, related);
+  return new Set(record.properties.map((p) => p.id).filter((id) => !visible.has(id)));
 }
