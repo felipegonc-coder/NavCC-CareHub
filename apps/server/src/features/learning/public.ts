@@ -1,6 +1,24 @@
-// Learning's server functions for other lanes: Team tools' Calendar layer and Home (docs/learning/api.md).
-// Stubs from the base PR; the assignments area (B4) fills them in. Each result is already limited to what
-// that person may see.
+import {
+  compareDays,
+  dueDateCalendarItems,
+  IdSchema,
+  IsoDateSchema,
+  type CourseStatus,
+} from '@carehub/learning';
+import { z } from 'zod';
+import {
+  boundAssignmentSources,
+  learnerAssignments,
+  myLearningFor,
+  todayIn,
+  type AssignmentSources,
+} from './assignments/service';
+
+// Learning's server functions for other lanes: Team tools' Calendar layer and Home
+// (docs/learning/api.md). Security (decision 0310): pass the signed-in person's own id
+// (`request.user.id`) and workspace, never ids from a query or a body. Each answer holds only that
+// person's items, and every `href` is an in-app path that starts with /learning/. `timeZone`
+// (optional) is the person's profile zone, for what "today" means.
 
 /** A due date on someone's calendar. `dueDate` is a calendar day, `YYYY-MM-DD`. */
 export type LearningDueDate = {
@@ -21,20 +39,99 @@ export type MyLearningItem = {
   href: string;
 };
 
-/** Whether Learning is switched on for the workspace. */
-export const isLearningEnabled: (workspaceId: string) => Promise<boolean> = async () => false;
+const Person = {
+  userId: z.guid(),
+  workspaceId: z.guid(),
+  timeZone: z.string().max(100).optional(),
+};
+const DueDatesQuerySchema = z.object({ ...Person, from: IsoDateSchema, to: IsoDateSchema });
+const MyLearningQuerySchema = z.object({ ...Person, limit: z.number().int().min(1).max(100) });
 
-/** The person's Learning due dates from `from` to `to` (calendar days, both included). */
-export const listLearningDueDates: (query: {
+/** Only courses with a valid id, so each `href` is /learning/courses/<id>. */
+const hasCourseId = (item: { courseId: string }) => IdSchema.safeParse(item.courseId).success;
+
+/** Undated courses sort after every due date. */
+const LAST_DAY = '9999-12-31';
+
+/**
+ * Whether Learning is switched on for the workspace: while the Learning API runs, for every
+ * workspace.
+ */
+export const isLearningEnabled: (workspaceId: string) => Promise<boolean> = async () =>
+  boundAssignmentSources() !== null;
+
+/**
+ * The person's Learning due dates from `from` to `to` (calendar days, both included): one per
+ * course assigned to them with a due date, except the ones they've finished. By date, then title.
+ */
+export const listLearningDueDates = async (query: {
   userId: string;
   workspaceId: string;
   from: string;
   to: string;
-}) => Promise<LearningDueDate[]> = async () => [];
+  timeZone?: string;
+}): Promise<LearningDueDate[]> => {
+  const { userId, workspaceId, from, to, timeZone } = DueDatesQuerySchema.parse(query);
+  const sources = boundAssignmentSources();
+  if (!sources || from > to) return [];
+  const assignments = await learnerAssignments(
+    sources,
+    workspaceId,
+    todayIn(timeZone).today,
+    userId,
+  );
+  const courseIds = [...new Set(assignments.map((assignment) => assignment.courseId))];
+  const [courses, statusByCourse] = await Promise.all([
+    sources.liveCourses(workspaceId, courseIds),
+    statusesOf(sources, workspaceId, userId),
+  ]);
+  return dueDateCalendarItems(assignments, [...courses.values()], {
+    statusByCourse,
+    from,
+    to,
+  }).filter(hasCourseId);
+};
 
-/** The person's current courses for Home, most urgent first, at most `limit`. */
-export const listMyLearning: (query: {
+async function statusesOf(
+  sources: AssignmentSources,
+  workspaceId: string,
+  userId: string,
+): Promise<Record<string, CourseStatus>> {
+  const progress = await sources.progress(workspaceId, [userId]);
+  const mine = progress.filter((entry) => entry.userId === userId);
+  return Object.fromEntries(mine.map((entry) => [entry.courseId, entry.status]));
+}
+
+/**
+ * The person's current courses for Home, most urgent first, at most `limit`: overdue (most late
+ * first), then the rest by due date (undated last, in-progress before not started). Finished
+ * courses are left out.
+ */
+export const listMyLearning = async (query: {
   userId: string;
   workspaceId: string;
   limit: number;
-}) => Promise<MyLearningItem[]> = async () => [];
+  timeZone?: string;
+}): Promise<MyLearningItem[]> => {
+  const { userId, workspaceId, limit, timeZone } = MyLearningQuerySchema.parse(query);
+  const sources = boundAssignmentSources();
+  if (!sources) return [];
+  const zone = todayIn(timeZone);
+  const page = await myLearningFor(sources, { userId, workspaceId }, zone.today, zone.timeZone);
+  const dueDay = (entry: { dueDate: string | null }) => entry.dueDate ?? LAST_DAY;
+  const upcoming = [...page.continue, ...page.assigned].sort((a, b) =>
+    compareDays(dueDay(a), dueDay(b)),
+  );
+  const current = [...page.overdue, ...upcoming];
+  return current
+    .filter(hasCourseId)
+    .slice(0, limit)
+    .map((entry) => ({
+      courseId: entry.courseId,
+      title: entry.title,
+      dueDate: entry.dueDate,
+      overdue: entry.dueStatus === 'overdue',
+      progressPercent: entry.progressPercent,
+      href: entry.href,
+    }));
+};
