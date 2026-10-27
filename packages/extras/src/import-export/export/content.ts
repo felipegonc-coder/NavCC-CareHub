@@ -167,7 +167,14 @@ export function fileIdOf(node: ContentNode): string | undefined {
   return src ? FILE_PATH.exec(src)?.[1] : undefined;
 }
 
-/** Every page and file the blocks point at, for looking them up before writing. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether an ID from the content can be looked up (page and file IDs are UUIDs). */
+export function isContentId(id: string | undefined): id is string {
+  return id !== undefined && UUID.test(id);
+}
+
+/** Every page and file the blocks point at (by UUID), for looking them up before writing. */
 export function referencesIn(blocks: readonly ContentNode[]): {
   pageIds: Set<string>;
   fileIds: Set<string>;
@@ -178,15 +185,15 @@ export function referencesIn(blocks: readonly ContentNode[]): {
     const role = roleOf(node);
     if (role === 'page' || role === 'mention' || role === 'database') {
       const id = pageIdOf(node);
-      if (id) pageIds.add(id);
+      if (isContentId(id)) pageIds.add(id);
     }
     if (role === 'image' || role === 'file') {
       const id = fileIdOf(node);
-      if (id) fileIds.add(id);
+      if (isContentId(id)) fileIds.add(id);
     }
     for (const mark of node.marks ?? []) {
       const page = mark.type === 'link' ? pagePathId(attrText(mark, 'href')) : undefined;
-      if (page) pageIds.add(page);
+      if (isContentId(page)) pageIds.add(page);
     }
     node.content?.forEach(visit);
   };
