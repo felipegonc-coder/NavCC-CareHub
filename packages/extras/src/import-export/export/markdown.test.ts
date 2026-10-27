@@ -96,6 +96,24 @@ describe('pageToMarkdown', () => {
     );
   });
 
+  it('percent-encodes spaces, brackets and backslashes in link addresses so a link stays one link', () => {
+    const linkTo = (href: string) => ({ type: 'link', attrs: { href } });
+    expect(md(p(text('notes', linkTo('https://example.test/a b(c)<d>\\e?q=%20'))))).toBe(
+      '[notes](https://example.test/a%20b%28c%29%3Cd%3E%5Ce?q=%20)\n',
+    );
+    // A closing bracket in the address can't end the link and start one of its own.
+    expect(md(p(text('form', linkTo('https://example.test/x) [Sign in](https://evil.test'))))).toBe(
+      '[form](https://example.test/x%29%20[Sign%20in]%28https://evil.test)\n',
+    );
+    expect(md(p(text('call', linkTo('tel:+1 555\t0100'))))).toBe('[call](tel:+1%20555%090100)\n');
+    expect(
+      md({ type: 'embed', attrs: { url: 'https://example.test/v (1)', title: 'Video' } }),
+    ).toBe('[Video](https://example.test/v%20%281%29)\n');
+    expect(
+      md({ type: 'image', attrs: { src: 'https://example.test/a <b>.png', alt: 'Chart' } }),
+    ).toBe('![Chart](https://example.test/a%20%3Cb%3E.png)\n');
+  });
+
   it('writes page mentions from what the exporter can open, never from the saved label', () => {
     const mention = (id: string) => ({
       type: 'mention',
