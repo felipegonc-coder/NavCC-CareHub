@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import * as Y from 'yjs';
 import type { Db } from '../../db';
-import { SESSION_COOKIE, getUserFromSessionToken } from '../auth';
+import { getUserFromSessionToken } from '../auth';
 import { checkUpdate, pageSchemaInfo, pageSize, type PageSize } from './check';
 import { getPageAccess, getPageState } from './page-access';
 import { readMessageHead } from './protocol';
@@ -410,7 +410,7 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
 
   async function upgrade(request: IncomingMessage, socket: Duplex, head: Buffer, url: URL) {
     if (!isSameOrigin(request, publicUrl)) return refuseUpgrade(socket, 403);
-    const token = readCookie(request.headers.cookie, sessionCookieName(app));
+    const token = readCookie(request.headers.cookie, app.sessionCookies.names.session);
     const user = token ? await getUserFromSessionToken(db, token) : null;
     if (!token || !user) return refuseUpgrade(socket, 401);
     if ((socketsPerUser.get(user.id) ?? 0) >= MAX_SOCKETS_PER_USER) {
@@ -496,16 +496,6 @@ async function readAccess(db: Db, userId: string, pageId: string): Promise<PageA
         ? null
         : 'access';
   return { level, readOnly: reason !== null, reason, checkedAt: Date.now() };
-}
-
-/**
- * The session cookie's name. The auth PR (#55) adds `app.sessionCookies.names` (with the
- * `__Host-` prefix on HTTPS); until it lands the name is SESSION_COOKIE.
- */
-function sessionCookieName(app: FastifyInstance): string {
-  const cookies = app.sessionCookies as unknown as { names?: { session?: unknown } } | undefined;
-  const name = cookies?.names?.session;
-  return typeof name === 'string' ? name : SESSION_COOKIE;
 }
 
 function presenceOf(user: { id: string; name: string; avatarUrl?: string | null }): Presence {

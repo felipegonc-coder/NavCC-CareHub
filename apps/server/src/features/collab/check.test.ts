@@ -137,7 +137,10 @@ describe('checkUpdate', () => {
   it('accepts only the attributes the schema defines, on blocks and marks', () => {
     const server = serverDoc();
     const heading = (fragment: Y.XmlFragment) => fragment.get(1) as Y.XmlElement;
-    const level = changeOn(server, (fragment) => heading(fragment).setAttribute('level', 3));
+    // Yjs types attribute values as strings; the editor keeps a heading's level as a number.
+    const level = changeOn(server, (fragment) =>
+      heading(fragment).setAttribute('level', 3 as never),
+    );
     const unknown = changeOn(server, (fragment) => heading(fragment).setAttribute('id', 'x'));
     const linkAttr = changeOn(server, (fragment) => {
       firstText(fragment).format(0, 5, { link: { href: '/guide', onclick: 'alert(1)' } });
