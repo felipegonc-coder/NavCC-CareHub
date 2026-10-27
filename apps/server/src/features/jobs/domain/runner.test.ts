@@ -82,6 +82,28 @@ describe('scheduling and running', () => {
     );
   });
 
+  it('queues through the store on a caller’s transaction, when the store has one', async () => {
+    const committed = createMemoryJobStore();
+    const inTransaction = createMemoryJobStore();
+    const sql = { query: async <T>() => ({ rows: [] as T[] }) };
+    const seen: unknown[] = [];
+    const { runner } = setup({
+      ...committed,
+      within: (tx) => {
+        seen.push(tx);
+        return inTransaction;
+      },
+    });
+    const { jobId } = await runner.schedule({ kind: 'reminders.fire', payload: {} }, { sql });
+    expect(seen).toEqual([sql]);
+    expect(await inTransaction.get(jobId)).toMatchObject({ kind: 'reminders.fire' });
+    expect(await committed.get(jobId)).toBeNull();
+    // The memory store has no transactions: the job is queued at once.
+    const memory = setup();
+    const queued = await memory.runner.schedule({ kind: 'reminders.fire', payload: {} }, { sql });
+    expect((await memory.store.get(queued.jobId))?.status).toBe('queued');
+  });
+
   it('waits for runAt and reports how late it started', async () => {
     const { runner, at } = setup();
     const late: number[] = [];

@@ -8,6 +8,7 @@ import {
   type ScheduleJobInput,
 } from './domain/runner';
 import type { Job } from './domain/types';
+import { sqlRunnerFor, type SqlExecutor } from './sql';
 
 export { JobError } from './domain/runner';
 export type {
@@ -42,11 +43,21 @@ export function registerJobHandler<P>(
   jobRunner.registerHandler(kind, handler, options);
 }
 
+export interface ScheduleJobOptions {
+  /**
+   * Your transaction, to queue the job with your own writes: it exists only if the transaction
+   * commits, and starts within 5 s of the commit. On the memory store (unit tests) it's queued
+   * at once.
+   */
+  db?: SqlExecutor;
+}
+
 /** Queues a job. With a `key`, an unfinished job of the same kind and key is reused. */
 export function scheduleJob<P>(
   input: ScheduleJobInput<P>,
+  options: ScheduleJobOptions = {},
 ): Promise<{ jobId: string; created: boolean }> {
-  return jobRunner.schedule(input);
+  return jobRunner.schedule(input, { sql: options.db ? sqlRunnerFor(options.db) : undefined });
 }
 
 export function getJob(jobId: string): Promise<Job | null> {
