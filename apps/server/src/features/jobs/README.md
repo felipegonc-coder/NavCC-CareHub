@@ -36,8 +36,11 @@ process. Periodic tasks don't run there: call your task function directly.
 
 ## Routes (`routes.ts`, mounted at `/api/jobs`)
 
-Options: `getUserId(request)`, and `sql` (the database; without it jobs live in memory).
-The plugin starts the runner when the app is ready and stops it on close.
+Register with `await app.register(import('./features/jobs/routes'), { prefix: '/api/jobs' });`.
+It uses `app.db` and `request.user`. Options for tests: `getUserId(request)`, `sql` (a node-postgres
+pool or client; without it or `app.db`, jobs live in memory) and `runner`. The plugin starts the
+runner when the app is ready and stops it on close. `sqlRunnerFor(db)` (`sql.ts`) runs the plain
+SQL stores on `app.db` or a transaction.
 
 - `GET /api/jobs/:jobId` returns `{ job }` to its owner: `{ jobId, kind, status, attempts,
 cancelRequested, progress, result, error, createdAt, startedAt, finishedAt }`.

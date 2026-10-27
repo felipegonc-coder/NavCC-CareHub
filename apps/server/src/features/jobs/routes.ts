@@ -4,13 +4,14 @@ import type { JobRunner } from './domain/runner';
 import type { Job, JobProgress, JobStatus, JsonValue } from './domain/types';
 import { jobRunner } from './index';
 import { createPostgresJobStore, type SqlRunner } from './store';
+import { sqlRunnerFor } from './sql';
 
 export interface JobsRoutesOptions {
-  /** The signed-in user's id, or null (401). Until `request.user` lands, app.ts passes this in. */
-  getUserId: (
+  /** The signed-in user's id, or null (401). Defaults to `request.user?.id`. */
+  getUserId?: (
     request: FastifyRequest,
   ) => string | null | undefined | Promise<string | null | undefined>;
-  /** The database. Without it, jobs live in memory (development and tests). */
+  /** The database. Defaults to `app.db`; without either, jobs live in memory (unit tests). */
   sql?: SqlRunner;
   /** Defaults to the app-wide runner. */
   runner?: JobRunner;
@@ -62,7 +63,9 @@ function sendError(
 /** Starts the runner when the app is ready and stops it on close. Owners read and cancel jobs. */
 const jobsRoutes: FastifyPluginAsync<JobsRoutesOptions> = async (app, options) => {
   const runner = options.runner ?? jobRunner;
-  if (options.sql) runner.useStore(createPostgresJobStore(options.sql));
+  const sql = options.sql ?? (app.hasDecorator('db') ? sqlRunnerFor(app.db) : undefined);
+  if (sql) runner.useStore(createPostgresJobStore(sql));
+  const getUserId = options.getUserId ?? ((request: FastifyRequest) => request.user?.id);
   runner.setLogger(app.log);
   app.addHook('onReady', async () => {
     await runner.start();
@@ -73,7 +76,7 @@ const jobsRoutes: FastifyPluginAsync<JobsRoutesOptions> = async (app, options) =
 
   /** The job, if it's the signed-in user's; otherwise sends the error and returns null. */
   async function ownJob(request: FastifyRequest, reply: FastifyReply): Promise<Job | null> {
-    const userId = await options.getUserId(request);
+    const userId = await getUserId(request);
     if (!userId) {
       sendError(reply, 401, 'signed_out', 'Sign in to continue.');
       return null;

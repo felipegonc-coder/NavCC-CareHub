@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { afterAll, it } from 'vitest';
 import { describeJobStoreContract } from './domain/storeContract';
+import { sqlRunnerFor, type SqlExecutor } from './sql';
 import { createPostgresJobStore, type SqlRunner } from './store';
 
 interface PgClient extends SqlRunner {
@@ -10,20 +11,22 @@ interface PgClient extends SqlRunner {
   end(): Promise<void>;
 }
 type PgModule = { Client: new (config: { connectionString: string }) => PgClient };
+type DrizzleModule = { drizzle: (client: PgClient) => SqlExecutor };
 
-const url = process.env.DATABASE_URL;
+const url = process.env.DATABASE_URL ?? '';
 
-/** `pg` isn't a dependency yet: these tests run where it's installed and DATABASE_URL is set. */
-function loadPg(): PgModule | null {
+/** These tests run where Postgres is (DATABASE_URL is set) and the drivers are installed. */
+function load<T>(name: string): T | null {
   if (!url) return null;
   try {
-    return createRequire(import.meta.url)('pg') as PgModule;
+    return createRequire(import.meta.url)(name) as T;
   } catch {
     return null;
   }
 }
 
-const pg = loadPg();
+const pg = load<PgModule>('pg');
+const drizzle = load<DrizzleModule>('drizzle-orm/node-postgres');
 const opened: { client: PgClient; schema: string }[] = [];
 
 afterAll(async () => {
@@ -33,8 +36,12 @@ afterAll(async () => {
   }
 });
 
-if (url && pg) {
-  describeJobStoreContract('postgres store', async () => {
+// Straight on a node-postgres client, and through Drizzle as on `app.db`.
+const drivers = pg ? (drizzle ? (['pg', 'drizzle'] as const) : (['pg'] as const)) : [];
+
+for (const driver of drivers) {
+  describeJobStoreContract(`postgres store (${driver})`, async () => {
+    if (!pg) throw new Error('pg is missing');
     // A fresh schema per test, made with the real migration.
     const client = new pg.Client({ connectionString: url });
     await client.connect();
@@ -48,8 +55,11 @@ if (url && pg) {
     for (const name of files.sort()) {
       await client.query(await readFile(new URL(name, folder), 'utf8'));
     }
-    return createPostgresJobStore(client);
+    return createPostgresJobStore(
+      driver === 'drizzle' && drizzle ? sqlRunnerFor(drizzle.drizzle(client)) : client,
+    );
   });
-} else {
+}
+if (drivers.length === 0) {
   it.skip('postgres store contract (needs DATABASE_URL and pg)', () => {});
 }
