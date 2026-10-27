@@ -17,6 +17,7 @@ import {
   isFocusable,
   keyAction,
   MORE_STEP,
+  nestRows,
   pathTo,
   rootedRows,
   rowKey,
@@ -27,6 +28,9 @@ import {
 type NodeRow = Extract<TreeRow<TreeNode>, { kind: 'node' }>;
 
 const indent = (level: number) => ({ paddingLeft: 4 + (level - 1) * 12 });
+/** An entry holds its sub-pages, so the keyboard focus is drawn on the entry's own row. */
+const ROW_FOCUS =
+  'outline-none [&:focus-visible>div]:outline [&:focus-visible>div]:outline-2 [&:focus-visible>div]:outline-offset-[-2px] [&:focus-visible>div]:outline-[rgb(var(--ch-ring))]';
 
 export function EntryIcon({ icon, kind }: { icon: PageIcon | null; kind: string }) {
   if (icon?.type === 'emoji') {
@@ -37,7 +41,7 @@ export function EntryIcon({ icon, kind }: { icon: PageIcon | null; kind: string 
     );
   }
   const Icon = kind === 'database' ? Database : kind === 'space' ? Users : FileText;
-  return <Icon aria-hidden className="text-faint" />;
+  return <Icon aria-hidden className="text-muted" />;
 }
 
 export const titleOf = (page: { title: string }) => page.title.trim() || 'Untitled';
@@ -139,7 +143,7 @@ export function PageTree({
       onKeyDown={onKeyDown}
       className="flex flex-col"
     >
-      {rows.map((row) => {
+      {nestRows(rows, (row, inside: ReactNode[]) => {
         if (row.kind === 'node') {
           return (
             <TreeItem
@@ -153,7 +157,13 @@ export function PageTree({
                 onExpand([row.key], !row.expanded);
                 focusRow(row.key);
               }}
-            />
+            >
+              {inside.length > 0 && (
+                <ul role="group" className="flex flex-col">
+                  {inside}
+                </ul>
+              )}
+            </TreeItem>
           );
         }
         if (row.kind === 'extra') {
@@ -173,7 +183,7 @@ export function PageTree({
               aria-disabled
               data-key={row.key}
               style={indent(row.level)}
-              className="flex h-8 items-center pl-6 text-small text-faint max-md:h-11"
+              className="flex h-8 items-center pl-6 text-small text-muted max-md:h-11"
             >
               No pages inside
             </li>
@@ -216,9 +226,12 @@ interface TreeItemProps {
   current: boolean;
   onFocusRow(): void;
   onToggle(): void;
+  /** Its sub-pages, when open. */
+  children?: ReactNode;
 }
 
-function TreeItem({ row, topLevel, tabbable, current, onFocusRow, onToggle }: TreeItemProps) {
+function TreeItem(props: TreeItemProps) {
+  const { row, topLevel, tabbable, current, onFocusRow, onToggle, children } = props;
   const { node } = row;
   const titleId = useId();
   const pathId = useId();
@@ -236,43 +249,48 @@ function TreeItem({ row, topLevel, tabbable, current, onFocusRow, onToggle }: Tr
       aria-describedby={hiddenParent ? pathId : undefined}
       tabIndex={tabbable ? 0 : -1}
       data-key={row.key}
-      onFocus={onFocusRow}
-      className={cn(
-        sidebarRowClasses({ active: current }),
-        'group gap-1 pr-1',
-        hiddenParent && 'h-auto min-h-8 py-1',
-      )}
-      style={indent(row.level)}
+      onFocus={(event) => event.target === event.currentTarget && onFocusRow()}
+      className={ROW_FOCUS}
     >
-      {row.expandable ? (
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-hidden
-          onClick={onToggle}
-          className="flex size-5 shrink-0 items-center justify-center rounded text-faint hover:bg-fill-hover hover:text-fg"
-        >
-          <ChevronRight className={cn('transition-transform', row.expanded && 'rotate-90')} />
-        </button>
-      ) : (
-        <span aria-hidden className="size-5 shrink-0" />
-      )}
-      <EntryIcon icon={node.icon} kind={node.kind} />
-      <Link
-        to={pageUrl(node.id)}
-        tabIndex={-1}
-        draggable={false}
-        className="flex min-w-0 flex-1 flex-col justify-center self-stretch"
-      >
-        <span id={titleId} className="truncate">
-          {titleOf(node)}
-        </span>
-        {hiddenParent && (
-          <span id={pathId} className="truncate text-label text-faint">
-            In a page you can&apos;t open
-          </span>
+      <div
+        className={cn(
+          sidebarRowClasses({ active: current }),
+          'group gap-1 pr-1',
+          hiddenParent && 'h-auto min-h-8 py-1',
         )}
-      </Link>
+        style={indent(row.level)}
+      >
+        {row.expandable ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden
+            onClick={onToggle}
+            className="flex size-5 shrink-0 items-center justify-center rounded text-muted hover:bg-fill-hover hover:text-fg"
+          >
+            <ChevronRight className={cn('transition-transform', row.expanded && 'rotate-90')} />
+          </button>
+        ) : (
+          <span aria-hidden className="size-5 shrink-0" />
+        )}
+        <EntryIcon icon={node.icon} kind={node.kind} />
+        <Link
+          to={pageUrl(node.id)}
+          tabIndex={-1}
+          draggable={false}
+          className="flex min-w-0 flex-1 flex-col justify-center self-stretch"
+        >
+          <span id={titleId} className="truncate">
+            {titleOf(node)}
+          </span>
+          {hiddenParent && (
+            <span id={pathId} className="truncate text-label text-muted">
+              In a page you can&apos;t open
+            </span>
+          )}
+        </Link>
+      </div>
+      {children}
     </li>
   );
 }
