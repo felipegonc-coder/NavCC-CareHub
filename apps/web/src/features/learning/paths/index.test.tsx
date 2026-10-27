@@ -118,6 +118,15 @@ describe('Learning path page', () => {
     );
   });
 
+  it('says a bad link is not a path, without asking the server', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    renderRoute('/learning/paths/not%20a%20path', { '/learning/paths/:pathId': <PathScreen /> });
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Learning path not found' }),
+    ).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('tells guests learning paths are not for them', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => errorReply(403));
     renderRoute(pathHref('path-new-starter'), { '/learning/paths/:pathId': <PathScreen /> });

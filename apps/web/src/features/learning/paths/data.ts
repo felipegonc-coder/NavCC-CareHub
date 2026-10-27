@@ -5,7 +5,7 @@ import {
   type PathProgress,
 } from '@carehub/learning';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../data';
+import { api, apiPath } from '../data';
 import { retryOnce } from '../player/data';
 
 // GET /paths/:id (docs/learning/api.md): a learning path's page for the signed-in learner.
@@ -18,7 +18,7 @@ export function usePathPage(pathId: Id) {
   return useQuery({
     queryKey: ['learning', 'paths', pathId],
     queryFn: ({ signal }) =>
-      api('GET', `/paths/${encodeURIComponent(pathId)}`, PathPageResponseSchema, { signal }),
+      api('GET', apiPath('paths', pathId), PathPageResponseSchema, { signal }),
     retry: retryOnce,
   });
 }

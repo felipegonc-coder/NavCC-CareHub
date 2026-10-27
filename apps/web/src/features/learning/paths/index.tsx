@@ -1,3 +1,4 @@
+import { IdSchema, type Id } from '@carehub/learning';
 import { Button } from '@carehub/ui';
 import { useParams } from 'react-router';
 import { LearningApiError } from '../data';
@@ -7,12 +8,12 @@ import { PathView } from './PathView';
 
 /** `/learning/paths/:pathId`: a learning path's page. */
 export function PathScreen() {
-  const { pathId } = useParams();
-  if (!pathId) return <PathNotFound />;
-  return <PathLoader pathId={pathId} />;
+  const pathId = IdSchema.safeParse(useParams().pathId);
+  if (!pathId.success) return <PathNotFound />;
+  return <PathLoader pathId={pathId.data} />;
 }
 
-function PathLoader({ pathId }: { pathId: string }) {
+function PathLoader({ pathId }: { pathId: Id }) {
   const page = usePathPage(pathId);
   if (page.data) return <PathView page={page.data} />;
   if (!page.error) return <ScreenLoading label="Loading the learning path" />;
