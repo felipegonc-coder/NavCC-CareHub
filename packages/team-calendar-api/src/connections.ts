@@ -76,7 +76,8 @@ export type ConnectionPatch = z.infer<typeof connectionPatchSchema>;
 /** The link reader's sentences for a link it turns down for its scheme, or for a password in it. */
 export const LINK_SCHEME_MESSAGE = 'Calendar links must start with https:// or webcal://.';
 export const LINK_CREDENTIALS_MESSAGE =
-  "Links with a user name and password aren't supported. Use the calendar's private link, which has its secret in the address.";
+  "Links with a user name and password aren't supported. " +
+  "Use the calendar's private link, which has its secret in the address.";
 
 /** A user name or password before the host, like https://name:password@…. */
 function hasCredentials(link: string): boolean {
@@ -107,7 +108,8 @@ export const CONNECT_PROBLEMS = {
   'signed-out': 'Sign in to Care Hub, then connect again.',
   'missing-settings': "Google sign-in isn't set up yet.",
   'client-rejected':
-    "Google didn't accept Care Hub's sign-in settings. Check the Google client ID, secret and redirect URL.",
+    "Google didn't accept Care Hub's sign-in settings. " +
+    'Check the Google client ID, secret and redirect URL.',
   'state-mismatch': 'That sign-in link has expired. Please try connecting again.',
   cancelled: 'Google sign-in was cancelled.',
   'sign-in-failed': "Google sign-in didn't finish. Please try again.",
@@ -121,9 +123,12 @@ export const CONNECT_PROBLEMS = {
   unavailable: "Google isn't answering right now. Please try again in a few minutes.",
   'rate-limited': 'Google asked Care Hub to slow down. Please try again in a few minutes.',
   'unexpected-response': "Google sent an answer Care Hub didn't understand. Please try again.",
-  limit: `You can connect up to ${CONNECTION_LIMITS.connections} calendars. Remove one to add another.`,
+  limit:
+    `You can connect up to ${CONNECTION_LIMITS.connections} calendars. ` +
+    'Remove one to add another.',
   'other-account':
-    'That was a different Google account. Reconnect with the account this calendar uses, or connect the other one as a new calendar.',
+    'That was a different Google account. Reconnect with the account this calendar uses, ' +
+    'or connect the other one as a new calendar.',
 } as const;
 export type ConnectProblem = keyof typeof CONNECT_PROBLEMS;
 
