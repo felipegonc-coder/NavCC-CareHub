@@ -20,6 +20,9 @@ export const tokenNames = [
   'success',
   'warning',
   'ring',
+  'overlay',
+  'brand',
+  'brand-fg',
 ] as const;
 
 export type TokenName = (typeof tokenNames)[number];
@@ -44,6 +47,11 @@ export const lightTokens: TokenSet = {
   success: '#15803D',
   warning: '#B45309',
   ring: '#2563EB',
+  // Behind dialogs and sheets, as `bg-overlay/50`.
+  overlay: '#000000',
+  // The logo: the same in both themes.
+  brand: '#191919',
+  'brand-fg': '#FFFFFF',
 };
 
 export const darkTokens: TokenSet = {
@@ -63,6 +71,9 @@ export const darkTokens: TokenSet = {
   success: '#4ADE80',
   warning: '#FBBF24',
   ring: '#60A5FA',
+  overlay: '#000000',
+  brand: '#191919',
+  'brand-fg': '#FFFFFF',
 };
 
 /** '#0A0A0A' -> '10 10 10' */

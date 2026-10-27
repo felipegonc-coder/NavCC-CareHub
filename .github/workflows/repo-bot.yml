@@ -38,10 +38,21 @@ jobs:
       - name: Update package-lock.json
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
+      # Nothing is pushed when a @carehub/* package would come from the npm registry instead of a
+      # workspace (#75).
+      - name: Check workspace packages
+        run: node scripts/check-workspaces.mjs
+
       # --- THIRD_PARTY_NOTICES.md: owned by the CI-gates builder ---
       # Generate THIRD_PARTY_NOTICES.md here; the commit step below picks it up.
-      - name: THIRD_PARTY_NOTICES.md (placeholder)
-        run: echo 'THIRD_PARTY_NOTICES.md is not generated yet.'
+      # The notices need the installed packages: install exactly what the new lockfile says,
+      # without install scripts. Exit code 1 (license problems) still writes the file; the license
+      # check in ci.yml reports those problems. Exit code 2 (the check could not run) fails here.
+      - name: Install from the lockfile
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: THIRD_PARTY_NOTICES.md
+        run: node scripts/license-check.mjs --notices || [ $? -eq 1 ]
       # --- end THIRD_PARTY_NOTICES.md ---
 
       - name: Commit generated files

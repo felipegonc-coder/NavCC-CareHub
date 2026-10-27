@@ -82,7 +82,12 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
   lane nodes.
 - Marks: `bold`, `italic`, `underline`, `strike`, `code`, `link` (`href`, `target`, `rel`).
 - Links keep only `http`, `https`, `mailto`, `tel` and relative hrefs (like `/p/<pageId>`); other
-  schemes are dropped when typed, pasted or loaded from HTML.
+  schemes are dropped when typed, pasted or loaded from HTML, and never drawn as an href, even when
+  another client sends one. A href starting with `//` goes to another site, so it is only kept as
+  `https://...`. `safeHref(href)` gives the href to use, or null.
+- Where a link opens comes from its href each time it is drawn, never from a stored or pasted
+  `target` or `rel`: other sites open in a new tab with `rel="noopener noreferrer"`; Care Hub,
+  `mailto` and `tel` links open in the same tab.
 - Names are part of the stored data: never rename or remove a node, mark or attribute once it is
   on main; only add new ones.
 

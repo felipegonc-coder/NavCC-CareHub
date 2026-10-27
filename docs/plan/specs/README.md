@@ -12,6 +12,7 @@ _Copied from the Notion spec (https://app.notion.com/p/46a3bb9cb57a49c2837781897
 - 🟨 marks an open decision for Felipe: build the suggested default until he answers. ✅ marks one he has answered. All of them are in the table at the bottom.
 - 🆕 marks what v2 added to a spec that already existed.
 - Acceptance checks have IDs (DB-01, FM-01…). Each pull request lists the checks it covers.
+- 🆕 **Done means:** every spec has a short list just above its acceptance checks: things to try in the browser with fictional data, with ⭐ on what the team will notice first. Each item uses its acceptance-check ID, so tests, the Care Hub test results page and Friday's list all use the same IDs. A new check takes the next free number in its spec. Areas without a spec use DK (look and feel), SH (app shell), AC (accounts and sign-in) and LN (Learning). Checks that cross several areas are the flows below (FLOW-01…).
 - 🆕 **Goal (Oct 27):** Care Hub does everything Notion does, plus its own extras (Messages, Calendar, Meetings, Status page, Learning, Claude). The Notion parity checklist, at the bottom of this page, maps each Notion feature to the spec and section that covers it, and lists what Care Hub does differently on purpose.
 
 ## Rules for every spec
@@ -95,6 +96,19 @@ Templates and buttons and Import and export also have Phase 2 parts (database te
 - [Knowledge base](./knowledge-base.md) (Notion: https://app.notion.com/p/5881ceb25bee45c9b656d8d51deda4ac)
 
 - [Data settings](./data-settings.md) (Notion: https://app.notion.com/p/d3e3077867b6443697837e8a30eadd4c)
+
+## 🆕 Cross-area flows
+
+Checks that run through several areas. Try each one end to end in the browser with fictional data; each gets one row on the Care Hub test results page, titled with its FLOW ID. FLOW-01 to FLOW-03 come from the Testing lane and keep their numbers; a new flow takes the next free number.
+
+- **FLOW-01 Page → share → comment mention → notice.** Avery shares the page Shift handover with Sam and mentions @Sam in a comment. → Sam gets one 🔔 notice with the snippet, and its link opens the exact spot. (RP-16, CM-08, MS-09)
+- **FLOW-02 Database → form → automation → calendar.** Riley submits the Callback request form; an automation messages the new row's owner; Callbacks is a database layer in Calendar. → One new row, one 🔔 message within 10 seconds, and the callback on the calendar at its date and time. (FM-02, AU-12, CA-04)
+- **FLOW-03 Assign course → take → certificate.** Phase 4 (Learning): an Admin assigns a course, the learner takes it and gets a certificate. The steps come with the Learning spec. (LN, HR-04)
+- **FLOW-04 Import → search → history.** Import a Notion export of Support handbook with its 3 databases, search for a phrase from one of its pages, edit that page, then restore the imported version. → The page tree, databases and links come back (formulas listed as problems), search finds the phrase, and Restore brings back the imported text. (IE-04, SR-09, HT-02)
+- **FLOW-05 Meeting → notes → action item → reminder.** Avery makes Team huddle with Sam and a Zoom link, takes meeting notes and adds the to-do "@Sam call Blue Pine Plumbing" with tomorrow's date; Sam adds a reminder to that date. → Sam gets the invite, sees Join on Home 10 minutes before the start, finds the to-do under My action items, and gets the reminder in 🔔 at its time. (CA-06, HR-02, MT-01, MT-15, HR-16)
+- **FLOW-06 Button → row → automation → message.** On the page QA desk, Avery clicks the button New QA review, which adds a row to QA reviews from its template, while the automation "Row added to QA reviews → message the row's Team lead" is on. → One new row with the template filled in, and the Team lead gets a 🔔 message within 10 seconds. (TB-09, AU-12)
+- **FLOW-07 Knowledge base review.** With test data, Refund policy is verified until today. → At 9:00 AM in the owner's time zone it turns Expired, the owner gets a notice in 🔔 and readers see the banner; Review now → Verify for 90 days brings the badge back, and the page ranks above an equal unverified page in search. (KB-05, KB-06, KB-07, KB-12)
+- **FLOW-08 Guest and share link → turn off.** Share Onboarding plan with the guest Casey (Can comment) and make a share link with sub-pages off. Casey comments, and a signed-out visitor opens the link; then remove Casey and turn off the link. → Members see Casey's comment; the visitor gets the page read only with sub-pages locked; Casey is signed out within 5 seconds of removal; the link then says "This link isn't active." (RP-18, RP-19, RP-21)
 
 ## Not in these specs
 
