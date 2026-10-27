@@ -106,6 +106,19 @@ One place for each person's account and preferences, and for Admins to run the w
 - Every switch has a visible label and its explanation; changes are announced ("Saved").
 - **Phone:** Settings is a full screen: a list of sections, each opening as its own screen with Back. Tables become lists; tap a person for their actions.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **SM-01** Change your name and photo in My account, then try a 6 MB picture. → The change shows everywhere within 2 seconds; the big picture is refused with the limit.
+2. ⭐ **SM-06** Make an invite link with 2 uses and the Editor role, and have two people join with it. → Both join as Editors; a third person is told the link isn't active.
+3. ⭐ **SM-07** Remove Riley from the workspace. → Riley is signed out of it within 5 seconds, and Riley's shared pages stay.
+4. **SM-02** Change your password, then try password123 as a new one. → Your other devices are signed out; password123 is refused.
+5. **SM-03** Turn on 2-step verification with an authenticator app, sign out and sign in. → Care Hub asks for the code, and a recovery code works once.
+6. **SM-05** Open Devices and choose Sign out of all other devices. → The other sessions end within 5 seconds.
+7. **SM-09** Turn off Allow guests as an Admin. → Guest invites are no longer offered anywhere.
+8. **SM-12** Upload a custom emoji named blue-pine. → It can be used in pages, comments and messages.
+
 ## 7. Acceptance checks
 
 - **SM-01** Profile changes show everywhere within 2 seconds; a 6 MB picture is refused with the limit.

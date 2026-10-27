@@ -1,0 +1,4 @@
+# Written by the browser tests
+/screenshots/
+/playwright-report/
+/test-results/
