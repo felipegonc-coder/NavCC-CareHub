@@ -31,7 +31,9 @@ export const SafeLink = Link.extend({
       ...parent,
       href: {
         ...parent.href,
-        parseHTML: (element: HTMLElement) => safeHref(element.getAttribute('href')),
+        // Typed by what it reads, so the schema needs no DOM types (the server loads it too).
+        parseHTML: (element: { getAttribute(name: string): string | null }) =>
+          safeHref(element.getAttribute('href')),
       },
       target: { ...parent.target, parseHTML: () => null },
       rel: { ...parent.rel, parseHTML: () => null },

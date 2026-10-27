@@ -5,9 +5,6 @@ import { pageSchemaInfo } from './check';
 import { pageDocs } from './schema';
 import { countBlocks, readContent, toText } from './ydoc';
 
-/** Pages longer than this are refused (Pages and blocks, limits). */
-export const MAX_BLOCKS = 20_000;
-
 /**
  * Origin of changes the server merges into a live document from the database. Hocuspocus sends
  * them to the editors but doesn't store them again.

@@ -1,6 +1,9 @@
 import { LINK_OPTIONS, PAGE_FIELD, createPageSchema } from '@carehub/editor/schema';
 import * as Y from 'yjs';
-import { isRecord, markName } from './ydoc';
+import { MAX_DEPTH, countBlocks, isRecord, markName } from './ydoc';
+
+/** Pages longer than this are refused (Pages and blocks, limits). */
+export const MAX_BLOCKS = 20_000;
 
 /** What the page schema allows, read once from `createPageSchema()` (every lane's blocks). */
 export interface SchemaInfo {
@@ -30,7 +33,8 @@ const URL_KEYS = new Set(['href', 'src', 'url']);
 /** Node names that can't appear as blocks. */
 const NOT_BLOCKS = new Set(['doc', 'text']);
 
-export type UpdateCheck = { ok: true; blocks: number } | { ok: false; reason: string };
+export type UpdateCheck =
+  { ok: true; blockCount: number } | { ok: false; reason: string; tooLong?: true };
 
 type Where =
   | { kind: 'root'; key: string }
@@ -43,17 +47,29 @@ interface Position {
   where: Where;
   /** The attribute (map key) the item sets, or null for list content. */
   sub: string | null;
+  /** How many elements hold the item: 0 at the top of the page. */
+  depth: number;
 }
 
-const GONE: Position = { where: { kind: 'gone' }, sub: null };
-const OTHER: Position = { where: { kind: 'other' }, sub: null };
+const GONE: Position = { where: { kind: 'gone' }, sub: null, depth: 0 };
+const OTHER: Position = { where: { kind: 'other' }, sub: null, depth: 0 };
+/** Where a chain of new elements too long to follow ends: anything below it is too deep. */
+const TOO_DEEP: Position = { where: { kind: 'element' }, sub: null, depth: MAX_DEPTH };
 
 /**
  * Checks a Yjs update before the server applies or relays it (issue #14): only the page's
- * blocks, only node and mark types the schema knows, no embeds or binary content, and only safe
- * addresses in links and `href`/`src`/`url` attributes. `blocks` counts the new elements.
+ * blocks, only node and mark types the schema knows, no embeds or binary content, only safe
+ * addresses in links and `href`/`src`/`url` attributes, at most MAX_DEPTH levels of blocks and
+ * at most MAX_BLOCKS blocks. `blockCount` is the page's count before the update, if the caller
+ * keeps one. The result's count is an upper bound (deletes aren't subtracted), so the page is
+ * counted again before an update is refused as too long.
  */
-export function checkUpdate(update: Uint8Array, doc: Y.Doc, info: SchemaInfo): UpdateCheck {
+export function checkUpdate(
+  update: Uint8Array,
+  doc: Y.Doc,
+  info: SchemaInfo,
+  blockCount = countBlocks(doc, info.inline),
+): UpdateCheck {
   let structs: ReturnType<typeof Y.decodeUpdate>['structs'];
   try {
     structs = Y.decodeUpdate(update).structs;
@@ -68,17 +84,36 @@ export function checkUpdate(update: Uint8Array, doc: Y.Doc, info: SchemaInfo): U
     else incoming.set(struct.id.client, [struct]);
   }
   const locate = locator(doc, incoming);
-  let blocks = 0;
+  let added = 0;
   for (const struct of structs) {
     if (!(struct instanceof Y.Item) || struct.content instanceof Y.ContentDeleted) continue;
     const position = locate(struct);
-    const problem = position ? contentProblem(struct.content, position, info) : 'unknown position';
+    if (!position) return { ok: false, reason: 'unknown position' };
+    const problem = contentProblem(struct.content, position, info);
     if (problem) return { ok: false, reason: problem };
-    if (struct.content instanceof Y.ContentType && struct.content.type instanceof Y.XmlElement) {
-      blocks += 1;
-    }
+    const type = struct.content instanceof Y.ContentType ? struct.content.type : null;
+    if (!(type instanceof Y.XmlElement) || position.where.kind === 'gone') continue;
+    if (position.depth >= MAX_DEPTH) return { ok: false, reason: 'nested too deeply' };
+    if (!info.inline.has(type.nodeName)) added += 1;
   }
-  return { ok: true, blocks };
+  let after = blockCount + added;
+  if (added > 0 && after > MAX_BLOCKS) {
+    after = blocksAfter(update, doc, info);
+    if (after > MAX_BLOCKS) return { ok: false, reason: 'too many blocks', tooLong: true };
+  }
+  return { ok: true, blockCount: after };
+}
+
+/** The page's block count once `update` is applied, counted on a copy. */
+function blocksAfter(update: Uint8Array, doc: Y.Doc, info: SchemaInfo): number {
+  const copy = new Y.Doc();
+  try {
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    Y.applyUpdate(copy, update);
+    return countBlocks(copy, info.inline);
+  } finally {
+    copy.destroy();
+  }
 }
 
 function contentProblem(content: Y.Item['content'], at: Position, info: SchemaInfo): string | null {
@@ -138,7 +173,28 @@ function locator(doc: Y.Doc, incoming: Map<number, Y.Item[]>): (item: Y.Item) =>
     findStruct(doc.store.clients.get(id.client), id.clock) ??
     findStruct(incoming.get(id.client), id.clock);
 
-  return (item) => {
+  /** Where content goes whose parent is `owner`, the item named by its parent ID. */
+  const inside = (
+    owner: Y.Item | Y.GC | null,
+    sub: string | null,
+    level: number,
+  ): Position | null => {
+    // A deleted block: the server keeps its item as ContentDeleted and its children as GC. What
+    // someone added to it at the same time (typing into a paragraph another person deleted) is
+    // dropped by Yjs, so it's no reason to refuse the update.
+    if (owner instanceof Y.GC || owner?.content instanceof Y.ContentDeleted) return GONE;
+    if (!owner) return null;
+    if (!(owner.content instanceof Y.ContentType)) return OTHER;
+    const type = owner.content.type;
+    if (type._item === owner) return { where: describe(type, doc), sub, depth: typeDepth(type) };
+    // A type that's new in this update is one level below wherever its own item goes.
+    const at = level > MAX_DEPTH ? TOO_DEEP : locate(owner, level + 1);
+    if (!at || at.where.kind === 'gone') return at;
+    const depth = at.depth + (type instanceof Y.XmlElement ? 1 : 0);
+    return { where: describe(type, doc), sub, depth };
+  };
+
+  const locate = (item: Y.Item, level: number): Position | null => {
     const chain = new Set<Y.Item>();
     let current = item;
     let result: Position | null = null;
@@ -150,19 +206,16 @@ function locator(doc: Y.Doc, incoming: Map<number, Y.Item[]>): (item: Y.Item) =>
       }
       const parent: unknown = current.parent;
       if (typeof parent === 'string') {
-        result = { where: { kind: 'root', key: parent }, sub: current.parentSub };
+        result = { where: { kind: 'root', key: parent }, sub: current.parentSub, depth: 0 };
         break;
       }
       if (parent instanceof Y.AbstractType) {
-        result = { where: describe(parent, doc), sub: current.parentSub };
+        const depth = typeDepth(parent);
+        result = { where: describe(parent, doc), sub: current.parentSub, depth };
         break;
       }
       if (parent instanceof Y.ID) {
-        const owner = find(parent);
-        if (owner instanceof Y.GC) result = GONE;
-        else if (owner?.content instanceof Y.ContentType) {
-          result = { where: describe(owner.content.type, doc), sub: current.parentSub };
-        } else result = owner ? OTHER : null;
+        result = inside(find(parent), current.parentSub, level);
         break;
       }
       const near = current.origin ?? current.rightOrigin;
@@ -179,6 +232,22 @@ function locator(doc: Y.Doc, incoming: Map<number, Y.Item[]>): (item: Y.Item) =>
     for (const link of chain) memo.set(link, result);
     return result;
   };
+
+  return (item) => locate(item, 0);
+}
+
+/** How many elements hold the content of `type`, counting `type` itself if it's one. */
+function typeDepth(type: Y.AbstractType<unknown>): number {
+  let depth = 0;
+  let item = type._item;
+  while (item && depth <= MAX_DEPTH) {
+    if (item.content instanceof Y.ContentType && item.content.type instanceof Y.XmlElement) {
+      depth += 1;
+    }
+    const parent: unknown = item.parent;
+    item = parent instanceof Y.AbstractType ? parent._item : null;
+  }
+  return depth;
 }
 
 function describe(type: unknown, doc: Y.Doc): Where {

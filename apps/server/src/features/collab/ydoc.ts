@@ -20,8 +20,11 @@ interface DeltaOp {
   attributes?: Record<string, unknown>;
 }
 
-/** Deeper nesting is read as leaves, so a hostile document can't exhaust the stack. */
-const MAX_DEPTH = 100;
+/**
+ * How deep blocks may nest; `checkUpdate` refuses deeper ones. Anything deeper (in a document
+ * from before that check) is read as leaves, so a hostile document can't exhaust the stack.
+ */
+export const MAX_DEPTH = 100;
 
 /** y-prosemirror stores marks that may repeat (like comments) as `name--<hash>`. */
 const HASHED_MARK = /^(.+)--[A-Za-z0-9+/=]{8}$/;

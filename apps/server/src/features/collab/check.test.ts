@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { checkUpdate, pageSchemaInfo } from './check';
-import { pageFragment, replaceContent } from './ydoc';
+import { MAX_BLOCKS, checkUpdate, pageSchemaInfo } from './check';
+import { MAX_DEPTH, pageFragment, readContent, replaceContent } from './ydoc';
 
 const info = pageSchemaInfo();
 
@@ -35,6 +35,17 @@ function paragraph(text: string, attributes: Record<string, unknown> = {}): Y.Xm
   return element;
 }
 
+/** `depth` blocks, each inside the one before: lists around a paragraph. */
+function nest(depth: number): Y.XmlElement {
+  let block = new Y.XmlElement('paragraph');
+  for (let level = 1; level < depth; level += 1) {
+    const outer = new Y.XmlElement(level % 2 === 1 ? 'listItem' : 'bulletList');
+    outer.insert(0, [block]);
+    block = outer;
+  }
+  return block;
+}
+
 describe('checkUpdate', () => {
   it('accepts typing, marks, safe links, new blocks and deletes', () => {
     const server = serverDoc();
@@ -44,12 +55,13 @@ describe('checkUpdate', () => {
       fragment.insert(2, [paragraph('Guide', { link: { href: 'https://example.test/guide' } })]);
       fragment.delete(1, 1);
     });
-    expect(checkUpdate(update, server, info)).toEqual({ ok: true, blocks: 1 });
+    // Two blocks plus the new one: deletes aren't subtracted from the estimate.
+    expect(checkUpdate(update, server, info)).toEqual({ ok: true, blockCount: 3 });
   });
 
   it('accepts a whole page sent to an empty document', () => {
     const update = Y.encodeStateAsUpdate(serverDoc());
-    expect(checkUpdate(update, new Y.Doc(), info)).toEqual({ ok: true, blocks: 2 });
+    expect(checkUpdate(update, new Y.Doc(), info)).toEqual({ ok: true, blockCount: 2 });
   });
 
   it('refuses javascript: links on new and existing text', () => {
@@ -72,7 +84,7 @@ describe('checkUpdate', () => {
     const unsafe = changeOn(server, (fragment) => {
       block(fragment).setAttribute('src', 'javascript:alert(1)');
     });
-    expect(checkUpdate(safe, server, info)).toEqual({ ok: true, blocks: 0 });
+    expect(checkUpdate(safe, server, info)).toEqual({ ok: true, blockCount: 1 });
     expect(checkUpdate(unsafe, server, info)).toEqual({ ok: false, reason: 'unsafe attribute' });
   });
 
@@ -90,4 +102,63 @@ describe('checkUpdate', () => {
     ];
     for (const update of updates) expect(checkUpdate(update, server, info).ok).toBe(false);
   });
+
+  it('accepts typing into a block someone just deleted, which Yjs then drops', () => {
+    const server = new Y.Doc();
+    replaceContent(server, [
+      { type: 'paragraph' },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Kept' }] },
+    ]);
+    // B types the first letter into the empty paragraph while A deletes it.
+    const typing = changeOn(server, (fragment) => {
+      const run = new Y.XmlText();
+      run.insert(0, 'H');
+      (fragment.get(0) as Y.XmlElement).insert(0, [run]);
+    });
+    const deleting = changeOn(server, (fragment) => fragment.delete(0, 1));
+    Y.applyUpdate(server, deleting);
+    const before = readContent(server);
+    expect(checkUpdate(typing, server, info)).toEqual({ ok: true, blockCount: 1 });
+    Y.applyUpdate(server, typing);
+    expect(readContent(server)).toEqual(before);
+  });
+
+  it('refuses blocks nested deeper than the limit, also below existing blocks', () => {
+    const empty = new Y.Doc();
+    const deepest = changeOn(empty, (fragment) => fragment.insert(0, [nest(MAX_DEPTH)]));
+    const tooDeep = changeOn(empty, (fragment) => fragment.insert(0, [nest(MAX_DEPTH + 1)]));
+    expect(checkUpdate(deepest, empty, info).ok).toBe(true);
+    expect(checkUpdate(tooDeep, empty, info)).toEqual({ ok: false, reason: 'nested too deeply' });
+
+    const server = new Y.Doc();
+    Y.applyUpdate(server, deepest);
+    const below = changeOn(server, (fragment) => {
+      let block = fragment.get(0) as Y.XmlElement;
+      while (block.get(0) instanceof Y.XmlElement) block = block.get(0) as Y.XmlElement;
+      block.insert(0, [paragraph('One level too deep')]);
+    });
+    expect(checkUpdate(below, server, info)).toEqual({ ok: false, reason: 'nested too deeply' });
+  });
+
+  it('refuses an update that takes the page past the block limit, after counting again', () => {
+    const server = new Y.Doc();
+    const blocks = Array.from({ length: MAX_BLOCKS }, () => new Y.XmlElement('paragraph'));
+    pageFragment(server).insert(0, blocks);
+    const adding = changeOn(server, (fragment) => fragment.insert(0, [paragraph('One more')]));
+    const replacing = changeOn(server, (fragment) => {
+      fragment.delete(0, 1);
+      fragment.insert(0, [paragraph('Instead')]);
+    });
+    expect(checkUpdate(adding, server, info)).toEqual({
+      ok: false,
+      reason: 'too many blocks',
+      tooLong: true,
+    });
+    expect(checkUpdate(replacing, server, info)).toEqual({ ok: true, blockCount: MAX_BLOCKS });
+
+    // A caller's estimate that's too high is corrected by the count.
+    const small = serverDoc();
+    const update = changeOn(small, (fragment) => fragment.insert(0, [paragraph('New')]));
+    expect(checkUpdate(update, small, info, MAX_BLOCKS)).toEqual({ ok: true, blockCount: 3 });
+  }, 30_000);
 });
