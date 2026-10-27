@@ -178,7 +178,7 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
 
   // feature: analytics
 
-  // feature: notifications
+  () => import('./features/notifications/slots'),
 
   // feature: claude
 
