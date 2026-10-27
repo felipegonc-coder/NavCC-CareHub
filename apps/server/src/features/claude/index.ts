@@ -3,6 +3,7 @@
 export {
   askClaude,
   askClaudeJson,
+  claudeFeaturesOn,
   isClaudeFeatureOn,
   MAX_TOKENS,
   type AskClaudeInput,
@@ -10,6 +11,7 @@ export {
 } from './server/ask';
 export { ClaudeError, claudeErrorReason, claudeHttpError } from './server/errors';
 export { summarizeMeeting, type MeetingInput } from './server/meeting';
+export { bindClaudeMembers, type ClaudeMember, type ClaudeMemberLookup } from './server/members';
 export { MAX_REQUEST_CHARS, type ClaudeDocument } from './server/prompt';
 export {
   configureClaude,
