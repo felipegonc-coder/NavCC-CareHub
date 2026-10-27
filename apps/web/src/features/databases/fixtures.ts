@@ -11,8 +11,8 @@ import {
   type View,
   type Viewer,
 } from '@carehub/databases';
-import type { DatabaseWithVersion, RowValues } from './api';
-import type { QueryGroup, QueryRow, ViewData, ViewQueryData } from './contract';
+import type { DatabaseWithVersion, Member, RowValues } from './api';
+import type { PersonName, QueryGroup, QueryRow, ViewData, ViewQueryData } from './contract';
 
 export const JOBS_ID = 'db-jobs';
 
@@ -174,6 +174,37 @@ export function jobsDatabase(overrides: Partial<DatabaseWithVersion> = {}): Data
   };
 }
 
+/** Blue Pine Plumbing's people, as GET /api/workspace/members lists them. */
+export function jobsMembers(): Member[] {
+  return [
+    {
+      id: USERS.avery.id,
+      name: USERS.avery.name,
+      email: 'avery.lin@bluepine.example',
+      avatarUrl: null,
+      roleId: 'role-admin',
+      roleName: 'Admin',
+      isGuest: false,
+    },
+    {
+      id: USERS.jordan.id,
+      name: USERS.jordan.name,
+      email: 'jordan.park@bluepine.example',
+      avatarUrl: '/api/files/photo-jordan',
+      roleId: 'role-member',
+      roleName: 'Member',
+      isGuest: false,
+    },
+  ];
+}
+
+/** The names a query answer gives for the people in the Jobs rows. */
+export function jobsPeople(): Record<Id, PersonName> {
+  return Object.fromEntries(
+    jobsMembers().map((m) => [m.id, { name: m.name, avatarUrl: m.avatarUrl }]),
+  );
+}
+
 /** Avery Lin in Denver, on Oct 27, 2026. */
 export function testViewer(overrides: Partial<Viewer> = {}): Viewer {
   return {
@@ -197,6 +228,7 @@ export function queryRow(r: Row): QueryRow {
     values: r.values,
     computed: {},
     hiddenLinks: {},
+    color: { row: null, cells: {} },
     createdAt: r.createdAt,
     createdBy: r.createdBy,
     editedAt: r.editedAt,
@@ -218,6 +250,7 @@ export function queryData(
     groups: null,
     lanes: null,
     rowTitles: {},
+    people: jobsPeople(),
     propertyIds: jobsProperties().map((p) => p.id),
     continued: false,
     timedOut: false,
