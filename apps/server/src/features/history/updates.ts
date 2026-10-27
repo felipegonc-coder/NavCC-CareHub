@@ -49,7 +49,9 @@ export async function recordUpdates(db: Db | Tx, updates: readonly NewUpdate[]):
       actorId: one.by,
       details: one.details ?? {},
       versionId: one.versionId ?? null,
-      ...(one.at ? { createdAt: one.at } : {}),
+      // In milliseconds, like the paging cursor: the database's own time has microseconds, so an
+      // entry in the same millisecond as the end of a page would be skipped.
+      createdAt: one.at ?? new Date(),
     })),
   );
 }

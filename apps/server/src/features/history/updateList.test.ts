@@ -222,4 +222,21 @@ describe.skipIf(!hasDatabase)('the Updates API on Postgres', () => {
     expect(two.body.updates).toHaveLength(2);
     expect((await list(riley, pageId, '?limit=500')).status).toBe(400);
   });
+
+  it('pages through entries recorded together without a time, skipping none', async () => {
+    const pageId = newPage('Quick edits');
+    await recordUpdates(
+      test.db,
+      Array.from({ length: 3 }, () => entry(pageId, 0, { at: undefined, details: {} })),
+    );
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const { body } = await list(riley, pageId, `?limit=1${cursor ? `&before=${cursor}` : ''}`);
+      ids.push(...body.updates.map((one) => one.id));
+      cursor = body.nextCursor;
+    } while (cursor && ids.length < 5);
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+  });
 });

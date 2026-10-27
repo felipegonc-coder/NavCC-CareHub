@@ -1,6 +1,8 @@
-// The versions and Updates API (/api/history/pages/:pageId/…). The server checks access on every
-// call (HT-15); these only send the requests.
+// The versions, Updates and archive API (/api/history/pages/:pageId/…). The server checks access
+// on every call (HT-15); these only send the requests.
 import type {
+  ArchiveChange,
+  ArchiveState,
   SavedVersionResponse,
   UpdateListResponse,
   VersionListResponse,
@@ -20,6 +22,9 @@ export const historyKeys = {
   version: (pageId: string, versionId: string) =>
     ['history', pageId, 'version', versionId] as const,
   updates: (pageId: string) => ['history', pageId, 'updates'] as const,
+  /** Every page's archive state: archiving one page changes its sub-pages too. */
+  archives: ['history', 'archive'] as const,
+  archive: (pageId: string) => ['history', 'archive', pageId] as const,
 };
 
 /** One page of versions, newest first; `before` is the previous page's `nextCursor`. */
@@ -41,6 +46,19 @@ export function listUpdates(
   const query = before ? `?before=${encodeURIComponent(before)}` : '';
   const path = `/api/history/pages/${encodeURIComponent(pageId)}/updates${query}`;
   return api.get<UpdateListResponse>(path, { signal });
+}
+
+/** Who archived the page and when, and whether the person may archive or unarchive it. */
+export function getArchive(pageId: string, signal?: AbortSignal): Promise<ArchiveState> {
+  return api.get<ArchiveState>(`/api/history/pages/${encodeURIComponent(pageId)}/archive`, {
+    signal,
+  });
+}
+
+/** Archives the page with its sub-pages, or unarchives the page it was archived with. */
+export function changeArchive(pageId: string, archive: boolean): Promise<ArchiveChange> {
+  const action = archive ? 'archive' : 'unarchive';
+  return api.post<ArchiveChange>(`/api/history/pages/${encodeURIComponent(pageId)}/${action}`);
 }
 
 /** A version's page, with the one before it for Show changes. */

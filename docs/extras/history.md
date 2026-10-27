@@ -43,11 +43,11 @@ For pages and databases that are done but worth keeping (spec 3.5, HT-14). The p
 
 ## The Version history window (web)
 
-- **Opens** from the page menu ("Version history", on pages and rows; a database has no versions of its own), with Ctrl+Alt+H on a page, and from `?version=<versionId>` links (Copy link), which start on that version. Other web features open it with `openVersionHistory` (below). Going to another screen closes it.
+- **Opens** from the page menu ("Version history", on pages and rows; a database has no versions of its own), with Ctrl+Alt+H on a page (Ctrl+Option+H on a Mac, where Cmd+Option+H is Hide Others), and from `?version=<versionId>` links (Copy link), which start on that version. Other web features open it with `openVersionHistory` (below). Going to another screen closes it.
 - **Layout:** the preview on the left, the versions on the right, newest first and grouped by day, named ones in bold, with a label for versions saved before a change ("Before a restore"). On phones the list shows first; a tap shows the preview, and "Versions" goes back.
 - **Keyboard:** the list takes focus once it loads; ↑ and ↓ move, Home and End jump, Enter asks to restore the version, Esc closes. Tab reaches Show changes (on at first), Copy link, Name this version and Restore this version. More versions load near the end of the list, or with "Show older versions".
 - **Restore** (HT-05): "Restore this version" asks "Replace the current page with the version from Oct 20, 3:00 PM? The current page is saved as a version first." with Cancel and Restore (which has focus). After the restore the window closes and the note "Avery Lin restored a version from Oct 20, 3:00 PM." shows. Others editing the page get the same note from `history.restored`; the tab that restored doesn't show it twice. A refusal shows "Couldn't restore this version." with the server's reason, such as "This page is locked. Unlock it first."
-- **Names:** "Name this version" opens a dialog ("Rename this version" for a named one) with the field "Name" (up to 100 characters), Save, Cancel and, for a named one, "Remove name". The 101st name is refused with "This page has 100 named versions. Remove a name first." under the field.
+- **Names:** "Name this version" opens a dialog ("Rename this version" for a named one) with the field "Name" (up to 100 characters), Save (off until there's a name; spaces alone don't count), Cancel and, for a named one, "Remove name". The 101st name is refused with "This page has 100 named versions. Remove a name first." under the field.
 - Restoring and naming need `canRestore` (Can edit, and the page isn't locked or archived). Without it the buttons are gone and the window says "The page is locked or archived, so versions can't be restored or named."
 - **States:** "Versions appear here after the first edits."; no access (403) and not found (404) without any page details; a version that's gone shows the server's message.
 - **Live:** the list refreshes on `history.versions`, `history.restored` and after a reconnect.
@@ -59,6 +59,15 @@ For pages and databases that are done but worth keeping (spec 3.5, HT-14). The p
 - **Lists** what happened, newest first, 50 at a time ("Show older updates"), grouped per person and hour under the name and the newest time ("Sam Ortiz · Today, 3:12 PM"). Each line reads whole for screen readers: "Sam Ortiz edited · 3 changes", "renamed the page from “Refunds” to “Refund steps”", "moved the page from a page you can't open to Policies", "changed Status: Open → Done", "restored a version from Oct 20, 3:00 PM". Someone without a name (an automation, or a person no longer known) shows as "Someone". The wording is in `updateText` and `groupUpdates` (`@carehub/extras/history`).
 - **Show changes** (only on edits, only with Can edit) closes the panel and opens Version history on that version.
 - **States:** "Nothing has happened on this page yet."; no access (403) and not found (404) without any page details.
+
+## Archive in the page (web)
+
+- **Archive** is in the page menu of pages and databases (a row goes along with its database), but not on a page whose banner shows it's archived. It asks "Archive “Policies”?" with "The page and its 12 sub-pages turn read-only and leave the sidebar and search. Links still open them, and Unarchive puts everything back." and the buttons Cancel and Archive. Without Full access, or on a page that's already archived, it says why ("Only people with Full access can archive this page.", "This page is already archived.") and has only Close. Going to another screen closes it.
+- **After Archive** the note "Archived “Policies” and its 12 sub-pages." shows. A refusal shows "Couldn't archive this page." with the server's reason.
+- **The banner:** an archived page and its sub-pages say "Archived by Sam Ortiz on Oct 20, 2026" in yellow above the title, with "Unarchive" for people with Full access on the page that was archived. Unarchive puts everything back: "Unarchived “Policies” and its 12 sub-pages."
+- After either change the archive states and core's `pages` queries (the page view, the sidebar tree) refresh.
+- The Archived tab in Trash (core) unarchives with `POST /api/history/pages/:pageId/unarchive`.
+- Like Version history, the menu item shows for everyone who can open the page; without Full access the confirm says so. Default: hide it once `SlotPage` carries the access (page model, #49).
 
 ## For other web features (`apps/web/src/features/history/index.ts`)
 
