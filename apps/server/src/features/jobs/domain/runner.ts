@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import type { Fence, Job, JobProgress, JobStore, JsonValue } from './types';
+import type { Fence, Job, JobProgress, JobStore, JsonValue, SqlRunner } from './types';
 
 export interface JobContext {
   jobId: string;
@@ -44,6 +44,15 @@ export interface ScheduleJobInput<P> {
   runAt?: Date;
   workspaceId?: string;
   ownerUserId?: string;
+}
+
+export interface ScheduleOptions {
+  /**
+   * A caller's transaction: the job is added through `store.within(sql)`, so it exists only once
+   * the transaction commits, and the next poll (within 5 s) picks it up. A store without `within`
+   * (memory) adds it at once.
+   */
+  sql?: SqlRunner;
 }
 
 export interface JobLogger {
@@ -460,7 +469,10 @@ export function createJobRunner(options: JobRunnerOptions) {
     /** One run at a time across processes, on a grid of `everyMs`; a failed run waits for the next. */
     registerPeriodicTask,
 
-    async schedule<P>(input: ScheduleJobInput<P>): Promise<{ jobId: string; created: boolean }> {
+    async schedule<P>(
+      input: ScheduleJobInput<P>,
+      options: ScheduleOptions = {},
+    ): Promise<{ jobId: string; created: boolean }> {
       const { kind, key, runAt } = input;
       if (typeof kind !== 'string' || !KIND.test(kind) || kind === PERIODIC_KIND) {
         throw new TypeError(`Invalid job kind: ${String(kind)}`);
@@ -472,7 +484,8 @@ export function createJobRunner(options: JobRunnerOptions) {
         throw new TypeError('runAt must be a valid Date.');
       }
       const at = now();
-      const { job, created } = await store.insert({
+      const within = options.sql ? store.within?.(options.sql) : undefined;
+      const { job, created } = await (within ?? store).insert({
         id: randomUUID(),
         kind,
         key: key ?? null,

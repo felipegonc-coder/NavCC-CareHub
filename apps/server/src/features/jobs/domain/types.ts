@@ -80,6 +80,11 @@ export interface FinishInput {
   now: Date;
 }
 
+/** The one database call a SQL store needs. A node-postgres Pool or Client fits. */
+export interface SqlRunner {
+  query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+}
+
 /** Where jobs live: Postgres in production, memory in development and tests. */
 export interface JobStore {
   /** Adds a job, unless an unfinished one of the same kind has the same key. */
@@ -97,4 +102,9 @@ export interface JobStore {
   listCancelRequested(ids: readonly string[]): Promise<string[]>;
   /** Deletes up to `limit` jobs that finished before `cutoff`; returns how many. */
   deleteFinishedBefore(cutoff: Date, limit: number): Promise<number>;
+  /**
+   * The same store on a caller's connection or transaction: a job added through it exists only
+   * once that transaction commits. SQL stores have it; the memory store doesn't.
+   */
+  within?(sql: SqlRunner): JobStore;
 }
