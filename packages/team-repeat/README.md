@@ -18,6 +18,9 @@ exact moments; this package has no time-zone code.
 | `Series`, `Override`, `Occurrence`, `OccurrenceKey`, `checkSeries` | A schedule: `start`, `end` (exclusive), `rule`, `exceptions` and `overrides`, keyed by each occurrence's original start |
 | `expand`, `ExpandWindow`, `Expansion`, `MAX_OCCURRENCES`, `MAX_STEPS` | Occurrences overlapping a window, after exceptions and overrides; at most 1,000 per call, with `truncated` when a cap stopped it |
 | `occurrenceAt` | One occurrence by key, or `null` |
+| `editOne`, `deleteOne`, `OccurrenceChange` | This event |
+| `editFollowing`, `deleteFollowing`, `splitSeries`, `FollowingEdit`, `KeyMove`, `Split` | This and following |
+| `editAll`, `SeriesChange`, `SeriesEdit` | All events |
 | `parseRRule`, `serializeRRule`, `isUnsupported`, `UnsupportedRule`, `ParseOptions`, `SerializeOptions` | RRULE: FREQ, INTERVAL, COUNT, UNTIL, BYDAY (with 2MO, -1FR), BYMONTHDAY, BYMONTH, WKST |
 | `describeRepeat` | "Every 2 weeks on Mon and Wed", "Every month on the last Friday, 10 times" |
 | `RepeatError`, `RepeatErrorCode`, `WEEKDAYS` | Errors: `invalid-input` (answer 400), `not-an-occurrence` (409, the screen is out of date), `needs-converter` (a missing UTC converter: a bug) |
@@ -35,3 +38,14 @@ exact moments; this package has no time-zone code.
 - Dates stay inside team-time's range, 0001-01-01 to 9999-12-31: expansion leaves out occurrences
   that would end after it, an edit that would leave it throws `invalid-input`, and a moved `until`
   stops at its edge.
+- This event: the override stays under the occurrence's original start, so a reminder keyed by it
+  moves with it.
+- This and following: the old series ends the day before the chosen occurrence (or keeps the
+  occurrences before it, with a count) and a new series starts there with the same rule.
+  Exceptions and overrides go with their keys.
+- All events: a new start or end moves every occurrence the same number of days from its original
+  start, with the chosen occurrence's time of day and length; moved occurrences go back in line.
+  Fields listed in `fields` are dropped from overrides; their other changes stay. Exceptions and
+  overrides the new rule no longer makes are dropped.
+- `mapKeys` on an edit result says where each old key went, so callers can move reminders and
+  other per-occurrence data, or delete it when the occurrence is gone.

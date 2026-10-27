@@ -20,6 +20,7 @@ import {
   type QuizLesson,
 } from '../format/index';
 import { ownValue } from '../questions/helpers';
+import { normalizeAnswer } from '../questions/normalize';
 import { isResponseFor } from '../questions/response';
 import { questionsById } from './attempt';
 import type { AttemptPlan } from './plan';
@@ -105,6 +106,28 @@ export function paperResponses(
   }
   // Object.fromEntries defines own properties, so no id can reach the prototype.
   return Object.fromEntries(mapped);
+}
+
+/**
+ * The right answers to the paper of `plan` (decision 0316), written as answers on that paper:
+ * matching and ordering answers use its per-attempt "match-…" and "item-…" ids, while choice option
+ * and hotspot spot ids stay real. One answer per planned question, in plan order (ids the quiz
+ * doesn't have are skipped), and each scores as right once `paperResponses` maps it back. Single
+ * choice gets its first right option, multiple choice all of them, fill-in blanks their first
+ * accepted answer that can match, hotspots their first right spot. A question nothing can answer
+ * right (no right option, spot or usable accepted answer) gets none. Surveys have none at all. Only
+ * for a submitted attempt, while `quizStatus(...).revealAnswers` is true.
+ */
+export function paperAnswerKey(quiz: QuizLesson, plan: AttemptPlan): Record<Id, QuestionResponse> {
+  if (quiz.settings.mode === 'survey') return {};
+  const byId = questionsById(quiz);
+  const key: [Id, QuestionResponse][] = [];
+  for (const id of new Set(plan.questionIds)) {
+    const question = byId.get(id);
+    const answer = question && rightAnswer(question, ownValue(plan.optionOrder, id));
+    if (answer) key.push([id, answer]);
+  }
+  return Object.fromEntries(key);
 }
 
 function paperQuestion(question: Question, order: readonly Id[] | undefined): QuizPaperQuestion {
@@ -196,6 +219,56 @@ function fromPaper(
     }
     default:
       return response;
+  }
+}
+
+function rightAnswer(
+  question: Question,
+  order: readonly Id[] | undefined,
+): QuestionResponse | undefined {
+  switch (question.type) {
+    case 'single_choice': {
+      const option = question.options.find((candidate) => candidate.correct);
+      return option && { type: question.type, optionId: option.id };
+    }
+    case 'multiple_choice':
+      return {
+        type: question.type,
+        optionIds: question.options.filter((option) => option.correct).map((option) => option.id),
+      };
+    case 'true_false':
+      return { type: question.type, value: question.answer };
+    case 'matching':
+    case 'drag_matching': {
+      const shown = inOrder(question.pairs, order);
+      const matches = question.pairs.map((pair): [Id, Id] => [
+        pair.id,
+        paperId('match', shown.indexOf(pair)),
+      ]);
+      return { type: question.type, matches: Object.fromEntries(matches) };
+    }
+    case 'fill_blank': {
+      const blanks: [Id, string][] = [];
+      for (const part of question.parts) {
+        if (part.kind === 'text') continue;
+        const caseSensitive = part.caseSensitive === true;
+        const answer = part.answers.find((text) => normalizeAnswer(text, caseSensitive) !== '');
+        if (answer === undefined) return undefined;
+        blanks.push([part.id, answer]);
+      }
+      return { type: question.type, blanks: Object.fromEntries(blanks) };
+    }
+    case 'ordering': {
+      const shown = inOrder(question.items, order);
+      return {
+        type: question.type,
+        order: question.items.map((item) => paperId('item', shown.indexOf(item))),
+      };
+    }
+    case 'hotspot': {
+      const spot = question.spots.find((candidate) => candidate.correct);
+      return spot && { type: question.type, pick: { kind: 'spot', spotId: spot.id } };
+    }
   }
 }
 

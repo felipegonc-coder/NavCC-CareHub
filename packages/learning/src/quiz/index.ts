@@ -4,6 +4,7 @@ export { quizStatus, type QuizStatus } from './status';
 export {
   quizPaper,
   paperResponses,
+  paperAnswerKey,
   QuizPaperQuestionSchema,
   type QuizPaperQuestion,
 } from './paper';
