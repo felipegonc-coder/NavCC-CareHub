@@ -137,6 +137,26 @@ export function visibleRows<T extends TreeEntry>(
   return walk.rows;
 }
 
+/**
+ * Puts each row's deeper rows inside it, so sub-pages render as a group within their parent's
+ * entry, the way screen readers expect a tree. `render` gets a row and its rendered insides.
+ */
+export function nestRows<R extends { level: number }, N>(
+  rows: readonly R[],
+  render: (row: R, inside: N[]) => N,
+): N[] {
+  let at = 0;
+  const below = (depth: number): N[] => {
+    const out: N[] = [];
+    for (let row = rows[at]; row && row.level >= depth; row = rows[at]) {
+      at += 1;
+      out.push(render(row, below(row.level + 1)));
+    }
+    return out;
+  };
+  return below(0);
+}
+
 /** Rows the keyboard can land on. */
 export function isFocusable<T>(row: TreeRow<T> | undefined): boolean {
   return row?.kind === 'node' || row?.kind === 'more';
