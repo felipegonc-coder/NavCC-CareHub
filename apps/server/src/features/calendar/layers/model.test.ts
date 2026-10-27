@@ -33,6 +33,20 @@ describe('layers', () => {
     ]);
   });
 
+  it('adds Learning after Meetings while Learning is on in the workspace', () => {
+    const learning: StoredLayer = {
+      id: 'learning',
+      kind: 'learning',
+      color: 'green',
+      on: true,
+      order: 2,
+    };
+    expect(withDefaults([], true).at(-1)).toEqual(learning);
+    const saved: StoredLayer = { ...learning, on: false };
+    expect(withDefaults([saved], true).at(-1)).toEqual(saved);
+    expect(withDefaults([saved]).map((layer) => layer.id)).toEqual(['my-events', 'meetings']);
+  });
+
   it('leaves out rows that are not built-in layers', () => {
     const row: StoredLayer = { id: 'db-1', kind: 'database', color: 'red', on: true, order: 2 };
     expect(withDefaults([row]).map((layer) => layer.id)).toEqual(['my-events', 'meetings']);

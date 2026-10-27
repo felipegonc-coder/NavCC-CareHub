@@ -18,26 +18,46 @@ import { addDays, todayIn } from '@carehub/team-time';
 import { httpError } from '../../../core/errors';
 import type { Db, Tx } from '../../../db';
 import { publishToUsers } from '../../live';
+import {
+  eventCardKey,
+  sendNotice,
+  type EventCardRef,
+  type NoticeReader,
+  type SendNoticeInput,
+} from '../../notices';
+import { learningItems } from '../courses';
 import { listLayers } from '../layers/service';
+import { getSettings } from '../settings/service';
+import { cardOf } from './cards';
 import { planDelete, planDuplicate, planEdit, planReply } from './edit';
 import { eventItems, eventJson } from './items';
 import { civilOf, seriesOf, windowOf, type Schedule, type Window } from './model';
 import {
   MAX_EVENTS,
   cancelEvent,
+  eventsById,
   eventsInWindow,
   findEvent,
   insertEvent,
+  isUuid,
   membersAmong,
   profilesOf,
   saveReply,
   updateEvent,
   type EventRecord,
 } from './store';
+import { cancelNotices, editNotices, invites, replyNotice } from './notices';
+import { addDefaultReminder, dropReminders, moveReminders } from './reminders';
 import { upcomingOf } from './upcoming';
 
 /** The signed-in member, as Calendar needs them. */
-export type Viewer = { id: string; workspaceId: string; timeZone: string };
+export type Viewer = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  timeZone: string;
+  use24h: boolean;
+};
 
 /** Most items one range answer has. */
 export const MAX_ITEMS = 2000;
@@ -59,13 +79,27 @@ const peopleIds = (event: EventRecord) => [event.organizerId, ...event.people.ma
 const notify = (eventId: string, userIds: readonly string[]) =>
   publishToUsers([...new Set(userIds)], { type: CALENDAR_CHANGED, data: { eventId } });
 
-/** Care Hub events in the viewer's range, from every event they organize or are invited to. */
+let logNoticeError: (error: unknown) => void = () => undefined;
+
+/** Where notices that couldn't be sent are logged: routes.ts passes the app's logger. */
+export function onNoticeError(log: (error: unknown) => void): void {
+  logNoticeError = log;
+}
+
+/** Sends notices after the commit. One that fails is logged and never fails the change. */
+const tell = (notices: readonly SendNoticeInput[]) =>
+  Promise.all(notices.map((notice) => sendNotice(notice).catch(logNoticeError)));
+
+/** The viewer's range: events they organize or are invited to, and course due dates. */
 export async function listItems(db: Db, viewer: Viewer, query: ItemsQuery): Promise<ItemsResponse> {
   const window: Window = inRange(() => windowOf(query.from, query.to, viewer.timeZone));
-  const events = await eventsInWindow(db, viewer.workspaceId, viewer.id, window);
+  const [events, courses] = await Promise.all([
+    eventsInWindow(db, viewer.workspaceId, viewer.id, window),
+    learningItems(viewer, query.from, query.to),
+  ]);
   const profiles = await profilesOf(db, events.flatMap(peopleIds));
   let truncated = events.length >= MAX_EVENTS;
-  const items: CalendarItem[] = [];
+  const items: CalendarItem[] = [...courses];
   for (const event of events) {
     const shown = eventItems(event, viewer.id, window, profiles);
     truncated ||= shown.truncated;
@@ -155,8 +189,9 @@ export async function createEvent(
   }));
   checkSchedule(schedule);
   const people = await checkPeople(db, viewer, input.people ?? []);
-  const id = await db.transaction((tx) =>
-    insertEvent(tx, {
+  const { defaultReminder } = await getSettings(db, viewer);
+  const id = await db.transaction(async (tx) => {
+    const id = await insertEvent(tx, {
       ...schedule,
       workspaceId: viewer.workspaceId,
       organizerId: viewer.id,
@@ -165,9 +200,12 @@ export async function createEvent(
       description: input.description ?? '',
       videoUrl: input.videoUrl ?? null,
       people: people.map((userId) => ({ userId, reply: null, note: null, occurrenceReplies: {} })),
-    }),
-  );
+    });
+    await addDefaultReminder(tx, viewer, id, schedule, defaultReminder);
+    return id;
+  });
   notify(id, [viewer.id, ...people]);
+  await tell(invites(viewer, id, people));
   return getEvent(db, viewer, id);
 }
 
@@ -187,7 +225,7 @@ export async function editEvent(
   eventId: string,
   input: EditEvent,
 ): Promise<EditResponse> {
-  const { splitId, seen } = await db.transaction(async (tx) => {
+  const { splitId, seen, notices } = await db.transaction(async (tx) => {
     const event = await ownEvent(tx, viewer, eventId);
     const invited = idsOf(event.people);
     const people = input.people && (await checkPeople(tx, viewer, input.people, invited));
@@ -195,14 +233,20 @@ export async function editEvent(
     checkSchedule(plan.event);
     if (plan.split) checkSchedule(plan.split);
     await updateEvent(tx, event.id, plan.event);
+    if (!seriesOf(event)) await moveReminders(tx, event.id, event, plan.event);
+    else if (input.scope === 'one' && input.occurrence) {
+      await moveReminders(tx, event.id, event, plan.event, input.occurrence);
+    }
     const { workspaceId } = viewer;
     const splitId = plan.split
       ? await insertEvent(tx, { ...plan.split, workspaceId, organizerId: viewer.id })
       : null;
     const later = idsOf(plan.split?.people ?? []);
-    return { splitId, seen: [...peopleIds(event), ...idsOf(plan.event.people), ...later] };
+    const notices = editNotices(viewer, event, plan, { eventId: event.id, splitId }, input);
+    return { splitId, seen: [...peopleIds(event), ...idsOf(plan.event.people), ...later], notices };
   });
   notify(eventId, seen);
+  await tell(notices);
   const split = splitId ? await getEvent(db, viewer, splitId) : null;
   return { event: await getEvent(db, viewer, eventId), split };
 }
@@ -214,13 +258,17 @@ export async function deleteEvent(
   eventId: string,
   query: DeleteEventQuery,
 ): Promise<void> {
-  const seen = await db.transaction(async (tx) => {
+  const { seen, notices } = await db.transaction(async (tx) => {
     const event = await ownEvent(tx, viewer, eventId);
     const left = planDelete(event, query);
     await (left ? updateEvent(tx, event.id, left) : cancelEvent(tx, event.id));
-    return peopleIds(event);
+    if (!left) await dropReminders(tx, event.id);
+    else if (query.scope === 'one')
+      await dropReminders(tx, event.id, query.occurrence ?? event.start);
+    return { seen: peopleIds(event), notices: cancelNotices(viewer, event, left, query) };
   });
   notify(eventId, seen);
+  await tell(notices);
 }
 
 /** An invited person's answer, for the series or one occurrence (CA-17, CA-22). */
@@ -230,14 +278,15 @@ export async function replyToEvent(
   eventId: string,
   body: ReplyBody,
 ): Promise<void> {
-  const seen = await db.transaction(async (tx) => {
+  const { seen, notice } = await db.transaction(async (tx) => {
     const event = await visibleEvent(tx, viewer, eventId, true);
     const person = event.people.find((invited) => invited.userId === viewer.id);
     if (!person) throw httpError(403, 'forbidden');
     await saveReply(tx, event.id, planReply(event, person, body));
-    return peopleIds(event);
+    return { seen: peopleIds(event), notice: replyNotice(viewer, event, body) };
   });
   notify(eventId, seen);
+  await tell([notice]);
 }
 
 /** A copy for the viewer to organize, inviting the others again (CA-20). */
@@ -253,9 +302,26 @@ export async function duplicateEvent(
   const members = await membersAmong(db, viewer.workspaceId, idsOf(copy.people));
   const people = copy.people.filter((person) => members.has(person.userId));
   const { workspaceId } = viewer;
-  const id = await db.transaction((tx) =>
-    insertEvent(tx, { ...copy, people, workspaceId, organizerId: viewer.id }),
-  );
+  const { defaultReminder } = await getSettings(db, viewer);
+  const id = await db.transaction(async (tx) => {
+    const id = await insertEvent(tx, { ...copy, people, workspaceId, organizerId: viewer.id });
+    await addDefaultReminder(tx, viewer, id, copy, defaultReminder);
+    return id;
+  });
   notify(id, [viewer.id, ...idsOf(people)]);
+  await tell(invites(viewer, id, idsOf(people)));
   return getEvent(db, viewer, id);
+}
+
+/** Event cards under notices, for the person reading them (Calendar's ids only). */
+export async function eventCards(db: Db, reader: NoticeReader, cards: EventCardRef[]) {
+  const ours = cards.filter((card) => isUuid(card.eventId));
+  const found = await eventsById(
+    db,
+    ours.map((card) => card.eventId),
+  );
+  const byId = new Map(found.map((event) => [event.id, event]));
+  return new Map(
+    ours.map((card) => [eventCardKey(card), cardOf(byId.get(card.eventId), card, reader)]),
+  );
 }
