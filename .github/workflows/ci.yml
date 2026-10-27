@@ -1,9 +1,11 @@
 name: CI
 
 # Quick checks only (docs/decisions/0006-ci-within-free-minutes.md). Builds and browser tests
-# run in e2e.yml and image.yml. To save minutes: draft pull requests get no run, main is checked
-# every 3 hours instead of after every merge (and only if it changed), and a pull request that
-# changes only lane folders runs only those lanes' unit tests (scripts/ci-test-scope.mjs).
+# run in e2e.yml and image.yml. Draft pull requests get no run, and a pull request that changes
+# only lane folders runs only those lanes' unit tests (scripts/ci-test-scope.mjs). While the
+# repository is public, Actions minutes are free, so main is checked after every push (0006,
+# "while the repository is public"). To save minutes again, put back the 3-hourly schedule and
+# the gate job from #218 (4a8afd6).
 on:
   # A draft gets no run: work in a draft pull request and mark it ready for review when it's
   # done, which starts the first run.
@@ -18,64 +20,39 @@ on:
       - '.dockerignore'
       - '.github/workflows/e2e.yml'
       - '.github/workflows/image.yml'
-  # Main: every 3 hours, skipped when main hasn't changed since a finished run (the gate job), and
-  # by hand (Actions > CI > Run workflow), which always checks. Each pull request was checked
-  # against main when it last changed. A failed run opens the issue "Main checks failing" (or
-  # comments on it); the next passing run closes it.
-  schedule:
-    - cron: '23 */3 * * *'
+  # Main: after every push (the same paths skip it), and by hand (Actions > CI > Run workflow).
+  # Pushes to other branches get no run: their pull request has one. A failed run on main opens
+  # the issue "Main checks failing" (or comments on it); the next passing run closes it.
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'deploy/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/e2e.yml'
+      - '.github/workflows/image.yml'
   workflow_dispatch:
 
-# A newer push cancels the older run on the same branch, and a newer run on main the older one.
+# Runs are grouped by pull request number (a fork's branch can't share an agent's group). A newer
+# push to a pull request cancels its older run; every push to main is checked, one after another.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Decision 0011: the checks job runs the pull request's code, so it can only read. The report job
-# can write one comment and the main report job one issue, and the gate job can read Actions
-# runs; none of them checks out or runs the repository's code.
+# can write one comment and the main report job one issue; neither checks out or runs the
+# repository's code.
 permissions:
   contents: read
 
 jobs:
-  # Scheduled runs only: when an earlier run of this workflow on main already finished (passed or
-  # failed) on this same commit, main hasn't changed, so this run skips the checks and the issue.
-  # A run by hand always checks. It reads the Actions API only.
-  gate:
-    name: main changed
-    if: ${{ github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      actions: read
-    outputs:
-      skip: ${{ steps.look.outputs.skip }}
-    steps:
-      - name: Look for a finished run on this commit
-        id: look
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          query='[.workflow_runs[] | select(.id != ($run | tonumber) and .event != "pull_request"
-            and (.conclusion == "success" or .conclusion == "failure"))] | length'
-          finished=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&branch=main&status=completed&per_page=50" \
-            | jq --arg run "$GITHUB_RUN_ID" "$query") || finished=0
-          if [ "${finished:-0}" -gt 0 ]; then
-            echo 'skip=true' >> "$GITHUB_OUTPUT"
-            echo "Main is still at ${GITHUB_SHA:0:7}, which an earlier run checked, so the checks are skipped."
-          else
-            echo 'skip=false' >> "$GITHUB_OUTPUT"
-            echo "Main is at ${GITHUB_SHA:0:7}, which no finished run has checked yet."
-          fi
-
   checks:
     name: checks
-    needs: gate
-    # Pull requests unless they're drafts; main unless the gate found it unchanged (the gate is
-    # skipped for pull requests and runs by hand).
-    if: >-
-      ${{ !cancelled() && (github.event_name == 'pull_request' && !github.event.pull_request.draft
-      || github.event_name != 'pull_request' && needs.gate.outputs.skip != 'true') }}
+    # Pull requests unless they're drafts; every push to main and every run by hand.
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Step outcomes for the report job.
@@ -298,7 +275,7 @@ jobs:
           fi
           node .github/scripts/ci-report.mjs
 
-  # On main (every 3 hours when it changed, or by hand): a failure opens the issue "Main checks failing", or adds a
+  # On main (after a push, or by hand): a failure opens the issue "Main checks failing", or adds a
   # comment to it if it's open, with the end of each failed step's log; a pass closes it. The logs
   # come from main's own code. It checks out nothing and runs no npm.
   main-report:
