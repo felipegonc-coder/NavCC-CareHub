@@ -11,6 +11,7 @@ import {
 } from '@carehub/team-calendar-api';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
+import { registerEventLookup, registerTitleLookup } from '../reminders';
 import {
   createEvent,
   deleteEvent,
@@ -22,6 +23,7 @@ import {
   replyToEvent,
   type Viewer,
 } from './events/service';
+import { lookupStart, lookupTitles, onReminderError } from './events/reminders';
 import { changeLayer, listLayers } from './layers/service';
 import { changeSettings, getSettings } from './settings/service';
 
@@ -30,7 +32,8 @@ function viewerOf(request: FastifyRequest): Viewer {
   const { user, member } = request;
   if (!user) throw httpError(401, 'signed_out');
   if (!member) throw httpError(403, 'forbidden');
-  return { id: user.id, workspaceId: member.workspaceId, timeZone: user.timeZone };
+  const { id, timeZone, use24h } = user;
+  return { id, workspaceId: member.workspaceId, timeZone, use24h };
 }
 
 type EventParams = { Params: { eventId: string } };
@@ -117,6 +120,15 @@ async function careHubCalendar(app: FastifyInstance) {
 
 /** Calendar routes under /api/calendar. */
 export default async function calendarRoutes(app: FastifyInstance) {
+  // Reminders ask Calendar when an event starts (Remind me) and for titles (the Reminders list).
+  registerEventLookup(lookupStart);
+  registerTitleLookup('event', lookupTitles);
+  onReminderError((error) => app.log.error({ err: error }, "Calendar couldn't change a reminder"));
+  app.addHook('onClose', async () => {
+    registerEventLookup(null);
+    registerTitleLookup('event', null);
+  });
+
   // A plugin of its own, so its guard doesn't apply to the routes registered after it.
   await app.register(careHubCalendar);
 
