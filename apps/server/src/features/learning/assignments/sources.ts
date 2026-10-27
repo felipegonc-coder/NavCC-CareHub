@@ -6,10 +6,10 @@ import type { AssignmentSources } from './service';
 import { assignmentStore } from './store';
 
 // Where assignments find other areas' data on the server: live courses from the courses server
-// (B1) and progress from the progress server (B3). Stand-ins until the rest land on main: paths
-// (B3), group members (core, 0007 section 4.3, Oct 29) and workspace settings (core's
-// features/workspaces, 0007 section 2.3). So for now no path can be assigned, groups have no
-// members and Learning is on in every workspace.
+// and progress from the progress server. Stand-ins until the rest land on main: paths, group
+// members (core, 0007 section 4.3) and workspace settings (core's features/workspaces, 0007
+// section 2.3). So for now no path can be assigned, groups have no members and Learning is on in
+// every workspace.
 
 /** The live version of each of these courses that has one (archived courses too). */
 async function liveCourses(
