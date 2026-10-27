@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Block, CourseType, Id } from '@carehub/learning';
+import { CourseSchema } from '@carehub/learning';
+import type { Block, Course, CourseType, Id } from '@carehub/learning';
 import { useStudioClient } from '../context';
+import { StudioError } from './client';
+import type { StudioDraft } from './client';
 
 /** TanStack Query keys for Studio data; they start with the feature name (0007 section 5.2). */
 export const studioKeys = {
@@ -69,6 +72,27 @@ export function useCreateCourse() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: NewCourseInput) => client.createCourse(input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: studioKeys.courseLists }),
+  });
+}
+
+/**
+ * Saves a course that Learning help drafted and the author accepted (0315): a new course of its type and title,
+ * then the draft's content under the new course's id. A draft that isn't a valid course is refused before
+ * anything is created.
+ */
+export function useCreateCourseFromDraft() {
+  const client = useStudioClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (draft: Course): Promise<StudioDraft> => {
+      if (!CourseSchema.safeParse(draft).success)
+        throw new StudioError('invalid', "This draft can't be saved as it is.");
+      const blank = await client.createCourse({ type: draft.type, title: draft.title });
+      const course: Course = { ...draft, id: blank.course.id };
+      const { revision } = await client.saveCourse(course.id, course, blank.revision);
+      return { ...blank, course, revision };
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: studioKeys.courseLists }),
   });
 }
