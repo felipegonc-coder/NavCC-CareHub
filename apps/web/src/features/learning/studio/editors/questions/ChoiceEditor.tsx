@@ -9,7 +9,7 @@ import {
   updateQuestionItem,
 } from '@carehub/learning';
 import type { Course, Question, RichText } from '@carehub/learning';
-import { Checkbox, Field, Input, VisuallyHidden } from '@carehub/ui';
+import { Checkbox, Field, Input } from '@carehub/ui';
 import { RichTextInput } from '../text/RichTextInput';
 import { AddButton, ItemActions } from './ItemActions';
 
@@ -51,15 +51,9 @@ export function ChoiceEditor({ question, onChange, survey, course }: ChoiceEdito
               />
             </div>
             {!survey && (
-              <Field
-                layout="inline"
-                label={
-                  <>
-                    Right answer<VisuallyHidden> (answer {index + 1})</VisuallyHidden>
-                  </>
-                }
-              >
+              <Field layout="inline" label="Right answer">
                 <Checkbox
+                  aria-label={`Right answer (answer ${index + 1})`}
                   checked={option.correct}
                   onCheckedChange={() => onChange(toggleCorrectOption(question, option.id))}
                 />
