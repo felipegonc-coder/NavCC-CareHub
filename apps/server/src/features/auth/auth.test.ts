@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { CSRF_COOKIE, CSRF_HEADER } from '@carehub/shared';
+import { BUILT_IN_ROLES, CSRF_COOKIE, CSRF_HEADER } from '@carehub/shared';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -119,7 +119,7 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
       expect(cookieOf(second, CSRF_COOKIE)).toBeUndefined();
     });
 
-    it('returns the signed-in person', async () => {
+    it('returns the signed-in person, their membership and the workspace', async () => {
       const user = await createUser(testApp.db, { name: 'Riley Chen' });
       const response = await injectAs(app, user, { method: 'GET', url: '/api/auth/me' });
       expect(response.statusCode).toBe(200);
@@ -135,8 +135,15 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
           weekStart: 0,
           mustChangePassword: false,
         },
-        member: null,
-        workspace: null,
+        member: {
+          kind: 'member',
+          workspaceId: user.workspaceId,
+          roleId: user.roleId,
+          roleName: 'Editor',
+          permissions: [...BUILT_IN_ROLES.editor.permissions],
+          isAdmin: false,
+        },
+        workspace: { id: user.workspaceId, name: 'Care Hub' },
       });
     });
   });
@@ -369,10 +376,14 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
   });
 
   describe('testing helpers', () => {
-    it('createUser makes a fictional person at example.test', async () => {
+    it('createUser makes a fictional Editor at example.test, or someone outside the workspace', async () => {
       const user = await createUser(testApp.db);
-      expect(user.email).toMatch(/^person-[0-9a-f]+@example\.test$/);
-      expect(user).toMatchObject({ name: 'Test Person', isSiteAdmin: false });
+      expect(user.email).toMatch(/^editor-[0-9a-f]+@example\.test$/);
+      expect(user).toMatchObject({ name: 'Test Editor', isSiteAdmin: false });
+      expect(user.roleId).toEqual(expect.any(String));
+      const outsider = await createUser(testApp.db, { role: null });
+      expect(outsider.email).toMatch(/^person-[0-9a-f]+@example\.test$/);
+      expect(outsider).toMatchObject({ name: 'Test Person', workspaceId: null, roleId: null });
     });
 
     it('injectAs sends the CSRF header on state-changing requests', async () => {
