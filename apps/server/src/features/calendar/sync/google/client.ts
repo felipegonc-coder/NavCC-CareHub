@@ -4,15 +4,7 @@
 // Retries with backoff on rate limits, Google errors and network failures.
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import {
-  CALENDAR_MAX_BYTES,
-  type FetchLike,
-  TransportError,
-  parseJson,
-  parseRetryAfter,
-  readText,
-  timeLimit,
-} from './http';
+import { type FetchLike, TransportError, parseJson, parseRetryAfter } from './http';
 
 export const GOOGLE_CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 
@@ -31,31 +23,23 @@ export type CalendarTransport = (
   signal?: AbortSignal,
 ) => Promise<CalendarResponse>;
 
-/** Calls Google directly with an OAuth access token, within the time and size limits. */
+/** Calls Google directly with an OAuth access token. */
 export function directTransport(options: {
   fetch: FetchLike;
   accessToken: string;
   baseUrl?: string;
-  /** Each call's time limit; GOOGLE_TIMEOUT_MS unless a test sets it. */
-  timeoutMs?: number;
 }): CalendarTransport {
   return async (request, signal) => {
     const query = new URLSearchParams(request.query ?? []).toString();
     const url = `${options.baseUrl ?? GOOGLE_CALENDAR_API}${request.path}${query ? `?${query}` : ''}`;
     const headers = { authorization: `Bearer ${options.accessToken}`, accept: 'application/json' };
-    const limit = timeLimit(signal, options.timeoutMs);
     try {
-      const response = await options.fetch(url, { method: 'GET', headers, signal: limit.signal });
-      const text = await readText(response, CALENDAR_MAX_BYTES);
+      const response = await options.fetch(url, { method: 'GET', headers, signal });
+      const text = await response.text();
       const retryAfter = response.headers.get('retry-after') ?? undefined;
       return { status: response.status, body: parseJson(text), retryAfter };
     } catch (error) {
-      if (signal?.aborted || error instanceof TransportError) throw error;
-      if (limit.timedOut()) {
-        throw new TransportError('timeout', "Google Calendar didn't answer in time.", true, {
-          cause: error,
-        });
-      }
+      if (signal?.aborted) throw error;
       throw new TransportError('network', "Couldn't reach Google Calendar.", true, {
         cause: error,
       });
@@ -233,8 +217,6 @@ function errorFor(response: CalendarResponse, retryAfterMs?: number): GoogleCale
 }
 
 const MAX_PAGES = 40;
-/** Keeps a page of events well under CALENDAR_MAX_BYTES. */
-const EVENTS_PER_PAGE = 1000;
 const MAX_BACKOFF_MS = 32_000;
 /** A longer Retry-After ends the run; the caller tries again later. */
 const MAX_RETRY_AFTER_MS = 60_000;
@@ -332,10 +314,7 @@ export function createGoogleCalendarClient(options: GoogleCalendarClientOptions)
     const changes: EventChanges = { full, resynced: false, events: [], skipped: [] };
     let pageToken: string | undefined;
     for (let page = 0; page < MAX_PAGES; page += 1) {
-      const query = withPage(
-        [...base, ['showDeleted', 'true'], ['maxResults', String(EVENTS_PER_PAGE)]],
-        pageToken,
-      );
+      const query = withPage([...base, ['showDeleted', 'true'], ['maxResults', '2500']], pageToken);
       const body = await read({ path: eventsPath(calendarId), query });
       changes.timeZone ??= body.timeZone;
       for (const item of body.items ?? []) {

@@ -6,7 +6,6 @@ import {
   createGoogleCalendarClient,
   directTransport,
 } from './client';
-import { TransportError } from './http';
 import { createMockGoogle, googleErrorBody } from './mock-google';
 import { createGoogleOAuth, googleRedirectUri } from './oauth';
 
@@ -103,7 +102,7 @@ describe('event changes', () => {
     expect(Object.fromEntries(first?.url.searchParams ?? [])).toEqual({
       ...WINDOW,
       showDeleted: 'true',
-      maxResults: '1000',
+      maxResults: '2500',
     });
     expect(second?.url.searchParams.get('pageToken')).toBeTruthy();
   });
@@ -281,67 +280,6 @@ describe('retries', () => {
       listOnly.client.listEventChanges({ calendarId: AVERY, window: WINDOW }),
     );
     expect(error).toMatchObject({ kind: 'forbidden', reason: 'insufficientPermissions' });
-  });
-});
-
-describe('limits', () => {
-  const hang = (_url: string, init?: RequestInit) =>
-    new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
-    });
-
-  it('tries a slow call again, and says so plainly when Google never answers', async () => {
-    const google = createMockGoogle();
-    const sleeps: number[] = [];
-    let calls = 0;
-    const client = createGoogleCalendarClient({
-      transport: directTransport({
-        fetch: (url, init) => (calls++ === 0 ? hang(url, init) : google.fetch(url, init)),
-        accessToken: google.issueAccessToken(),
-        timeoutMs: 20,
-      }),
-      sleep: async (ms) => {
-        sleeps.push(ms);
-      },
-      random: () => 0.5,
-    });
-    expect(await client.listCalendars()).toHaveLength(1);
-    expect(sleeps).toEqual([1500]);
-    const stuck = createGoogleCalendarClient({
-      transport: directTransport({ fetch: hang, accessToken: 'token', timeoutMs: 20 }),
-      maxAttempts: 1,
-    });
-    const error = await stuck.listCalendars().catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(TransportError);
-    expect(error).toMatchObject({ code: 'timeout', retryable: true });
-    expect((error as Error).message).toBe("Google Calendar didn't answer in time.");
-  });
-
-  it('passes a cancel through as it is', async () => {
-    const controller = new AbortController();
-    const read = directTransport({ fetch: hang, accessToken: 'token' })(
-      { path: '/users/me/calendarList' },
-      controller.signal,
-    );
-    controller.abort();
-    await expect(read).rejects.toThrow(/abort/i);
-  });
-
-  it('refuses a reply over 10 MB at once, without trying again', async () => {
-    let calls = 0;
-    const client = createGoogleCalendarClient({
-      transport: directTransport({
-        fetch: async () => {
-          calls += 1;
-          return new Response('{}', { headers: { 'content-length': String(11 * 1024 * 1024) } });
-        },
-        accessToken: 'token',
-      }),
-      sleep: async () => undefined,
-    });
-    const error = await client.listCalendars().catch((caught: unknown) => caught);
-    expect(error).toMatchObject({ code: 'too-large', retryable: false });
-    expect(calls).toBe(1);
   });
 });
 
