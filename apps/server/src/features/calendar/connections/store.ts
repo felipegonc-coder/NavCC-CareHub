@@ -28,8 +28,6 @@ export class ConnectionLimitError extends Error {
 
 /** A connection's id is made before its secret is sealed, because the secret is sealed for it. */
 export const newConnectionId = (): string => randomUUID();
-export const connectionSecretContext = (connectionId: string) =>
-  `calendar-connection:${connectionId}`;
 
 /** New calendars take these in turn (the kit's colours from blue on, then gray to green). */
 export const CALENDAR_COLORS: readonly LayerColor[] = [
@@ -37,18 +35,22 @@ export const CALENDAR_COLORS: readonly LayerColor[] = [
   ...LAYER_COLORS.slice(1, 6),
 ];
 
-/** Colours for `count` new calendars of this person, continuing after their other calendars. */
-export async function nextColors(db: DbOrTx, ownerId: string, count: number) {
+/** Connected calendars sit after Care Hub's own layers in the left panel. */
+export const FIRST_CONNECTED_ORDER = 100;
+
+/** Colours and places for `count` new calendars of this person, after their other calendars. */
+export async function nextLayers(db: DbOrTx, ownerId: string, count: number) {
   const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`count(*)::int`, last: sql<number | null>`max(${calendars.order})` })
     .from(calendars)
     .innerJoin(connections, eq(connections.id, calendars.connectionId))
     .where(eq(connections.ownerId, ownerId));
   const used = row?.n ?? 0;
-  return Array.from(
-    { length: count },
-    (_, i) => CALENDAR_COLORS[(used + i) % CALENDAR_COLORS.length] ?? 'blue',
-  );
+  const first = Math.max(FIRST_CONNECTED_ORDER, (row?.last ?? 0) + 1);
+  return Array.from({ length: count }, (_, i) => ({
+    color: CALENDAR_COLORS[(used + i) % CALENDAR_COLORS.length] ?? 'blue',
+    order: first + i,
+  }));
 }
 
 /** "avery.lin@example.com" → "a…@example.com" (Calendar spec: "Connected as a…@icloud.com"). */
@@ -103,13 +105,14 @@ export async function createConnection(db: DbOrTx, input: NewConnection, now = n
       updatedAt: now,
     });
     if (input.calendars.length === 0) return;
-    const colors = await nextColors(tx, input.ownerId, input.calendars.length);
+    const layers = await nextLayers(tx, input.ownerId, input.calendars.length);
     await tx.insert(calendars).values(
       input.calendars.map((calendar, i) => ({
         connectionId: input.id,
         remoteId: calendar.remoteId,
         name: calendar.name,
-        color: calendar.color ?? colors[i] ?? 'blue',
+        color: calendar.color ?? layers[i]?.color ?? 'blue',
+        order: layers[i]?.order ?? FIRST_CONNECTED_ORDER,
         shown: calendar.shown,
         timeZone: calendar.timeZone ?? null,
       })),

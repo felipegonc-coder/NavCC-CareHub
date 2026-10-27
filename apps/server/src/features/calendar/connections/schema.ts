@@ -4,7 +4,6 @@ import {
   integer,
   jsonb,
   pgTable,
-  primaryKey,
   text,
   timestamp,
   unique,
@@ -77,6 +76,8 @@ export const calendarConnectionCalendars = pgTable(
     name: text('name').notNull(),
     color: text('color', { enum: LAYER_COLORS }).notNull(),
     shown: boolean('shown').notNull().default(true),
+    on: boolean('layer_on').notNull().default(true),
+    order: integer('layer_order').notNull().default(100),
     timeZone: text('time_zone'),
     cursor: jsonb('cursor').$type<SyncCursor>(),
     lastFullSyncAt: at('last_full_sync_at'),
@@ -88,6 +89,7 @@ export const calendarConnectionCalendars = pgTable(
 export const calendarSyncedEvents = pgTable(
   'cal_synced_events',
   {
+    id: uuid('id').primaryKey().defaultRandom(),
     calendarId: uuid('calendar_id')
       .notNull()
       .references(() => calendarConnectionCalendars.id, { onDelete: 'cascade' }),
@@ -101,26 +103,8 @@ export const calendarSyncedEvents = pgTable(
     readAt: at('read_at').notNull().defaultNow(),
   },
   (table) => [
-    primaryKey({ columns: [table.calendarId, table.remoteId] }),
+    unique('cal_synced_events_remote_key').on(table.calendarId, table.remoteId),
     index('cal_synced_events_range_idx').on(table.calendarId, table.startsAt),
     index('cal_synced_events_uid_idx').on(table.calendarId, table.uid),
   ],
-);
-
-export const calendarOAuthStates = pgTable(
-  'cal_oauth_states',
-  {
-    stateHash: text('state_hash').primaryKey(),
-    ownerId: uuid('owner_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    workspaceId: uuid('workspace_id'),
-    /** Sealed. */
-    codeVerifier: text('code_verifier').notNull(),
-    connectionId: uuid('connection_id').references(() => calendarConnections.id, {
-      onDelete: 'cascade',
-    }),
-    expiresAt: at('expires_at').notNull(),
-  },
-  (table) => [index('cal_oauth_states_expires_idx').on(table.expiresAt)],
 );

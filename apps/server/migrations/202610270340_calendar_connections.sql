@@ -40,7 +40,13 @@ CREATE TABLE cal_connection_calendars (
   color text NOT NULL CHECK (
     color IN ('default', 'gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red')
   ),
+  -- Whether Care Hub syncs it, chosen when connecting and in Settings. Only shown calendars are
+  -- layers; hiding one drops its copies.
   shown boolean NOT NULL DEFAULT true,
+  -- The layer's switch in the left panel (CA-04). Off only hides its items on screen.
+  layer_on boolean NOT NULL DEFAULT true,
+  -- The layer's place in the left panel. Connected calendars start at 100, after Care Hub's own.
+  layer_order integer NOT NULL DEFAULT 100,
   time_zone text,
   -- Where the next sync starts: Google's sync token, or a link's ETag and Last-Modified.
   cursor jsonb CHECK (cursor IS NULL OR jsonb_typeof(cursor) = 'object'),
@@ -52,6 +58,8 @@ CREATE TABLE cal_connection_calendars (
 
 -- Events as the outside calendar describes them. Read-only in Care Hub (CA-07).
 CREATE TABLE cal_synced_events (
+  -- Kept while the outside event is there, so items, reminders and cards can point at it.
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   calendar_id uuid NOT NULL REFERENCES cal_connection_calendars (id) ON DELETE CASCADE,
   -- Google's event id, or the uid and recurrence id of a link's event.
   remote_id text NOT NULL,
@@ -67,23 +75,8 @@ CREATE TABLE cal_synced_events (
   starts_at timestamptz NOT NULL,
   ends_at timestamptz,
   read_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (calendar_id, remote_id)
+  CONSTRAINT cal_synced_events_remote_key UNIQUE (calendar_id, remote_id)
 );
 
 CREATE INDEX cal_synced_events_range_idx ON cal_synced_events (calendar_id, starts_at);
 CREATE INDEX cal_synced_events_uid_idx ON cal_synced_events (calendar_id, uid);
-
--- Google sign-ins in progress: 10 minutes to come back from Google's screen.
-CREATE TABLE cal_oauth_states (
-  -- SHA-256 (hex) of the state sent to Google. The state itself is only ever in the URL.
-  state_hash text PRIMARY KEY CHECK (state_hash ~ '^[0-9a-f]{64}$'),
-  owner_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  workspace_id uuid,
-  -- The PKCE code verifier, sealed.
-  code_verifier text NOT NULL CHECK (code_verifier LIKE 'v1.%'),
-  -- Set when this sign-in reconnects an existing connection.
-  connection_id uuid REFERENCES cal_connections (id) ON DELETE CASCADE,
-  expires_at timestamptz NOT NULL
-);
-
-CREATE INDEX cal_oauth_states_expires_idx ON cal_oauth_states (expires_at);

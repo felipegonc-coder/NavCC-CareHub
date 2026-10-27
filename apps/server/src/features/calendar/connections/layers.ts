@@ -2,7 +2,7 @@
 // (Calendar spec, Layers and Connections). The calendar's routes list these with the person's
 // other layers and events and pass layer changes here. Only the owner sees or changes them;
 // admins never do (RP-D1). The events are read-only.
-import { and, asc, eq, gt, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
 import type { ExternalEvent } from '../sync/types';
 import {
@@ -36,14 +36,18 @@ const layerColumns = {
   kind: connections.kind,
   name: calendars.name,
   color: calendars.color,
-  shown: calendars.shown,
+  on: calendars.on,
+  order: calendars.order,
   status: connections.status,
   lastError: connections.lastError,
   lastSyncedAt: connections.lastSyncedAt,
   truncated: calendars.truncated,
 };
 
-/** A connected calendar as a layer. The connection's status shows on all its calendars. */
+/**
+ * A connected calendar the person syncs, as a layer. The connection's status shows on all its
+ * calendars. Calendars that aren't synced (`shown` off, in Settings) aren't layers.
+ */
 export interface ConnectedLayer {
   id: string;
   calendarId: string;
@@ -52,8 +56,12 @@ export interface ConnectedLayer {
   kind: ConnectionKind;
   name: string;
   color: LayerColor;
-  shown: boolean;
+  /** The left panel's switch (CA-04): off only hides its items on screen. */
+  on: boolean;
+  /** Its place in the left panel, a whole number. Connected calendars start at 100. */
+  order: number;
   status: ConnectionStatus;
+  /** A plain sentence, never a link or a secret (CA-11). */
   lastError: string | null;
   /** ISO time of the last good sync, or null before the first. */
   lastSyncedAt: string | null;
@@ -74,13 +82,15 @@ const selectLayers = (db: DbOrTx) =>
     .innerJoin(connections, eq(connections.id, calendars.connectionId));
 type LayerRow = Awaited<ReturnType<typeof selectLayers>>[number];
 
-/** The person's connected calendars: oldest connection first, then by name. */
+const layerOf = (userId: string) => and(eq(connections.ownerId, userId), eq(calendars.shown, true));
+
+/** The person's connected calendar layers, in their order. */
 export async function listConnectedLayers(db: DbOrTx, userId: string): Promise<ConnectedLayer[]> {
   const rows = await selectLayers(db)
-    .where(eq(connections.ownerId, userId))
+    .where(layerOf(userId))
     .orderBy(
+      asc(calendars.order),
       asc(connections.createdAt),
-      asc(connections.id),
       asc(calendars.name),
       asc(calendars.id),
     );
@@ -88,43 +98,51 @@ export async function listConnectedLayers(db: DbOrTx, userId: string): Promise<C
 }
 
 /**
- * Changes a connected calendar's colour or whether it shows. Hiding it drops its copied events;
- * showing it again reads them in full on the next sync, which is due straight away. Null when the
- * calendar isn't the person's.
+ * Changes a connected layer's colour, switch or place. Copies stay as they are and nothing syncs.
+ * Null when the calendar isn't one of the person's layers.
  */
 export async function setConnectedLayer(
   db: DbOrTx,
   userId: string,
   calendarId: string,
-  changes: { color?: LayerColor | undefined; shown?: boolean | undefined },
-  now = new Date(),
+  changes: { color?: LayerColor | undefined; on?: boolean | undefined; order?: number | undefined },
 ): Promise<ConnectedLayer | null> {
   if (!UUID.test(calendarId)) return null;
-  return db.transaction(async (tx) => {
-    const [before] = await selectLayers(tx)
-      .where(and(eq(calendars.id, calendarId), eq(connections.ownerId, userId)))
-      .for('update');
-    if (!before) return null;
-    const color = changes.color ?? before.color;
-    const shown = changes.shown ?? before.shown;
-    const hide = before.shown && !shown;
-    const fresh = hide ? { cursor: null, lastFullSyncAt: null, truncated: false } : {};
-    await tx
+  const { color, on, order } = changes;
+  const set = {
+    ...(color === undefined ? {} : { color }),
+    ...(on === undefined ? {} : { on }),
+    ...(order === undefined ? {} : { order }),
+  };
+  if (Object.keys(set).length > 0) {
+    const theirs = db
+      .select({ id: connections.id })
+      .from(connections)
+      .where(eq(connections.ownerId, userId));
+    await db
       .update(calendars)
-      .set({ color, shown, ...fresh })
-      .where(eq(calendars.id, calendarId));
-    if (hide) await tx.delete(syncedEvents).where(eq(syncedEvents.calendarId, calendarId));
-    if (shown && !before.shown) {
-      await tx
-        .update(connections)
-        .set({ nextSyncAt: now, updatedAt: now })
-        .where(eq(connections.id, before.connectionId));
-    }
-    return toLayer({ ...before, color, shown, truncated: hide ? false : before.truncated });
-  });
+      .set(set)
+      .where(
+        and(
+          eq(calendars.id, calendarId),
+          eq(calendars.shown, true),
+          inArray(calendars.connectionId, theirs),
+        ),
+      );
+  }
+  const [row] = await selectLayers(db).where(and(eq(calendars.id, calendarId), layerOf(userId)));
+  return row ? toLayer(row) : null;
 }
 
 export interface SyncedEventRow {
+  /** Care Hub's id for it (`synced:<id>`), kept while the outside event is there. */
+  id: string;
+  /**
+   * On a changed or cancelled occurrence (`event.recurrenceId` set): its series' row in the same
+   * calendar. Null otherwise, and when Care Hub can't see the series (an invitation to one
+   * occurrence): show that one as a single event.
+   */
+  seriesId: string | null;
   layerId: string;
   calendarId: string;
   connectionId: string;
@@ -135,9 +153,9 @@ export interface SyncedEventRow {
 }
 
 /**
- * Copied events on the person's shown connected calendars that may have occurrences in
- * [from, to): single events, series, and changed or cancelled occurrences of a series (same uid,
- * `recurrenceId` set). Expand series to occurrences with the reader's expandSeries.
+ * Copied events on the person's connected layers (switched on or off) that may have occurrences
+ * in [from, to): single events, series, and changed or cancelled occurrences of a series (same
+ * uid, `recurrenceId` set). Expand series to occurrences with the reader's expandSeries.
  */
 export async function listSyncedEvents(
   db: DbOrTx,
@@ -145,9 +163,11 @@ export async function listSyncedEvents(
 ): Promise<SyncedEventRow[]> {
   const rows = await db
     .select({
+      id: syncedEvents.id,
       calendarId: syncedEvents.calendarId,
       connectionId: calendars.connectionId,
       remoteId: syncedEvents.remoteId,
+      uid: syncedEvents.uid,
       event: syncedEvents.event,
       htmlLink: syncedEvents.htmlLink,
     })
@@ -156,12 +176,30 @@ export async function listSyncedEvents(
     .innerJoin(connections, eq(connections.id, calendars.connectionId))
     .where(
       and(
-        eq(connections.ownerId, input.ownerId),
-        eq(calendars.shown, true),
+        layerOf(input.ownerId),
         lt(syncedEvents.startsAt, input.to),
         or(isNull(syncedEvents.endsAt), gt(syncedEvents.endsAt, input.from)),
       ),
     )
     .orderBy(asc(syncedEvents.startsAt), asc(syncedEvents.calendarId), asc(syncedEvents.remoteId));
-  return rows.map((row) => ({ layerId: connectedLayerId(row.calendarId), ...row }));
+  const occurrences = rows.filter((row) => row.event.recurrenceId);
+  const series = new Map<string, string>();
+  if (occurrences.length > 0) {
+    const found = await db
+      .select({ id: syncedEvents.id, calendarId: syncedEvents.calendarId, uid: syncedEvents.uid })
+      .from(syncedEvents)
+      .where(
+        and(
+          inArray(syncedEvents.calendarId, [...new Set(occurrences.map((row) => row.calendarId))]),
+          inArray(syncedEvents.uid, [...new Set(occurrences.map((row) => row.uid))]),
+          sql`${syncedEvents.event} -> 'recurrenceId' IS NULL`,
+        ),
+      );
+    for (const row of found) series.set(`${row.calendarId} ${row.uid}`, row.id);
+  }
+  return rows.map(({ uid, ...row }) => ({
+    ...row,
+    seriesId: row.event.recurrenceId ? (series.get(`${row.calendarId} ${uid}`) ?? null) : null,
+    layerId: connectedLayerId(row.calendarId),
+  }));
 }

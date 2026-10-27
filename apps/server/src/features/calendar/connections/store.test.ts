@@ -19,7 +19,7 @@ import {
   createConnection,
   listConnections,
   maskAccount,
-  nextColors,
+  nextLayers,
   removeConnection,
 } from './store';
 import {
@@ -80,8 +80,11 @@ describe.skipIf(!hasDatabase)('calendar connections store', () => {
     expect(await listConnections(db, sam.id)).toEqual([]);
   });
 
-  it('gives new calendars the next colours, unless one is chosen', async () => {
-    expect(await nextColors(db, avery.id, 2)).toEqual(['pink', 'red']);
+  it('gives new calendars the next colours and places, unless a colour is chosen', async () => {
+    expect(await nextLayers(db, avery.id, 2)).toEqual([
+      { color: 'pink', order: 102 },
+      { color: 'red', order: 103 },
+    ]);
     const link = testLinkConnection(avery.id, 'Soccer');
     link.calendars[0]!.color = 'green';
     await createConnection(db, link);

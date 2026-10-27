@@ -39,7 +39,10 @@ export function testLinkConnection(ownerId: string, label = 'School'): NewConnec
   };
 }
 
-/** Saves one copied event straight into the table, by default on Nov 2, 2026 at 16:00 UTC. */
+/**
+ * Saves one copied event straight into the table, by default on Nov 2, 2026 at 16:00 UTC. A null
+ * end makes it a weekly series without an end. Returns the row's id and the event.
+ */
 export async function insertTestEvent(
   db: Db | Tx,
   calendarId: string,
@@ -48,6 +51,7 @@ export async function insertTestEvent(
     startsAt: '2026-11-02T16:00:00.000Z',
     endsAt: '2026-11-02T16:30:00.000Z',
   },
+  extra: Partial<ExternalEvent> = {},
 ) {
   const event: ExternalEvent = {
     uid: `${remoteId}@example.com`,
@@ -58,14 +62,18 @@ export async function insertTestEvent(
     ...(bounds.endsAt ? { end: { kind: 'utc', instant: bounds.endsAt } } : {}),
     ...(bounds.endsAt ? {} : { rrule: 'FREQ=WEEKLY' }),
     busy: true,
+    ...extra,
   };
-  await db.insert(syncedEvents).values({
-    calendarId,
-    remoteId,
-    uid: event.uid,
-    event,
-    startsAt: new Date(bounds.startsAt),
-    endsAt: bounds.endsAt ? new Date(bounds.endsAt) : null,
-  });
-  return event;
+  const [row] = await db
+    .insert(syncedEvents)
+    .values({
+      calendarId,
+      remoteId,
+      uid: event.uid,
+      event,
+      startsAt: new Date(bounds.startsAt),
+      endsAt: bounds.endsAt ? new Date(bounds.endsAt) : null,
+    })
+    .returning({ id: syncedEvents.id });
+  return { id: row?.id ?? '', event };
 }
