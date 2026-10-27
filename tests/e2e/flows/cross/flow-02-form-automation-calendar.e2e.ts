@@ -1,6 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 import {
   DEFAULT_TIME_ZONE,
+  apiFor,
   expect,
   needs,
   onlyIn,
@@ -10,6 +11,7 @@ import {
   uniqueName,
 } from '../_support/index.js';
 import { AutomationEditor } from '../automations/automation-editor.js';
+import { CareHubChat } from '../automations/care-hub-chat.js';
 import { addProperty, config, makeDatabase, nameOf, value } from '../databases/database-api.js';
 import { containing, DatabaseScreen, signedInPage } from '../databases/database-page.js';
 import { makeForm, question, sendAnswers } from '../forms/form-data.js';
@@ -48,10 +50,7 @@ function inOrder(...texts: string[]): RegExp {
 /** A choice in the dialog, menu or list that just opened, by its name. */
 function choice(page: Page, name: string | RegExp): Locator {
   const named = { name, exact: true };
-  const popup = page
-    .getByRole('dialog')
-    .or(page.getByRole('menu'))
-    .or(page.getByRole('listbox'));
+  const popup = page.getByRole('dialog').or(page.getByRole('menu')).or(page.getByRole('listbox'));
   return popup
     .getByRole('menuitem', named)
     .or(popup.getByRole('option', named))
@@ -101,103 +100,128 @@ class CalendarScreen {
   /** An item, by the title of its row. */
   item(title: string): Locator {
     const named = { name: containing(title) };
-    return this.page
-      .getByRole('button', named)
-      .or(this.page.getByRole('link', named))
-      .first();
+    return this.page.getByRole('button', named).or(this.page.getByRole('link', named)).first();
   }
 }
 
-// FLOW-02 (Testing lane): database → form → automation → calendar. Avery (Admin) makes a callbacks
-// database with a form, and an automation that marks each response Scheduled. Eli (Editor) answers
-// with a callback late tonight in Denver, when the date in UTC is already tomorrow. The automation
-// acts on the new row within 10 seconds (Automations spec section 3, Running), and Eli's calendar
-// shows the row on tonight's Denver date at its Denver time (Calendar spec: times are stored as
-// exact moments and shown in the viewer's time zone).
-test.describe('Form answer → automation → calendar', () => {
-  onlyIn('desktop-light');
-  needs('signIn', 'pages', 'databases', 'forms', 'automations', 'calendar');
+/** The signed-in person's user id (GET /api/auth/me), for a Person answer. */
+async function userIdOf(page: Page): Promise<string> {
+  const me = await (await apiFor(page)).get<{ user?: { id?: string } }>('/api/auth/me');
+  if (!me.user?.id) throw new Error('GET /api/auth/me answered without a user id.');
+  return me.user.id;
+}
 
-  test('FLOW-02 a form answer, acted on, shows on the calendar', async ({ page, browser }) => {
+// FLOW-02 (Specs, cross-area flows): Riley submits the Callback request form; an automation
+// messages the new row's owner; Callbacks is a database layer in Calendar. → One new row, one 🔔
+// message within 10 seconds, and the callback on the calendar at its date and time (FM-02, AU-12,
+// CA-04). Riley isn't a seeded person: Val (Viewer) answers for her and names Eli (Editor) as the
+// row's owner, in a Person question. Avery (Admin) makes the database, the form and, on screen,
+// the automation. The callback is late tonight in Denver, when the date in UTC is already
+// tomorrow, and Eli's calendar shows it on tonight's Denver date at its Denver time.
+test.describe('Form response → automation → calendar', () => {
+  onlyIn('desktop-light');
+  needs('signIn', 'pages', 'databases', 'forms', 'automations', 'notices', 'calendar');
+
+  test('FLOW-02 a Callback request makes one row, one 🔔 message to its owner within 10 seconds, and a calendar item at its time', async ({
+    page,
+    browser,
+  }) => {
     test.slow();
     await signInAs(page, 'admin');
     const database = await makeDatabase(page, uniqueName('Fictional QA Callbacks'));
     const name = nameOf(database);
     const reason = await addProperty(page, database.id, 'Reason', config.text());
     const callbackAt = await addProperty(page, database.id, 'Callback at', config.date());
-    await addProperty(page, database.id, 'Stage', config.select('New', 'Scheduled'));
-    const form = await makeForm(page, database, [
-      question(name.id, 'Your name', { required: true }),
-      question(reason.id, 'What is it about?'),
-      question(callbackAt.id, 'When should we call you?', { required: true }),
-    ]);
+    const owner = await addProperty(page, database.id, 'Owner', config.person());
+    const form = await makeForm(
+      page,
+      database,
+      [
+        question(name.id, 'Your name', { required: true }),
+        question(reason.id, 'What is it about?'),
+        question(callbackAt.id, 'When should we call you?', { required: true }),
+        question(owner.id, 'Who should call you back?', { required: true }),
+      ],
+      { title: uniqueName('Fictional QA Callback request') },
+    );
     const screen = new DatabaseScreen(page, database.id);
-    const automation = uniqueName('Fictional QA automation');
+    const automation = uniqueName('Fictional QA callback alert');
+    const note = uniqueName('Fictional QA callback to make');
     const caller = uniqueName('Fictional QA caller');
     const late = lateTonight();
     const eli = await signedInPage(browser, 'editor');
+    const riley = await signedInPage(browser, 'viewer');
+    const chat = new CareHubChat(eli);
     const calendar = new CalendarScreen(eli);
 
-    await test.step('Avery: ⚡ → New automation, Form response → Edit the row', async () => {
-      await screen.open();
-      const editor = await AutomationEditor.newFor(screen);
-      await editor.name().fill(automation);
-      await editor.pick('Trigger', 'Form response');
-      await editor.pick('Form', form.name);
-      await editor.addAction('Edit the row');
-      await editor.pick('Property', 'Stage');
-      await editor.pick('Value', 'Scheduled');
-      await editor.save();
-      await expect(editor.readback()).toContainText(/set Stage to Scheduled/i);
-      await editor.runHistory();
-      await expect(page.getByText("Hasn't run yet.")).toBeVisible();
-    });
-
-    await test.step('Eli answers: call me back late tonight, Denver time', async () => {
-      // The Name question's answer is the title itself, a plain string.
-      const response = await sendAnswers(eli, form.form.linkCode, {
-        [name.id]: caller,
-        [reason.id]: value.text('Fictional QA question about a bill'),
-        [callbackAt.id]: { start: late.toISOString(), end: null, hasTime: true },
-      });
-      expect(response.ok()).toBe(true);
-    });
-
-    await test.step('Within 10 seconds the new row is Scheduled', async () => {
-      // Reloads the table until the row shows it, so the time includes loading the table.
-      await expect(async () => {
+    try {
+      await test.step('Avery: ⚡ → New automation, Form response → Send a message to Owner', async () => {
         await screen.open();
-        await expect(screen.row(caller)).toContainText('Scheduled', { timeout: 1_000 });
-      }).toPass({ timeout: 12_000 });
-    });
+        const editor = await AutomationEditor.newFor(screen);
+        await editor.name().fill(automation);
+        await editor.pick('Trigger', 'Form response');
+        await editor.pick('Form', form.form.title);
+        await editor.addAction('Send a message');
+        await editor.sendTo('Owner');
+        await editor.message().fill(note);
+        await editor.save();
+        await expect(editor.readback()).toContainText(/message/i);
+        await expect(editor.readback()).toContainText('Owner');
+      });
 
-    await test.step('Run history lists the run', async () => {
-      const editor = await AutomationEditor.openFor(screen, automation);
-      await editor.runHistory();
-      await expect(page.getByText("Hasn't run yet.")).toBeHidden();
-      const run = page.getByText(containing(caller)).or(page.getByText(/triggered/i));
-      await expect(run.first()).toBeVisible();
-    });
+      await test.step('Eli opens the 🔔 chat: no message yet', async () => {
+        await chat.open();
+        await expect(chat.shown(note)).toHaveCount(0);
+      });
 
-    await test.step('Eli: Calendar → Add layer → the database → Callback at', async () => {
-      await calendar.open();
-      await calendar.addLayer(database.title, 'Callback at');
-    });
+      await test.step('Riley sends the Callback request: late tonight, Denver time, Eli as owner', async () => {
+        const response = await sendAnswers(riley, form.form.linkCode, {
+          [name.id]: caller,
+          [reason.id]: value.text('Fictional QA question about a bill'),
+          [callbackAt.id]: { start: late.toISOString(), end: null, hasTime: true },
+          [owner.id]: [await userIdOf(eli)],
+        });
+        expect(response.ok()).toBe(true);
+      });
 
-    await test.step("Today's Day view has it, heard with its Denver date and time", async () => {
-      await calendar.control('Day').click();
-      await calendar.control('Today').click();
-      const item = calendar.item(caller);
-      await expect(item).toBeVisible();
-      await expect(item).toHaveAccessibleName(inOrder(caller, spokenDay(late), shownTime(late)));
-    });
+      await test.step('Within 10 seconds, one 🔔 message from the automation reaches Eli', async () => {
+        // 10 seconds for the automation to act, plus 2 for the open chat's live update.
+        await expect(chat.shown(note)).toHaveCount(1, { timeout: 12_000 });
+        await expect(chat.from(automation).first()).toBeVisible();
+      });
 
-    await test.step('Its panel shows Callback at and Open row', async () => {
-      await calendar.item(caller).click();
-      await expect(eli.getByText('Callback at').first()).toBeVisible();
-      const open = { name: 'Open row', exact: true };
-      await expect(eli.getByRole('button', open).or(eli.getByRole('link', open))).toBeVisible();
-    });
-    await eli.context().close();
+      await test.step('The database has one new row, the callback', async () => {
+        await screen.open();
+        await expect(screen.rows()).toHaveText([containing(caller)]);
+      });
+
+      await test.step('Eli: Calendar → Add layer → the database → Callback at', async () => {
+        await calendar.open();
+        await calendar.addLayer(database.title, 'Callback at');
+      });
+
+      await test.step("Today's Day view has it, heard with its Denver date and time", async () => {
+        await calendar.control('Day').click();
+        await calendar.control('Today').click();
+        const item = calendar.item(caller);
+        await expect(item).toBeVisible();
+        await expect(item).toHaveAccessibleName(inOrder(caller, spokenDay(late), shownTime(late)));
+      });
+
+      await test.step("Still one message; Riley can't change the row she sent (403)", async () => {
+        await chat.open();
+        await expect(chat.shown(note)).toHaveCount(1);
+        const rowId = await screen.rows().first().getAttribute('data-row-id');
+        const refused = await (
+          await apiFor(riley)
+        ).send('PATCH', `/api/databases/${database.id}/rows/${rowId ?? ''}`, {
+          values: { [reason.id]: value.text('Fictional QA change') },
+        });
+        expect(refused.status()).toBe(403);
+      });
+    } finally {
+      await eli.context().close();
+      await riley.context().close();
+    }
   });
 });

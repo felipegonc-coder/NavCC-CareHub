@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '../_support/index.js';
-import type { DatabaseScreen } from '../databases/database-page.js';
+import { containing, type DatabaseScreen } from '../databases/database-page.js';
 
 /** ⚡ in a database's toolbar (Admins only), by its symbol or its name. */
 const LIGHTNING = /^(⚡|Automations)/;
@@ -73,6 +73,26 @@ export class AutomationEditor {
   async addAction(action: string): Promise<void> {
     await this.page.getByRole('button', { name: 'Add action', exact: true }).click();
     await this.page.getByRole('menuitem', { name: action, exact: true }).click();
+  }
+
+  /**
+   * Send a message → its recipients field (people, roles, everyone, or the people in a Person
+   * property of the row) → the choice with this name, such as a property's name.
+   */
+  async sendTo(recipient: string): Promise<void> {
+    await this.page
+      .getByLabel(/^(To|Send to|Recipients)$/)
+      .last()
+      .click();
+    await this.page
+      .getByRole('option', { name: containing(recipient) })
+      .first()
+      .click();
+  }
+
+  /** The text box of the last Send a message action. */
+  message(): Locator {
+    return this.page.getByRole('textbox', { name: 'Message', exact: true }).last();
   }
 
   /** Presses Save and waits for the server to take the automation. */
