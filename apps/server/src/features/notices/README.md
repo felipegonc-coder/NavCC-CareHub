@@ -50,13 +50,13 @@ Unknown fields are rejected. Blank optional text counts as absent.
 The kind sets the default icon and which filter chip shows the notice. All shows every notice and
 Unread every unread one.
 
-| Chip      | Kinds                                                            |
-| --------- | ---------------------------------------------------------------- |
-| Mentions  | `mention`, `reply`, `suggestion_accepted`, `suggestion_rejected` |
-| Following | `comment`, `suggestion`, `edit_summary`                          |
-| Reminders | `reminder`                                                       |
-| Requests  | `access_request`                                                 |
-| All only  | `alert`, `automation`, `shared`, `import`, `export`              |
+| Chip                 | Kinds                                                            |
+| -------------------- | ---------------------------------------------------------------- |
+| Mentions and replies | `mention`, `reply`, `suggestion_accepted`, `suggestion_rejected` |
+| Following            | `comment`, `suggestion`, `edit_summary`                          |
+| Reminders            | `reminder`                                                       |
+| Requests             | `access_request`                                                 |
+| All only             | `alert`, `automation`, `shared`, `import`, `export`, `review`    |
 
 Titles stay generic, such as "Mentioned you in a comment" or "Your export is ready".
 

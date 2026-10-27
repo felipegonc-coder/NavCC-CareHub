@@ -13,7 +13,7 @@ export type NoticeFilter = (typeof NOTICE_FILTERS)[number];
 
 /**
  * The kinds each chip shows. All and Unread show every kind (Unread only the unread ones), so
- * alerts, automations, shares, imports and exports appear under those two only.
+ * alerts, automations, shares, imports, exports and reviews appear under those two only.
  */
 export const FILTER_KINDS: Readonly<Record<NoticeFilter, readonly NoticeKind[] | null>> = {
   all: null,

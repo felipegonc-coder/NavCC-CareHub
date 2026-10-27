@@ -20,6 +20,7 @@ const chipOf: Record<NoticeKind, NoticeFilter | null> = {
   access_request: 'requests',
   import: null,
   export: null,
+  review: null,
 };
 
 describe('notice filters', () => {

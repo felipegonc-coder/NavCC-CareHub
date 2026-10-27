@@ -6,7 +6,7 @@ ALTER TABLE notices_notices DROP CONSTRAINT notices_notices_kind_check;
 ALTER TABLE notices_notices ADD CONSTRAINT notices_notices_kind_check CHECK (kind IN (
   'reminder', 'alert', 'mention', 'comment', 'automation', 'reply', 'suggestion',
   'suggestion_accepted', 'suggestion_rejected', 'edit_summary', 'shared', 'access_request',
-  'import', 'export'
+  'import', 'export', 'review'
 ));
 
 -- A person's notices go when their account or the workspace does. A notice keeps its sender's

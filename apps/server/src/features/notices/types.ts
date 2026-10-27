@@ -16,6 +16,7 @@
  * - `shared`: a page was shared with the person.
  * - `access_request`: someone asked for access to a page the person can share.
  * - `import`, `export`: an import or export the person started has finished, or failed.
+ * - `review`: a knowledge base page the person owns is due for review, or a review report.
  */
 export const NOTICE_KINDS = [
   'reminder',
@@ -32,6 +33,7 @@ export const NOTICE_KINDS = [
   'access_request',
   'import',
   'export',
+  'review',
 ] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
