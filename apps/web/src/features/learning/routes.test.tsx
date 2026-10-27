@@ -1,5 +1,6 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen } from '@testing-library/react';
-import { matchRoutes } from 'react-router';
+import { matchRoutes, MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { routes, screens } from './routes';
 
@@ -59,7 +60,15 @@ describe('Learning routes', () => {
     const problems: string[] = [];
     for (const { path, load } of screens) {
       const Screen = await load();
-      render(<Screen />);
+      // Real screens read their route and call the API, as inside the app.
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <Screen />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
       if (screen.queryAllByRole('main').length !== 1) problems.push(`${path}: needs one main`);
       if (!screen.queryByRole('heading', { level: 1 })?.textContent) {
         problems.push(`${path}: needs a heading`);

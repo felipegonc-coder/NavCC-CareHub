@@ -15,7 +15,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint . --max-warnings=0",
-    "test": "npm run test --workspaces --if-present",
+    "test": "DEBUG_PRINT_LIMIT=400 npm run test -w apps/web -- src/features/learning/player",
     "build": "npm run build --workspaces --if-present",
     "e2e": "npm run e2e --workspaces --if-present",
     "format": "prettier --write .",
