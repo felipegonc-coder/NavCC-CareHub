@@ -2,8 +2,8 @@ name: CI
 
 # Quick checks only (docs/decisions/0006-ci-within-free-minutes.md). Builds and browser tests
 # run in e2e.yml and image.yml. To save minutes: draft pull requests get no run, main is checked
-# every 3 hours instead of after every merge, and a pull request that changes only lane folders
-# runs only those lanes' unit tests (scripts/ci-test-scope.mjs).
+# every 3 hours instead of after every merge (and only if it changed), and a pull request that
+# changes only lane folders runs only those lanes' unit tests (scripts/ci-test-scope.mjs).
 on:
   # A draft gets no run: work in a draft pull request and mark it ready for review when it's
   # done, which starts the first run.
@@ -18,7 +18,8 @@ on:
       - '.dockerignore'
       - '.github/workflows/e2e.yml'
       - '.github/workflows/image.yml'
-  # Main: every 3 hours and by hand (Actions > CI > Run workflow). Each pull request was checked
+  # Main: every 3 hours, skipped when main hasn't changed since a finished run (the gate job), and
+  # by hand (Actions > CI > Run workflow), which always checks. Each pull request was checked
   # against main when it last changed. A failed run opens the issue "Main checks failing" (or
   # comments on it); the next passing run closes it.
   schedule:
@@ -31,14 +32,50 @@ concurrency:
   cancel-in-progress: true
 
 # Decision 0011: the checks job runs the pull request's code, so it can only read. The report job
-# can write one comment and the main report job one issue; neither checks out or runs any code.
+# can write one comment and the main report job one issue, and the gate job can read Actions
+# runs; none of them checks out or runs the repository's code.
 permissions:
   contents: read
 
 jobs:
+  # Scheduled runs only: when an earlier run of this workflow on main already finished (passed or
+  # failed) on this same commit, main hasn't changed, so this run skips the checks and the issue.
+  # A run by hand always checks. It reads the Actions API only.
+  gate:
+    name: main changed
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+    outputs:
+      skip: ${{ steps.look.outputs.skip }}
+    steps:
+      - name: Look for a finished run on this commit
+        id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          query='[.workflow_runs[] | select(.id != ($run | tonumber) and .event != "pull_request"
+            and (.conclusion == "success" or .conclusion == "failure"))] | length'
+          finished=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=completed&per_page=50" \
+            | jq --arg run "$GITHUB_RUN_ID" "$query") || finished=0
+          if [ "${finished:-0}" -gt 0 ]; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            echo "Main is still at ${GITHUB_SHA:0:7}, which an earlier run checked, so the checks are skipped."
+          else
+            echo 'skip=false' >> "$GITHUB_OUTPUT"
+            echo "Main is at ${GITHUB_SHA:0:7}, which no finished run has checked yet."
+          fi
+
   checks:
     name: checks
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: gate
+    # Pull requests unless they're drafts; main unless the gate found it unchanged (the gate is
+    # skipped for pull requests and runs by hand).
+    if: >-
+      ${{ !cancelled() && (github.event_name == 'pull_request' && !github.event.pull_request.draft
+      || github.event_name != 'pull_request' && needs.gate.outputs.skip != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Step outcomes for the report job.
@@ -130,12 +167,22 @@ jobs:
         id: test
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
+          log="$RUNNER_TEMP/ci-logs/test.log"
+          status=0
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             git diff --name-only --no-renames HEAD^1 HEAD | node scripts/ci-test-scope.mjs --run 2>&1 \
-              | tee "$RUNNER_TEMP/ci-logs/test.log"
+              | tee "$log" || status=$?
           else
-            npm run test 2>&1 | tee "$RUNNER_TEMP/ci-logs/test.log"
+            npm run test 2>&1 | tee "$log" || status=$?
           fi
+          # The failed tests' names at the end of the log, where the report shows them, even when
+          # later workspaces' output pushed them out of its last lines.
+          if [ "$status" -ne 0 ]; then
+            { echo; echo '== Failed tests (lines with FAIL or ×) =='
+              sed -E 's/\x1b\[[0-9;]*m//g' "$log" | grep -aE '(^| )(FAIL|×) ' | tail -n 40 || true
+            } | tee -a "$log"
+          fi
+          exit "$status"
 
       - name: License check
         id: license
@@ -251,13 +298,16 @@ jobs:
           fi
           node .github/scripts/ci-report.mjs
 
-  # On main (every 3 hours or by hand): a failure opens the issue "Main checks failing", or adds a
+  # On main (every 3 hours when it changed, or by hand): a failure opens the issue "Main checks failing", or adds a
   # comment to it if it's open, with the end of each failed step's log; a pass closes it. The logs
   # come from main's own code. It checks out nothing and runs no npm.
   main-report:
     name: main report
     needs: checks
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    # main only (not a run by hand on another branch), and only when the checks ran.
+    if: >-
+      ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      && needs.checks.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
