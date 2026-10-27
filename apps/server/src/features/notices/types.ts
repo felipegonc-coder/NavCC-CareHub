@@ -210,22 +210,25 @@ export interface NoticeView {
   read: boolean;
 }
 
-/** GET /api/notices: one page of the chat, newest first. */
-export interface NoticeListResponse {
-  notices: NoticeView[];
-  /** Pass it as `before` to get the next, older page; null when there's none. */
-  nextCursor: number | null;
-  unread: number;
-}
-
-/** GET /api/notices/unread, and what the mark-as-read routes return. */
-export interface NoticeUnreadResponse {
-  unread: number;
-}
-
-/** POST /api/notices/:id/actions. */
-export interface NoticeActionResponse {
-  /** The handler's confirmation, such as "Snoozed for 1 hour". */
-  message: string | null;
-  unread: number;
+/** One notice, as `getNotice(db, noticeId)` returns it, such as for a push notification. */
+export interface NoticeSummary {
+  id: string;
+  workspaceId: string;
+  /** Whose 🔔 chat it's in: the only person it may be shown to. */
+  userId: string;
+  kind: NoticeKind;
+  /** Generic, never a page or event title. */
+  title: string;
+  text: string | null;
+  /** The `sender` it was sent with. */
+  senderName: string;
+  /**
+   * A relative path: the first link button's, else the page card's page (`/p/<pageId>`), else the
+   * 🔔 Care Hub chat (`/messages/care-hub`).
+   */
+  link: string;
+  /** When it first arrived. */
+  createdAt: Date;
+  /** When its latest part arrived: later than `createdAt` only for a grouped notice. */
+  latestAt: Date;
 }

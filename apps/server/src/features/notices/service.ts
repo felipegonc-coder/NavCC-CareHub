@@ -57,7 +57,7 @@ export interface NoticesRuntime {
   publish: (userIds: readonly string[], event: LiveNudge) => void;
   /**
    * Whether the person is in the workspace, as a member or a guest. Notices for anyone else are
-   * dropped. Without it every notice is kept (unit tests).
+   * dropped. Without it every notice is kept: the app sets it once workspace members are on main.
    */
   isMember?: (workspaceId: string, userId: string) => Promise<boolean>;
   now?: () => Date;

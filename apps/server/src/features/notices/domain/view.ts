@@ -4,6 +4,8 @@ import type {
   NoticeCard,
   NoticeCardView,
   NoticeKind,
+  NoticeLinkButton,
+  NoticeSummary,
   NoticeView,
   PageIcon,
 } from '../types';
@@ -162,4 +164,34 @@ export function isNoticeOwner(
   reader: { workspaceId: string; userId: string },
 ): boolean {
   return notice.userId === reader.userId && notice.workspaceId === reader.workspaceId;
+}
+
+/** The 🔔 Care Hub chat in the web app (Messages). */
+export const NOTICES_CHAT_PATH = '/messages/care-hub';
+
+/** Where opening a notice goes: its first link button, else its page card's page, else the chat. */
+export function noticeLink(notice: {
+  buttons: readonly NoticeButton[];
+  card: NoticeCard | null;
+}): string {
+  const link = notice.buttons.find((button): button is NoticeLinkButton => 'href' in button);
+  if (link) return link.href;
+  if (notice.card?.type === 'page') return pageHref(notice.card.pageId);
+  return NOTICES_CHAT_PATH;
+}
+
+/** What `getNotice` returns: never a card's title, and no action names. */
+export function toNoticeSummary(record: NoticeRecord): NoticeSummary {
+  return {
+    id: record.id,
+    workspaceId: record.workspaceId,
+    userId: record.userId,
+    kind: record.kind,
+    title: record.title,
+    text: record.text,
+    senderName: record.sender,
+    link: noticeLink(record),
+    createdAt: record.createdAt,
+    latestAt: record.latestAt,
+  };
 }

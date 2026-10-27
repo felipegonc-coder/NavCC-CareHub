@@ -47,6 +47,7 @@ export interface ValidNotice {
   text: string | null;
   card: NoticeCard | null;
   buttons: NoticeButton[];
+  /** Always null for a mention: mentions never group. */
   groupKey: string | null;
   idempotencyKey: string | null;
 }
@@ -175,7 +176,8 @@ export function parseSendNoticeInput(input: unknown): ValidNotice {
     text: blankToNull(notice.text),
     card: notice.card ?? null,
     buttons: notice.buttons ?? [],
-    groupKey: blankToNull(notice.groupKey),
+    // Each mention is its own notice (Comments and mentions CM-08).
+    groupKey: notice.kind === 'mention' ? null : blankToNull(notice.groupKey),
     idempotencyKey: blankToNull(notice.idempotencyKey),
   };
 }

@@ -1,6 +1,6 @@
 // The notices tables, as Drizzle sees them. The SQL is in the migrations
 // 202610270040_notices_notices.sql and 202610270440_notices_kinds-and-keys.sql, and
-// routes.test.ts checks that the two agree.
+// store.test.ts checks that the two agree.
 import { sql } from 'drizzle-orm';
 import {
   bigserial,

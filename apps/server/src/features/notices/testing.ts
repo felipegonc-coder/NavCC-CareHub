@@ -43,7 +43,9 @@ export function createMemoryNoticeStore(): MemoryNoticeStore {
     const candidate =
       notice.groupKey === null
         ? undefined
-        : chat(notice).find((record) => record.groupKey === notice.groupKey);
+        : chat(notice).find(
+            (record) => record.groupKey === notice.groupKey && record.kind === notice.kind,
+          );
     const plan = planNotice(candidate ?? null, now);
     if (plan.type === 'group' && candidate) {
       Object.assign(candidate, content(notice), {

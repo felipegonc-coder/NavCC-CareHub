@@ -10,6 +10,7 @@ export type {
   NoticeCreatedEvent,
   NoticeKind,
   NoticeLinkButton,
+  NoticeSummary,
   SendNotice,
   SendNoticeInput,
   SendNoticeResult,
@@ -26,3 +27,4 @@ export {
   type NoticeCardResolvers,
 } from './cards';
 export { sendNotice } from './service';
+export { getNotice } from './store';

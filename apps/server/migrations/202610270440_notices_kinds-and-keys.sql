@@ -1,5 +1,5 @@
--- Notices, part 2: the kinds other features send, foreign keys now that `users` and `workspaces`
--- are on main, and idempotency keys so a retried send adds nothing.
+-- Notices, part 2: the kinds other features send, foreign keys to `users`, and idempotency keys
+-- so a retried send adds nothing.
 
 ALTER TABLE notices_notices DROP CONSTRAINT notices_notices_kind_check;
 
@@ -9,11 +9,9 @@ ALTER TABLE notices_notices ADD CONSTRAINT notices_notices_kind_check CHECK (kin
   'import', 'export', 'review'
 ));
 
--- A person's notices go when their account or the workspace does. A notice keeps its sender's
--- name when the person behind it is deleted.
+-- A person's notices go when their account does. A notice keeps its sender's name when the
+-- person behind it is deleted.
 ALTER TABLE notices_notices
-  ADD CONSTRAINT notices_notices_workspace_id_fkey
-    FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
   ADD CONSTRAINT notices_notices_user_id_fkey
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   ADD CONSTRAINT notices_notices_actor_user_id_fkey

@@ -9,21 +9,21 @@ import { sendNotice } from '../notices';
 // After your own transaction has committed:
 await sendNotice({
   workspaceId,
-  userId: assigneeId,
-  kind: 'mention',
+  userId: followerId,
+  kind: 'comment',
   sender: 'Sam Ortiz',
   actorUserId: samId,
-  title: 'Mentioned you in a comment',
+  title: 'Commented on a page you follow',
   text: 'Can you check the follow-up dates?',
   card: { type: 'page', pageId },
   buttons: [{ label: 'Open', href: `/p/${pageId}` }],
-  groupKey: `comments:${pageId}`,
+  groupKey: `comments:${threadId}`,
 });
 ```
 
 It returns `{ noticeId, grouped }`, with `duplicate: true` when the idempotency key was already
 used (see Retries), or `dropped: true` and an empty `noticeId` when the person isn't in the
-workspace, as a member or a guest. Bad input throws a `NoticeInputError` that lists every
+workspace, as a member or a guest (checked once workspace members are on main). Bad input throws a `NoticeInputError` that lists every
 problem: that's a bug in the caller, so let it fail loudly.
 
 ## Fields
@@ -117,6 +117,12 @@ becomes unread again, moves to the end of the chat and its count goes up by one.
 count from the last arrival, so a steady stream keeps grouping. `grouped` is true when that
 happened.
 
+Only notices of the same kind group, and a mention never does: its `groupKey` is ignored. So a
+comment that mentions someone reaches them as its own mention notice, never folded into "3 new
+replies" (Comments and mentions, CM-08). Which kind to send when a comment reaches someone in
+several ways is up to the sender: a mention first, then a reply, then a comment on a followed
+page.
+
 ## Retries
 
 Give an `idempotencyKey` when the same send may run twice, such as a job that retries:
@@ -135,24 +141,14 @@ time, so concurrent retries add one notice.
 Neither runs if the send fails, is a duplicate or is dropped, and a failure in either never fails
 the send.
 
-## API
+## Reading one notice
 
-Everything is under `/api/notices`, for the signed-in person's own chat in the current workspace
-(members and guests). There's no route that adds a notice.
-
-| Route               | Does                                                        |
-| ------------------- | ----------------------------------------------------------- |
-| `GET /`             | The chat, newest first: `{ notices, nextCursor, unread }`.  |
-| `GET /unread`       | `{ unread }`.                                               |
-| `POST /read`        | `{ through }`: marks every notice up to that position read. |
-| `POST /read-all`    | Marks the whole chat read.                                  |
-| `POST /:id/read`    | Marks one notice read.                                      |
-| `POST /:id/actions` | `{ button, choice? }` (indexes): runs an action button.     |
-
-`GET /` takes `filter` (`all`, `mentions`, `following`, `reminders`, `requests` or `unread`),
-`limit` (1 to 100, default 50) and `before` (the previous page's `nextCursor`). The read routes
-return `{ unread }` and nudge the person's other tabs. `/actions` marks the notice read too and
-returns `{ message, unread }`. Someone else's notice is 403, admins included.
+`getNotice(db, noticeId)` gives one notice for a feature that follows `notices.notice.created`,
+such as push, since events carry IDs only. It returns `{ id, workspaceId, userId, kind, title,
+text, senderName, link, createdAt, latestAt }`, or null when there's no such notice. Show it to
+`userId` only. `link` is a relative path: the first link button's, else the page card's page,
+else the 🔔 Care Hub chat (`/messages/care-hub`). `latestAt` is later than `createdAt` only for
+a grouped notice.
 
 ## Tests
 
@@ -162,6 +158,8 @@ returns `{ message, unread }`. Someone else's notice is 403, admins included.
 
 ## Coming next
 
+- Once workspace members are on main: the `/api/notices` routes for the chat (members and
+  guests), the membership check behind `dropped`, and the foreign key to `workspaces`.
 - Part 3: the 🔔 Care Hub chat (`NoticesChat`) and `useNoticesUnread()` for Messages, which
   shows them at `/messages/care-hub` and on its badge.
 - Open page cards once core's `getPageCards` is on main.
