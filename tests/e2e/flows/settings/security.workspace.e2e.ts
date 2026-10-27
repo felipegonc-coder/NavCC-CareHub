@@ -15,12 +15,11 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page
 // at once, and direct requests that break it are refused with 403), SM-10 (required 2-step
 // verification) and SM-12's limit of 500 custom emoji. Each check changes something the whole
 // workspace shares and other checks rely on, so this file runs in the project "workspace": after
-// every other test has finished, one test at a time (the Testing lead's config, #369). Each check
-// puts its change back in `finally`, and `afterAll` puts every switch back to its default. Avery
-// (the fictional admin) makes the changes; Eli (an Editor) is the member who loses the action.
+// every other test has finished, one test at a time (#369). Each check puts its change back in
+// `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)
+// makes the changes; Eli (an Editor) is the member who loses the action.
 
-const inWorkspaceProject =
-  'Runs in the workspace project, after all other files (Testing lead’s config PR #369)';
+const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';
 
 // In order, one after another, and a failed check doesn't skip the ones after it.
 test.describe.configure({ mode: 'default' });

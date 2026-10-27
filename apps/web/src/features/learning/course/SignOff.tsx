@@ -2,23 +2,23 @@ import type { IsoDateTime, NewProgressEvent } from '@carehub/learning';
 import { Button, Checkbox, Field } from '@carehub/ui';
 import { CircleCheck } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
+import { useProfileTimeZone } from '../player/data';
 import type { SignOff } from './start';
 
 type SignOffSectionProps = { signOff: SignOff; emit(event: NewProgressEvent): void };
 
-const signedFormat = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-});
-
-/** When the learner signed, in the browser's time zone and language. */
-export const formatSignedAt = (at: IsoDateTime): string => signedFormat.format(new Date(at));
+/** When the learner signed, in `timeZone` (the profile's, 0317) and the browser's language. */
+export const formatSignedAt = (at: IsoDateTime, timeZone: string): string =>
+  new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(
+    new Date(at),
+  );
 
 /**
  * The course's "I have read and understood" sign-off: its statement and, once every lesson is read,
- * a box to tick and a button to sign. After that, when it was signed.
+ * a box to tick and a button to sign. After that, when it was signed, in the profile's time zone.
  */
 export function SignOffSection({ signOff, emit }: SignOffSectionProps) {
+  const timeZone = useProfileTimeZone();
   const headingId = useId();
   const [ticked, setTicked] = useState(false);
   const signedRef = useRef<HTMLParagraphElement>(null);
@@ -53,7 +53,7 @@ export function SignOffSection({ signOff, emit }: SignOffSectionProps) {
             className="flex items-center gap-2 text-small text-success focus:outline-none"
           >
             <CircleCheck aria-hidden className="size-4 shrink-0" />
-            Signed on {formatSignedAt(signOff.signedAt)}
+            {timeZone ? `Signed on ${formatSignedAt(signOff.signedAt, timeZone)}` : 'Signed'}
           </p>
         </>
       ) : signOff.ready ? (
