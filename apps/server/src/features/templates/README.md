@@ -24,7 +24,9 @@ A template keeps its own copy of each page (`tpl_template_pages`): title, icon a
 feature's Markdown, where blocks without a Markdown form are kept whole as placeholder comments.
 Links between the template's own pages are stored as `{{template-page:<key>}}` tokens, so each
 copy's links point to the new copies. Variable chips (`templateVariable`) are filled in when the
-template is used. Databases are copied on use with the Databases lane's `duplicateDatabase`.
+template is used. Databases are copied on use with the Databases lane's `duplicateDatabase`, only
+for people who can see them and with only the rows they can see; the rest are listed as not copied
+("Tickets (No access)"). Templates aren't added to archived pages.
 A starter's databases (Projects, Agents, QA reviews and the rest) are written out in
 `@carehub/extras/templates` and made on use with `createDatabase`: new ids, Me and Today
 filled in for the sample rows, and the row templates kept as they are.
