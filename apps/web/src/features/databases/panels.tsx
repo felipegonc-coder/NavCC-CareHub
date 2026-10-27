@@ -16,7 +16,7 @@ export const PANELS: Record<PanelName, PanelComponent> = {
 
   group: lazy(() => import('./shell/panel-not-built')),
 
-  properties: lazy(() => import('./filters/properties-entry')),
+  properties: lazy(() => import('./shell/panel-not-built')),
 
   layout: lazy(() => import('./shell/panel-not-built')),
 
