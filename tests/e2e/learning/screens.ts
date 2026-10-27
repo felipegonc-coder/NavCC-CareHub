@@ -67,4 +67,18 @@ export const screens: Screen[] = [
       await page.getByRole('region', { name: 'Course settings' }).waitFor();
     },
   },
+  // Publishing a copy of the first example course for the first time.
+  {
+    name: 'learning-studio-publish',
+    path: '/learning/studio',
+    setup: async (page) => {
+      await page.getByRole('button', { name: 'New course' }).click();
+      await page
+        .getByRole('button', { name: /^Copy / })
+        .first()
+        .click();
+      await page.getByRole('button', { name: 'Publish', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Publish this course' }).waitFor();
+    },
+  },
 ];

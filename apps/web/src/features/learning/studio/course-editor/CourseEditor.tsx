@@ -1,8 +1,8 @@
-import { canRedo, canUndo } from '@carehub/learning';
-import type { Course, Id } from '@carehub/learning';
+import { canRedo, canUndo, checkPublishable } from '@carehub/learning';
+import type { Course, Id, PublishProblem } from '@carehub/learning';
 import { Button, IconButton } from '@carehub/ui';
-import { ArrowLeft, Eye, Redo2, Undo2 } from 'lucide-react';
-import { useCallback, useEffect, useReducer, useState } from 'react';
+import { ArrowLeft, Eye, History, Redo2, Undo2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import type { StudioDraft } from '../data/client';
 import { useStudioDraft } from '../data/queries';
@@ -13,8 +13,10 @@ import { CourseSettings } from './CourseSettings';
 import { LessonCanvas } from './LessonCanvas';
 import { Outline } from './Outline';
 import { SaveState, UndoNotice } from './parts';
+import { ProblemsPanel, PublishDialog } from './PublishPanel';
 import { useDraftAutosave } from './use-autosave';
 import type { EditorActions, EditOptions } from './types';
+import { VersionsPanel } from './VersionsPanel';
 
 function BackLink() {
   return (
@@ -27,6 +29,9 @@ function BackLink() {
   );
 }
 
+/** Course-level problems go to the settings, unless they are about the title or the lessons. */
+const SETTINGS_PATH = /^(settings|cover|description)/;
+
 function Editor({ draft }: { draft: StudioDraft }) {
   const navigate = useNavigate();
   const opened = new URLSearchParams(useLocation().search).get('lesson');
@@ -37,6 +42,13 @@ function Editor({ draft }: { draft: StudioDraft }) {
   const saving = useDraftAutosave(course.id, draft.revision, course);
   const [notice, setNotice] = useState<{ message: string; after: Course } | null>(null);
   const [view, setView] = useState<'lesson' | 'settings'>('lesson');
+  const [panel, setPanel] = useState<'problems' | 'versions' | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [refused, setRefused] = useState<PublishProblem[]>([]);
+  const [liveVersion, setLiveVersion] = useState(draft.liveVersion);
+  const [published, setPublished] = useState('');
+  const found = useMemo(() => checkPublishable(course), [course]);
+  const problems = found.length > 0 ? found : refused;
 
   const edit = useCallback<EditorActions['edit']>((change, options: EditOptions = {}) => {
     if (options.select?.lessonId) setView('lesson');
@@ -54,6 +66,25 @@ function Editor({ draft }: { draft: StudioDraft }) {
       setView('lesson');
       dispatch({ type: 'select', lessonId });
     },
+  };
+  const show = (problem: PublishProblem) => {
+    if (problem.lessonId) {
+      setView('lesson');
+      dispatch({ type: 'select', lessonId: problem.lessonId, blockId: problem.blockId ?? null });
+    } else setView(SETTINGS_PATH.test(problem.path) ? 'settings' : 'lesson');
+  };
+  const toggleVersions = () => {
+    setPublished('');
+    setPanel(panel === 'versions' ? null : 'versions');
+  };
+  const startPublishing = () => {
+    setPublished('');
+    if (problems.length > 0) {
+      setPanel('problems');
+      return;
+    }
+    if (panel === 'problems') setPanel(null);
+    setConfirming(true);
   };
   const preview = async () => {
     await saving.flush();
@@ -79,9 +110,7 @@ function Editor({ draft }: { draft: StudioDraft }) {
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-title text-fg">{course.title}</h1>
           <p className="text-small text-muted">
-            {draft.liveVersion === null
-              ? 'Draft, not published yet'
-              : `Live, version ${draft.liveVersion}`}
+            {liveVersion === null ? 'Draft, not published yet' : `Live, version ${liveVersion}`}
           </p>
         </div>
         <SaveState saving={saving} onLoad={(next) => dispatch({ type: 'load', course: next })} />
@@ -114,10 +143,67 @@ function Editor({ draft }: { draft: StudioDraft }) {
             Preview
           </Link>
         </Button>
+        {liveVersion !== null && (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-expanded={panel === 'versions'}
+            onClick={toggleVersions}
+          >
+            <History aria-hidden />
+            Versions
+          </Button>
+        )}
+        <Button size="sm" onClick={startPublishing}>
+          Publish
+        </Button>
+        <PublishDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          courseId={course.id}
+          liveVersion={liveVersion}
+          flush={saving.flush}
+          onPublished={(version) => {
+            setConfirming(false);
+            setRefused([]);
+            setLiveVersion(version);
+            setPublished(
+              version === 1
+                ? 'Published version 1. People with access can start it now.'
+                : `Published version ${version}. People who start from now get it.`,
+            );
+          }}
+          onRefused={(list) => {
+            setConfirming(false);
+            setRefused(list);
+            setPanel('problems');
+          }}
+        />
       </header>
-      {notice?.after === course && (
-        <div className="px-4 pt-2">
-          <UndoNotice message={notice.message} onUndo={() => dispatch({ type: 'undo' })} />
+      <p role="status" className="px-4 text-small text-fg empty:hidden">
+        {published}
+      </p>
+      {(panel || notice?.after === course) && (
+        <div className="flex flex-col gap-2 px-4 pt-2">
+          {notice?.after === course && (
+            <UndoNotice message={notice.message} onUndo={() => dispatch({ type: 'undo' })} />
+          )}
+          {panel === 'problems' && (
+            <ProblemsPanel problems={problems} onShow={show} onClose={() => setPanel(null)} />
+          )}
+          {panel === 'versions' && (
+            <VersionsPanel
+              courseId={course.id}
+              flush={saving.flush}
+              onClose={() => setPanel(null)}
+              onRolledBack={async (version) => {
+                dispatch({ type: 'load', course: await saving.reload() });
+                setLiveVersion(version);
+                setPanel(null);
+                setPublished(`Rolled back: version ${version} is live and is your draft now.`);
+              }}
+            />
+          )}
         </div>
       )}
       <div className="flex flex-1 flex-col md:flex-row">
