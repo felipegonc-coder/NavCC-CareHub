@@ -107,6 +107,7 @@ function renderSidebar(responses: Record<string, unknown> = {}) {
         <PagesSidebar />
         <Routes>
           <Route path="/p/:pageId" element={<Opened />} />
+          <Route path="/new" element={<p>New page screen</p>} />
           <Route path="/spaces" element={<p>Browsing spaces</p>} />
           <Route path="*" element={null} />
         </Routes>
@@ -332,6 +333,16 @@ describe('PagesSidebar', () => {
     expect(await screen.findByRole('tree', { name: 'General' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add a page to General' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Add a page to Private' })).toBeNull();
+    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', ctrlKey: true, altKey: true });
+    expect(screen.queryByText('New page screen')).toBeNull();
+  });
+
+  it('starts a new page on Ctrl+Alt+N', async () => {
+    renderSidebar();
+    // The "+" shows once the person's role is known to allow new pages; so do the keys.
+    await screen.findByRole('button', { name: 'Add a page to General' });
+    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', ctrlKey: true, altKey: true });
+    expect(await screen.findByText('New page screen')).toBeInTheDocument();
   });
 
   it('moves a page dropped on a space, asking first when its access would change', async () => {
