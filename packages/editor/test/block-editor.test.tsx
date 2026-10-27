@@ -4,9 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
-import { BlockEditor, type Editor } from '../src';
+import { BlockEditor, type Editor, type SlashItem } from '../src';
 import { renderCaret } from '../src/extensions';
-import { flush, testUser } from './helpers';
+import { flush, testUser, typeText } from './helpers';
 
 let root: Root | undefined;
 let awareness: Awareness | undefined;
@@ -16,6 +16,7 @@ afterEach(async () => {
   awareness?.destroy();
   awareness = undefined;
   document.body.innerHTML = '';
+  localStorage.clear();
 });
 
 async function render(element: ReactElement) {
@@ -79,6 +80,58 @@ describe('BlockEditor', () => {
     expect(ready.editor?.schema.nodes.shiftNote).toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('"shiftNote"'));
     warn.mockRestore();
+  });
+
+  it('shows the "/" menu with added entries and remembers what you used', async () => {
+    const signature: SlashItem = {
+      id: 'signature',
+      title: 'Signature',
+      group: 'Care',
+      run: (editor) => editor.commands.insertContent('Robin'),
+    };
+    const ready: { editor?: Editor } = {};
+    const container = await render(
+      <BlockEditor
+        ydoc={new Y.Doc()}
+        user={testUser}
+        slashItems={[signature]}
+        onReady={(editor) => (ready.editor = editor)}
+      />,
+    );
+    const editor = ready.editor as Editor;
+    await act(async () => {
+      typeText(editor, '/sign');
+      await flush();
+    });
+    const option = document.querySelector('[role="listbox"] [role="option"]');
+    expect(option?.textContent).toContain('Signature');
+    expect(option?.getAttribute('aria-selected')).toBe('true');
+    const textbox = container.querySelector('[role="textbox"]');
+    expect(textbox?.getAttribute('aria-activedescendant')).toBe(option?.id);
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('1 result');
+
+    await act(async () => {
+      option?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      await flush();
+    });
+    expect(editor.state.doc.textContent).toBe('Robin');
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(textbox?.hasAttribute('aria-activedescendant')).toBe(false);
+    expect(localStorage.getItem(`carehub.editor.recent-blocks.${testUser.id}`)).toBe(
+      '["signature"]',
+    );
+  });
+
+  it('shows no "/" menu when read-only', async () => {
+    const ready: { editor?: Editor } = {};
+    await render(
+      <BlockEditor ydoc={new Y.Doc()} editable={false} onReady={(e) => (ready.editor = e)} />,
+    );
+    await act(async () => {
+      ready.editor?.commands.insertContent('/');
+      await flush();
+    });
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
   });
 });
 
