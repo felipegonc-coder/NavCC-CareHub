@@ -2,7 +2,11 @@
 export {
   PageTooLongError,
   copyPageContent,
+  getPageContent,
   getPageMarkdown,
   getPageText,
+  setPageContent,
   setPageContentFromMarkdown,
+  type PageContent,
 } from './store';
+export type { PageNode } from './ydoc';

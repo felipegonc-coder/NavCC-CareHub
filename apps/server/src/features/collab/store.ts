@@ -2,12 +2,16 @@ import { eq } from 'drizzle-orm';
 import * as Y from 'yjs';
 import { HttpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
-import { MAX_BLOCKS, pageSchemaInfo } from './check';
+import { MAX_BLOCKS, MAX_PAGE_BYTES, pageSchemaInfo } from './check';
+import { cleanContent } from './clean';
 import { fitToSchema, fromMarkdown, toMarkdown } from './markdown';
 import { pageDocs } from './schema';
-import { countBlocks, readContent, replaceContent, toText, type PageNode } from './ydoc';
+import { countBlocks, isRecord, readContent, replaceContent, toText, type PageNode } from './ydoc';
 
-/** A write that would take a page past MAX_BLOCKS: answered as a 413 with this message. */
+/**
+ * A write that would take a page past MAX_BLOCKS or MAX_PAGE_BYTES: answered as a 413 with this
+ * message.
+ */
 export class PageTooLongError extends HttpError {
   constructor() {
     super(413, 'too_large', 'This page is too long. Move some of it into a sub-page.');
@@ -36,13 +40,14 @@ export interface DerivedCopies {
   blockCount: number;
 }
 
-export function deriveCopies(doc: Y.Doc): DerivedCopies {
+/** The copies kept next to the state. `blockCount` if the caller has counted already. */
+export function deriveCopies(doc: Y.Doc, blockCount?: number): DerivedCopies {
   const info = pageSchemaInfo();
   const content = readContent(doc);
   return {
     markdown: toMarkdown(content, info),
     text: toText(content),
-    blockCount: countBlocks(doc, info.inline),
+    blockCount: blockCount ?? countBlocks(doc, info.inline),
   };
 }
 
@@ -71,11 +76,11 @@ async function lockRow(tx: Db | Tx, pageId: string): Promise<StoredRow> {
 }
 
 /** The row's new values. `text_updated_at` moves only when the text changes. */
-function changes(doc: Y.Doc, copies: DerivedCopies, stored: StoredRow, by: string | null) {
+function changes(state: Uint8Array, copies: DerivedCopies, stored: StoredRow, by: string | null) {
   const now = new Date();
   const textChanged = copies.text !== stored.text;
   return {
-    state: Y.encodeStateAsUpdate(doc),
+    state,
     ...copies,
     ...(textChanged ? { textUpdatedAt: now } : {}),
     updatedAt: now,
@@ -99,7 +104,7 @@ export async function saveDoc(
     const copies = deriveCopies(doc);
     await tx
       .update(pageDocs)
-      .set(changes(doc, copies, stored, by))
+      .set(changes(Y.encodeStateAsUpdate(doc), copies, stored, by))
       .where(eq(pageDocs.pageId, pageId));
     return copies;
   });
@@ -119,6 +124,19 @@ export async function getPageText(db: Db | Tx, pageId: string): Promise<string> 
   return doc ? toText(readContent(doc)) : storedCopy(db, pageId, 'text');
 }
 
+/** A page's content as ProseMirror JSON. */
+export interface PageContent {
+  type: 'doc';
+  content: PageNode[];
+}
+
+/** The page as ProseMirror JSON, unsaved edits included (decision 0007, section 4.2). */
+export async function getPageContent(db: Db | Tx, pageId: string): Promise<PageContent> {
+  const live = liveDoc(pageId);
+  const content = live ? readContent(live) : await withStoredDoc(db, pageId, readContent);
+  return { type: 'doc', content };
+}
+
 /** The page as Markdown, for export (decision 0007, section 4.2). */
 export async function getPageMarkdown(db: Db | Tx, pageId: string): Promise<string> {
   const doc = liveDoc(pageId);
@@ -135,8 +153,9 @@ async function storedCopy(db: Db | Tx, pageId: string, copy: 'markdown' | 'text'
 
 /**
  * Replaces the page's content with Markdown, for imports and templates. Anything the page schema
- * doesn't allow becomes plain text. Throws PageTooLongError past MAX_BLOCKS. After the
- * transaction commits, emit `page.updated` so open editors get the change.
+ * doesn't allow becomes plain text. Throws PageTooLongError past MAX_BLOCKS or MAX_PAGE_BYTES
+ * (Markdown longer than that isn't read at all). After the transaction commits, emit
+ * `page.updated` so open editors get the change.
  */
 export async function setPageContentFromMarkdown(
   tx: Tx,
@@ -144,7 +163,27 @@ export async function setPageContentFromMarkdown(
   markdown: string,
   by: string | null = null,
 ): Promise<void> {
+  if (markdown.length > MAX_PAGE_BYTES) throw new PageTooLongError();
   await writeContent(tx, pageId, fitToSchema(fromMarkdown(markdown, pageSchemaInfo())), by);
+}
+
+/**
+ * Replaces the page's content with ProseMirror JSON (`{ type: 'doc', content }`), for features
+ * that keep content as JSON (history, templates). It keeps only what an editor could write
+ * (cleanContent), fitted to the schema; otherwise the same as setPageContentFromMarkdown.
+ */
+export async function setPageContent(
+  tx: Tx,
+  pageId: string,
+  doc: unknown,
+  by: string | null = null,
+): Promise<void> {
+  if (!isRecord(doc) || doc.type !== 'doc' || !Array.isArray(doc.content)) {
+    throw new HttpError(400, 'invalid_content', 'This page content can’t be read.');
+  }
+  const info = pageSchemaInfo();
+  const blocks = doc.content.flatMap((block: unknown) => cleanContent(block, info) ?? []);
+  await writeContent(tx, pageId, fitToSchema(blocks), by);
 }
 
 /**
@@ -191,11 +230,14 @@ async function writeContent(
     const live = liveDoc(pageId);
     if (live) Y.applyUpdate(doc, Y.encodeStateAsUpdate(live));
     replaceContent(doc, content);
-    const copies = deriveCopies(doc);
-    if (copies.blockCount > MAX_BLOCKS) throw new PageTooLongError();
+    // The limits before the copies, which take longest to make.
+    const blockCount = countBlocks(doc, pageSchemaInfo().inline);
+    if (blockCount > MAX_BLOCKS) throw new PageTooLongError();
+    const state = Y.encodeStateAsUpdate(doc);
+    if (state.length > MAX_PAGE_BYTES) throw new PageTooLongError();
     await tx
       .update(pageDocs)
-      .set(changes(doc, copies, stored, by))
+      .set(changes(state, deriveCopies(doc, blockCount), stored, by))
       .where(eq(pageDocs.pageId, pageId));
   } finally {
     doc.destroy();
