@@ -23,8 +23,8 @@ await sendNotice({
 
 It returns `{ noticeId, grouped }`, with `duplicate: true` when the idempotency key was already
 used (see Retries), or `dropped: true` and an empty `noticeId` when the person isn't in the
-workspace, as a member or a guest (checked once workspace members are on main). Bad input throws a `NoticeInputError` that lists every
-problem: that's a bug in the caller, so let it fail loudly.
+workspace, as a member or a guest (checked once workspace members are on main). Bad input throws
+a `NoticeInputError` that lists every problem: that's a bug in the caller, so let it fail loudly.
 
 ## Fields
 
