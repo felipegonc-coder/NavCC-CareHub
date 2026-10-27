@@ -398,11 +398,13 @@ export function ShareForm({ def, databaseId, viewId, fullAccess, onSave }: Share
             onChange={(event) => {
               const next = AUDIENCES.find((a) => a === event.target.value);
               if (!next) return;
-              // Anyone can fill it in: no limit of one response per person (Forms spec).
+              // Anyone can fill it in: always anonymous, with no limit of one response per person
+              // (Forms spec). Anonymous stays on if the form goes back to members, until an editor
+              // turns it off.
               onSave({
                 ...def,
                 audience: next,
-                ...(next === 'anyone' ? { allowMultiple: true } : {}),
+                ...(next === 'anyone' ? { anonymous: true, allowMultiple: true } : {}),
               });
             }}
           >

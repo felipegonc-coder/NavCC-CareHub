@@ -467,7 +467,7 @@ describe('Share form', () => {
     fireEvent.change(within(share).getByLabelText('Who can respond'), {
       target: { value: 'anyone' },
     });
-    expect(saved()).toMatchObject({ audience: 'anyone', allowMultiple: true });
+    expect(saved()).toMatchObject({ audience: 'anyone', anonymous: true, allowMultiple: true });
     expect(
       within(share).getByText(
         'No sign-in. Always anonymous, with no Person or Relation questions.',
@@ -480,6 +480,18 @@ describe('Share form', () => {
     expect(
       within(settings).getByRole('switch', { name: 'Allow more than one response' }),
     ).toBeDisabled();
+  });
+
+  it('keeps anonymous on when the form goes back to members', () => {
+    const { saved } = renderFormView(formDatabase());
+    const share = openShare();
+    fireEvent.change(within(share).getByLabelText('Who can respond'), {
+      target: { value: 'anyone' },
+    });
+    fireEvent.change(within(share).getByLabelText('Who can respond'), {
+      target: { value: 'members' },
+    });
+    expect(saved()).toMatchObject({ audience: 'members', anonymous: true });
   });
 
   it('keeps a form that asks for people to members', () => {
