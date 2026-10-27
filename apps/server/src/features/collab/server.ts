@@ -8,11 +8,11 @@ import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import * as Y from 'yjs';
 import type { Db } from '../../db';
 import { SESSION_COOKIE, getUserFromSessionToken } from '../auth';
-import { checkUpdate, pageSchemaInfo } from './check';
+import { checkUpdate, pageSchemaInfo, pageSize, type PageSize } from './check';
 import { getPageAccess, getPageState } from './page-access';
-import { MessageType, readMessageHead } from './protocol';
+import { readMessageHead } from './protocol';
 import { MERGE_ORIGIN, loadState, mergeStored, saveDoc, setLiveDocs } from './store';
-import { countBlocks, isRecord } from './ydoc';
+import { isRecord } from './ydoc';
 
 const PING_MS = 2_000;
 /** Hocuspocus drops a socket that sends nothing, not even a pong, for this long. */
@@ -20,7 +20,13 @@ const TIMEOUT_MS = 6_000;
 /** Before a change, access is checked again if the last check is older than this. */
 const RECHECK_MS = 1_000;
 const SWEEP_MS = 30_000;
-const MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
+/** The longest message a socket may send; ws would take 100 MiB. Holds MAX_TEXT_CHARS of text. */
+const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
+/** What one socket may send: a steady rate, with room for bursts (opening pages, pasting). */
+const MESSAGES_PER_SECOND = 50;
+const MESSAGE_BURST = 200;
+const BYTES_PER_SECOND = 1024 * 1024;
+const BYTE_BURST = 8 * 1024 * 1024;
 const MAX_SOCKETS_PER_USER = 20;
 const MAX_CLIENTS_PER_CONNECTION = 8;
 const MAX_AWARENESS_BYTES = 8 * 1024;
@@ -41,12 +47,18 @@ const ACCESS_EVENTS = [
 ];
 
 /** WebSocket close codes the web client acts on. */
-export const CloseCode = { SignedOut: 4401, Forbidden: 4403, TooLong: 4413 } as const;
+export const CloseCode = {
+  SignedOut: 4401,
+  Forbidden: 4403,
+  TooLong: 4413,
+  TooFast: 4429,
+} as const;
 
 const CLOSE_REASONS: Record<number, string> = {
   [CloseCode.SignedOut]: 'signed-out',
   [CloseCode.Forbidden]: 'forbidden',
   [CloseCode.TooLong]: 'too-long',
+  [CloseCode.TooFast]: 'too-fast',
 };
 
 export interface CollabServerOptions {
@@ -123,7 +135,7 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
   const db = app.db;
   const events = app.events as unknown as Events;
   const info = pageSchemaInfo();
-  const estimates = new WeakMap<Y.Doc, number>();
+  const sizes = new WeakMap<Y.Doc, PageSize>();
   const sockets = new Set<Socket>();
   const socketsPerUser = new Map<string, number>();
 
@@ -156,16 +168,14 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
     },
 
     async afterLoadDocument({ document }) {
-      estimates.set(document, countBlocks(document, info.inline));
+      sizes.set(document, pageSize(document, info));
     },
 
     async beforeHandleMessage({ connection, document, update }) {
+      // Sockets refuse unreadable messages before this; refusing them here too fails closed.
       const head = readMessageHead(update);
-      // Only the server speaks to every editor of a page; a client could forge access messages.
-      if (head?.type === MessageType.BroadcastStateless) {
-        throw closeRequest(connection, CloseCode.Forbidden);
-      }
-      if (head?.update) await checkChange(connection, document, head.update);
+      if (!head) throw closeRequest(connection, CloseCode.Forbidden);
+      if (head.update) await checkChange(connection, document, head.update);
     },
 
     async beforeHandleAwareness(payload) {
@@ -180,11 +190,13 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
 
     async onStoreDocument({ document, documentName, lastContext }) {
       const by = (lastContext as Partial<CollabContext> | undefined)?.socket?.userId ?? null;
-      const estimate = estimates.get(document);
+      const size = sizes.get(document);
       const copies = await store(documentName, document, by);
       if (!copies) return;
-      // Changes accepted while saving raised the estimate; it stays an upper bound then.
-      if (estimates.get(document) === estimate) estimates.set(document, copies.blockCount);
+      // Changes accepted while saving raised the size; it stays an upper bound then.
+      if (size && sizes.get(document) === size) {
+        sizes.set(document, { ...size, blocks: copies.blockCount });
+      }
       events.emit('page.updated', { pageId: documentName, by, content: true, source: 'collab' });
     },
   });
@@ -202,7 +214,10 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
     return null;
   }
 
-  /** Refuses changes from read-only connections, unsafe content and pages past the limit. */
+  /**
+   * Refuses changes from read-only connections, unsafe content, pages past the limits and
+   * changes written under another person's client ID.
+   */
   async function checkChange(connection: Connection, document: LiveDocument, update: Uint8Array) {
     const context = contextOf(connection);
     if (!context.access || Date.now() - context.access.checkedAt > RECHECK_MS) {
@@ -212,19 +227,50 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
     }
     if (context.access?.readOnly) {
       // A sync step with nothing new in it is fine; any real change closes the connection.
-      if (Y.snapshotContainsUpdate(Y.snapshot(document), update)) return;
+      if (changesNothing(document, update)) return;
       throw closeRequest(connection, CloseCode.Forbidden);
     }
-    const result = checkUpdate(update, document, info, estimates.get(document));
+    const result = checkUpdate(update, document, info, sizes.get(document));
     if (!result.ok) {
       if (result.tooLong) throw closeRequest(connection, CloseCode.TooLong);
-      app.log.warn(
-        { pageId: document.name, userId: context.socket.userId, reason: result.reason },
-        'collab: refused a change',
-      );
-      throw closeRequest(connection, CloseCode.Forbidden);
+      throw refusal(connection, document, result.reason);
     }
-    estimates.set(document, result.blockCount);
+    const problem = clientProblem(connection, document, update);
+    if (problem) throw refusal(connection, document, problem);
+    sizes.set(document, result.size);
+  }
+
+  function refusal(connection: Connection, document: LiveDocument, reason: string): CloseRequest {
+    const { userId } = contextOf(connection).socket;
+    app.log.warn({ pageId: document.name, userId, reason }, 'collab: refused a change');
+    return closeRequest(connection, CloseCode.Forbidden);
+  }
+
+  /**
+   * Yjs trusts client IDs: someone writing under another person's ID could take the place of
+   * that person's next edits. An ID that another person's open connection uses for its presence
+   * is theirs, so new changes under it from anyone else are refused.
+   */
+  function clientProblem(connection: Connection, document: LiveDocument, update: Uint8Array) {
+    const taken = othersClients(connection, document);
+    if (taken.size === 0) return null;
+    for (const [client, end] of Y.parseUpdateMeta(update).to) {
+      if (taken.has(client) && end > Y.getState(document.store, client)) {
+        return 'client ID of another person';
+      }
+    }
+    return null;
+  }
+
+  /** The client IDs other people's open connections to the page use for their presence. */
+  function othersClients(connection: Connection, document: LiveDocument): Set<number> {
+    const { userId } = contextOf(connection).socket;
+    const taken = new Set<number>();
+    for (const other of document.getConnections()) {
+      if (contextOf(other).socket.userId === userId) continue;
+      for (const id of document.getClients(other)) taken.add(id);
+    }
+    return taken;
   }
 
   /** Reads the person's access again; false if it's gone. */
@@ -258,7 +304,10 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
     );
   }
 
-  /** A client may only change or remove its own presence, and always shows its real name. */
+  /**
+   * A client may only change or remove its own presence, never under a client ID another
+   * person uses, and always shows its real name.
+   */
   function stampAwareness(
     connection: Connection,
     document: LiveDocument,
@@ -266,10 +315,7 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
     removed: Set<number>,
   ): void {
     const owned = document.getClients(connection);
-    const taken = new Set<number>();
-    for (const other of document.getConnections()) {
-      if (other !== connection) for (const id of document.getClients(other)) taken.add(id);
-    }
+    const taken = othersClients(connection, document);
     for (const id of removed) if (!owned.has(id)) removed.delete(id);
     let newClients = 0;
     for (const [id, state] of states) {
@@ -334,9 +380,13 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
       const { pageId, source } = (payload ?? {}) as { pageId?: unknown; source?: unknown };
       if (source === 'collab') return;
       if (typeof pageId === 'string') {
-        mergeStored(db, pageId).catch((error: unknown) =>
-          app.log.error({ err: error, pageId }, 'collab: merge failed'),
-        );
+        mergeStored(db, pageId)
+          .then(() => {
+            // What another feature wrote isn't in the page's size yet: measure it again.
+            const document = hocuspocus.documents.get(pageId);
+            if (document) sizes.set(document, pageSize(document, info));
+          })
+          .catch((error: unknown) => app.log.error({ err: error, pageId }, 'collab: merge failed'));
       }
       scheduleRecheck(); // the page may have been locked or unlocked
     }),
@@ -381,8 +431,26 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
     const ping = setInterval(() => {
       if (ws.readyState === ws.OPEN) ws.ping();
     }, PING_MS);
+    const messages = tokenBucket(MESSAGES_PER_SECOND, MESSAGE_BURST);
+    const bytes = tokenBucket(BYTES_PER_SECOND, BYTE_BURST);
+    let refused = false;
     ws.on('message', (data: RawData) => {
-      Promise.resolve(client.handleMessage(toBytes(data))).catch((error: unknown) =>
+      if (refused) return;
+      const message = toBytes(data);
+      // Fail closed: what this server can't read never reaches Hocuspocus.
+      const code =
+        !messages(1) || !bytes(message.length)
+          ? CloseCode.TooFast
+          : readMessageHead(message)
+            ? null
+            : CloseCode.Forbidden;
+      if (code !== null) {
+        refused = true;
+        ws.close(code, CLOSE_REASONS[code]);
+        return;
+      }
+      // Called from an async function, anything Hocuspocus throws is logged, not a crash.
+      (async () => client.handleMessage(message))().catch((error: unknown) =>
         app.log.error({ err: error }, 'collab: message failed'),
       );
     });
@@ -494,10 +562,35 @@ function refuseUpgrade(socket: Duplex, status: number): void {
   );
 }
 
+/**
+ * The message in a buffer of its own. A ws Buffer may share memory with other data, and lib0
+ * reads a byte array by its stated length: past the end it must fail, not read that data.
+ */
 function toBytes(data: RawData): Uint8Array {
-  if (Array.isArray(data)) return new Uint8Array(Buffer.concat(data));
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
-  return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  return new Uint8Array(Array.isArray(data) ? Buffer.concat(data) : data);
+}
+
+/** Allows `perSecond` on average and `burst` at once; a take that goes over returns false. */
+function tokenBucket(perSecond: number, burst: number): (amount: number) => boolean {
+  let tokens = burst;
+  let last = performance.now();
+  return (amount) => {
+    const now = performance.now();
+    tokens = Math.min(burst, tokens + ((now - last) / 1_000) * perSecond);
+    last = now;
+    if (amount > tokens) return false;
+    tokens -= amount;
+    return true;
+  };
+}
+
+function changesNothing(doc: Y.Doc, update: Uint8Array): boolean {
+  try {
+    return Y.snapshotContainsUpdate(Y.snapshot(doc), update);
+  } catch {
+    return false;
+  }
 }
 
 /** Postgres foreign-key violation: the page (or the person) no longer exists. */

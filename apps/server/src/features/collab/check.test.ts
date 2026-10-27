@@ -1,9 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { MAX_BLOCKS, checkUpdate, pageSchemaInfo } from './check';
+import {
+  MAX_BLOCKS,
+  MAX_PAGE_BYTES,
+  MAX_TEXT_CHARS,
+  URL_KEYS,
+  checkUpdate,
+  pageSchemaInfo,
+  type SchemaInfo,
+} from './check';
 import { MAX_DEPTH, pageFragment, readContent, replaceContent } from './ydoc';
 
 const info = pageSchemaInfo();
+
+/** The page schema plus blocks and marks other lanes may add, for the rules they need. */
+const extended: SchemaInfo = {
+  ...info,
+  nodes: new Set([...info.nodes, 'image']),
+  marks: new Set([...info.marks, 'textStyle']),
+  nodeAttrs: new Map([...info.nodeAttrs, ['image', new Set(['src', 'alt'])]]),
+  markAttrs: new Map([...info.markAttrs, ['textStyle', new Set(['color'])]]),
+};
+
+function accepted(blocks: number) {
+  return { ok: true, size: { blocks, bytes: expect.any(Number) } };
+}
 
 function serverDoc(): Y.Doc {
   const doc = new Y.Doc();
@@ -56,12 +77,12 @@ describe('checkUpdate', () => {
       fragment.delete(1, 1);
     });
     // Two blocks plus the new one: deletes aren't subtracted from the estimate.
-    expect(checkUpdate(update, server, info)).toEqual({ ok: true, blockCount: 3 });
+    expect(checkUpdate(update, server, info)).toEqual(accepted(3));
   });
 
   it('accepts a whole page sent to an empty document', () => {
     const update = Y.encodeStateAsUpdate(serverDoc());
-    expect(checkUpdate(update, new Y.Doc(), info)).toEqual({ ok: true, blockCount: 2 });
+    expect(checkUpdate(update, new Y.Doc(), info)).toEqual(accepted(2));
   });
 
   it('refuses javascript: links on new and existing text', () => {
@@ -78,14 +99,70 @@ describe('checkUpdate', () => {
 
   it('checks a changed attribute through the block it belongs to', () => {
     const server = new Y.Doc();
-    replaceContent(server, [{ type: 'paragraph', attrs: { src: 'https://example.test/a.png' } }]);
-    const block = (fragment: Y.XmlFragment) => fragment.get(0) as Y.XmlElement;
-    const safe = changeOn(server, (fragment) => block(fragment).setAttribute('src', '/files/b'));
-    const unsafe = changeOn(server, (fragment) => {
-      block(fragment).setAttribute('src', 'javascript:alert(1)');
+    replaceContent(server, [{ type: 'image', attrs: { src: 'https://example.test/a.png' } }]);
+    const set = (key: string, value: string) =>
+      changeOn(server, (fragment) => (fragment.get(0) as Y.XmlElement).setAttribute(key, value));
+    expect(checkUpdate(set('src', '/files/b'), server, extended)).toEqual(accepted(1));
+    expect(checkUpdate(set('src', 'javascript:alert(1)'), server, extended)).toEqual({
+      ok: false,
+      reason: 'unsafe attribute',
     });
-    expect(checkUpdate(safe, server, info)).toEqual({ ok: true, blockCount: 1 });
-    expect(checkUpdate(unsafe, server, info)).toEqual({ ok: false, reason: 'unsafe attribute' });
+    expect(checkUpdate(set('onerror', 'alert(1)'), server, extended)).toEqual({
+      ok: false,
+      reason: 'unknown attribute',
+    });
+  });
+
+  it('knows every attribute in the schema, and which of them hold addresses', () => {
+    const list = (attrs: ReadonlyMap<string, ReadonlySet<string>>) =>
+      [...attrs].flatMap(([name, keys]) =>
+        [...keys].map((key) => `${name}.${key}${URL_KEYS.has(key) ? ' (address)' : ''}`),
+      );
+    expect(list(info.nodeAttrs).sort()).toEqual([
+      'codeBlock.language',
+      'heading.level',
+      'orderedList.start',
+      'orderedList.type',
+      'taskItem.checked',
+    ]);
+    expect(list(info.markAttrs).sort()).toEqual([
+      'link.class',
+      'link.href (address)',
+      'link.rel',
+      'link.target',
+      'link.title',
+    ]);
+  });
+
+  it('accepts only the attributes the schema defines, on blocks and marks', () => {
+    const server = serverDoc();
+    const heading = (fragment: Y.XmlFragment) => fragment.get(1) as Y.XmlElement;
+    const level = changeOn(server, (fragment) => heading(fragment).setAttribute('level', 3));
+    const unknown = changeOn(server, (fragment) => heading(fragment).setAttribute('id', 'x'));
+    const linkAttr = changeOn(server, (fragment) => {
+      firstText(fragment).format(0, 5, { link: { href: '/guide', onclick: 'alert(1)' } });
+    });
+    const boldAttr = changeOn(server, (fragment) => {
+      firstText(fragment).format(0, 5, { bold: { class: 'x' } });
+    });
+    expect(checkUpdate(level, server, info)).toEqual(accepted(2));
+    expect(checkUpdate(unknown, server, info)).toEqual({ ok: false, reason: 'unknown attribute' });
+    expect(checkUpdate(linkAttr, server, info)).toEqual({ ok: false, reason: 'unsafe mark' });
+    expect(checkUpdate(boldAttr, server, info)).toEqual({ ok: false, reason: 'unsafe mark' });
+  });
+
+  it('accepts only a colour or a keyword where a value goes into CSS', () => {
+    const server = serverDoc();
+    const colour = (color: string) =>
+      changeOn(server, (fragment) => firstText(fragment).format(0, 5, { textStyle: { color } }));
+    expect(checkUpdate(colour('#d33f49'), server, extended).ok).toBe(true);
+    expect(checkUpdate(colour('teal'), server, extended).ok).toBe(true);
+    for (const color of ['red; background: url(/x)', 'expression(alert(1))', '#d33 !important']) {
+      expect(checkUpdate(colour(color), server, extended)).toEqual({
+        ok: false,
+        reason: 'unsafe mark',
+      });
+    }
   });
 
   it('refuses unknown blocks and marks, embeds, binary values, other fields and junk', () => {
@@ -118,7 +195,7 @@ describe('checkUpdate', () => {
     const deleting = changeOn(server, (fragment) => fragment.delete(0, 1));
     Y.applyUpdate(server, deleting);
     const before = readContent(server);
-    expect(checkUpdate(typing, server, info)).toEqual({ ok: true, blockCount: 1 });
+    expect(checkUpdate(typing, server, info)).toEqual(accepted(1));
     Y.applyUpdate(server, typing);
     expect(readContent(server)).toEqual(before);
   });
@@ -154,11 +231,52 @@ describe('checkUpdate', () => {
       reason: 'too many blocks',
       tooLong: true,
     });
-    expect(checkUpdate(replacing, server, info)).toEqual({ ok: true, blockCount: MAX_BLOCKS });
+    expect(checkUpdate(replacing, server, info)).toEqual(accepted(MAX_BLOCKS));
 
     // A caller's estimate that's too high is corrected by the count.
     const small = serverDoc();
     const update = changeOn(small, (fragment) => fragment.insert(0, [paragraph('New')]));
-    expect(checkUpdate(update, small, info, MAX_BLOCKS)).toEqual({ ok: true, blockCount: 3 });
+    const size = { blocks: MAX_BLOCKS, bytes: 100 };
+    expect(checkUpdate(update, small, info, size)).toEqual(accepted(3));
+  }, 30_000);
+
+  it('refuses an update with too much text', () => {
+    const server = serverDoc();
+    const most = changeOn(server, (fragment) => {
+      firstText(fragment).insert(0, 'x'.repeat(MAX_TEXT_CHARS));
+    });
+    const tooMuch = changeOn(server, (fragment) => {
+      firstText(fragment).insert(0, 'x'.repeat(MAX_TEXT_CHARS + 1));
+    });
+    expect(checkUpdate(most, server, info).ok).toBe(true);
+    expect(checkUpdate(tooMuch, server, info)).toEqual({
+      ok: false,
+      reason: 'too much text',
+      tooLong: true,
+    });
+  });
+
+  it('refuses an update that takes the page past the size limit, after measuring again', () => {
+    const server = new Y.Doc();
+    const text = 'x'.repeat(MAX_PAGE_BYTES - 500_000);
+    replaceContent(server, [{ type: 'paragraph', content: [{ type: 'text', text }] }]);
+    const adding = changeOn(server, (fragment) =>
+      firstText(fragment).insert(0, 'y'.repeat(600_000)),
+    );
+    const deleting = changeOn(server, (fragment) => firstText(fragment).delete(0, 1_000_000));
+    expect(checkUpdate(adding, server, info)).toEqual({
+      ok: false,
+      reason: 'too large',
+      tooLong: true,
+    });
+    // Deletes always go through, so a page that's too large can be made smaller.
+    const full = { blocks: 1, bytes: MAX_PAGE_BYTES * 2 };
+    expect(checkUpdate(deleting, server, info, full)).toEqual(accepted(1));
+
+    // A caller's size that's too high is corrected by measuring.
+    const small = serverDoc();
+    const typing = changeOn(small, (fragment) => firstText(fragment).insert(0, 'Hi'));
+    const result = checkUpdate(typing, small, info, { blocks: 2, bytes: MAX_PAGE_BYTES });
+    expect(result.ok && result.size.bytes < 1_000).toBe(true);
   }, 30_000);
 });

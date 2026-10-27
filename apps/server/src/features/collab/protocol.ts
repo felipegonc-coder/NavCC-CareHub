@@ -1,50 +1,40 @@
-/** Hocuspocus message types the collab server looks at. */
+import * as decoding from 'lib0/decoding';
+
+/** Hocuspocus message types: the number after the document name. */
 export const MessageType = {
   Sync: 0,
   Awareness: 1,
   Auth: 2,
+  QueryAwareness: 3,
   SyncReply: 4,
   Stateless: 5,
   BroadcastStateless: 6,
   Close: 7,
+  Ping: 9,
+  Pong: 10,
 } as const;
 
 /** Sync message steps (y-protocols). */
 export const SyncStep = { One: 0, Two: 1, Update: 2 } as const;
 
-/** Reads lib0 variable-length numbers, byte arrays and strings. */
-export class Reader {
-  private readonly data: Uint8Array;
-  private position = 0;
+/**
+ * The types an editor may send (v4 providers know Ping and Pong; Hocuspocus ignores them).
+ * BroadcastStateless is for servers only: from a client it could reach every editor of a page
+ * with a forged access message.
+ */
+const CLIENT_TYPES = new Set<number>([
+  MessageType.Sync,
+  MessageType.Awareness,
+  MessageType.Auth,
+  MessageType.QueryAwareness,
+  MessageType.SyncReply,
+  MessageType.Stateless,
+  MessageType.Close,
+  MessageType.Ping,
+  MessageType.Pong,
+]);
 
-  constructor(data: Uint8Array) {
-    this.data = data;
-  }
-
-  uint(): number {
-    let value = 0;
-    let scale = 1;
-    for (;;) {
-      const byte = this.data[this.position++];
-      if (byte === undefined || scale > 2 ** 49) throw new RangeError('Bad message');
-      value += (byte & 0x7f) * scale;
-      if (byte < 0x80) return value;
-      scale *= 128;
-    }
-  }
-
-  bytes(): Uint8Array {
-    const length = this.uint();
-    if (this.position + length > this.data.length) throw new RangeError('Bad message');
-    const out = this.data.subarray(this.position, this.position + length);
-    this.position += length;
-    return out;
-  }
-
-  string(): string {
-    return new TextDecoder().decode(this.bytes());
-  }
-}
+const SYNC_STEPS = new Set<number>([SyncStep.One, SyncStep.Two, SyncStep.Update]);
 
 export interface MessageHead {
   type: number;
@@ -53,15 +43,26 @@ export interface MessageHead {
   update?: Uint8Array;
 }
 
-/** The start of a message from a client: `[document name][type]`, then sync details. */
+/**
+ * Reads the start of a message from a client: `[document name][type]`, then for sync messages
+ * `[step][payload]`. It uses the lib0 decoders Hocuspocus uses, so both read the same message.
+ * Null for anything it can't read or an editor doesn't send: the server refuses those.
+ */
 export function readMessageHead(data: Uint8Array): MessageHead | null {
   try {
-    const reader = new Reader(data);
-    reader.bytes();
-    const type = reader.uint();
-    if (type !== MessageType.Sync && type !== MessageType.SyncReply) return { type };
-    const step = reader.uint();
-    return step === SyncStep.One ? { type, step } : { type, step, update: reader.bytes() };
+    const decoder = decoding.createDecoder(data);
+    decoding.readVarString(decoder);
+    const type = decoding.readVarUint(decoder);
+    if (!CLIENT_TYPES.has(type)) return null;
+    let head: MessageHead = { type };
+    if (type === MessageType.Sync || type === MessageType.SyncReply) {
+      const step = decoding.readVarUint(decoder);
+      if (!SYNC_STEPS.has(step)) return null;
+      const payload = decoding.readVarUint8Array(decoder);
+      head = step === SyncStep.One ? { type, step } : { type, step, update: payload };
+    }
+    // lib0 doesn't compare lengths with the message: a part may claim more than is there.
+    return decoder.pos > data.length ? null : head;
   } catch {
     return null;
   }
