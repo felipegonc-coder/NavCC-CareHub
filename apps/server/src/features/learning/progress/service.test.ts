@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import {
+  paperAnswerKey,
   sampleMicrolearningCourse,
   sampleRequiredReadCourse,
   type Course,
+  type LearnerCourseState,
   type PublishNotify,
 } from '@carehub/learning';
 import { and, eq } from 'drizzle-orm';
@@ -472,5 +474,61 @@ describe.skipIf(!hasDatabase)('Learning progress', () => {
     expect(state.score).toBe(100);
     const [row] = await progress.listCourseStates(db, { workspaceId, userIds: [ada.userId] });
     expect(row).toMatchObject({ attempts: 1, score: 100 });
+  });
+
+  it('sends the right answers once the quiz reveals them, to the learner only (0316)', async () => {
+    const {
+      workspaceId,
+      trainer,
+      learners: [ada],
+    } = workspace(1);
+    if (!ada) throw new Error('A learner expected.');
+    // Privacy basics' quiz shows its answers once it's passed (revealAnswers: after_passing).
+    const course = newCourse(workspaceId, sampleRequiredReadCourse);
+    const quiz = course.lessons.find((lesson) => lesson.id === 'privacy-quiz');
+    if (quiz?.kind !== 'quiz') throw new Error('A quiz expected.');
+    await send(ada, course, [opened(soon(-30), 'privacy-rules'), completed('privacy-rules')]);
+    const attempt = async (neighbour: boolean) => {
+      const paper = await progress.startQuizAttempt(db, ada, course.id, {
+        lessonId: quiz.id,
+        at: soon(),
+      });
+      const responses = {
+        'privacy-q-neighbour': { type: 'true_false', value: neighbour },
+        'privacy-q-check': { type: 'multiple_choice', optionIds: ['dob', 'postcode'] },
+        'privacy-q-blank': { type: 'fill_blank', blanks: { consent: 'consent' } },
+      };
+      const submitted = event('quiz_attempt_submitted', {
+        lessonId: quiz.id,
+        attemptId: paper.attemptId,
+        responses,
+      });
+      return (await send(ada, course, [submitted])).state;
+    };
+    const answersOf = (state: LearnerCourseState) =>
+      state.quizzes[0]?.attempts.map((submitted) => submitted.answers);
+
+    // Failed, so not passed yet: no answers in the reply, nor on a reload.
+    const failed = await attempt(true);
+    expect(failed.quizzes[0]).toMatchObject({ passed: false, revealAnswers: false });
+    expect(answersOf(failed)).toEqual([undefined]);
+    expect(answersOf(await progress.getProgress(db, ada, course.id))).toEqual([undefined]);
+
+    // Passed: each submitted attempt gets the right answers on its own paper, and they score 100.
+    const passed = await attempt(false);
+    const attempts = passed.quizzes[0]?.attempts ?? [];
+    expect(passed.quizzes[0]).toMatchObject({ passed: true, revealAnswers: true });
+    const keys = attempts.map((submitted) => paperAnswerKey(quiz, submitted.plan));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatchObject({
+      'privacy-q-neighbour': { type: 'true_false', value: false },
+      'privacy-q-check': { type: 'multiple_choice', optionIds: ['dob', 'postcode'] },
+    });
+    expect(answersOf(passed)).toEqual(keys);
+    expect(answersOf(await progress.getProgress(db, ada, course.id))).toEqual(keys);
+
+    // Never for anyone else: a completion marked by hand answers without them.
+    const marked = await progress.completeProgress(db, trainer, ada.userId, course.id);
+    expect(answersOf(marked)).toEqual([undefined, undefined]);
   });
 });
