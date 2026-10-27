@@ -17,10 +17,11 @@ example: create a page, share it, comment with a mention, and the person gets a 
 | `tests/e2e/flows/_support/` | Shared helpers (below)            | Testing lead          |
 | `docs/testing/`             | These notes                       | Testing lead          |
 
-Areas: `design-kit`, `accounts`, `pages`, `editor`, `sidebar`, `search`, `comments`, `sharing`,
-`history-trash`, `templates`, `import-export`, `settings`, `databases`, `formulas`, `forms`,
-`messages`, `home`, `calendar`, `meetings`, `automations`, `analytics`, `status`, `knowledge-base`,
-`data-settings`, `learning` and `cross` (flows across several areas).
+Areas: `design-kit`, `shell` (top bar, phone menu, Not found), `accounts`, `pages`, `editor`,
+`sidebar`, `search`, `comments`, `sharing`, `history-trash`, `templates`, `import-export`,
+`settings`, `databases`, `formulas`, `forms`, `messages`, `home`, `calendar`, `meetings`,
+`automations`, `analytics`, `status`, `knowledge-base`, `data-settings`, `learning` and `cross`
+(flows across several areas).
 
 Never edit `tests/e2e/helpers/`, `tests/e2e/screens.ts`, the config or a lane's own folder (such as
 `tests/e2e/team/`): ask its owner. Page objects for one area live in that area's folder
@@ -51,8 +52,9 @@ test.describe('Comments and mentions', () => {
   checks in `tests/e2e/screens.ts` already cover axe and screenshots in all four.
 - **Not built yet:** `needs(...)` names the features a flow depends on, from
   [`_support/features.ts`](../../tests/e2e/flows/_support/features.ts). Until each one is on
-  `main`, the tests are skipped as `fixme` and reported as "Not built yet". The Testing lead turns a
-  feature on in the pull request that starts testing it.
+  `main`, the tests are skipped as `fixme` and reported as "Not built yet". Turn a feature's line
+  on in the pull request whose tests match that feature on `main`, and say so in the description;
+  the Testing lead runs that pull request's browser tests before merging it.
 - **Selectors:** what a person sees: `getByRole`, `getByLabel`, `getByText`, with the names from
   the spec. Never Tailwind classes or DOM structure. Use a `data-testid` only if the screen has one.
 - **Waiting:** web-first assertions (`await expect(locator).toBeVisible()`). No

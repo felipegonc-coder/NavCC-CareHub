@@ -1,9 +1,9 @@
 import { test } from './test.js';
 
 /**
- * What a person can reach on `main`, one feature per line. The Testing lead sets a line to true in
- * the pull request that starts testing that feature; builders only read this file. Until then,
- * tests that call `needs()` for it are reported as "Not built yet" (Playwright `fixme`).
+ * What a person can reach on `main`, one feature per line. Set a line to true in the pull request
+ * whose tests match that feature on `main` (the Testing lead runs its browser tests before merging).
+ * Until then, tests that call `needs()` for it are reported as "Not built yet" (Playwright `fixme`).
  */
 export const onMain = {
   /** The design kit gallery at /design: tokens, theme switch and base components (#2). */
