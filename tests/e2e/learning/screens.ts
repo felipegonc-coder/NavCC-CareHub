@@ -12,4 +12,17 @@ export const screens: Screen[] = [
       await page.getByRole('dialog', { name: 'New course' }).waitFor();
     },
   },
+  // The course editor, on a copy of the first example course.
+  {
+    name: 'learning-studio-editor',
+    path: '/learning/studio',
+    setup: async (page) => {
+      await page.getByRole('button', { name: 'New course' }).click();
+      await page
+        .getByRole('button', { name: /^Copy / })
+        .first()
+        .click();
+      await page.getByRole('navigation', { name: 'Outline' }).waitFor();
+    },
+  },
 ];
