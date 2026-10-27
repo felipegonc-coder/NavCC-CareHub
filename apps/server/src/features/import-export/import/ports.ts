@@ -70,6 +70,8 @@ const unavailable = (what: string) => async (): Promise<never> => {
   throw new ImportFileError(`${what} can't be imported yet`);
 };
 
+// stand-in: pages (#49), content (#200), files (0007, section 4.3), Databases' api.ts and the
+// Create permission (roles PR), each bound with bindImportPorts when it lands.
 const nothing: ImportPorts = {
   pageAccess: async () => null,
   privateSpace: async () => null,
