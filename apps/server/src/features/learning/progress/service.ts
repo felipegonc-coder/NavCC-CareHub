@@ -109,7 +109,7 @@ async function storeEvents(tx: Db | Tx, row: ProgressRow, list: readonly Progres
 async function recordChange(
   tx: Db | Tx,
   row: ProgressRow,
-  change: { kind: ProgressChangeKind; run: number; by: string; note?: string | undefined },
+  change: { kind: ProgressChangeKind; run: number; by: string | null; note?: string | undefined },
   at: Date,
 ): Promise<void> {
   const { workspaceId, learnerId, courseId } = row;
@@ -308,6 +308,31 @@ export async function completeProgress(
     }
     return state;
   });
+}
+
+/** The statuses that end a run: re-certification starts the next one. */
+const ENDED: ReadonlySet<CourseStatus> = new Set(['completed', 'passed', 'failed']);
+
+/**
+ * Re-certification (the certificates job, in its transaction): when the learner's current run has
+ * ended (completed, passed or failed), starts their next run on the course's live version, saved
+ * as a `retake` change by no one, with `note`. A run that hasn't ended is left alone, so nobody
+ * loses what they did since a retake or reset, and so is someone with no progress or a course
+ * with no live version. Returns the new run's number, or null when nothing changed.
+ */
+export async function startRecertificationRun(
+  tx: Db | Tx,
+  learner: Learner,
+  note: string,
+  now = new Date(),
+): Promise<number | null> {
+  const live = await courseVersions().live(tx, learner.workspaceId, learner.courseId);
+  const row = live ? await findProgress(tx, learner, true) : undefined;
+  if (!live || !row || !ENDED.has(row.status)) return null;
+  const next = newRunOf(row, live.version, now);
+  await tx.update(progress).set(next).where(progressKey(learner));
+  await recordChange(tx, row, { kind: 'retake', run: next.run, by: null, note }, now);
+  return next.run;
 }
 
 /** One learner's state in one course, as reports and assignments read it (`listCourseStates`). */
