@@ -27,6 +27,19 @@ describe('Learning API errors', () => {
     });
   });
 
+  it('sends at most 100 issues, then says how many more there are', () => {
+    const issues = Array.from({ length: 103 }, (_, index) => ({
+      path: `lessons[${index}].title`,
+      message: 'Add a title.',
+    }));
+    const { body } = errorReply(
+      httpError(422, 'Fix these 103 problems before publishing.', issues),
+    );
+    expect(body.error.issues).toHaveLength(101);
+    expect(body.error.issues?.slice(0, 100)).toEqual(issues.slice(0, 100));
+    expect(body.error.issues?.[100]).toEqual({ path: '', message: 'And 3 more.' });
+  });
+
   it("keeps core's code and message, as from the sign-in and security checks", () => {
     expect(errorReply(coreError(401, 'signed_out'))).toEqual({
       status: 401,
