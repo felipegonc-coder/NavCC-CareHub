@@ -19,13 +19,13 @@ export const learningItemOf = (due: LearningDueDate): LearningItem => ({
 
 /** The person's course due dates in [from, to), while Learning is on for the workspace. */
 export async function learningItems(
-  person: { id: string; workspaceId: string; timeZone: string },
+  person: { id: string; workspaceId: string },
   from: CivilDate,
   to: CivilDate,
 ): Promise<LearningItem[]> {
-  const { id: userId, workspaceId, timeZone } = person;
+  const { id: userId, workspaceId } = person;
   if (!(await isLearningEnabled(workspaceId))) return [];
   const last = addDays(to, -1);
-  const dates = await listLearningDueDates({ userId, workspaceId, from, to: last, timeZone });
+  const dates = await listLearningDueDates({ userId, workspaceId, from, to: last });
   return dates.map(learningItemOf);
 }
