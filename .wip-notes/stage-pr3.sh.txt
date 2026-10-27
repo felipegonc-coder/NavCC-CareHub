@@ -1,0 +1,15 @@
+#!/bin/bash
+# Usage: stage-pr3.sh <YYYYMMDDHHMM> <branch>  -> builds /data/kit/push-pr3.json and /data/kit/pr3-body.final.md
+set -euo pipefail
+TS="$1"; BRANCH="$2"
+SRC=/data/kit/restore-pr3; ST=/data/kit/stage/pr3
+rm -rf "$ST"; mkdir -p "$ST"; cp -r "$SRC/apps" "$ST/"
+mv "$ST/apps/server/migrations/202610270340_calendar_connections.sql" "$ST/apps/server/migrations/${TS}_calendar_connections.sql"
+sed -i "s#migrations/202610270340_calendar_connections.sql#migrations/${TS}_calendar_connections.sql#" "$ST/apps/server/src/features/calendar/connections/schema.ts"
+grep -q "${TS}_calendar_connections" "$ST/apps/server/src/features/calendar/connections/schema.ts"
+sed "s#MIGRATION_TS#${TS}#g" /data/kit/pr3-body.md > /data/kit/pr3-body.final.md
+cd "$ST" && node -e '
+const fs=require("fs");const [branch,...files]=process.argv.slice(1);
+const p={owner:"felipegonc-coder",repo:"NavCC-CareHub",branch,message:"feat(team): tables and storage for calendar connections, and connected-calendar layers",files:files.map(f=>({path:f,content:fs.readFileSync(f,"utf8")}))};
+fs.writeFileSync("/data/kit/push-pr3.json",JSON.stringify(p));console.log(files.length,"files",JSON.stringify(p).length,"bytes");
+' "$BRANCH" $(find apps -type f | sort)

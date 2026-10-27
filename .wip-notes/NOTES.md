@@ -46,3 +46,8 @@
   }
   Keep guard inside my own plugin (no fastify-plugin). If S2a-2 lands first, just replace the `// calendar: connections` line.
 - Web WIP typecheck: only expected errors are `unavailable.links` (PR8 link button parts) since package draft dropped links.
+
+## 09:30Z
+- #117 still open (no Team PR merged since 05:17Z; lead session 'running'). Updated #117 body 'Next' line to the 8-PR plan.
+- To open PR3: kit/stage-pr3.sh <YYYYMMDDHHMM> feat/team-calendar-storage (copy in .wip-notes/stage-pr3.sh.txt; restore-pr3 files = branch feat/team-calendar-connections-storage @b2d05f0) -> create_branch from main -> push_files /data/kit/push-pr3.json -> create_pull_request with /data/kit/pr3-body.final.md.
+- e2e: CI browser tests run the server with NODE_ENV=production -> test calendar origins ignored there (doc updated). PR7 must add a screen to tests/e2e/team/screens.ts (names start 'team-'), e.g. { name: 'team-calendar-connections', path: '/calendar/connections' }, and run e2e once (label e2e, max 2 runs).
