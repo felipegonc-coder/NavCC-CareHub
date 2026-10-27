@@ -19,7 +19,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
-import { computedAsText } from './as-text';
+import { computedAsText, READS_LIMITED_MESSAGE } from './as-text';
 import { changeDatabase, loadDatabase, loadRows } from './store';
 
 type Role = 'admin' | 'editor' | 'viewer';
@@ -209,6 +209,8 @@ describe.skipIf(!hasDatabase)('charts, row pickers and values as shown', () => {
       ],
     });
     props.cost = seeOnly(newProperty('Cost', defaultConfig('number')), people.avery);
+    props.costTwice = formula('Cost twice', `prop("${props.cost.id}") * 2`);
+    props.gateNote = formula('Gate note', `"Gate " + prop("${props.gateCopy.id}")`, 'text');
     const jobProps = [
       jobs.name,
       props.hours,
@@ -219,6 +221,8 @@ describe.skipIf(!hasDatabase)('charts, row pickers and values as shown', () => {
       props.gateCopy,
       props.stage,
       props.cost,
+      props.costTwice,
+      props.gateNote,
     ];
     views.table = defaultView('table', jobProps, { name: 'All jobs' });
     views.count = chartView('Jobs by stage', jobProps);
@@ -432,13 +436,11 @@ describe.skipIf(!hasDatabase)('charts, row pickers and values as shown', () => {
     const record = (await loadDatabase(db, ids.jobs!))!;
     const rows = await loadRows(db, ids.jobs!);
     const row = (id: string) => rows.find((r) => r.id === id)!;
-    const avery = await computedAsText(db, {
-      record,
-      userId: people.avery.id,
-      viewer: viewerOf(people.avery),
-      rows,
-    });
+    const asText = (who: TestUser, propertyId: string) =>
+      computedAsText(db, { record, propertyId, userId: who.id, viewer: viewerOf(who), rows });
+    const avery = await asText(people.avery, props.total!.id);
     expect(avery.computed(row(ids.j1!), props.total!.id)).toEqual({ kind: 'number', value: 80 });
+    // Harbor Light Bakery is private, so only Blue Pine Plumbing's calls count.
     expect(avery.computed(row(ids.j1!), props.clientCalls!.id)).toEqual({
       kind: 'number',
       value: 3,
@@ -447,20 +449,17 @@ describe.skipIf(!hasDatabase)('charts, row pickers and values as shown', () => {
       kind: 'text',
       value: '4411',
     });
+    // Nobody here can open Drain survey, so it gets no value.
+    expect(avery.computed(row(ids.j3!), props.total!.id)).toEqual({ kind: 'empty' });
     expect(avery.rowTitle(ids.c1!)).toBe('Blue Pine Plumbing');
     expect(avery.rowTitle(ids.c3!)).toBeUndefined();
     expect(avery.timedOut).toBe(false);
     // Jordan can't see the Gate code, so the formula that reads it is empty for him.
-    const jordan = await computedAsText(db, {
-      record,
-      userId: people.jordan.id,
-      viewer: viewerOf(people.jordan),
-      rows,
-    });
+    const jordan = await asText(people.jordan, props.clientCalls!.id);
     expect(jordan.computed(row(ids.j1!), props.gateCopy!.id)).toEqual({ kind: 'empty' });
     expect(jordan.computed(row(ids.j1!), props.total!.id)).toEqual({ kind: 'number', value: 80 });
 
-    // planConversion keeps them as text, also for a row Avery can't open.
+    // planConversion keeps them as text, and clears the row Avery can't open.
     const ctx: EvalContext = {
       properties: record.properties,
       viewer: viewerOf(people.avery),
@@ -473,10 +472,33 @@ describe.skipIf(!hasDatabase)('charts, row pickers and values as shown', () => {
     expect(Object.fromEntries(total.values)).toEqual({
       [ids.j1!]: fromPlainText('80'),
       [ids.j2!]: fromPlainText('90'),
-      [ids.j3!]: fromPlainText('120'),
       [ids.j4!]: fromPlainText('50'),
     });
-    const gate = planConversion(props.gateCopy!, defaultConfig('text'), rows, ctx);
-    expect(Object.fromEntries(gate.values)).toEqual({ [ids.j1!]: fromPlainText('4411') });
+  });
+
+  it('refuses to change the type of a formula that reads a property with a see list', async () => {
+    const record = (await loadDatabase(db, ids.jobs!))!;
+    const rows = await loadRows(db, ids.jobs!);
+    const asText = (propertyId: string) =>
+      computedAsText(db, {
+        record,
+        propertyId,
+        userId: people.avery.id,
+        viewer: viewerOf(people.avery),
+        rows,
+      });
+    // Cost directly, the Gate code in Clients, and the Gate code through Gate copy; Avery can see
+    // them all.
+    for (const p of [props.costTwice!, props.gateCopy!, props.gateNote!]) {
+      await expect(asText(p.id)).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'invalid',
+        message: READS_LIMITED_MESSAGE,
+      });
+    }
+    expect(READS_LIMITED_MESSAGE).toBe(
+      "This formula reads a property that not everyone can see, so it can't become text.",
+    );
+    await expect(asText(props.clientCalls!.id)).resolves.toMatchObject({ timedOut: false });
   });
 });
