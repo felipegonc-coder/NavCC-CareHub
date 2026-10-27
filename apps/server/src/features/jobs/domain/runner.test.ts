@@ -415,6 +415,40 @@ describe('periodic tasks', () => {
     expect(runs.map((run) => run.lateByMs)).toEqual([5 * SECOND, 5 * SECOND]);
   });
 
+  it('gives each run the time it started as ctx.now', async () => {
+    const { runner, setClock } = setup();
+    const times: number[] = [];
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
+      times.push(ctx.now.getTime());
+    });
+    await runner.start();
+    try {
+      await runner.tick();
+      setClock(MINUTE + 5 * SECOND);
+      await runner.tick();
+      await sleep(10);
+    } finally {
+      await runner.stop();
+    }
+    expect(times).toEqual([T0 + MINUTE + 5 * SECOND]);
+  });
+
+  it('runs a task once off its grid for a test hook, at the time it gives', async () => {
+    const { runner } = setup();
+    const runs: { now: number; attempt: number; aborted: boolean }[] = [];
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
+      runs.push({ now: ctx.now.getTime(), attempt: ctx.attempt, aborted: ctx.signal.aborted });
+    });
+    const now = new Date('2026-10-26T15:00:00.000Z');
+    expect(await runner.runPeriodicTask('reminders.sweep', { now })).toBe(true);
+    expect(await runner.runPeriodicTask('reminders.sweep')).toBe(true);
+    expect(await runner.runPeriodicTask('reminders.nothing')).toBe(false);
+    expect(runs).toEqual([
+      { now: now.getTime(), attempt: 1, aborted: false },
+      { now: T0, attempt: 1, aborted: false },
+    ]);
+  });
+
   it('cleans up finished jobs after 7 days', async () => {
     const { runner, store, setClock } = setup();
     runner.registerHandler('reminders.fire', async () => {});

@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '../_support/index.js';
 
@@ -138,4 +139,43 @@ export async function clickAndCapture(page: Page, button: Locator): Promise<Sent
     path: pathname + search,
     data: request.postData() ? request.postDataJSON() : undefined,
   };
+}
+
+/**
+ * Notes the page's own time whenever it asks /api for status numbers (a GET with "status" in its
+ * path). Call it before opening the page. With page.clock installed, that time is the test's clock.
+ * Returns a function that reads the times noted so far.
+ */
+export async function noteStatusFetches(page: Page): Promise<() => Promise<number[]>> {
+  await page.addInitScript(() => {
+    const times: number[] = [];
+    Object.assign(window, { carehubStatusFetches: times });
+    const send = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : undefined;
+      const url = new URL(request ? request.url : String(input), location.href);
+      const method = (init?.method ?? request?.method ?? 'GET').toUpperCase();
+      if (method === 'GET' && url.pathname.startsWith('/api/') && url.pathname.includes('status')) {
+        times.push(Date.now());
+      }
+      return send(input, init);
+    };
+  });
+  return () =>
+    page.evaluate(() => [
+      ...((window as unknown as { carehubStatusFetches?: number[] }).carehubStatusFetches ?? []),
+    ]);
+}
+
+/** One time per refresh: requests less than 2 seconds apart (the page may ask for two things). */
+export function refreshes(times: number[]): number[] {
+  return times.filter((time, i) => i === 0 || time - (times[i - 1] ?? time) >= 2_000);
+}
+
+/** axe's serious and critical findings on the whole page, as "rule: help (n places)". */
+export async function seriousAxeFindings(page: Page): Promise<string[]> {
+  const { violations } = await new AxeBuilder({ page }).analyze();
+  return violations
+    .filter((found) => found.impact === 'serious' || found.impact === 'critical')
+    .map((found) => `${found.id}: ${found.help} (${found.nodes.length} places)`);
 }
