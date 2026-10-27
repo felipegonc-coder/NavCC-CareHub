@@ -275,7 +275,7 @@ describe('CommentsPanel', () => {
     expect(within(card).queryByRole('button', { name: 'Resolve' })).toBeNull();
   });
 
-  it('offers Try again when the threads could not load', async () => {
+  it('offers Retry when the threads could not load', async () => {
     globalThis.fetch = (async () =>
       new Response('{}', {
         status: 500,
@@ -284,7 +284,7 @@ describe('CommentsPanel', () => {
     renderPanel();
     expect(await screen.findByText("Couldn't load comments.")).toBeInTheDocument();
     fakeCommentsServer([]);
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('No comments yet.')).toBeInTheDocument();
   });
 });

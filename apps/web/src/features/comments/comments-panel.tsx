@@ -8,8 +8,10 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
+  EmptyState,
+  ErrorState,
   IconButton,
-  Spinner,
+  LoadingState,
   Tabs,
   TabsContent,
   TabsList,
@@ -67,22 +69,17 @@ export function CommentsPanel({
 
   let body;
   if (query.isPending) {
-    body = <Spinner label="Loading comments" />;
+    body = <LoadingState label="Loading comments" className="w-full" />;
   } else if (!threads) {
     body = (
-      <div className="flex flex-col items-center gap-2">
-        <p className="text-small text-muted">Couldn&apos;t load comments.</p>
-        <Button variant="secondary" size="sm" onClick={() => void query.refetch()}>
-          Try again
-        </Button>
-      </div>
+      <ErrorState
+        message="Couldn't load comments."
+        onRetry={() => void query.refetch()}
+        retrying={query.isRefetching}
+      />
     );
   } else if (threads.length === 0) {
-    body = (
-      <p className="text-small text-muted">
-        {tab === 'open' ? 'No comments yet.' : 'No resolved comments.'}
-      </p>
-    );
+    body = <EmptyState message={tab === 'open' ? 'No comments yet.' : 'No resolved comments.'} />;
   } else {
     body = (
       <ul data-thread-list="" className="flex w-full flex-col gap-3">
