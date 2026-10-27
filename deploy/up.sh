@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Starts or updates Care Hub from the version checked out now:  sudo ./deploy/up.sh
+# Starts or updates Care Hub from the version checked out now:  sudo bash deploy/up.sh
 # 1. builds the app image from this checkout (Care Hub keeps running meanwhile);
 # 2. backs up the database and the files, if Care Hub is running;
 # 3. starts the new version and waits until it is healthy; the app runs its database
 #    migrations when it starts;
 # 4. checks https://CAREHUB_DOMAIN/api/health through Caddy.
-# --no-build starts the image as it is (built before, or pulled: see README.md).
+# --no-build starts the image built before, as it is.
 # --no-backup skips step 2; restore.sh uses it right after a restore.
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
@@ -16,17 +16,23 @@ for arg in "$@"; do
   case $arg in
     --no-build) build=0 ;;
     --no-backup) backup=0 ;;
-    *) die "Usage: sudo ./deploy/up.sh [--no-build] [--no-backup]" ;;
+    *) die "Usage: sudo bash deploy/up.sh [--no-build] [--no-backup]" ;;
   esac
 done
-[[ $EUID -eq 0 ]] || die "Run this with sudo: sudo ./deploy/up.sh"
+[[ $EUID -eq 0 ]] || die "Run this with sudo: sudo bash deploy/up.sh"
 command -v curl >/dev/null || die "curl is missing; install it first."
-[[ -f .env ]] || die "deploy/.env is missing: run sudo ./deploy/install.sh <domain> first."
+[[ -f .env ]] || die "deploy/.env is missing: run sudo bash deploy/install.sh <domain> first."
 data=$(setting CAREHUB_DATA_DIR) domain=$(setting CAREHUB_DOMAIN) ip=$(setting CAREHUB_TAILSCALE_IP)
-data=${data:-/srv/carehub}
+data=${data:-/srv/carehub} su=$(setting POSTGRES_USER)
+[[ $(setting CAREHUB_DB_USER) != "${su:-postgres}" ]] \
+  || die "CAREHUB_DB_USER in deploy/.env must not be the superuser POSTGRES_USER: the app needs its own role."
 for dir in postgres files backups/status/requests caddy/data caddy/config; do
-  [[ -d $data/$dir ]] || die "$data/$dir is missing: run sudo ./deploy/install.sh again."
+  [[ -d $data/$dir ]] || die "$data/$dir is missing: run sudo bash deploy/install.sh again."
 done
+# carehub-firewall.service: without its rule, devices on the LAN may reach Caddy.
+if ! iptables -C DOCKER-USER -m conntrack --ctdir ORIGINAL --ctorigdst "$ip" ! -i tailscale0 -j DROP 2>/dev/null; then
+  echo "Warning: no DOCKER-USER rule drops traffic for $ip that doesn't come over Tailscale, so devices on the LAN may reach Care Hub. Install carehub-firewall.service as in deploy/README.md (First start)." >&2
+fi
 if [[ -e $data/restore-incomplete ]]; then cat "$data/restore-incomplete" >&2; exit 1; fi
 exec 8>"$data/.carehub.lock"
 flock -n 8 || die "A restore or another up.sh is running. Try again when it has finished."
@@ -43,10 +49,10 @@ stamp=""
 rollback() {
   echo "Logs: sudo docker compose -f $PWD/docker-compose.yml logs --tail 100 app caddy" >&2
   if [[ -n $previous && $previous != unknown && $previous != "$(image_version)" ]]; then
-    echo "To go back to $previous: git checkout ${previous%-dirty}, then sudo ./deploy/up.sh" >&2
+    echo "To go back to $previous: git checkout ${previous%-dirty}, then sudo bash deploy/up.sh" >&2
     if [[ -n $stamp ]]; then
       echo "If the new version changed the database, put back the backup from just before instead:" >&2
-      echo "git checkout ${previous%-dirty}, then sudo ./deploy/restore.sh $stamp" >&2
+      echo "git checkout ${previous%-dirty}, then sudo bash deploy/restore.sh $stamp" >&2
     fi
   fi
   exit 1

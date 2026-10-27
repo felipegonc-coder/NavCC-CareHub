@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Prepares this server for Care Hub. Run it in the checkout:
-#   sudo ./deploy/install.sh carehub.tail1234.ts.net    (the server's Tailscale name)
+#   sudo bash deploy/install.sh carehub.tail1234.ts.net    (the server's Tailscale name)
 # It creates deploy/.env from .env.example with this server's values and random secrets
 # (root only, mode 600), unless .env exists: then it keeps it. It creates the data folders
 # in CAREHUB_DATA_DIR (default /srv/carehub), owned by the service user CAREHUB_USER
-# (default carehub), mode 700. Safe to run again. Then start Care Hub: sudo ./deploy/up.sh
+# (default carehub), mode 700. Safe to run again. Then start Care Hub: sudo bash deploy/up.sh
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 die() { echo "$*" >&2; exit 1; }
 warn() { echo "Warning: $*" >&2; }
 setting() { sed -n "s/^$1=//p" .env | tail -n 1 | sed -E "s/^([\"'])(.*)\\1\$/\\2/"; }
-[[ $EUID -eq 0 ]] || die "Run this with sudo: sudo ./deploy/install.sh <domain>"
+[[ $EUID -eq 0 ]] || die "Run this with sudo: sudo bash deploy/install.sh <domain>"
 docker compose version >/dev/null 2>&1 || die "Docker Engine with the Compose plugin is needed first (see deploy/README.md)."
 command -v flock >/dev/null || die "flock is missing (package util-linux)."
 
@@ -24,7 +24,7 @@ if [[ -f .env ]]; then
 else
   domain=${1:-}
   [[ $domain =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] \
-    || die "Usage: sudo ./deploy/install.sh <the server's Tailscale name, e.g. carehub.tail1234.ts.net>"
+    || die "Usage: sudo bash deploy/install.sh <the server's Tailscale name, e.g. carehub.tail1234.ts.net>"
   user=${CAREHUB_USER:-carehub}
   uid=$(id -u "$user" 2>/dev/null) && gid=$(id -g "$user") \
     || die "There is no user $user. Create it: sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin $user"
@@ -38,9 +38,9 @@ fi
   || die "CAREHUB_DATA_DIR must be an absolute path of letters, digits and . _ - /, not '$data'."
 
 if [[ ! -f .env ]]; then
-  pw=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
-  key=$(head -c 32 /dev/urandom | base64)
-  [[ ${#pw} == 48 && ${#key} == 44 ]] || die "Could not make random secrets."
+  random() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; } # 48 hex digits
+  pw=$(random) app_pw=$(random) key=$(head -c 32 /dev/urandom | base64)
+  [[ ${#pw} == 48 && ${#app_pw} == 48 && ${#key} == 44 ]] || die "Could not make random secrets."
   (
     umask 077
     sed -e "s|^CAREHUB_DOMAIN=.*|CAREHUB_DOMAIN=$domain|" \
@@ -50,11 +50,11 @@ if [[ ! -f .env ]]; then
       -e "s|^CAREHUB_UID=.*|CAREHUB_UID=$uid|" \
       -e "s|^CAREHUB_GID=.*|CAREHUB_GID=$gid|" \
       -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$pw|" \
-      -e "s|^\(DATABASE_URL=.*\):change-me@|\1:$pw@|" \
+      -e "s|^CAREHUB_DB_PASSWORD=.*|CAREHUB_DB_PASSWORD=$app_pw|" \
       -e "s|^CALENDAR_SECRET_KEY=.*|CALENDAR_SECRET_KEY=$key|" \
       .env.example > .env.new
   )
-  grep -q "^DATABASE_URL=.*:$pw@" .env.new || { rm -f .env.new; die "Could not put the database password in DATABASE_URL."; }
+  ! grep -q change-me .env.new || { rm -f .env.new; die "Could not replace every change-me in .env.example."; }
   mv .env.new .env
   echo "Created deploy/.env (root only, mode 600) for https://$domain on $ip."
 fi
@@ -68,10 +68,10 @@ echo "The data folders are in $data (owner $uid:$gid, mode 700)."
 
 # Steps from deploy/README.md that this script doesn't do itself.
 if [[ $(sysctl -n net.ipv4.ip_nonlocal_bind 2>/dev/null) != 1 ]]; then
-  warn "net.ipv4.ip_nonlocal_bind is not 1, so Care Hub may not start at boot before Tailscale is up. See \"Prerequisites\" in deploy/README.md."
+  warn "net.ipv4.ip_nonlocal_bind is not 1, so Care Hub may not start at boot before Tailscale is up. See \"Before the first deploy\" in deploy/README.md."
 fi
 name=$(id -un "$uid" 2>/dev/null || echo "$uid")
 if [[ $domain == *.ts.net ]] && ! grep -Eqs "^TS_PERMIT_CERT_UID=\"?($uid|$name)\"?\$" /etc/default/tailscaled; then
-  warn "/etc/default/tailscaled has no TS_PERMIT_CERT_UID=$name, so Caddy can't get the HTTPS certificate. See \"Prerequisites\" in deploy/README.md."
+  warn "/etc/default/tailscaled has no TS_PERMIT_CERT_UID=$name, so Caddy can't get the HTTPS certificate. See \"Before the first deploy\" in deploy/README.md."
 fi
-echo "Next: sudo ./deploy/up.sh"
+echo "Next: carehub-firewall.service (deploy/README.md, First start), then sudo bash deploy/up.sh"

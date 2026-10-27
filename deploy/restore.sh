@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Puts a backup back:  sudo ./deploy/restore.sh                    lists the finished backups
-#                      sudo ./deploy/restore.sh latest|STAMP
+# Puts a backup back:  sudo bash deploy/restore.sh                lists the finished backups
+#                      sudo bash deploy/restore.sh latest|STAMP
 # It stops the app, saves the current data first (backups/pre-restore-*), replaces the
 # database and the uploaded files, then starts the version checked out now with up.sh.
 # --confirmed skips the question; use it only when the person in charge has agreed.
@@ -14,11 +14,11 @@ for arg in "$@"; do
   case $arg in
     --confirmed) confirmed=1 ;;
     --no-build) up+=(--no-build) ;;
-    -*) die "Usage: sudo ./deploy/restore.sh [latest|STAMP] [--confirmed] [--no-build]" ;;
+    -*) die "Usage: sudo bash deploy/restore.sh [latest|STAMP] [--confirmed] [--no-build]" ;;
     *) stamp=$arg ;;
   esac
 done
-[[ $EUID -eq 0 ]] || die "Run this with sudo: sudo ./deploy/restore.sh"
+[[ $EUID -eq 0 ]] || die "Run this with sudo: sudo bash deploy/restore.sh"
 [[ -f .env ]] || die "deploy/.env is missing: Care Hub isn't installed here."
 data=$(setting CAREHUB_DATA_DIR)
 data=${data:-/srv/carehub}
@@ -26,12 +26,12 @@ mapfile -t stamps < <(find "$data/backups" -maxdepth 1 -name 'carehub-*.sha256' 
 if [[ -z $stamp ]]; then
   echo "Finished backups in $data/backups, oldest first:"
   printf '  %s\n' "${stamps[@]:-(none)}"
-  echo "Usage: sudo ./deploy/restore.sh latest   or   sudo ./deploy/restore.sh STAMP"
+  echo "Usage: sudo bash deploy/restore.sh latest   or   sudo bash deploy/restore.sh STAMP"
   exit 0
 fi
 ((${#stamps[@]})) || die "There are no finished backups in $data/backups."
 if [[ $stamp == latest ]]; then stamp=${stamps[-1]}; fi
-[[ " ${stamps[*]} " == *" $stamp "* ]] || die "There is no finished backup $stamp; sudo ./deploy/restore.sh lists them."
+[[ " ${stamps[*]} " == *" $stamp "* ]] || die "There is no finished backup $stamp; sudo bash deploy/restore.sh lists them."
 
 top=$(readlink -f ..) # git runs as the owner of the checkout, not as root
 version=$(sudo -u "$(stat -c %U "$top")" git -C "$top" describe --tags --always --dirty 2>/dev/null || echo unknown)
@@ -54,7 +54,7 @@ if ((rc == 0)); then
   rm -f "$data/restore-incomplete"
   echo "The data from $stamp is back."
   exec 8>&-
-  exec ./up.sh "${up[@]}"
+  exec bash ./up.sh "${up[@]}"
 fi
 if ((rc == 2)) && [[ ! -e $data/restore-incomplete ]]; then
   docker compose up -d --no-build app backup
@@ -62,7 +62,7 @@ if ((rc == 2)) && [[ ! -e $data/restore-incomplete ]]; then
   exit 2
 fi
 printf '%s\n' "The restore of $stamp stopped partway (exit $rc) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." \
-  "Care Hub stays stopped until this succeeds: sudo ./deploy/restore.sh $stamp" \
+  "Care Hub stays stopped until this succeeds: sudo bash deploy/restore.sh $stamp" \
   "The data from before the restore is in $data/backups/pre-restore-*." > "$data/restore-incomplete"
 cat "$data/restore-incomplete" >&2
 exit 1

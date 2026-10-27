@@ -3,14 +3,19 @@
 # lives in CAREHUB_DATA_DIR (default /srv/carehub). See README.md.
 name: carehub
 
-# Every service runs as the Care Hub user (never root), can't gain privileges and keeps
-# compact, rotated logs. None of them gets the Docker socket.
+# Every service runs as the Care Hub user (never root), without capabilities, can't gain
+# privileges and keeps compact, rotated logs. None of them gets the Docker socket.
 x-service: &service
   restart: unless-stopped
   user: '${CAREHUB_UID:?set CAREHUB_UID in .env}:${CAREHUB_GID:?set CAREHUB_GID in .env}'
+  cap_drop: [ALL]
   security_opt: ['no-new-privileges:true']
   logging:
     driver: local
+
+# Caddy's fixed address on the front network. The app trusts X-Forwarded-For only from this
+# address (TRUST_PROXY), so it sees each person's own IP address.
+x-caddy-ip: &caddy-ip 172.31.250.2
 
 services:
   app:
@@ -22,8 +27,27 @@ services:
         CAREHUB_BUILD_DATE: ${CAREHUB_BUILD_DATE:-}
     image: carehub-app:local
     init: true
-    env_file: .env
-    expose: ['3000'] # only for Caddy, on the compose network
+    read_only: true
+    tmpfs: ['/tmp']
+    # Only the settings the app needs, never the superuser's password. A new setting in .env
+    # reaches the app only once it is listed here.
+    environment:
+      DATABASE_URL: postgres://${CAREHUB_DB_USER:?set CAREHUB_DB_USER in .env}:${CAREHUB_DB_PASSWORD:?set CAREHUB_DB_PASSWORD in .env}@db:5432/${POSTGRES_DB:-carehub}
+      CAREHUB_PUBLIC_URL: ${CAREHUB_PUBLIC_URL:?set CAREHUB_PUBLIC_URL in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      TRUST_PROXY: *caddy-ip
+      TZ: ${TZ:-America/Denver}
+      BACKUP_AT: ${BACKUP_AT:-02:00}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      PUSH_VAPID_PUBLIC_KEY: ${PUSH_VAPID_PUBLIC_KEY:-}
+      PUSH_VAPID_PRIVATE_KEY: ${PUSH_VAPID_PRIVATE_KEY:-}
+      PUSH_VAPID_SUBJECT: ${PUSH_VAPID_SUBJECT:-}
+      CALENDAR_SECRET_KEY: ${CALENDAR_SECRET_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MODELS_DIR: ${MODELS_DIR:-}
+    expose: ['3000'] # only for Caddy, on the front network
+    networks: [front, back]
     volumes:
       - ${CAREHUB_DATA_DIR:-/srv/carehub}/files:/data/files
       # For the Status page: backup results (read-only), and requests/ to ask for a backup.
@@ -38,16 +62,22 @@ services:
     # Pinned by digest; bumped by hand (see "Base images" in README.md).
     image: &postgres postgres:17@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-carehub}
+      # The superuser, only for backups and restores. db-init.sql creates the app's own role.
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-carehub}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      CAREHUB_DB_USER: ${CAREHUB_DB_USER:?set CAREHUB_DB_USER in .env}
+      CAREHUB_DB_PASSWORD: ${CAREHUB_DB_PASSWORD:?set CAREHUB_DB_PASSWORD in .env}
       # A password (scram-sha-256) for every connection, local ones too. Never "trust".
       POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
       TZ: ${TZ:-America/Denver}
-    expose: ['5432'] # only for the app and the backups, on the compose network
+    expose: ['5432'] # only for the app and the backups, on the back network
+    networks: [back]
     volumes:
       - ${CAREHUB_DATA_DIR:-/srv/carehub}/postgres:/var/lib/postgresql/data
+      # Runs only when postgres/ is empty, on the very first start.
+      - ./db-init.sql:/docker-entrypoint-initdb.d/carehub-app-role.sql:ro
     healthcheck:
       # 127.0.0.1, not the socket, so the temporary server during first start doesn't count.
       test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
@@ -61,6 +91,12 @@ services:
   caddy:
     <<: *service
     image: caddy:2@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489
+    # The caddy binary has the file capability cap_net_bind_service and doesn't start unless
+    # the bounding set keeps it. It gets no capabilities from it (non-root, no-new-privileges):
+    # it binds ports 80 and 443 thanks to ip_unprivileged_port_start below.
+    cap_add: [NET_BIND_SERVICE]
+    read_only: true
+    tmpfs: ['/tmp']
     # Only on the server's Tailscale address, so Care Hub can't be reached from the internet.
     ports:
       - '${CAREHUB_TAILSCALE_IP:?set CAREHUB_TAILSCALE_IP in .env}:80:80'
@@ -71,6 +107,9 @@ services:
       net.ipv4.ip_unprivileged_port_start: 0
     environment:
       CAREHUB_DOMAIN: ${CAREHUB_DOMAIN:?set CAREHUB_DOMAIN in .env}
+    networks:
+      front:
+        ipv4_address: *caddy-ip
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ${CAREHUB_DATA_DIR:-/srv/carehub}/caddy/data:/data
@@ -89,13 +128,17 @@ services:
     entrypoint: ['bash', '/opt/carehub/backup.sh']
     command: ['schedule']
     environment:
+      # The superuser reads everything for pg_dump; restores give everything back to the
+      # app's role, CAREHUB_DB_USER.
       PGHOST: db
-      PGUSER: ${POSTGRES_USER:-carehub}
+      PGUSER: ${POSTGRES_USER:-postgres}
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       PGDATABASE: ${POSTGRES_DB:-carehub}
+      CAREHUB_DB_USER: ${CAREHUB_DB_USER:?set CAREHUB_DB_USER in .env}
       TZ: ${TZ:-America/Denver}
       BACKUP_AT: ${BACKUP_AT:-02:00}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+    networks: [back]
     volumes:
       - ./backup.sh:/opt/carehub/backup.sh:ro
       - ${CAREHUB_DATA_DIR:-/srv/carehub}/backups:/backups
@@ -103,3 +146,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+networks:
+  # Caddy and the app. A fixed subnet, so Caddy's address is known; containers without a fixed
+  # address get one from ip_range. If the LAN uses this subnet, pick another (and x-caddy-ip).
+  front:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+          gateway: 172.31.250.1
+          ip_range: 172.31.250.128/25
+  # The app, PostgreSQL and the backups, with no way out: Caddy can't reach PostgreSQL.
+  back:
+    internal: true
