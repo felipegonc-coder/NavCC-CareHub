@@ -84,6 +84,17 @@ export function unify(a: FormulaType, b: FormulaType): FormulaType | null {
 
 // ------------------------------------------------------------------ schema and context
 
+/**
+ * A value a formula reads with prop() like a property, though it isn't one: a button's Pressed by,
+ * Pressed at and This row, and its variables (their "extra values show in the Properties list").
+ * Only the formula's own row has them; their values come with each run.
+ */
+export interface FormulaInput {
+  id: Id;
+  name: string;
+  type: FormulaType;
+}
+
 /** What the checker knows about a database: its properties and the databases its relations reach. */
 export interface FormulaSchema {
   properties: readonly Property[];
@@ -93,6 +104,8 @@ export interface FormulaSchema {
   kindOf(prop: Property): FormulaType | null;
   /** Deleted properties (kept 30 days), so messages and the editor can still name them. */
   deleted?: readonly { id: Id; name: string }[];
+  /** Inputs the formula's own row has besides its properties; by name they come first. */
+  inputs?: readonly FormulaInput[];
 }
 
 /** Results of a pattern engine; error is a message for the cell, such as "⚠ Pattern too slow". */
