@@ -38,13 +38,16 @@ export interface EntryActions {
   /** Adds an untitled page and opens it with the cursor in the title. */
   create(place: NewPagePlace): void;
   move(page: TreeNode, to: MoveTo): void;
-  /** Opens "Move to" for the page. */
-  chooseMove(page: TreeNode): void;
+  /** Opens "Move to" for the page, or the "Add to" picker of a new page. */
+  chooseMove(page: TreeNode, purpose?: MovePurpose): void;
 }
+
+/** Why the place picker opens: "Move to", or "Add to" for a page made with "New page". */
+export type MovePurpose = 'move' | 'add';
 
 /** What the screen using the actions shows for moves (see `useMoveDialogs`). */
 export interface MoveHost {
-  chooseMove(page: TreeNode): void;
+  chooseMove(page: TreeNode, purpose?: MovePurpose): void;
   /** Asks whether to go ahead with a move that changes who can open the page. */
   confirmMove(page: TreeNode, change: AccessChange): Promise<boolean>;
 }
@@ -53,6 +56,10 @@ type Change = (data: unknown, key: readonly unknown[]) => unknown;
 
 /** Page data in the cache; the person's settings and account aren't touched. */
 const isPageData = (query: Query) => !['prefs', 'me'].includes(String(query.queryKey[1]));
+
+/** Loads the trees, lists and pages again, after a page was added. */
+export const refreshPageData = (queryClient: QueryClient) =>
+  queryClient.invalidateQueries({ queryKey: pagesKeys.all, predicate: isPageData });
 
 const hasId = (item: unknown): item is { id: string } =>
   typeof item === 'object' && item !== null && typeof (item as { id?: unknown }).id === 'string';
@@ -144,7 +151,7 @@ export function useEntryActions(host: MoveHost): EntryActions {
       create(place) {
         createPage(place).then(
           (page) => {
-            void queryClient.invalidateQueries({ queryKey: pagesKeys.all, predicate: isPageData });
+            void refreshPageData(queryClient);
             void navigate(pageUrl(page.id), { state: { focusTitle: true } });
           },
           (error: unknown) => failed("Couldn't add the page.", error),
@@ -173,7 +180,7 @@ export function useEntryActions(host: MoveHost): EntryActions {
         void run(false);
       },
 
-      chooseMove: (page) => host.chooseMove(page),
+      chooseMove: (page, purpose) => host.chooseMove(page, purpose),
     } satisfies EntryActions;
   }, [canCreate, favorites, host, moveToTrash, navigate, queryClient, setStarred, toast]);
 }

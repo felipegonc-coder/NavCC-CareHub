@@ -12,7 +12,7 @@ import {
 } from '@carehub/ui';
 import { useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useMemo, useState, type ReactNode } from 'react';
-import type { MoveHost } from './actions';
+import type { MoveHost, MovePurpose } from './actions';
 import { fetchSpaces, fetchTree, pagesKeys, type AccessChange } from './api';
 import { movePlaces, type MoveTo } from './move';
 import { EntryIcon, titleOf } from './PageTree';
@@ -32,11 +32,11 @@ interface Asking {
  * `useEntryActions` and show `dialogs(actions.move)`.
  */
 export function useMoveDialogs() {
-  const [choosing, setChoosing] = useState<TreeNode | null>(null);
+  const [choosing, setChoosing] = useState<{ page: TreeNode; purpose: MovePurpose } | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
   const host = useMemo<MoveHost>(
     () => ({
-      chooseMove: (page) => setChoosing(page),
+      chooseMove: (page, purpose = 'move') => setChoosing({ page, purpose }),
       confirmMove: (page, change) =>
         new Promise<boolean>((resolve) => setAsking({ page, change, resolve })),
     }),
@@ -46,11 +46,12 @@ export function useMoveDialogs() {
     <>
       {choosing && (
         <MoveDialog
-          page={choosing}
+          page={choosing.page}
+          purpose={choosing.purpose}
           onClose={() => setChoosing(null)}
           onMove={(to) => {
             setChoosing(null);
-            move(choosing, to);
+            move(choosing.page, to);
           }}
         />
       )}
@@ -73,12 +74,14 @@ const dataOf = (results: UseQueryResult<TreeNode[]>[]) => results.map((result) =
 
 interface MoveDialogProps {
   page: TreeNode;
+  /** "add" titles it for a new page's "Add to" picker. */
+  purpose?: MovePurpose | undefined;
   onMove(to: MoveTo): void;
   onClose(): void;
 }
 
-/** Pick a space or a page to move the page into (Sidebar spec, section 3.2). */
-export function MoveDialog({ page, onMove, onClose }: MoveDialogProps) {
+/** Pick a space or a page to move the page into (Sidebar spec, sections 2 and 3.2). */
+export function MoveDialog({ page, purpose = 'move', onMove, onClose }: MoveDialogProps) {
   const [query, setQuery] = useState('');
   const spaces = useQuery({ queryKey: pagesKeys.spaces, queryFn: fetchSpaces });
   const trees = useQueries({
@@ -107,7 +110,9 @@ export function MoveDialog({ page, onMove, onClose }: MoveDialogProps) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="gap-3" aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>Move “{titleOf(page)}” to</DialogTitle>
+          <DialogTitle>
+            {purpose === 'add' ? 'Add' : 'Move'} “{titleOf(page)}” to
+          </DialogTitle>
         </DialogHeader>
         <Input
           type="search"

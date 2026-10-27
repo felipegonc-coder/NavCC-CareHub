@@ -7,21 +7,23 @@ import {
   type NodeViews,
   type SlashItem,
 } from '@carehub/editor';
-import { Button, buttonClasses, cn, Skeleton, VisuallyHidden } from '@carehub/ui';
+import { Button, cn } from '@carehub/ui';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState, type ReactNode } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import { ApiError } from '../../lib/api';
 import { slots } from '../../slots';
 import { useEntryActions } from './actions';
+import { AddTo } from './AddTo';
 import { fetchPage, pagesKeys, type PageDetail } from './api';
 import { usePageDoc } from './doc';
 import { useMoveDialogs } from './MoveDialog';
 import { startItems, tabTitle } from './page';
 import { PageBanner } from './PageBanner';
 import { columnClasses, PageHeader } from './PageHeader';
-import { PageMenu } from './PageMenu';
-import { PageTopBar, TopBarSkeleton } from './PageTopBar';
+import { asTreeNode, PageMenu } from './PageMenu';
+import { Loading, Problem } from './PageStates';
+import { PageTopBar } from './PageTopBar';
 
 /** Not found and no access don't get better by asking again. */
 const retry = (count: number, error: unknown) =>
@@ -53,47 +55,6 @@ export function PageScreen() {
   return <Loading />;
 }
 
-interface ProblemProps {
-  title: string;
-  text: string;
-  /** What to do instead of going Home. */
-  children?: ReactNode;
-}
-
-function Problem({ title, text, children }: ProblemProps) {
-  return (
-    <main className="mx-auto flex w-full max-w-page flex-col items-start gap-3 px-6 py-16">
-      <title>{`Care Hub · ${title}`}</title>
-      <h1 className="text-title">{title}</h1>
-      <p className="text-muted">{text}</p>
-      {children ?? (
-        <Link to="/" className={buttonClasses({ variant: 'secondary' })}>
-          Go to Home
-        </Link>
-      )}
-    </main>
-  );
-}
-
-/** The top bar and 6 grey lines, only once loading has taken 300 ms. */
-function Loading() {
-  const [late, setLate] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setLate(true), 300);
-    return () => clearTimeout(timer);
-  }, []);
-  if (!late) return <main />;
-  return (
-    <main className={cn(columnClasses(false), 'flex flex-col gap-3 pt-24')}>
-      <TopBarSkeleton />
-      <VisuallyHidden role="status">Loading the page</VisuallyHidden>
-      {['w-1/2', 'w-full', 'w-11/12', 'w-full', 'w-3/4', 'w-2/3'].map((width, index) => (
-        <Skeleton key={index} className={cn(index === 0 ? 'mb-4 h-10' : 'h-5', width)} />
-      ))}
-    </main>
-  );
-}
-
 function PageView({ page }: { page: PageDetail }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -104,7 +65,8 @@ function PageView({ page }: { page: PageDetail }) {
   const [empty, setEmpty] = useState(true);
   const [started, setStarted] = useState(false);
   const editable = atLeast(page.access, 'edit') && !page.locked && !page.archived && !page.deleted;
-  const focusTitle = (location.state as { focusTitle?: unknown } | null)?.focusTitle === true;
+  const state = location.state as { focusTitle?: unknown; addTo?: unknown } | null;
+  const focusTitle = state?.focusTitle === true;
   const parent = page.path[page.path.length - 1];
   const parentId = parent && parent.kind !== 'space' ? parent.id : null;
 
@@ -144,6 +106,9 @@ function PageView({ page }: { page: PageDetail }) {
       <PageTopBar page={page} actions={actions}>
         <PageMenu page={page} actions={actions} editor={editor} />
       </PageTopBar>
+      {state?.addTo === true && (
+        <AddTo page={page} onChoose={() => actions.chooseMove(asTreeNode(page), 'add')} />
+      )}
       <PageBanner page={page} />
       {slots.pageBanners.map(({ id, Component }) => (
         <Component key={id} page={slotPage} />
