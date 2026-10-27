@@ -104,5 +104,11 @@ If your computer has no internet access, you can't `git clone` or `npm install`:
 
 - Write files on your computer, then push them with the GitHub tool `push_files` (one commit per push). For more than a few files, write the tool's arguments as a JSON file and pass it with `arguments_file_path`.
 - Read repository files with `get_file_contents`.
+- **A working copy of `main`:** after every push to `main`, `.github/workflows/snapshot.yml` writes it to the branch `snapshot` as a few text files.
+  1. `get_file_contents` with `ref: refs/heads/snapshot` for `PARTS` (the part names, in order) and `SOURCE_SHA` (the commit they hold).
+  2. Get each part the same way and save its text, unchanged, to a file of the same name. A big result is saved to a file for you: take the text out with a short script.
+  3. `cat part-* | base64 -d > main.tar.gz`, check `sha256sum main.tar.gz` against the `SHA256` file, then `mkdir carehub && tar -xzf main.tar.gz -C carehub`.
+
+  Fetch it again only when you need a newer `main` (compare `SOURCE_SHA`). Never push to `snapshot` or start a branch from it: every run replaces it.
 - CI is your test runner: read the `<!-- carehub-ci-report -->` comment with `pull_request_read` `get_comments`, at most every 5 minutes (our token can't read `get_check_runs`). After any rate-limit error, wait 5 minutes, then 15. Add labels (`e2e`, `image`) with `issue_write`.
 - **Fixing a conflict without git:** if `update_pull_request_branch` fails because of a conflict in a file, (1) push that file with `main`'s exact content, (2) run `update_pull_request_branch` again, (3) push the file once more with your changes on top.
