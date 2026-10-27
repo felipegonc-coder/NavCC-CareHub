@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@carehub/databases": "*",
+    "@carehub/learning": "*",
     "@carehub/shared": "*",
     "@carehub/ui": "*",
     "@dnd-kit/core": "^6.3.1",
