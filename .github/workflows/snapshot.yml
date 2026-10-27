@@ -1,0 +1,71 @@
+# Writes main to the orphan `snapshot` branch as a few base64 tar.gz parts, so builders without
+# git can get a working copy in a few API calls (AGENTS.md, "Working copy"). It runs no code from
+# the repository and uses no third-party actions. Decision 0010: the security reviewer looks
+# before any change to this file merges.
+name: snapshot
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Write the snapshot branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PART_BYTES: '600000'
+        run: |
+          set -euo pipefail
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
+          echo "::add-mask::$auth"
+          remote="https://github.com/${GITHUB_REPOSITORY}.git"
+          work="$RUNNER_TEMP/snapshot"
+          mkdir -p "$work/src" "$work/out"
+
+          # Only git plumbing on the fetched commit: nothing from the repository runs.
+          git -C "$work/src" init -q
+          git -C "$work/src" -c http.extraheader="$auth" fetch -q --depth 1 "$remote" "$GITHUB_SHA"
+          git -C "$work/src" archive --format=tar.gz -o "$work/main.tar.gz" FETCH_HEAD
+
+          cd "$work/out"
+          base64 -w 0 "$work/main.tar.gz" | split -b "$PART_BYTES" -d -a 2 - part-
+          printf '%s\n' "$GITHUB_SHA" > SOURCE_SHA
+          sha256sum "$work/main.tar.gz" | cut -d ' ' -f 1 > SHA256
+          ls part-* > PARTS
+          cat > README.md <<'EOF'
+          # Snapshot of main
+
+          Written by `.github/workflows/snapshot.yml` on every push to main. Don't edit this branch:
+          each run replaces it with a single new commit.
+
+          - `SOURCE_SHA`: the commit on main that the parts hold.
+          - `PARTS`: the part files, in order.
+          - `SHA256`: the sha256 of the joined and decoded `main.tar.gz`.
+
+          To make a working copy without git (see AGENTS.md):
+
+              cat part-* | base64 -d > main.tar.gz
+              sha256sum main.tar.gz          # must equal the SHA256 file
+              mkdir carehub && tar -xzf main.tar.gz -C carehub
+          EOF
+
+          git init -q
+          git checkout -q --orphan snapshot
+          git add -A
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -m "Snapshot of main ${GITHUB_SHA} [skip ci]"
+          git -c http.extraheader="$auth" push -q --force "$remote" HEAD:refs/heads/snapshot
+          echo "snapshot: $(wc -l < PARTS) part(s) for ${GITHUB_SHA}"
