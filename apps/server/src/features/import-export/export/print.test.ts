@@ -17,6 +17,7 @@ const pages = new Map<string, ExportPageInfo>();
 const levels = new Map<string, Map<string, AccessLevel>>();
 const contents = new Map<string, unknown>();
 let membersCanExport: boolean | undefined;
+let visitsDatabase = '';
 
 describe.skipIf(!hasDatabase)('the Print view on Postgres', () => {
   let test: TestApp;
@@ -41,6 +42,8 @@ describe.skipIf(!hasDatabase)('the Print view on Postgres', () => {
         new Map(ids.map((id) => [id, levels.get(id)?.get(userId) ?? 'none'])),
       content: async (_db, pageId) => contents.get(pageId) ?? null,
       rowProperties: async () => [{ name: 'Status', value: 'Open' }],
+      csv: async (_db, { databaseId, viewId }) =>
+        databaseId === visitsDatabase ? `Client,Visits\nRowan Diaz,${viewId ? 2 : 4}\n` : null,
       membersCanExport: async () => membersCanExport,
     });
   });
@@ -82,7 +85,30 @@ describe.skipIf(!hasDatabase)('the Print view on Postgres', () => {
     expect(view.blocks).toHaveLength(3);
     expect(view.pages).toEqual({ [steps]: { title: 'Refund steps', icon: null }, [payroll]: null });
     expect(view.properties).toEqual([]);
+    expect(view.databases).toEqual([]);
     expect(JSON.stringify(view)).not.toContain('Payroll notes');
+  });
+
+  it('gives the inline databases they can open as their view, as CSV', async () => {
+    visitsDatabase = addPage('Visits', [[sam, 'view']]);
+    const hidden = addPage('Pay rates', [[avery, 'edit']]);
+    const plan = addPage('Week plan', [[sam, 'view']]);
+    const viewId = randomUUID();
+    contents.set(plan, {
+      type: 'doc',
+      content: [
+        { type: 'inlineDatabase', attrs: { databaseId: visitsDatabase } },
+        { type: 'inlineDatabase', attrs: { databaseId: visitsDatabase, viewId } },
+        { type: 'inlineDatabase', attrs: { databaseId: visitsDatabase } },
+        { type: 'inlineDatabase', attrs: { databaseId: hidden } },
+      ],
+    });
+    const view = (await print(sam, plan)).json() as PrintView;
+    expect(view.databases).toEqual([
+      { databaseId: visitsDatabase, viewId: null, csv: 'Client,Visits\nRowan Diaz,4\n' },
+      { databaseId: visitsDatabase, viewId, csv: 'Client,Visits\nRowan Diaz,2\n' },
+    ]);
+    expect(view.pages[hidden]).toBeNull();
   });
 
   it('works when exports are turned off, and needs Can view (IE-16)', async () => {
