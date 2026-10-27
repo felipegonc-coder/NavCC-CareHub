@@ -1,5 +1,6 @@
 // What other features may use from history (docs/extras/history.md).
+export { countExpiringVersions, nextCleanupAt, versionStorageBytes } from './retention';
 export { saveVersionNow } from './versions';
-export type { VersionRestoredEvent } from './events';
+export type { VersionRestoredEvent, VersionsCleanedEvent } from './events';
 export type { SavedVersion, SaveVersionOptions } from './versions';
 export type { VersionKind, VersionReason } from '@carehub/extras/history';

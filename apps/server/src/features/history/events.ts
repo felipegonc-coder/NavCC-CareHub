@@ -9,8 +9,12 @@ export type VersionRestoredEvent = {
   by: string;
 };
 
+/** The nightly clean-up deleted unnamed versions (Data settings records each clean-up). */
+export type VersionsCleanedEvent = { workspaceId: string; deleted: number; at: string };
+
 declare module '../../core/events' {
   interface CareHubEvents {
     'history.version.restored': VersionRestoredEvent;
+    'history.versions.cleaned': VersionsCleanedEvent;
   }
 }
