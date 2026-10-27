@@ -93,7 +93,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(import('./features/home/routes'), { prefix: '/api/home' });
 
-  // feature: calendar
+  await app.register(import('./features/calendar/routes'), { prefix: '/api/calendar' });
 
   // feature: meetings
 
