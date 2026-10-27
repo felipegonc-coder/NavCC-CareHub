@@ -45,6 +45,8 @@ export interface QuestionProps {
   onUploads(propertyId: Id, count: number): void;
   formId: Id;
   databaseId: Id;
+  /** The form's fill token, if it came with one: it goes with each upload. */
+  fill?: string | undefined;
 }
 
 interface Ids {
@@ -538,6 +540,7 @@ function FilesControl({
   onUpdate,
   onUploads,
   formId,
+  fill,
   ids,
 }: QuestionProps & { ids: Ids }) {
   const client = useFormsClient();
@@ -559,7 +562,7 @@ function FilesControl({
     const key = nextKey.current;
     setPending((list) => [...list, { key, name: file.name }]);
     try {
-      const saved = await client.uploadFile(file, { scope: formUploadScope(formId) });
+      const saved = await client.uploadFile(file, { scope: formUploadScope(formId), fill });
       const ref: FileRef = toFileRef(saved);
       onUpdate(prop.id, (previous) => [...filesOf(previous), ref]);
     } catch (failure) {

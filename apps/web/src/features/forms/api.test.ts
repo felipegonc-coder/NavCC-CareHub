@@ -19,6 +19,7 @@ function fakeRequest(answer: unknown) {
 }
 
 const unauthorized = () => new ApiError(401, 'unauthorized', 'Sign in to continue.');
+const keys = (v: unknown) => Object.keys(v as object);
 
 describe('createFormsClient', () => {
   it('asks for the form behind a link', async () => {
@@ -43,23 +44,28 @@ describe('createFormsClient', () => {
         body: { answers: { 'prop-name': 'Avery Lin' }, anonymous: false },
       },
     ]);
+    expect(keys(calls[0]?.body)).toEqual(['answers', 'anonymous']);
   });
 
   it('uses the public route for a form anyone can fill in', async () => {
-    const { request, calls } = fakeRequest(fillForm({ audience: 'anyone' }, { respondent: null }));
+    const { request, calls } = fakeRequest(
+      fillForm({ audience: 'anyone' }, { respondent: null, fill: 'fill-1' }),
+    );
     const client = createFormsClient(request);
     const data = await client.getPublicForm('ab/c');
     expect(data.form.audience).toBe('anyone');
+    expect(data.fill).toBe('fill-1');
     await client.submitPublicResponse('code-123', {
       answers: { 'prop-name': 'Avery Lin' },
       anonymous: true,
+      fill: 'fill-1',
     });
     expect(calls).toEqual([
       { method: 'GET', path: '/api/forms/public/ab%2Fc', body: undefined },
       {
         method: 'POST',
         path: '/api/forms/public/code-123/responses',
-        body: { answers: { 'prop-name': 'Avery Lin' }, anonymous: true },
+        body: { answers: { 'prop-name': 'Avery Lin' }, anonymous: true, fill: 'fill-1' },
       },
     ]);
     expect(publicCoverUrl('ab/c')).toBe('/api/forms/public/ab%2Fc/cover');
@@ -122,6 +128,13 @@ describe('parseFillForm', () => {
     });
     expect(data.gate).toEqual({ state: 'open', message: null });
     expect(data.respondent).toBeNull();
+    expect('fill' in data).toBe(false);
+  });
+
+  it('keeps a fill token only when it is a string', () => {
+    expect(parseFillForm({ ...fillForm(), fill: 'fill-1' }).fill).toBe('fill-1');
+    expect('fill' in parseFillForm({ ...fillForm(), fill: '' })).toBe(false);
+    expect('fill' in parseFillForm({ ...fillForm(), fill: 7 })).toBe(false);
   });
 
   it('keeps the gate message and the respondent', () => {

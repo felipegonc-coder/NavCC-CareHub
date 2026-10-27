@@ -46,6 +46,11 @@ export interface FillForm {
   gate: FormGate;
   /** The person signed in: their id for "Me" in logic, their time zone for dates. */
   respondent: Respondent | null;
+  /**
+   * A signed token for one fill of the form, when the server sends one (decision 0010). Each
+   * upload sends it as `X-Form-Fill`, and the response sends it as `fill`.
+   */
+  fill?: string;
 }
 
 /** One person in the Person question's picker (`GET /api/workspace/members?q=`). */
@@ -57,18 +62,19 @@ export interface PersonPick {
 }
 
 /**
- * What the fill screen sends: the answers, and `anonymous`, whether it told the person their name
- * isn't recorded. When that was true and the form isn't anonymous any more, the server answers
- * `form_changed` and saves nothing.
+ * What the fill screen sends: the answers; `anonymous`, whether it told the person their name
+ * isn't recorded (when that was true and the form isn't anonymous any more, the server answers
+ * `form_changed` and saves nothing); and the form's fill token, when it came with one.
  */
 export interface ResponseBody {
   answers: FormAnswers;
   anonymous: boolean;
+  fill?: string | undefined;
 }
 
 export interface FormsClient {
   getForm(code: string): Promise<FillForm>;
-  /** `{ answers, anonymous }` → `{ ok: true }`. The server checks everything again. */
+  /** `{ answers, anonymous, fill? }` → `{ ok: true }`. The server checks everything again. */
   submitResponse(code: string, body: ResponseBody): Promise<Ok>;
   /** The same two for a form anyone can fill in, with nobody signed in. */
   getPublicForm(code: string): Promise<FillForm>;
@@ -172,6 +178,7 @@ export function parseFillForm(raw: unknown): FillForm {
     properties: raw.properties.filter(isProperty),
     gate: readGate(raw.gate),
     respondent,
+    ...(typeof raw.fill === 'string' && raw.fill ? { fill: raw.fill } : {}),
   };
 }
 
@@ -198,16 +205,20 @@ export const apiRequest: RequestJson = <T>(method: HttpMethod, path: string, bod
   }
 };
 
+/** A response's body: `fill` only when there is one. */
+const responseBody = ({ answers, anonymous, fill }: ResponseBody) =>
+  fill ? { answers, anonymous, fill } : { answers, anonymous };
+
 export function createFormsClient(request: RequestJson = apiRequest): FormsClient {
   return {
     getForm: async (code) =>
       parseFillForm(await request<unknown>('GET', `/api/forms/${seg(code)}`)),
-    submitResponse: (code, { answers, anonymous }) =>
-      request<Ok>('POST', `/api/forms/${seg(code)}/responses`, { answers, anonymous }),
+    submitResponse: (code, body) =>
+      request<Ok>('POST', `/api/forms/${seg(code)}/responses`, responseBody(body)),
     getPublicForm: async (code) =>
       parseFillForm(await request<unknown>('GET', `/api/forms/public/${seg(code)}`)),
-    submitPublicResponse: (code, { answers, anonymous }) =>
-      request<Ok>('POST', `/api/forms/public/${seg(code)}/responses`, { answers, anonymous }),
+    submitPublicResponse: (code, body) =>
+      request<Ok>('POST', `/api/forms/public/${seg(code)}/responses`, responseBody(body)),
     searchPeople: (q) => request<PersonPick[]>('GET', `/api/workspace/members?q=${seg(q)}`),
     pickRows: (databaseId, q) =>
       request<RowPick[]>('GET', `/api/databases/${seg(databaseId)}/rows/pick?q=${seg(q)}`),

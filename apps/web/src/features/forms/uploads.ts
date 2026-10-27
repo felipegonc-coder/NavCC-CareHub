@@ -3,7 +3,8 @@
  * field `file`, query `scope=<feature>:<id>`), with progress. A stand-in for `uploadFile` from
  * apps/web/src/lib/files.ts until it lands. Forms anyone can fill in upload the same way with
  * nobody signed in: the `forms` scope takes anonymous uploads (decision 0010). Like every POST, an
- * upload carries the CSRF token from the `carehub_csrf` cookie, which core checks.
+ * upload carries the CSRF token from the `carehub_csrf` cookie, which core checks. When the form
+ * came with a `fill` token, an upload sends it as `X-Form-Fill`, which ties the file to this fill.
  */
 import type { FileRef } from '@carehub/databases';
 import { ApiError, OFFLINE_MESSAGE, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
@@ -23,6 +24,8 @@ export interface UploadedFile {
 export interface UploadOptions {
   /** `forms:<formId>` for file questions. */
   scope: string;
+  /** The form's fill token, when it came with one: sent as `X-Form-Fill`. */
+  fill?: string | undefined;
   /** Called with 0 to 1 as the file goes up. */
   onProgress?: (fraction: number) => void;
 }
@@ -78,6 +81,7 @@ export function uploadWithProgress(file: File, options: UploadOptions): Promise<
     xhr.setRequestHeader('Accept', 'application/json');
     const token = readCsrfToken();
     if (token) xhr.setRequestHeader('X-CSRF-Token', token);
+    if (options.fill) xhr.setRequestHeader('X-Form-Fill', options.fill);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && event.total > 0)
         options.onProgress?.(event.loaded / event.total);
