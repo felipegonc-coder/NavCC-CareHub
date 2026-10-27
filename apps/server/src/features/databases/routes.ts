@@ -1,6 +1,6 @@
 // Database routes at /api/databases (decision 0200): create a database, read it as the person may
-// see it, and change its settings; the property and view routes (property-routes.ts,
-// view-routes.ts) register here too.
+// see it, and change its settings; the property, view and template routes (property-routes.ts,
+// view-routes.ts, template-routes.ts) register here too.
 // Settings writes send `version`, lock the database's row, and answer like GET /:id with the new
 // version.
 import {
@@ -29,6 +29,8 @@ import {
   type DatabaseSettingsRequest,
 } from './requests';
 import { changeDatabase, insertDatabase, loadDatabase } from './store';
+import { registerTemplateRoutes } from './template-routes';
+import { followDatabaseDefault } from './templates';
 import { registerViewRoutes } from './view-routes';
 
 /** A two-way relation pair inside one database, named as given (or "Name 2" when taken). */
@@ -80,14 +82,17 @@ function settingsChanges(
     if (!atLeast(databasePageAccess(access), 'edit')) throw forbidden();
     changes.description = input.description;
   }
-  if (
-    input.defaultTemplateId !== undefined &&
-    input.defaultTemplateId !== current.defaultTemplateId
-  ) {
-    allow('manage_templates');
+  // "Set as default for all views": the database's default, and views drop their own.
+  if (input.defaultTemplateId !== undefined) {
     const id = input.defaultTemplateId;
-    if (id !== null && !current.templates.some((t) => t.id === id)) throw invalidRequest();
-    changes.defaultTemplateId = id;
+    const views = followDatabaseDefault(current.views);
+    const moved = views.some((view, i) => view !== current.views[i]);
+    if (id !== current.defaultTemplateId || moved) {
+      allow('manage_templates');
+      if (id !== null && !current.templates.some((t) => t.id === id)) throw invalidRequest();
+      if (id !== current.defaultTemplateId) changes.defaultTemplateId = id;
+      if (moved) changes.views = views;
+    }
   }
   if (input.rowPageLayout !== undefined) {
     allow('edit_properties');
@@ -139,7 +144,7 @@ function settingsChanges(
     if (properties.length > LIMITS.properties) throw invalid(DATABASE_MESSAGES.tooManyProperties);
     const added = properties.slice(current.properties.length);
     changes.properties = properties;
-    changes.views = withHiddenColumns(current.views, added);
+    changes.views = withHiddenColumns(changes.views ?? current.views, added);
   }
   return changes;
 }
@@ -197,4 +202,5 @@ export default async function databaseRoutes(app: FastifyInstance) {
 
   registerPropertyRoutes(app);
   registerViewRoutes(app);
+  registerTemplateRoutes(app);
 }
