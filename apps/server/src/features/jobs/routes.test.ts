@@ -120,6 +120,25 @@ describe('runner lifecycle', () => {
     }
     expect(await runner.get(jobId)).toMatchObject({ status: 'succeeded', result: { rows: 3 } });
   });
+
+  it('lets an app built while another is open share the running runner and its store', async () => {
+    const first = await build();
+    await first.ready();
+    const second = Fastify();
+    // Never used: the runner is running, so it keeps the first app's store.
+    const sql = {} as NonNullable<JobsRoutesOptions['sql']>;
+    await second.register(jobsRoutes, { prefix: '/api/jobs', runner, sql });
+    await second.ready();
+    await second.close();
+    expect(runner.isRunning()).toBe(true);
+    const { jobId } = await runner.schedule({
+      kind: 'automations.run',
+      payload: {},
+      ownerUserId: 'user-avery',
+      runAt: later(),
+    });
+    expect((await runner.get(jobId))?.status).toBe('queued');
+  });
 });
 
 describe('POST /api/jobs/test/periodic/:name', () => {

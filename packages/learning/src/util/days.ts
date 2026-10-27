@@ -117,3 +117,31 @@ export function isoDateInTimeZone(instant: string, timeZone: string): Day {
   const get = (type: string) => Number(formatted.find((p) => p.type === type)?.value);
   return format(get('year'), get('month'), get('day'));
 }
+
+/**
+ * Learning's calendar day (decision 0317): due dates, "overdue", "due soon" and "expiring soon" go
+ * by today in this zone, the same day for everyone, whatever their profile's time zone.
+ */
+export const LEARNING_DAY_ZONE = 'America/Denver';
+
+/**
+ * Today in LEARNING_DAY_ZONE. Just after midnight UTC it is still the day before there:
+ * learningToday(new Date("2026-10-28T00:30:00Z")) is "2026-10-27".
+ */
+export function learningToday(now: Date = new Date()): Day {
+  return isoDateInTimeZone(now.toISOString(), LEARNING_DAY_ZONE);
+}
+
+/**
+ * The time zone to show a person's times in (decision 0317): their profile's `timeZone` when Intl
+ * accepts it, else LEARNING_DAY_ZONE (empty, missing or unknown).
+ */
+export function profileZone(timeZone: string | null | undefined): string {
+  if (!timeZone) return LEARNING_DAY_ZONE;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+    return timeZone;
+  } catch {
+    return LEARNING_DAY_ZONE;
+  }
+}
