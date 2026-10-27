@@ -256,27 +256,36 @@ describe('toEmbed', () => {
 });
 
 describe('mediaSource', () => {
-  it('plays uploads, video sites and direct media links', () => {
+  it('plays uploads and video sites', () => {
     expect(mediaSource({ kind: 'file', fileId: 'file_1' }, 'video')).toEqual({
       kind: 'file',
       fileId: 'file_1',
+    });
+    expect(mediaSource({ kind: 'file', fileId: 'file_2' }, 'audio')).toEqual({
+      kind: 'file',
+      fileId: 'file_2',
     });
     expect(mediaSource({ kind: 'url', url: `https://youtu.be/${YT}` }, 'video')).toMatchObject({
       kind: 'embed',
       embed: { provider: 'youtube', embedUrl: `https://www.youtube-nocookie.com/embed/${YT}` },
     });
-    expect(
-      mediaSource({ kind: 'url', url: 'https://media.example.org/tour.MP4' }, 'video'),
-    ).toEqual({
-      kind: 'link',
-      url: 'https://media.example.org/tour.MP4',
-    });
-    expect(
-      mediaSource({ kind: 'url', url: 'https://media.example.org/talk.mp3?sig=1' }, 'audio'),
-    ).toEqual({
-      kind: 'link',
-      url: 'https://media.example.org/talk.mp3?sig=1',
-    });
+  });
+
+  it('asks for an upload instead of playing media files from other sites', () => {
+    const video =
+      "Care Hub can't play video files from other sites. Download the video, then upload it here.";
+    const audio =
+      "Care Hub can't play audio from other sites. Download the file, then upload it here.";
+    for (const url of ['https://media.example.org/tour.MP4', 'http://media.example.org/tour.webm'])
+      expect(mediaSource({ kind: 'url', url }, 'video')).toEqual({
+        kind: 'refused',
+        reason: video,
+      });
+    for (const url of ['https://media.example.org/talk.mp3?sig=1', `https://youtu.be/${YT}`])
+      expect(mediaSource({ kind: 'url', url }, 'audio')).toEqual({
+        kind: 'refused',
+        reason: audio,
+      });
   });
 
   it('refuses everything else with a plain reason', () => {
@@ -284,21 +293,16 @@ describe('mediaSource', () => {
       kind: 'refused',
       reason: "This YouTube link isn't a video. Open the video and copy its address, or use Share.",
     });
-    expect(
-      mediaSource({ kind: 'url', url: `https://docs.google.com/document/d/${DOC}/edit` }, 'video'),
-    ).toEqual({
-      kind: 'refused',
-      reason:
-        "This link isn't a video Care Hub can play. Use a link from YouTube, Vimeo, Loom, Wistia, a link to an MP4 or WebM file, or upload the video.",
-    });
-    expect(mediaSource({ kind: 'url', url: `https://youtu.be/${YT}` }, 'audio')).toEqual({
-      kind: 'refused',
-      reason: "This link isn't an audio file. Link to an MP3, M4A, WAV or OGG file, or upload it.",
-    });
-    expect(
-      mediaSource({ kind: 'url', url: 'https://media.example.org/talk.mp3' }, 'video'),
-    ).toMatchObject({
-      kind: 'refused',
-    });
+    const other =
+      "This link isn't a video Care Hub can play. Use a link from YouTube, Vimeo, Loom or Wistia, or upload the video.";
+    for (const url of [
+      `https://docs.google.com/document/d/${DOC}/edit`,
+      'https://media.example.org/talk.mp3',
+      'not a link',
+    ])
+      expect(mediaSource({ kind: 'url', url }, 'video')).toEqual({
+        kind: 'refused',
+        reason: other,
+      });
   });
 });
