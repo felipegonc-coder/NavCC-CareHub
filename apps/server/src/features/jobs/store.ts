@@ -1,9 +1,6 @@
-import type { Job, JobStatus, JobStore, NewJob } from './domain/types';
+import type { Job, JobStatus, JobStore, NewJob, SqlRunner } from './domain/types';
 
-/** The one database call the store needs. A node-postgres Pool or Client fits. */
-export interface SqlRunner {
-  query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
-}
+export type { SqlRunner } from './domain/types';
 
 interface Row {
   id: string;
@@ -102,6 +99,8 @@ export function createPostgresJobStore(sql: SqlRunner): JobStore {
   }
 
   return {
+    within: (other) => createPostgresJobStore(other),
+
     async insert(job) {
       // The unfinished job with this key may finish between the two statements: try again.
       for (let attempt = 0; attempt < 3; attempt += 1) {
