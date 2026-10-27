@@ -1,5 +1,6 @@
 // Access rules on a real database (decision 0012): space members, grants, inheritance, role limits,
 // guests and database levels. Fictional people only.
+import type { AccessLevel, BuiltInRoleKey } from '@carehub/shared';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
@@ -13,51 +14,14 @@ import {
   writeGrant,
   type Principal,
 } from './access';
-import type { AccessLevel } from './levels';
-
-type Role = 'admin' | 'editor' | 'commenter' | 'viewer';
-const PERMISSIONS: Record<Role, string[]> = {
-  admin: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share', 'workspace.admin'],
-  editor: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share', 'templates.manage'],
-  commenter: ['pages.comment'],
-  viewer: [],
-};
 
 let close: () => Promise<void>;
 let app: Awaited<ReturnType<typeof createTestApp>>['app'];
 let db: Db;
 let workspaceId: string;
-const roleIds = {} as Record<Role, string>;
 const people = {} as Record<'admin' | 'editor' | 'editor2' | 'commenter' | 'viewer', TestUser>;
 
-// Stand-ins for the roles pull request's tables (decision 0007 names) until it lands; then these
-// helpers become createUser(db, { role }).
-async function standInWorkspace() {
-  await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
-  await db.execute(sql`CREATE TABLE IF NOT EXISTS roles (id uuid PRIMARY KEY DEFAULT
-    gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL, permissions text[] NOT NULL)`);
-  await db.execute(sql`CREATE TABLE IF NOT EXISTS workspace_members (workspace_id uuid NOT NULL,
-    user_id uuid NOT NULL, role_id uuid, kind text NOT NULL DEFAULT 'member',
-    PRIMARY KEY (workspace_id, user_id))`);
-  const { rows } = await db.execute<{ id: string }>(
-    sql`INSERT INTO workspaces (name) VALUES ('Care Hub') RETURNING id`,
-  );
-  workspaceId = rows[0]!.id;
-  for (const role of Object.keys(PERMISSIONS) as Role[]) {
-    const { rows: made } = await db.execute<{ id: string }>(sql`
-      INSERT INTO roles (workspace_id, name, permissions)
-      VALUES (${workspaceId}, ${role}, ${`{${PERMISSIONS[role].join(',')}}`}::text[]) RETURNING id`);
-    roleIds[role] = made[0]!.id;
-  }
-}
-
-async function person(role: Role, name: string): Promise<TestUser> {
-  const user = await createUser(db, { name });
-  await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
-    VALUES (${workspaceId}, ${user.id}, ${roleIds[role]})`);
-  return user;
-}
+const person = (role: BuiltInRoleKey, name: string) => createUser(db, { role, name });
 
 let made = 0;
 async function space(kind = 'open', ownerId: string | null = null) {
@@ -118,8 +82,8 @@ describe.skipIf(!hasDatabase)('page access', () => {
         }));
       },
     }));
-    await standInWorkspace();
     people.admin = await person('admin', 'Avery Admin');
+    workspaceId = people.admin.workspaceId!;
     people.editor = await person('editor', 'Eli Editor');
     people.editor2 = await person('editor', 'Emery Editor');
     people.commenter = await person('commenter', 'Casey Commenter');
@@ -158,7 +122,7 @@ describe.skipIf(!hasDatabase)('page access', () => {
 
   it('lets a role grant reach people who get the role later (RP-07)', async () => {
     const p = await page(await space('closed'));
-    await grant({ pageId: p }, { type: 'role', id: roleIds.commenter }, 'comment');
+    await grant({ pageId: p }, { type: 'role', id: people.commenter.roleId! }, 'comment');
     const later = await person('commenter', 'Lee Later');
     expect(await levels(later, [p])).toEqual(['comment']);
     expect(await levels(people.viewer, [p])).toEqual(['none']);
@@ -225,10 +189,7 @@ describe.skipIf(!hasDatabase)('page access', () => {
   });
 
   it('reaches guests only through grants to them, without the role limit, up to Can edit', async () => {
-    const guest = await person('viewer', 'Gray Guest');
-    await db.execute(
-      sql`UPDATE workspace_members SET kind = 'guest', role_id = NULL WHERE user_id = ${guest.id}`,
-    );
+    const guest = await createUser(db, { kind: 'guest', name: 'Gray Guest' });
     const s = await space();
     const p = await page(s);
     await grant({ spaceId: s }, everyone, 'edit');
@@ -256,6 +217,21 @@ describe.skipIf(!hasDatabase)('page access', () => {
       [missing, 'none'],
       ['nope', 'none'],
     ]);
+  });
+
+  it('closes everything to people removed from the workspace, and spaces in Trash', async () => {
+    const s = await space();
+    const p = await page(s);
+    const leaver = await person('editor', 'Lane Leaver');
+    await join(s, leaver);
+    await join(s, people.editor);
+    expect(await levels(leaver, [p])).toEqual(['edit']);
+    await db.execute(
+      sql`UPDATE workspace_members SET removed_at = now() WHERE user_id = ${leaver.id}`,
+    );
+    expect(await levels(leaver, [p])).toEqual(['none']);
+    await db.execute(sql`UPDATE spaces SET deleted_at = now() WHERE id = ${s}`);
+    expect(await levels(people.editor, [p])).toEqual(['none']);
   });
 
   it('needs Full access to change grants and records every change (RP-04, RP-15)', async () => {

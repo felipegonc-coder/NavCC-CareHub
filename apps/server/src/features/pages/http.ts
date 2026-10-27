@@ -6,6 +6,7 @@ import { httpError } from '../../core/errors';
 export const invalid = (message: string) => httpError(400, 'invalid', message);
 export const forbidden = () => httpError(403, 'forbidden');
 export const notFound = () => httpError(404, 'not_found');
+export const conflict = (message: string) => httpError(409, 'conflict', message);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (value: unknown): value is string =>
