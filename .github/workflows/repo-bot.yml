@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - '**/package.json'
+      - 'apps/web/public/favicon.svg'
+      - 'apps/web/public/icons/**'
+      - '.github/workflows/repo-bot.yml'
 
 concurrency:
   group: ${{ github.workflow }}
@@ -71,3 +74,66 @@ jobs:
             git pull --rebase origin main
             git push origin HEAD:main
           fi
+
+      # --- App icons: owned by the image and deploy builder ---
+      # PNG icons made from the logo (apps/web/public/favicon.svg) for the web app manifest and
+      # the iPhone home screen, because builders can't commit binary files. They're made again
+      # only when a file is missing or the logo changed after the last icons commit. To change
+      # how they look, edit this step and delete apps/web/public/icons in the same pull request.
+      # They come after the other generated files, so a problem here never holds those up.
+      - name: App icons
+        run: |
+          src=apps/web/public/favicon.svg
+          out=apps/web/public/icons
+          files=(icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png)
+          last=$(git log -1 --format=%H -- "$out")
+          missing=0
+          for f in "${files[@]}"; do [ -f "$out/$f" ] || missing=1; done
+          if [ "$missing" = 0 ] && [ -n "$last" ] && [ -z "$(git rev-list -1 "$last..HEAD" -- "$src")" ]; then
+            echo 'The icons are up to date.'
+            exit 0
+          fi
+          if ! command -v magick >/dev/null && ! command -v convert >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq imagemagick librsvg2-bin >/dev/null
+          fi
+          if command -v magick >/dev/null; then im=(magick); id=(magick identify); else im=(convert); id=(identify); fi
+          # The logo is 32 units wide (96 dpi), so 3 dpi per pixel renders it at the final size.
+          # No dates in the files, so the same logo gives the same bytes.
+          png() { # size, background, output
+            "${im[@]}" -background "$2" -density $((3 * $1)) "$src" -resize "$1x$1" -flatten \
+              -strip -define png:exclude-chunk=date,time "$3"
+          }
+          mkdir -p "$out"
+          # Rounded corners stay transparent.
+          png 192 none "PNG32:$out/icon-192.png"
+          png 512 none "PNG32:$out/icon-512.png"
+          # Full squares in the logo's own background colour: Android crops maskable icons to its
+          # own shape, and iOS fills transparent corners with black. The "C" stays inside the
+          # maskable safe zone (the middle 80%).
+          bg=$("${im[@]}" "$out/icon-512.png" -format '%[pixel:p{16,256}]' info:)
+          png 512 "$bg" "PNG24:$out/icon-maskable-512.png"
+          png 180 "$bg" "PNG24:$out/apple-touch-icon.png"
+          for f in "${files[@]}"; do
+            size=${f//[!0-9]/}
+            size=${size:-180}
+            [ "$("${id[@]}" -format '%wx%h' "$out/$f")" = "${size}x${size}" ] || { echo "::error::$f is not ${size}x${size}"; exit 1; }
+          done
+          file "$out"/*.png
+
+      - name: Commit app icons
+        run: |
+          git add apps/web/public/icons
+          if git diff --cached --quiet; then
+            echo 'No new icons to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: update app icons'
+          if ! git push origin HEAD:main; then
+            echo 'main moved; rebasing and trying once more.'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+      # --- end App icons ---
