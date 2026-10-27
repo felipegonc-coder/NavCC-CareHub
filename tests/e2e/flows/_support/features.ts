@@ -31,7 +31,7 @@ export const onMain = {
   coEditing: false,
 
   /** Live updates and jobs in app.ts (#288): others' changes show without a reload. */
-  liveUpdates: false,
+  liveUpdates: true,
 
   /** Sharing: the share dialog, access levels, guests and share links. */
   sharing: false,
