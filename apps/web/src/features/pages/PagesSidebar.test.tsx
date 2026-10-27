@@ -144,6 +144,27 @@ describe('PagesSidebar', () => {
     expect(screen.queryByRole('group', { name: 'Recent' })).not.toBeInTheDocument();
   });
 
+  it('offers "Create space" next to Spaces, and a "…" on each space', async () => {
+    renderSidebar();
+    const spacesSection = await screen.findByRole('group', { name: 'Spaces' });
+    expect(
+      await within(spacesSection).findByRole('button', { name: 'Create space' }),
+    ).toBeInTheDocument();
+    expect(
+      within(spacesSection).getByRole('button', { name: 'General options' }),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves Spaces out for someone in no space who may not create one', async () => {
+    renderSidebar({
+      '/api/spaces': { spaces: [{ id: 'mine', kind: 'personal', name: 'Private', icon: null }] },
+      '/api/auth/me': { member: { permissions: [] } },
+    });
+    const own = await screen.findByRole('group', { name: 'Private' });
+    expect(await within(own).findByText('My notes')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Spaces' })).not.toBeInTheDocument();
+  });
+
   it('suggests starring pages until there are favorites', async () => {
     renderSidebar();
     expect(await screen.findByText('Star pages to keep them here.')).toBeInTheDocument();
