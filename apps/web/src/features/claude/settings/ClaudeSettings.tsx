@@ -1,9 +1,9 @@
 import {
+  CLAUDE_CONFIRM_LABEL,
+  CLAUDE_CONFIRM_NOTE,
   CLAUDE_FEATURE_LABELS,
   CLAUDE_FEATURE_SENDS,
   CLAUDE_FEATURES,
-  CLAUDE_NAV_OK_LABEL,
-  CLAUDE_NAV_OK_NOTE,
   type ClaudeFeature,
 } from '@carehub/extras/claude';
 import {
@@ -50,7 +50,7 @@ import { STATUS_KEY } from './StatusSync';
 
 // Settings → Claude, for Admins (Claude features spec, sections 2 and 3.1; docs/extras/claude.md).
 // Each change saves on its own and shows "Saved" for 2 seconds (Settings and members spec, States).
-// Turning a switch on asks first, and Turn on stays grey until "Nav has given the OK" is ticked.
+// Turning a switch on asks first, and Turn on stays grey until the confirm's checkbox is ticked.
 
 export const SETTINGS_KEY = ['claude', 'settings'] as const;
 export const SAVED_MS = 2_000;
@@ -164,21 +164,21 @@ function TurnOnConfirm({
   feature: ClaudeFeature;
   onTurnOn: (feature: ClaudeFeature) => void;
 }) {
-  const [navOk, setNavOk] = useState(false);
+  const [ticked, setTicked] = useState(false);
   return (
     <DialogContent>
       <DialogHeader>
         <DialogTitle>{`Turn on ${CLAUDE_FEATURE_LABELS[feature]}?`}</DialogTitle>
-        <DialogDescription>{`${CLAUDE_FEATURE_SENDS[feature]} ${CLAUDE_NAV_OK_NOTE}`}</DialogDescription>
+        <DialogDescription>{`${CLAUDE_FEATURE_SENDS[feature]} ${CLAUDE_CONFIRM_NOTE}`}</DialogDescription>
       </DialogHeader>
-      <Field label={CLAUDE_NAV_OK_LABEL} layout="inline">
-        <Checkbox checked={navOk} onCheckedChange={(checked) => setNavOk(checked === true)} />
+      <Field label={CLAUDE_CONFIRM_LABEL} layout="inline">
+        <Checkbox checked={ticked} onCheckedChange={(checked) => setTicked(checked === true)} />
       </Field>
       <DialogFooter>
         <DialogClose asChild>
           <Button variant="secondary">Cancel</Button>
         </DialogClose>
-        <Button disabled={!navOk} onClick={() => onTurnOn(feature)}>
+        <Button disabled={!ticked} onClick={() => onTurnOn(feature)}>
           Turn on
         </Button>
       </DialogFooter>
@@ -304,7 +304,7 @@ export default function ClaudeSettings() {
     setConfirming(null);
     change(feature, CLAUDE_FEATURE_LABELS[feature], {
       switches: { [feature]: true },
-      navOk: true,
+      confirmed: true,
     });
   };
 

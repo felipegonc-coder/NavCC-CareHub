@@ -9,7 +9,7 @@ Every setting is optional. Each feature reads its own with `readSettings(schema)
 | `CLAUDE_MONTHLY_REQUESTS` | claude  | Requests per workspace per month until an Admin sets a limit in Settings → Claude (CL-D2)                            | 3,000                                                                              |
 | `ANTHROPIC_BASE_URL`      | claude  | Tests only: a local stub instead of Claude. Accepted only for `http://127.0.0.1:<port>` or `http://localhost:<port>` | `https://api.anthropic.com`                                                        |
 
-Lines for `deploy/.env.example` (sent to the main lead; #3 lists each app variable explicitly):
+Lines for `deploy/.env.example` (#3 lists each app variable explicitly):
 
 ```sh
 # Claude features (all off until an Admin turns them on). Leave empty to keep Claude off.

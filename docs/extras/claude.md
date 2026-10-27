@@ -1,6 +1,6 @@
 # Claude features
 
-Spec: [Claude features (Notion)](https://app.notion.com/p/c1116656e6d34bc7b986993564fb5944), checks CL-01 to CL-18. Shared names: `@carehub/extras/claude`. Every Claude PR gets the security reviewer's OK before merge, because it sends content off the server.
+Spec: [Claude features (Notion)](https://app.notion.com/p/c1116656e6d34bc7b986993564fb5944), checks CL-01 to CL-18. Shared names: `@carehub/extras/claude`.
 
 ## Switches
 
@@ -13,7 +13,7 @@ A request goes out only when all of these hold:
 3. The person has `claude.use`. Guests never do.
 4. The person can open every page and row whose text is sent.
 
-Only an Admin turns a switch on, in Settings → Claude, and only through its confirm (spec, section 3.1): it says what the feature sends, adds "Only turn this on with Nav's written OK.", and Turn on stays grey until "Nav has given the OK" is ticked. Without the key, no switch can be turned on. Turning a switch off needs neither. Switch changes go to the Security log (`logSecurityEvent`; for now the app log, see below).
+Only an Admin turns a switch on, in Settings → Claude, and only through its confirm (spec, section 3.1): it says what the feature sends, adds `CLAUDE_CONFIRM_NOTE`, and Turn on stays grey until its checkbox (`CLAUDE_CONFIRM_LABEL`) is ticked. Without the key, no switch can be turned on. Turning a switch off needs neither. Switch changes go to the Security log (`logSecurityEvent`; for now the app log, see below).
 
 ## Server API (`apps/server/src/features/claude/index.ts`)
 
@@ -50,13 +50,13 @@ Every route needs a signed-in person (401 otherwise). The shapes are in `@carehu
   - `model`, `switches`, and `chatRetentionDays`: null for kept until deleted (CL-D3), or 30, 90 or 365.
   - `lastChanged`: for each switch, `{ by, at }` for whoever last turned it on or off (their name, or null once their account is gone) and when, or null if nobody ever has.
   - `usage`: `month` (YYYY-MM in America/Denver), `requests`, `monthlyRequests` (the workspace's monthly limit) and `byFeature`.
-- `PUT /settings` takes `ClaudeSettingsUpdate`, also Admins only: any of some or all `switches`, `navOk`, `monthlyRequests` (a whole number from 0 to 1,000,000) and `chatRetentionDays`. Anything else is 400 `invalid`.
-  - Turning any switch on needs `navOk: true`, which the web app sends only from that switch's confirm. Without it the answer is 400 `invalid`, 'Tick "Nav has given the OK" to turn a feature on.' Without the key it's 409 `conflict` with `details: { reason: 'not_set_up' }`, and nothing is saved.
+- `PUT /settings` takes `ClaudeSettingsUpdate`, also Admins only: any of some or all `switches`, `confirmed`, `monthlyRequests` (a whole number from 0 to 1,000,000) and `chatRetentionDays`. Anything else is 400 `invalid`.
+  - Turning any switch on needs `confirmed: true`, which the web app sends only from that switch's confirm. Without it the answer is 400 `invalid` with the message `CONFIRM_REQUIRED`. Without the key it's 409 `conflict` with `details: { reason: 'not_set_up' }`, and nothing is saved.
   - Only what changed is saved, in one transaction. Saving the server's default limit when none is saved changes nothing.
-  - Each change is one security log line, `{ event: 'claude.setting_changed', workspaceId, userId, key, value }`, with `navOk: true` added when a switch turns on.
+  - Each change is one security log line, `{ event: 'claude.setting_changed', workspaceId, userId, key, value }`, with `confirmed: true` added when a switch turns on.
   - It answers with the new `ClaudeSettingsView`.
 
-Stand-ins until other lanes land (core PR 3):
+Stand-ins until these are on main:
 
 - **Workspace settings (accounts 1c):** they're kept in `claude_settings`, through `getWorkspaceSetting` and `setWorkspaceSetting` with the names 1c will use. A missing row means off. Who last changed a switch, and when, comes from the row's `updated_by` and `updated_at`. A later migration moves the rows across.
 - **Members (#55):** until the roles PR calls `bindClaudeMembers(lookup)`, nobody is a member, so the status is all off and the settings answer 403.
@@ -66,17 +66,17 @@ Stand-ins until other lanes land (core PR 3):
 
 - **On or off for the person signed in:** `useClaudeOn(feature)` for components, `isClaudeOn(feature)` for menus that check when they open, and `onClaudeStatusChange(listener)`, all from `features/claude/index.ts`.
   - Everything is off until the server answers, and whenever asking fails, so nothing shows while it's unknown (CL-01).
-  - The shell's `claude-status` overlay asks `GET /status` every 5 seconds (not while the tab is hidden), so a feature switched off goes away within 5 seconds (CL-05).
+  - The shell's `claude-status` overlay asks `GET /status` every 5 seconds (not while the tab is hidden) and again as soon as someone comes back to the tab, so a feature switched off goes away within 5 seconds, or on coming back (CL-05).
   - Writing help keeps its own flag in step: `onClaudeStatusChange((now) => setWritingHelpOn(now.on.writing_help))`.
 - **Settings → Claude** (`/settings/claude`, Admins only through `workspace.admin`):
   - The key's status, never the key: "Key set. Model: …" or "No key. Add it to the server's settings file, then restart Care Hub."
   - The five switches, each with what it sends and who last turned it on or off ("Turned on by Avery Lin on Oct 27, 2026."). Without the key they can't be turned on.
-  - Turning a switch on opens its confirm, "Turn on Writing help?", with what it sends and Nav's OK. Turn on stays grey until "Nav has given the OK" is ticked, and the tick is fresh each time. Turning a switch off saves at once.
+  - Turning a switch on opens its confirm, "Turn on Writing help?", with what it sends and `CLAUDE_CONFIRM_NOTE`. Turn on stays grey until its checkbox (`CLAUDE_CONFIRM_LABEL`) is ticked, and the tick is fresh each time. Turning a switch off saves at once.
   - This month's requests out of the monthly limit, with use per feature. The Monthly limit box saves on Enter or when it loses focus; anything but a whole number from 0 to 1,000,000 shows "Use a whole number from 0 to 1,000,000." and isn't sent.
   - How long assistant chats are kept.
   - Each change saves on its own, sending only what changed, and shows "Saved" for 2 seconds. A failure names the field. A 403 shows "You don't have access to this."
 
-## Security rules (security reviewer, Oct 27)
+## Security rules
 
 - **One way out:**
   - Only `features/claude/server` calls Claude, with the built-in fetch, `redirect: 'error'`, a 60 s timeout for the whole request with its retries (spec, section 3.6), and the fixed URL `https://api.anthropic.com/v1/messages`.
@@ -87,7 +87,7 @@ Stand-ins until other lanes land (core PR 3):
   - It never goes in the database, the web bundle, logs, errors or answers.
   - On a failure, log only the status and error type, never the request or Anthropic's response body.
   - A test sets a fictional key and checks it appears in no log, error or answer.
-- **No tools:** no tools, web access or actions. Adding any later needs a new review.
+- **No tools:** no tools, web access or actions.
 - **Prompt injection:**
   - Page content is wrapped in a delimiter with a random value per request (or escaped), so page text can't close the quote.
   - Content is labelled as data, not instructions.

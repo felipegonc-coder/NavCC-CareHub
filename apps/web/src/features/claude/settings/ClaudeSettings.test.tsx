@@ -1,3 +1,8 @@
+import {
+  CLAUDE_CONFIRM_LABEL,
+  CLAUDE_CONFIRM_NOTE,
+  CLAUDE_FEATURE_SENDS,
+} from '@carehub/extras/claude';
 import type { ClaudeSettingsUpdate, ClaudeSettingsView } from '@carehub/extras/claude/settings';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -119,7 +124,7 @@ describe('Settings → Claude', () => {
     expect(screen.getByRole('switch', { name: 'Writing help' })).toBeDisabled();
   });
 
-  it("says what each switch sends, and asks for Nav's OK before turning one on", async () => {
+  it('says what each switch sends, and asks before turning one on', async () => {
     const { puts } = fakeServer(settings());
     renderSettings();
     const writing = await screen.findByRole('switch', { name: 'Writing help' });
@@ -130,17 +135,17 @@ describe('Settings → Claude', () => {
 
     const confirm = await screen.findByRole('dialog', { name: 'Turn on Writing help?' });
     expect(confirm).toHaveAccessibleDescription(
-      "Writing help sends the text people select, and the text around it, to Anthropic's Claude. Only turn this on with Nav's written OK.",
+      `${CLAUDE_FEATURE_SENDS.writing_help} ${CLAUDE_CONFIRM_NOTE}`,
     );
     const turnOn = screen.getByRole('button', { name: 'Turn on' });
     expect(turnOn).toBeDisabled();
     expect(puts).toEqual([]);
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Nav has given the OK' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: CLAUDE_CONFIRM_LABEL }));
     expect(turnOn).toBeEnabled();
     fireEvent.click(turnOn);
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'));
-    expect(puts).toEqual([{ switches: { writing_help: true }, navOk: true }]);
+    expect(puts).toEqual([{ switches: { writing_help: true }, confirmed: true }]);
     expect(writing).toBeChecked();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Meeting summary' })).not.toBeChecked();
@@ -151,7 +156,7 @@ describe('Settings → Claude', () => {
     renderSettings();
     const assistant = await screen.findByRole('switch', { name: 'Assistant' });
     fireEvent.click(assistant);
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Nav has given the OK' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: CLAUDE_CONFIRM_LABEL }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(assistant).not.toBeChecked();
@@ -159,7 +164,7 @@ describe('Settings → Claude', () => {
 
     // The next confirm starts unticked.
     fireEvent.click(assistant);
-    expect(await screen.findByRole('checkbox', { name: 'Nav has given the OK' })).not.toBeChecked();
+    expect(await screen.findByRole('checkbox', { name: CLAUDE_CONFIRM_LABEL })).not.toBeChecked();
     expect(screen.getByRole('button', { name: 'Turn on' })).toBeDisabled();
   });
 

@@ -1,11 +1,11 @@
 # Extras: notes for browser tests
 
-## Who writes what
+## Where things go
 
-- The Testing lead's builders write the acceptance tests in `tests/e2e/flows/<area>/` (`search`, `history-trash`, `templates`, `import-export`, `knowledge-base`, `claude`), with titles starting with the spec ID ("SR-01 …").
-- Extras builders add each screen to `tests/e2e/extras/screens.ts` (names start `extras-`).
-- Extras builders keep this file current: routes, endpoints, the names of key controls, and test hooks.
-- The Extras lead tells the Testing lead when each area lands on main, so its line in `tests/e2e/flows/_support/features.ts` can be turned on.
+- The acceptance tests are in `tests/e2e/flows/<area>/` (`search`, `history-trash`, `templates`, `import-export`, `knowledge-base`, `claude`), with titles starting with the spec ID ("SR-01 …").
+- Each Extras screen is listed in `tests/e2e/extras/screens.ts` (names start `extras-`).
+- This file lists each area's routes, endpoints, the names of key controls, and test hooks.
+- An area's line in `tests/e2e/flows/_support/features.ts` is turned on once that area is on main.
 
 ## Selectors and data
 
@@ -51,8 +51,8 @@ The tests never reach Claude. The server is pointed at a local stub:
 - **CL-02 (key leak test):** the fictional key must never appear in the server output, any API answer, any page, an export or the web bundle. Settings → Claude shows only "Key set".
 - **CL-03 (Settings → Claude, `/settings/claude`):**
   - Without `ANTHROPIC_API_KEY` it says "No key. Add it to the server's settings file, then restart Care Hub.", and the switches are disabled. A direct `PUT /api/claude/settings` that turns one on answers 409.
-  - The switches (role `switch`) are named "Writing help", "Assistant", "Claude fields", "Meeting summary" and "Learning help". Turning one on opens the dialog "Turn on Writing help?" (and so on). Its "Turn on" button stays disabled until the "Nav has given the OK" checkbox is ticked; "Cancel" leaves the switch off. Turning a switch off saves at once.
+  - The switches (role `switch`) are named "Writing help", "Assistant", "Claude fields", "Meeting summary" and "Learning help". Turning one on opens the dialog "Turn on Writing help?" (and so on). Its "Turn on" button stays disabled until its checkbox (named by `CLAUDE_CONFIRM_LABEL` from `@carehub/extras/claude`) is ticked; "Cancel" leaves the switch off. Turning a switch off saves at once.
   - The "Monthly limit" box (role `spinbutton`) saves on Enter or when it loses focus.
 - **CL-16:** set the "Monthly limit" to 1 instead of making 3,000 requests. Each person's limit is 60 requests an hour.
 
-The two environment lines for the browser-test workflow are a `.github/` change, so the main lead adds them after the security reviewer's OK.
+The browser-test workflow needs both server environment lines above.
