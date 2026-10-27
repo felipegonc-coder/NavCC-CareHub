@@ -1,3 +1,4 @@
+import { CSRF_COOKIE, CSRF_HEADER } from '@carehub/shared';
 import { describe, expect, it } from 'vitest';
 import workerSource from '../../../public/sw.js?raw';
 
@@ -79,7 +80,7 @@ function loadWorker(options: WorkerOptions = {}) {
         ? undefined
         : {
             get: async (name: string) =>
-              name === 'carehub_csrf' ? { value: options.csrf ?? 'test-csrf' } : null,
+              name === CSRF_COOKIE ? { value: options.csrf ?? 'test-csrf' } : null,
           },
     clients: {
       claim: async () => {
@@ -128,6 +129,17 @@ const click = (data: unknown) => {
   return notification;
 };
 
+/** The size of a PNG data URL's image, and whether it can be see-through. */
+function png(url: unknown) {
+  const base64 = /^data:image\/png;base64,([\w+/]+=*)$/.exec(String(url))?.[1] ?? '';
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  expect([...bytes.slice(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  // The IHDR chunk comes first: width, height, bit depth, then colour type (4 and 6 have alpha).
+  const colourType = bytes[25] ?? 0;
+  return { width: view.getUint32(16), height: view.getUint32(20), alpha: colourType >= 4 };
+}
+
 describe('sw.js', () => {
   it('takes over at once and handles push only, so nothing is ever cached', async () => {
     const worker = loadWorker();
@@ -153,18 +165,29 @@ describe('sw.js', () => {
       tag: 'chat:chat-7',
     };
     await worker.fire('push', { data: pushData(payload) });
-    expect(worker.shown).toEqual([
-      {
-        title: 'Avery Lin',
-        options: {
-          body: 'Can you check the QA form?',
-          icon: '/favicon.svg',
-          badge: '/favicon.svg',
-          data: { url: '/messages/chat-7' },
-          tag: 'chat:chat-7',
-          renotify: true,
-        },
-      },
+    expect(worker.shown).toHaveLength(1);
+    const { icon, badge, ...options } = worker.shown[0]?.options ?? {};
+    expect(worker.shown[0]?.title).toBe('Avery Lin');
+    expect(options).toEqual({
+      body: 'Can you check the QA form?',
+      data: { url: '/messages/chat-7' },
+      tag: 'chat:chat-7',
+      renotify: true,
+    });
+    // PNG, since some browsers can't draw an SVG in a notification.
+    expect(png(icon)).toEqual({ width: 192, height: 192, alpha: true });
+    expect(png(badge)).toEqual({ width: 96, height: 96, alpha: true });
+  });
+
+  it('shows a headline alone, and fills in only an empty notification', async () => {
+    const worker = loadWorker();
+    await worker.fire('push', { data: pushData({ title: 'Avery Lin mentioned you', body: '' }) });
+    await worker.fire('push', { data: pushData({ body: 'Can you check the QA form?' }) });
+    await worker.fire('push', { data: pushData({ title: '', body: '' }) });
+    expect(worker.shown.map(({ title, options }) => [title, options.body])).toEqual([
+      ['Avery Lin mentioned you', ''],
+      ['Care Hub', 'Can you check the QA form?'],
+      ['Care Hub', 'New notification'],
     ]);
   });
 
@@ -181,7 +204,8 @@ describe('sw.js', () => {
     expect(empty?.options.tag).toBeUndefined();
     expect(broken).toMatchObject({ title: 'Care Hub', options: { data: { url: '/' } } });
     expect(long?.title).toHaveLength(300);
-    expect(long?.options).toMatchObject({ icon: '/favicon.svg', data: { url: '/' } });
+    expect(long?.options).toMatchObject({ body: '', data: { url: '/' } });
+    expect(long?.options.icon).toBe(empty?.options.icon); // not the payload's /other.png
     expect(external?.options.data).toEqual({ url: '/' });
   });
 
@@ -224,11 +248,16 @@ describe('sw.js', () => {
     expect(key).toMatchObject({ url: '/api/push/key', init: { credentials: 'same-origin' } });
     expect(save).toMatchObject({
       url: '/api/push/subscriptions',
-      init: {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'test-csrf' },
-      },
+      init: { method: 'POST', credentials: 'same-origin' },
+    });
+    // Header names ignore case; CSRF_HEADER is in lower case.
+    const headers = Object.entries(save?.init?.headers ?? {}).map(([name, value]) => [
+      name.toLowerCase(),
+      value,
+    ]);
+    expect(Object.fromEntries(headers)).toEqual({
+      'content-type': 'application/json',
+      [CSRF_HEADER]: 'test-csrf',
     });
     expect(JSON.parse(String(save?.init?.body))).toEqual({
       endpoint: NEW_ENDPOINT,
