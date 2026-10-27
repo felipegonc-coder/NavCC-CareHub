@@ -7,6 +7,7 @@ import {
   pathTo,
   rootedRows,
   stepFocus,
+  subtreeIds,
   visibleRows,
   type TreeEntry,
 } from './tree';
@@ -173,6 +174,10 @@ describe('keyboard', () => {
 });
 
 describe('finding entries', () => {
+  it('collects an entry with everything under it', () => {
+    expect([...subtreeIds(nodes, 'onboarding')].sort()).toEqual(['day1', 'onboarding', 'week1']);
+  });
+
   it('gives the path from the top down to the parent, or null when missing', () => {
     expect(pathTo(byParent, 'day1')).toEqual(['onboarding', 'week1']);
     expect(pathTo(byParent, 'rota')).toEqual([]);

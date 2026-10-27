@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { EntryActions } from './actions';
 import { PageTree } from './PageTree';
 import { groupChildren } from './tree';
 import type { TreeNode } from './types';
@@ -28,6 +29,23 @@ const pages = [
   page('c1', null, 'Rota', { kind: 'database' }),
 ];
 
+// Radix menus measure themselves; jsdom can't.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
+const fakeActions = (): EntryActions => ({
+  canCreate: true,
+  isFavorite: () => false,
+  toggleFavorite: vi.fn(),
+  copyLink: vi.fn(),
+  rename: vi.fn(),
+  trash: vi.fn(),
+  create: vi.fn(),
+});
+
 function Opened() {
   return <p>Opened {useParams().pageId}</p>;
 }
@@ -37,9 +55,10 @@ interface HarnessProps {
   open?: string[];
   at?: string;
   extra?: (page: TreeNode) => ReactNode;
+  actions?: EntryActions;
 }
 
-function Harness({ list = pages, open = [], at = '/', extra }: HarnessProps) {
+function Harness({ list = pages, open = [], at = '/', extra, actions }: HarnessProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set(open));
   const onExpand = (keys: readonly string[], on: boolean) =>
     setExpanded((before) => {
@@ -58,6 +77,7 @@ function Harness({ list = pages, open = [], at = '/', extra }: HarnessProps) {
         scope="s"
         expanded={expanded}
         onExpand={onExpand}
+        actions={actions ?? fakeActions()}
         renderExtra={extra}
       />
       <Routes>
@@ -107,7 +127,8 @@ describe('PageTree', () => {
   it('opens and closes with the arrow button', () => {
     render(<Harness />);
     const onboarding = screen.getByRole('treeitem', { name: 'Onboarding' });
-    fireEvent.click(within(onboarding).getByRole('button', { hidden: true }));
+    // The arrow is the first button; screen readers use aria-expanded instead.
+    fireEvent.click(within(onboarding).getAllByRole('button', { hidden: true })[0] as HTMLElement);
     expect(screen.getByRole('treeitem', { name: 'Week one' })).toBeInTheDocument();
     expect(onboarding).toHaveFocus();
   });
@@ -151,5 +172,69 @@ describe('PageTree', () => {
     expect(screen.getByRole('treeitem', { name: 'Rota' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Views of Rota')).toBeInTheDocument();
     expect(screen.queryByText('No pages inside')).not.toBeInTheDocument();
+  });
+
+  it('opens the "…" menu with Shift+F10, showing only what the person may do', async () => {
+    render(<Harness list={[page('a1', null, 'Onboarding', { access: 'view' })]} />);
+    const item = screen.getByRole('treeitem', { name: 'Onboarding' });
+    fireEvent.keyDown(item, { key: 'F10', shiftKey: true });
+    const menu = await screen.findByRole('menu');
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((entry) => entry.textContent),
+    ).toEqual(['Add to Favorites', 'Copy link', 'Open in new tab']);
+    expect(screen.queryByRole('button', { name: /Add a page inside/ })).not.toBeInTheDocument();
+  });
+
+  it('offers everything to someone with full access, from a right-click', async () => {
+    const actions = fakeActions();
+    render(
+      <Harness actions={actions} list={[page('a1', null, 'Onboarding', { access: 'full' })]} />,
+    );
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'Onboarding' }));
+    const menu = await screen.findByRole('menu');
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((entry) => entry.textContent),
+    ).toEqual([
+      'Add a page inside',
+      'Add to Favorites',
+      'Copy link',
+      'RenameF2',
+      'Open in new tab',
+      'Move to Trash',
+    ]);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Move to Trash' }));
+    expect(actions.trash).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1' }));
+  });
+
+  it('renames inline with F2: Enter saves and Escape cancels', () => {
+    const actions = fakeActions();
+    render(<Harness actions={actions} />);
+    fireEvent.keyDown(screen.getByRole('treeitem', { name: 'Onboarding' }), { key: 'F2' });
+    const input = screen.getByRole('textbox', { name: 'Page title' });
+    expect(input).toHaveValue('Onboarding');
+    fireEvent.change(input, { target: { value: '  Welcome ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(actions.rename).toHaveBeenCalledWith('a1', 'Welcome');
+    expect(screen.getByRole('treeitem', { name: 'Onboarding' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('treeitem', { name: 'Onboarding' }), { key: 'F2' });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Page title' }), { key: 'Escape' });
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(actions.rename).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds a page inside with "+" and opens the entry to show it', () => {
+    const actions = fakeActions();
+    render(<Harness actions={actions} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add a page inside Onboarding' }));
+    expect(actions.create).toHaveBeenCalledWith({ parentId: 'a1' });
+    expect(screen.getByRole('treeitem', { name: 'Onboarding' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.queryByRole('button', { name: 'Add a page inside Rota' })).toBeNull();
   });
 });

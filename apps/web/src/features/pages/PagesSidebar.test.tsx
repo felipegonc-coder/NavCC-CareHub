@@ -1,16 +1,21 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import PagesSidebar from './PagesSidebar';
 import type { PageLink, Space, TreeNode } from './types';
 
 const api = vi.hoisted(() => ({
   get: vi.fn<(path: string) => Promise<unknown>>(),
+  post: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
   put: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
   delete: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
 }));
-vi.mock('../../lib/api', () => ({ api }));
+vi.mock('../../lib/api', () => ({ api, ApiError: class extends Error {} }));
+vi.mock('@carehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@carehub/ui')>()),
+  useToast: () => ({ toast: () => undefined }),
+}));
 vi.mock('../../slots', async () => {
   const { createElement } = await import('react');
   const database = ({ page }: { page: TreeNode }) =>
@@ -65,7 +70,12 @@ const defaults: Record<string, unknown> = {
   '/api/favorites': { favorites: [] },
   '/api/recent': { pages: [{ ...onboarding, id: 'a2', title: 'Week one' }] },
   '/api/me/prefs': {},
+  '/api/auth/me': { member: { permissions: ['pages.create'] } },
 };
+
+function Opened() {
+  return <p>Opened {useParams().pageId}</p>;
+}
 
 function renderSidebar(responses: Record<string, unknown> = {}) {
   const data = { ...defaults, ...responses };
@@ -80,6 +90,10 @@ function renderSidebar(responses: Record<string, unknown> = {}) {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <PagesSidebar />
+        <Routes>
+          <Route path="/p/:pageId" element={<Opened />} />
+          <Route path="*" element={null} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -89,6 +103,7 @@ const section = (name: string) => screen.getByRole('group', { name });
 
 beforeEach(() => {
   api.get.mockReset();
+  api.post.mockReset().mockResolvedValue({ id: 'new1' });
   api.put.mockReset().mockResolvedValue(null);
   api.delete.mockReset().mockResolvedValue(null);
 });
@@ -175,5 +190,39 @@ describe('PagesSidebar', () => {
     api.get.mockResolvedValueOnce({ spaces });
     fireEvent.click(retry);
     expect(await screen.findByRole('group', { name: 'Spaces' })).toBeInTheDocument();
+  });
+
+  it('adds a page to a space with "+" and opens it', async () => {
+    renderSidebar();
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a page to General' }));
+    expect(await screen.findByText('Opened new1')).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledWith('/api/pages', {
+      kind: 'page',
+      title: '',
+      spaceId: 'general',
+    });
+  });
+
+  it('offers "Add a page" while Private is empty', async () => {
+    renderSidebar({ '/api/spaces/mine/tree': { nodes: [] } });
+    const add = await within(await screen.findByRole('group', { name: 'Private' })).findByRole(
+      'button',
+      { name: 'Add a page' },
+    );
+    fireEvent.click(add);
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/pages', {
+        kind: 'page',
+        title: '',
+        spaceId: 'mine',
+      }),
+    );
+  });
+
+  it("hides adding pages from someone whose role can't create them", async () => {
+    renderSidebar({ '/api/auth/me': { member: { permissions: [] } } });
+    expect(await screen.findByRole('tree', { name: 'General' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add a page to General' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add a private page' })).toBeNull();
   });
 });
