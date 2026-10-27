@@ -33,11 +33,11 @@ export function QuoteCarouselView({ block }: BlockViewProps<QuoteCarouselBlock>)
       </div>
       {count > 1 && (
         <div className="flex items-center justify-center gap-2">
-          <IconButton label="Previous quote" onClick={() => step(-1)}>
+          <IconButton label="Previous quote" onClick={() => step(-1)} className="max-md:size-11">
             <ChevronLeft aria-hidden />
           </IconButton>
           <p className="text-small text-muted">{`${shown + 1} of ${count}`}</p>
-          <IconButton label="Next quote" onClick={() => step(1)}>
+          <IconButton label="Next quote" onClick={() => step(1)} className="max-md:size-11">
             <ChevronRight aria-hidden />
           </IconButton>
         </div>
