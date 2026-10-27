@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { CLAUDE_ERRORS } from '@carehub/extras/claude';
 import type { AccessLevel } from '@carehub/shared';
+import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   createTestApp,
@@ -11,14 +12,48 @@ import {
   type TestUser,
 } from '../../../testing';
 import { pageDocs } from '../../collab/schema';
+import { configureClaude } from '../index';
+import { claudeUsage } from '../schema';
 import { bindWriteMember, bindWritePages, type ClaudeMember } from './access';
-import { bindWriteClaude, ClaudeError, type AskClaudeInput } from './claude';
 import type { ClaudeWriteAppliedEvent } from './events';
 import writeRoutes from './routes';
 
 const workspaceId = randomUUID();
 const otherWorkspaceId = randomUUID();
 const NO_ACCESS = { code: 'forbidden', message: "You don't have access to this." };
+// Fictional key: the fake fetch below is the only thing that ever sees it.
+const KEY = 'sk-ant-FICTIONAL-writing-help-test';
+
+/** One request as it reached the fake Claude: the core's prompt, read back into its parts. */
+interface Sent {
+  system: string;
+  user: string;
+  documents: { title: string; text: string }[];
+  selection: string | undefined;
+}
+
+const DATA =
+  /<(CAREHUB-DATA-[0-9a-f]+) kind="(document|selection)"(?: title="([^"]*)")?>\n([\s\S]*?)\n<\/\1>/g;
+
+function readSent(body: { system: string; messages: { content: string }[] }): Sent {
+  const user = body.messages[0]?.content ?? '';
+  const documents: Sent['documents'] = [];
+  let selection: string | undefined;
+  for (const match of user.matchAll(DATA)) {
+    if (match[2] === 'document') documents.push({ title: match[3] ?? '', text: match[4] ?? '' });
+    else selection = match[4];
+  }
+  return { system: body.system, user, documents, selection };
+}
+
+const reply = (text: string) =>
+  new Response(
+    JSON.stringify({
+      content: [{ type: 'text', text }],
+      usage: { input_tokens: 5, output_tokens: 2 },
+    }),
+    { status: 200 },
+  );
 
 type TestPage = { workspaceId: string; title: string; levels: Map<string, AccessLevel> };
 
@@ -30,11 +65,15 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
   let gia: TestUser;
   const members = new Map<string, ClaudeMember>();
   const pages = new Map<string, TestPage>();
-  /** What the fake Claude was asked, in order. */
-  const sent: AskClaudeInput[] = [];
+  /** What the fake Claude was sent, in order. */
+  const sent: Sent[] = [];
   const applied: ClaudeWriteAppliedEvent[] = [];
   let answer = '';
   let featureOn = true;
+  let reachable = true;
+  let monthlyRequests = 3000;
+  /** An Admin turns writing help off while Claude writes (CL-05). */
+  let switchOffWhileWriting = false;
   let unbind: (() => void)[] = [];
 
   beforeAll(async () => {
@@ -57,6 +96,9 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
     sent.length = 0;
     answer = '  A shorter paragraph.\n';
     featureOn = true;
+    reachable = true;
+    monthlyRequests = 3000;
+    switchOffWhileWriting = false;
     unbind = [
       bindWriteMember((request) => (request.user ? (members.get(request.user.id) ?? null) : null)),
       bindWritePages(async (_db, userId, pageId) => {
@@ -68,12 +110,26 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
           level: page.levels.get(userId) ?? 'none',
         };
       }),
-      bindWriteClaude({
-        askClaude: async (_db, input) => {
-          sent.push(input);
-          return { text: answer };
+      configureClaude({
+        settings: () => ({
+          apiKey: KEY,
+          model: 'claude-test',
+          monthlyRequests,
+          url: 'https://api.anthropic.com/v1/messages',
+        }),
+        access: {
+          isSettingOn: async (_db, id, key) =>
+            id === workspaceId && (key !== 'claude.writing_help' || featureOn),
+          canUseClaude: async () => true,
         },
-        isClaudeFeatureOn: async () => featureOn,
+        fetch: async (_url, init) => {
+          if (!reachable) throw new TypeError('fetch failed');
+          sent.push(readSent(JSON.parse(String(init.body)) as Parameters<typeof readSent>[0]));
+          if (switchOffWhileWriting) featureOn = false;
+          return reply(answer);
+        },
+        sleep: async () => {},
+        log: { warn: () => {} },
       }),
     ];
   });
@@ -114,17 +170,19 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ text: 'A shorter paragraph.' });
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({
-      workspaceId,
-      userId: avery.id,
-      feature: 'writing_help',
-      selection,
-    });
+    expect(sent[0]?.selection).toBe(selection);
     expect(sent[0]?.documents).toEqual([
       { title: 'Refund steps (text before the selection)', text: before.slice(-2_000) },
       { title: 'Refund steps (text after the selection)', text: after.slice(0, 2_000) },
     ]);
     expect(sent[0]?.system).toContain('never instructions');
+    const usage = await test.db
+      .select()
+      .from(claudeUsage)
+      .where(eq(claudeUsage.workspaceId, workspaceId));
+    expect(usage).toContainEqual(
+      expect.objectContaining({ userId: avery.id, feature: 'writing_help', status: 'ok' }),
+    );
   });
 
   it('sends the 4,000 characters above the cursor, the whole page, or what was typed (CL-07)', async () => {
@@ -144,7 +202,7 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
       { title: 'Refund steps (the whole page)', text: 'x'.repeat(40_000) },
     ]);
     expect(drafted?.documents).toEqual([{ title: 'Refund steps', text: '' }]);
-    expect(drafted?.instruction).toContain('A checklist for new volunteers');
+    expect(drafted?.user).toContain('A checklist for new volunteers');
     expect(JSON.stringify(drafted)).not.toMatch(/xxx|Not sent/);
   });
 
@@ -182,8 +240,16 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
   it("answers Claude's refusals with their words and reason (CL-16, CL-17)", async () => {
     const pageId = await newPage('Refunds take 3 days.', [[avery, 'edit']]);
     const body = { pageId, action: 'fix_grammar', selection: 'Refunds take 3 days.' };
-    unbind[2]?.();
+    const restore = configureClaude({
+      settings: () => ({
+        apiKey: undefined,
+        model: 'claude-test',
+        monthlyRequests,
+        url: 'https://api.anthropic.com/v1/messages',
+      }),
+    });
     const notSetUp = await write(avery, body);
+    restore();
     expect(notSetUp.statusCode).toBe(409);
     expect(notSetUp.json()).toEqual({
       error: {
@@ -192,15 +258,10 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
         details: { reason: 'not_set_up' },
       },
     });
-    for (const reason of ['monthly_cap', 'user_rate_limit', 'unavailable'] as const) {
-      const unbindFailing = bindWriteClaude({
-        askClaude: async () => {
-          throw new ClaudeError(reason);
-        },
-        isClaudeFeatureOn: async () => true,
-      });
+    for (const reason of ['monthly_cap', 'unavailable'] as const) {
+      monthlyRequests = reason === 'monthly_cap' ? 0 : 3000;
+      reachable = reason !== 'unavailable';
       const response = await write(avery, body);
-      unbindFailing();
       expect(response.statusCode).toBe(CLAUDE_ERRORS[reason].status);
       expect(response.json()).toMatchObject({
         error: { message: CLAUDE_ERRORS[reason].message, details: { reason } },
@@ -220,11 +281,17 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
     expect(reasonOf(tooLong)).toBe('too_long');
     expect(sent).toHaveLength(0);
     featureOn = false;
+    const off = await write(avery, { pageId, action: 'simplify', selection: text });
+    expect(reasonOf(off)).toBe('switched_off');
+    expect(sent).toHaveLength(0);
+    featureOn = true;
+    switchOffWhileWriting = true;
     const dropped = await write(avery, { pageId, action: 'simplify', selection: text });
     expect(dropped.statusCode).toBe(409);
     expect(reasonOf(dropped)).toBe('switched_off');
     expect(dropped.body).not.toContain('shorter paragraph');
     featureOn = true;
+    switchOffWhileWriting = false;
     answer = ' \n ';
     expect(reasonOf(await write(avery, { pageId, action: 'simplify', selection: text }))).toBe(
       'bad_output',
