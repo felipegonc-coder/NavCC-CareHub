@@ -36,6 +36,9 @@ feature's Markdown, where blocks without a Markdown form are kept whole as place
 Links between the template's own pages are stored as `{{template-page:<key>}}` tokens, so each
 copy's links point to the new copies. Variable chips (`templateVariable`) are filled in when the
 template is used. Databases are copied on use with the Databases lane's `duplicateDatabase`.
+A starter's databases (Projects, Agents, QA reviews and the rest) are written out in
+`@carehub/extras/templates` and made on use with `createDatabase`: new ids, Me and Today
+filled in for the sample rows, and the row templates kept as they are.
 Changing or deleting a template never changes pages made from it; `tpl_made_from` keeps
 "Made from Weekly huddle" for the page's Updates (`getMadeFrom`).
 
@@ -61,8 +64,8 @@ refuses until it's bound (403, or "missing" and 404), and is marked `// stand-in
 - pages, levels, sub-pages, spaces, `createPage`, `setPageTitle`, `getPrivateSpaceId`: pages #49;
 - `getPageMarkdown`, `setPageContentFromMarkdown`, `page.updated`: collab #197/#200;
 - `saveVersionNow`: history (HT-02);
-- `duplicateDatabase`, row counts, `runRowWrites`, `createRow`, `updateRows`, `findRowIds`,
-  `trashRows` and `readRow`: the Databases lane's `api.ts`;
+- `duplicateDatabase`, `createDatabase`, row counts, `runRowWrites`, `createRow`, `updateRows`,
+  `findRowIds`, `trashRows` and `readRow`: the Databases lane's `api.ts`;
 - the people a button's message reaches (people, groups, roles, everyone): accounts S1.
 
 `sendNotice` is the notices feature's own.

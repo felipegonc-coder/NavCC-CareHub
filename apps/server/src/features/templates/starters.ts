@@ -1,15 +1,34 @@
 import type { TemplateIcon } from '@carehub/extras/templates/gallery';
 import { TEMPLATE_VARIABLE_NODE, type TemplateVariable } from '@carehub/extras/templates/content';
+import {
+  describeDatabase,
+  readableIds,
+  type StarterDatabaseBuild,
+} from '@carehub/extras/templates/databases';
+import {
+  agents,
+  coachingConversations,
+  contentCalendar,
+  eventSignUp,
+  feedbackForm,
+  projectTracker,
+  qaReviews,
+  requestForm,
+  taskBoard,
+} from '@carehub/extras/templates/starter-databases';
 
-// Care Hub's own starter templates (spec 3.1, TB-D1), written for the Customer Care team. All
-// names and sample text are fictional. The starters with databases and forms (Project tracker,
-// Task board, Content calendar, the forms) wait for the Databases lane's createDatabase.
+// Care Hub's own starter templates (spec 3.1, TB-D1 and TB-17), written for the Customer Care
+// team. All names and sample text are fictional. The starters that are a database (the forms
+// too) are made with the Databases lane's createDatabase (core.ts).
 
 export interface StarterPage {
   title: string;
   icon: TemplateIcon | null;
+  /** For a database, what the preview reads (its properties, views and sample rows). */
   markdown: string;
   children?: StarterPage[];
+  /** This page is a database, made from this build. */
+  database?: StarterDatabaseBuild;
 }
 
 export interface Starter {
@@ -28,7 +47,7 @@ const lines = (...text: string[]) => `${text.join('\n')}\n`;
 /** A link to another page of the same starter, by its place in the tree (the top page is 0). */
 const pageLink = (key: number) => `/p/{{template-page:${key}}}`;
 
-export const STARTERS: readonly Starter[] = [
+const PAGE_STARTERS: readonly Starter[] = [
   {
     key: 'meeting-notes',
     name: 'Meeting notes',
@@ -430,6 +449,123 @@ export const STARTERS: readonly Starter[] = [
     },
   },
 ];
+
+/** A starter that is a database: the preview describes it, and using it makes it. */
+function databaseStarter(
+  starter: Omit<Starter, 'page'> & { title: string; icon: string },
+  build: StarterDatabaseBuild,
+): Starter {
+  const { title, icon, ...card } = starter;
+  const markdown = describeDatabase(build(readableIds));
+  return { ...card, page: { title, icon: emoji(icon), markdown, database: build } };
+}
+
+const DATABASE_STARTERS: readonly Starter[] = [
+  databaseStarter(
+    {
+      key: 'project-tracker',
+      name: 'Project tracker',
+      description: 'Projects with an owner, a priority, dates and a timeline.',
+      category: 'Projects',
+      title: 'Projects',
+      icon: '🗂️',
+    },
+    projectTracker,
+  ),
+  databaseStarter(
+    {
+      key: 'task-board',
+      name: 'Task board',
+      description: 'The team’s tasks on a board, from Not started to Done.',
+      category: 'Projects',
+      title: 'Tasks',
+      icon: '✅',
+    },
+    taskBoard,
+  ),
+  databaseStarter(
+    {
+      key: 'content-calendar',
+      name: 'Content calendar',
+      description: 'Plan help center articles, newsletters and posts on a calendar.',
+      category: 'Planning',
+      title: 'Content calendar',
+      icon: '📅',
+    },
+    contentCalendar,
+  ),
+  databaseStarter(
+    {
+      key: 'request-form',
+      name: 'Request form',
+      description:
+        'A form for access, equipment and schedule requests, with the answers in a database.',
+      category: 'Forms',
+      title: 'Requests',
+      icon: '📨',
+    },
+    requestForm,
+  ),
+  databaseStarter(
+    {
+      key: 'feedback-form',
+      name: 'Feedback form',
+      description: 'Ask the team how tools, training and schedules are working.',
+      category: 'Forms',
+      title: 'Feedback',
+      icon: '💡',
+    },
+    feedbackForm,
+  ),
+  databaseStarter(
+    {
+      key: 'event-sign-up',
+      name: 'Event sign-up',
+      description: 'Sign-ups for a training day or team event, by session.',
+      category: 'Forms',
+      title: 'Event sign-ups',
+      icon: '🎟️',
+    },
+    eventSignUp,
+  ),
+  // Customer Care starters (TB-17).
+  databaseStarter(
+    {
+      key: 'agents',
+      name: 'Agents',
+      description: 'Everyone on the team, with their team, team lead, start date and status.',
+      category: 'Support',
+      title: 'Agents',
+      icon: '🎧',
+    },
+    agents,
+  ),
+  databaseStarter(
+    {
+      key: 'qa-reviews',
+      name: 'QA reviews',
+      description: 'Score calls, chats and emails, and let each agent see their own reviews.',
+      category: 'Support',
+      title: 'QA reviews',
+      icon: '📋',
+    },
+    qaReviews,
+  ),
+  databaseStarter(
+    {
+      key: 'coaching-conversations',
+      name: 'Coaching conversations',
+      description: 'Plan coaching sessions with agents and keep track of what you agreed.',
+      category: 'Support',
+      title: 'Coaching conversations',
+      icon: '💬',
+    },
+    coachingConversations,
+  ),
+];
+
+/** Every starter, in gallery order: pages first, then databases and forms. */
+export const STARTERS: readonly Starter[] = [...PAGE_STARTERS, ...DATABASE_STARTERS];
 
 export const STARTERS_BY_KEY: ReadonlyMap<string, Starter> = new Map(
   STARTERS.map((starter) => [starter.key, starter]),

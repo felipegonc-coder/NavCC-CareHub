@@ -1,6 +1,7 @@
 // The template gallery (spec 3.1 and 5): listing, preview, Save as template, changes and starters
 // hidden by Admins. Every function checks the person's rights first.
 import { tokenizePageIds } from '@carehub/extras/templates/content';
+import { readableIds, type StarterDatabaseBuild } from '@carehub/extras/templates/databases';
 import {
   galleryCategories,
   TEMPLATE_LIMITS,
@@ -41,6 +42,8 @@ export interface TemplatePage {
   markdown: string;
   sourcePageId: string | null;
   rowCount: number;
+  /** A starter's database: what createDatabase makes. */
+  database?: StarterDatabaseBuild;
 }
 
 interface LoadedTemplate {
@@ -56,17 +59,18 @@ function starterPages(starter: Starter): TemplatePage[] {
   const pages: TemplatePage[] = [];
   const walk = (page: StarterPage, parentKey: number | null) => {
     const key = pages.length;
-    const { title, icon, markdown } = page;
+    const { title, icon, markdown, database } = page;
     pages.push({
       key,
       parentKey,
-      kind: 'page',
+      kind: database ? 'database' : 'page',
       isInline: false,
       title,
       icon,
       markdown,
       sourcePageId: null,
-      rowCount: 0,
+      rowCount: database ? database(readableIds).rows.length : 0,
+      ...(database ? { database } : {}),
     });
     for (const child of page.children ?? []) walk(child, key);
   };
