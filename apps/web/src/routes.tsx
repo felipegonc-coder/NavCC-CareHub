@@ -8,6 +8,7 @@ export const routes: RouteObject[] = [
   { path: '/', element: <HomePage /> },
 
   // feature: shell
+  { path: 'design', lazy: () => import('./features/design/route') },
 
   // feature: auth
 

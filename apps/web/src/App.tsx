@@ -1,3 +1,4 @@
+import { ThemeProvider } from '@carehub/ui';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { createBrowserRouter } from 'react-router';
@@ -11,8 +12,10 @@ const router = createBrowserRouter(routes);
 export function App() {
   const [queryClient] = useState(createQueryClient);
   return (
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }

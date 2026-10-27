@@ -145,6 +145,8 @@ export const LAYOUT_LABELS: Record<ViewLayout, string> = {
   timeline: 'Timeline',
   chart: 'Chart',
   form: 'Form',
+  feed: 'Feed',
+  dashboard: 'Dashboard',
 };
 
 /** "Board", then "Board 2", "Board 3"... */
@@ -226,7 +228,7 @@ export function defaultView(
     manualOrder: [],
     openPagesIn: 'side_peek',
     showPageIcon: true,
-    loadLimit: layout === 'board' ? 25 : 50,
+    loadLimit: 50,
     calculations: {},
   };
   const dateId = firstOf(properties, ['date']);
@@ -281,6 +283,12 @@ export function defaultView(
       break;
     case 'form':
       view.form = defaultForm(opts.databaseTitle ?? 'Untitled form', properties);
+      break;
+    case 'feed':
+      view.feed = { showContent: true, showComments: true };
+      break;
+    case 'dashboard':
+      view.dashboard = { widgets: [] };
       break;
     case 'list':
       break;
