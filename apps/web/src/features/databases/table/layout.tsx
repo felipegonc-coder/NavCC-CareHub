@@ -116,6 +116,9 @@ import {
 import { withCalculation } from './view-settings';
 
 /** The Table layout: rows and columns, grouped or not, with editing in the cells. */
+/** `duplicateRows` until the view actions have it everywhere (it's optional for now). */
+type MaybeDuplicate = { duplicateRows?: (rowIds: Id[]) => Promise<unknown> };
+
 export default function TableLayout({ meta, view, data, viewer, actions, readOnly }: LayoutProps) {
   const options = tableOptions(view);
   // Ticking rows is for people who can change them: Delete and Set property.
@@ -256,6 +259,9 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       locked: meta.locked,
       canAddRows: meta.viewerCanAddRows,
     });
+  // `duplicateRows` is new in the view actions (W3-1); until every caller has it, Duplicate hides.
+  const duplicateRows = (actions as LayoutProps['actions'] & MaybeDuplicate).duplicateRows;
+  const canDuplicate = canAdd && duplicateRows !== undefined;
   const canEdit = (property: Property) =>
     !readOnly && canChangeProperty(property, viewer, 'edit_content');
   // Column widths, order, wrapping, freezing and totals are saved for everyone (edit_views).
@@ -831,6 +837,14 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     actions.trashRows(ids).catch(() => undefined);
   };
 
+  /** Copies rows (the copies come back with the next answer); the ticked rows stay ticked. */
+  const duplicate = (ids: Id[]) => {
+    duplicateRows?.(ids).catch(() => undefined);
+  };
+
+  /** The ticked rows, top to bottom as the table shows them. */
+  const duplicateSelected = () => duplicate([...lineOf.keys()].filter((id) => selected.has(id)));
+
   /** A toast from the table (it needs the kit's ToastProvider, which the app has). */
   const say = (text: string) => {
     notices.current += 1;
@@ -992,6 +1006,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         actions.openRow(line.row.id);
       },
       copyLink: () => copyLink(line.row.id),
+      duplicate: canDuplicate ? () => duplicate([line.row.id]) : undefined,
       moves: manual ? { up: step(-1), down: step(1) } : null,
       remove: () => trashLine(line),
     };
@@ -1479,6 +1494,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           ctx={ctx}
           canCreateOptions={canEditStructure}
           onSet={setForSelected}
+          onDuplicate={canDuplicate ? duplicateSelected : undefined}
           onTrash={trashSelected}
           onClear={() => setSelection(NO_SELECTION)}
         />
