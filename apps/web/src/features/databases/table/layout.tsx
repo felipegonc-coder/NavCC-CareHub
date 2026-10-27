@@ -6,13 +6,21 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
 } from 'react';
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { Button, cn, colorClasses } from '@carehub/ui';
-import { isEmptyValue, type Id, type Property, type ReadValue, type Row } from '@carehub/databases';
-import { canChangeProperty } from '@carehub/databases/access';
-import type { ViewTotal } from '@carehub/databases/aggregate';
+import {
+  isEmptyValue,
+  type Id,
+  type Property,
+  type ReadValue,
+  type Row,
+  type View,
+  type ViewPropertySetting,
+} from '@carehub/databases';
+import { can, canChangeProperty } from '@carehub/databases/access';
 import {
   loadMoreKey,
   type LayoutProps,
@@ -28,9 +36,21 @@ import {
   type CellContext,
   type CommitDetails,
 } from './cell-adapter';
-import { tableColumns, tableOptions, type TableColumn } from './columns';
-import { PROPERTY_ICONS } from './icons';
+import { collapsedStorageKey, useCollapsedGroups } from './collapsed';
+import {
+  clampWidth,
+  dropTarget,
+  propertyOrder,
+  tableColumns,
+  tableOptions,
+  type TableColumn,
+} from './columns';
+import { DRAG_START, followDrag } from './drag';
+import { sameStored, withoutNewOptions } from './edits';
+import { TotalsRow } from './footer';
+import { HeaderCell, PropertiesMenu, type ColumnChanges } from './header';
 import { TABLE_TEXT } from './messages';
+import { moveSetting, withCalculation, withSetting, withTableOptions } from './view-settings';
 
 /** One row on screen. A row can sit in several groups (multi-select), so lines have their own key. */
 interface Line {
@@ -107,8 +127,15 @@ function inAnswer(data: ViewData, rowId: Id): boolean {
 /** The Table layout: rows and columns, grouped or not, with editing in the cells. */
 export default function TableLayout({ meta, view, data, viewer, actions, readOnly }: LayoutProps) {
   const options = tableOptions(view);
+  // A column's width while its edge is dragged, and until saving it is done.
+  const [resize, setResize] = useState<{ propertyId: Id; width: number } | null>(null);
+  const widths = useMemo(() => (resize ? { [resize.propertyId]: resize.width } : {}), [resize]);
   const columns = useMemo(
-    () => tableColumns(meta.properties, view, data.propertyIds),
+    () => tableColumns(meta.properties, view, data.propertyIds, widths),
+    [meta.properties, view, data.propertyIds, widths],
+  );
+  const listed = useMemo(
+    () => propertyOrder(meta.properties, view, data.propertyIds),
     [meta.properties, view, data.propertyIds],
   );
   const ctx = useMemo<CellContext>(
@@ -121,17 +148,39 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     [viewer, meta.properties, data.rowTitles],
   );
 
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const [collapsed, toggleCollapsed] = useCollapsedGroups(
+    collapsedStorageKey(meta.id, view.id, viewer.userId),
+  );
   const [created, setCreated] = useState<readonly Created[]>([]);
   const [adding, setAdding] = useState<string | null>(null);
   const [active, setActive] = useState<CellAt | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ key: string } | null>(null);
+  const [menuFor, setMenuFor] = useState<Id | null>(null);
+  // A header being dragged to a new place: where the pointer is, px from the table's left edge.
+  const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
   const cells = useRef(new Map<string, HTMLDivElement>());
+  const grid = useRef<HTMLDivElement>(null);
+  const dragStop = useRef<(() => void) | null>(null);
+  const dragged = useRef(false);
+  // The view with the changes made since it last came in, so quick changes build on each other.
+  const viewNow = useRef(view);
+
+  useEffect(() => {
+    viewNow.current = view;
+  }, [view]);
 
   useEffect(() => {
     if (focusRequest) cells.current.get(focusRequest.key)?.focus();
   }, [focusRequest]);
+
+  useEffect(
+    () => () => {
+      dragStop.current?.();
+      dragStop.current = null;
+    },
+    [],
+  );
 
   // Rows made here leave the local list once the answer has them.
   useEffect(() => {
@@ -177,9 +226,19 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
 
   const lines = useMemo(() => sections.flatMap((s) => (s.collapsed ? [] : s.lines)), [sections]);
   const nameColumn = columns.find((c) => c.property.config.type === 'title');
-  const canAdd = !readOnly && (meta.viewerAccess !== 'rows_only' || meta.viewerCanAddRows === true);
+  const canAdd =
+    !readOnly &&
+    can('add_rows', meta.viewerAccess, {
+      locked: meta.locked,
+      canAddRows: meta.viewerCanAddRows,
+    });
   const canEdit = (property: Property) =>
     !readOnly && canChangeProperty(property, viewer, 'edit_content');
+  // Column widths, order, wrapping, freezing and totals are saved for everyone (edit_views).
+  const canEditViews = !readOnly && can('edit_views', meta.viewerAccess, { locked: meta.locked });
+  // New options typed into a Select change the property (Can edit or Full access, not locked).
+  const canEditStructure =
+    !readOnly && can('edit_properties', meta.viewerAccess, { locked: meta.locked });
 
   // The one cell Tab stops on (roving tabindex): the active cell, or the first one.
   const first = lines[0];
@@ -356,14 +415,118 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       .finally(() => setAdding(null));
   };
 
-  const toggleGroup = (group: QueryGroup) => {
-    setCollapsed((set) => {
-      const next = new Set(set);
-      if (next.has(group.collapsedKey)) next.delete(group.collapsedKey);
-      else next.add(group.collapsedKey);
-      return next;
+  const changeView = (make: (current: View) => Partial<View>): Promise<void> => {
+    const patch = make(viewNow.current);
+    viewNow.current = { ...viewNow.current, ...patch };
+    return actions.updateView(patch).catch(() => undefined);
+  };
+
+  /** The view's property settings with one changed (Name, always shown, gets a visible one). */
+  const settingsWith = (
+    current: View,
+    property: Property,
+    patch: Partial<Omit<ViewPropertySetting, 'propertyId'>>,
+  ) => {
+    const listedHere = current.properties.some((s) => s.propertyId === property.id);
+    const full =
+      !listedHere && property.config.type === 'title' ? { visible: true, ...patch } : patch;
+    return withSetting(current.properties, property.id, full);
+  };
+
+  const columnChanges = (column: TableColumn): ColumnChanges => ({
+    width: (width) =>
+      void changeView((v) => ({
+        properties: settingsWith(v, column.property, { width: clampWidth(width) }),
+      })),
+    wrap: (wrap) =>
+      void changeView((v) => ({ properties: settingsWith(v, column.property, { wrap }) })),
+    freeze: (frozen) =>
+      void changeView((v) => ({
+        table: withTableOptions(v, { frozenUpTo: frozen ? column.property.id : null }),
+      })),
+    hide: () =>
+      void changeView((v) => ({
+        properties: settingsWith(v, column.property, { visible: false }),
+      })),
+  });
+
+  const showColumn = (property: Property, shown: boolean) =>
+    void changeView((v) => ({ properties: settingsWith(v, property, { visible: shown }) }));
+
+  // "Wrap cells" is for every column: the columns' own wrap settings go.
+  const wrapCells = (wrap: boolean) =>
+    void changeView((v) => ({
+      table: withTableOptions(v, { wrapCells: wrap }),
+      properties: v.properties.map((setting) => {
+        const next = { ...setting };
+        delete next.wrap;
+        return next;
+      }),
+    }));
+
+  const gridX = (clientX: number) => clientX - (grid.current?.getBoundingClientRect().left ?? 0);
+
+  const startResize = (event: PointerEvent<HTMLDivElement>, column: TableColumn) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragStop.current?.();
+    const { property, width: start } = column;
+    dragStop.current = followDrag(event.clientX, {
+      move: (dx) => setResize({ propertyId: property.id, width: clampWidth(start + dx) }),
+      end: (dx, _x, cancelled) => {
+        dragStop.current = null;
+        const width = clampWidth(start + dx);
+        if (cancelled || width === start) {
+          setResize(null);
+          return;
+        }
+        setResize({ propertyId: property.id, width });
+        void changeView((v) => ({ properties: settingsWith(v, property, { width }) })).then(() =>
+          setResize((r) => (r?.propertyId === property.id ? null : r)),
+        );
+      },
     });
   };
+
+  // Dragging a header moves the column; a press without a drag opens its menu (on click).
+  const startMove = (event: PointerEvent<HTMLButtonElement>, column: TableColumn) => {
+    dragged.current = false;
+    if (event.button !== 0 || event.pointerType === 'touch') return;
+    event.preventDefault();
+    if (column.property.config.type === 'title') return;
+    dragStop.current?.();
+    const propertyId = column.property.id;
+    const startColumns = columns;
+    dragStop.current = followDrag(event.clientX, {
+      move: (dx, clientX) => {
+        if (!dragged.current && Math.abs(dx) < DRAG_START) return;
+        dragged.current = true;
+        setMoving({ propertyId, x: gridX(clientX) });
+      },
+      end: (_dx, clientX, cancelled) => {
+        dragStop.current = null;
+        setMoving(null);
+        if (!dragged.current || cancelled) return;
+        const beforeId = dropTarget(startColumns, gridX(clientX));
+        const order = startColumns.map((c) => c.property.id);
+        const at = order.indexOf(propertyId);
+        if (beforeId === propertyId || (beforeId !== null && order[at + 1] === beforeId)) return;
+        if (beforeId === null && at === order.length - 1) return;
+        void changeView((v) => ({ properties: moveSetting(v.properties, propertyId, beforeId) }));
+      },
+    });
+  };
+
+  const pressHeader = (column: TableColumn) => {
+    if (dragged.current) {
+      dragged.current = false;
+      return;
+    }
+    setMenuFor(column.property.id);
+  };
+
+  const toggleGroup = (group: QueryGroup) => toggleCollapsed(group.collapsedKey);
 
   const placeOf = (column: TableColumn): CSSProperties =>
     column.frozen ? { width: column.width, left: column.left } : { width: column.width };
@@ -442,8 +605,11 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             hiddenLinks={cell.hiddenLinks}
             ctx={ctx}
             initialText={editing?.initialText}
+            canCreateOptions={canEditStructure}
             onCommit={(value, details) => {
-              if (details.changed) save(line, property, value);
+              // Until the view can add options to the property, new ones are left out.
+              const next = withoutNewOptions(value, cell.value, details.newOptions);
+              if (details.changed && !sameStored(next, cell.value)) save(line, property, next);
               finishEditing(line, property, details.move);
             }}
             onCancel={(details) => finishEditing(line, property, details?.move)}
@@ -453,26 +619,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     );
   };
 
-  const renderTotals = (totals: Partial<Record<Id, ViewTotal>>, testId?: string) => (
-    <div role="row" data-testid={testId} className="flex border-b border-border">
-      {columns.map((column) => (
-        <div
-          key={column.property.id}
-          role="gridcell"
-          data-property-id={column.property.id}
-          style={placeOf(column)}
-          className={cn(
-            'flex min-h-9 shrink-0 items-center justify-end px-2 text-label text-muted',
-            lineClass,
-            frozenClass(column),
-          )}
-        >
-          <span className="truncate">{totals[column.property.id]?.text}</span>
-        </div>
-      ))}
-    </div>
-  );
-
+  const cellClass = (column: TableColumn) => cn(lineClass, frozenClass(column));
   const renderWide = (content: ReactNode) => (
     <div role="row" className="flex">
       <div role="gridcell" aria-colspan={columns.length} className="sticky left-0 px-1 py-1">
@@ -529,7 +676,14 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
               {TABLE_TEXT.newRow}
             </Button>,
           )}
-        {group && Object.keys(group.totals).length > 0 && renderTotals(group.totals)}
+        {group && Object.keys(group.totals).length > 0 && (
+          <TotalsRow
+            columns={columns}
+            totals={group.totals}
+            placeOf={placeOf}
+            cellClass={cellClass}
+          />
+        )}
       </>
     );
     if (!group)
@@ -567,40 +721,82 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     );
   };
 
+  const shown = new Set(columns.map((c) => c.property.id));
+  const target = moving ? dropTarget(columns, moving.x) : undefined;
+  const indicator =
+    target === undefined
+      ? null
+      : target === null
+        ? columns.reduce((sum, c) => sum + c.width, 0)
+        : (columns.find((c) => c.property.id === target)?.left ?? null);
+
   return (
     <div className="overflow-x-auto">
       <div
+        ref={grid}
         role="grid"
         aria-label={view.name}
         aria-colcount={columns.length}
         aria-readonly={readOnly || undefined}
-        className="w-max min-w-full text-small text-fg"
+        className="relative w-max min-w-full text-small text-fg"
       >
         <div role="rowgroup">
           <div role="row" className="flex border-b border-border">
-            {columns.map((column) => {
-              const Icon = PROPERTY_ICONS[column.property.config.type];
-              return (
-                <div
-                  key={column.property.id}
-                  role="columnheader"
-                  data-property-id={column.property.id}
-                  style={placeOf(column)}
-                  className={cn(
-                    'flex min-h-9 shrink-0 items-center gap-1.5 px-2 text-muted max-md:min-h-11',
-                    lineClass,
-                    frozenClass(column),
-                  )}
-                >
-                  <Icon aria-hidden className="size-4 shrink-0" />
-                  <span className="truncate">{column.property.name}</span>
-                </div>
-              );
-            })}
+            {columns.map((column) => (
+              <HeaderCell
+                key={column.property.id}
+                column={column}
+                style={placeOf(column)}
+                className={cellClass(column)}
+                editable={canEditViews}
+                frozenHere={options.frozenUpTo === column.property.id}
+                menuOpen={menuFor === column.property.id}
+                onMenuOpenChange={(open) => setMenuFor(open ? column.property.id : null)}
+                onPress={() => pressHeader(column)}
+                moving={moving?.propertyId === column.property.id}
+                onMoveStart={(event) => startMove(event, column)}
+                onResizeStart={(event) => startResize(event, column)}
+                change={columnChanges(column)}
+              />
+            ))}
+            {canEditViews && (
+              <div role="columnheader" className="flex shrink-0 items-center px-1">
+                <PropertiesMenu
+                  properties={listed}
+                  shown={shown}
+                  wrapCells={options.wrapCells}
+                  onShow={showColumn}
+                  onWrapCells={wrapCells}
+                />
+              </div>
+            )}
           </div>
         </div>
         {sections.map(renderSection)}
-        <div role="rowgroup">{renderTotals(data.totals, 'db-totals')}</div>
+        {(canEditViews || Object.keys(data.totals).length > 0) && (
+          <div role="rowgroup">
+            <TotalsRow
+              columns={columns}
+              totals={data.totals}
+              placeOf={placeOf}
+              cellClass={cellClass}
+              calculations={canEditViews ? view.calculations : undefined}
+              onCalculate={(property, aggregate) =>
+                void changeView((v) => ({
+                  calculations: withCalculation(v.calculations, property.id, aggregate),
+                }))
+              }
+              testId="db-totals"
+            />
+          </div>
+        )}
+        {indicator !== null && (
+          <div
+            aria-hidden
+            style={{ left: indicator }}
+            className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-primary"
+          />
+        )}
       </div>
     </div>
   );
