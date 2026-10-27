@@ -20,11 +20,12 @@ function expectStop(error: unknown, reason: string) {
 }
 
 // The importer reads the file's text, so the bytes aren't needed.
-const input = (fileName: string, text: string): ImportInput => ({
+const input = (fileName: string, text: string, options = {}): ImportInput => ({
   fileName,
   bytes: new Uint8Array(),
   text: () => Promise.resolve(text),
   zip: null,
+  options,
 });
 
 // A fictional board: two open lists and an archived one.
@@ -88,7 +89,7 @@ describe('trelloPlan', () => {
           { name: 'Name', type: 'text' },
           { name: 'Status', type: 'status' },
           { name: 'Labels', type: 'multi_select' },
-          { name: 'Members', type: 'text' },
+          { name: 'Members', type: 'person' },
           { name: 'Due', type: 'date' },
           { name: 'Due complete', type: 'checkbox' },
         ],
@@ -121,6 +122,7 @@ describe('trelloPlan', () => {
           { key: 'card-2', cells: ['Send forms', 'Done', '', '', '', ''] },
         ],
         source: 'intake.json',
+        view: { layout: 'board', groupBy: 'Status' },
       },
     ]);
     expect(plan.problems).toEqual([
@@ -196,10 +198,13 @@ describe('trelloPlan', () => {
 });
 
 describe('trelloImporter', () => {
-  it("reads the file's JSON", async () => {
+  it("reads the file's JSON, with archived cards only when they're asked for", async () => {
     const plan = await trelloImporter.plan(input('intake.json', JSON.stringify(board)));
     expect(plan).toEqual(trelloPlan(read(), 'intake.json'));
     expect(trelloImporter.source).toBe('trello');
+    const all = { includeArchived: true };
+    const archived = await trelloImporter.plan(input('intake.json', JSON.stringify(board), all));
+    expect(archived).toEqual(trelloPlan(read(), 'intake.json', all));
   });
 
   it("stops when the file isn't a Trello board's JSON export", async () => {
