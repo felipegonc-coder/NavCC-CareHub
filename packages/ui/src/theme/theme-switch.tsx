@@ -36,7 +36,7 @@ export function ThemeSwitch({ compact = false, className }: ThemeSwitchProps) {
           key={value}
           title={compact ? label : undefined}
           className={cn(
-            'inline-flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-[6px] px-2 text-small text-muted',
+            'inline-flex h-7 cursor-pointer max-md:h-11 select-none items-center gap-1.5 rounded-[6px] px-2 text-small text-muted',
             '[&:not(:has(:checked)):hover]:bg-fill-hover [&:not(:has(:checked)):hover]:text-fg',
             'has-[:checked]:bg-primary has-[:checked]:text-primary-fg',
             'has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring',

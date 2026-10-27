@@ -18,10 +18,12 @@ export default {
 
 ```tsx
 // index.css: @import '@carehub/ui/styles.css';
-import { Button, ThemeProvider } from '@carehub/ui';
+import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
 
 <ThemeProvider>
-  <Button>Save</Button>
+  <ToastProvider>
+    <Button>Save</Button>
+  </ToastProvider>
 </ThemeProvider>;
 ```
 
@@ -31,7 +33,12 @@ import { Button, ThemeProvider } from '@carehub/ui';
 - **Theme:** `ThemeProvider` + `ThemeSwitch` (light, dark, system), saved on the device.
   `apps/web/public/theme-init.js` applies the saved theme before the first paint; it is a file, not
   an inline script, because the Content Security Policy allows only `script-src 'self'`.
+- **Phones:** under 768 px every control is at least 44 px tall (`max-md:` classes), as 0007 asks;
+  keep that when you override a size.
 - **Bigger text:** set `data-text-size="large"` on `<html>`; all sizes are in rem.
 - **Fields:** wrap a control in `<Field label hint error required>` and it gets its label, description
   and invalid state for screen readers.
+- **Overlays:** `DropdownMenu`, `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
+  and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
+  focus back.
 - **Icons:** [Lucide](https://lucide.dev) (`lucide-react`), 16 px inside buttons and menus.
