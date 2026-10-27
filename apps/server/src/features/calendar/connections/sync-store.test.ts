@@ -147,13 +147,12 @@ describe.skipIf(!hasDatabase)('calendar sync storage', () => {
     expect(await store.claim({ id, ownerId: avery.id, now: minutes(4) })).toBe(true);
   });
 
-  it("loads a connection with its owner's address and its calendars", async () => {
+  it('loads a connection with its sealed secret and its calendars', async () => {
     const { id, own, family } = await addGoogle(avery.id);
     const loaded = await store.load(id);
     expect(loaded?.connection).toEqual({
       id,
       ownerId: avery.id,
-      ownerEmail: 'avery.lin@example.com',
       workspaceId: null,
       kind: 'google',
       label: 'Google',
