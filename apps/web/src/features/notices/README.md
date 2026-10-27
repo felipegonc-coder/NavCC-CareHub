@@ -15,7 +15,7 @@ Import from `features/notices` (the index) only.
 - `useNoticesPreview()`: the newest notice as `{ title, sender, latestAt }` (`NoticesPreview`);
   `null` when there are none, `undefined` while loading or after an error.
 
-Messages (W1-H) mounts `NoticesChat` at `/messages/care-hub`, in a flex column under its own page
+Messages mounts `NoticesChat` at `/messages/care-hub`, in a flex column under its own page
 title. The chat has no `<main>` or page heading; its headings start at `h3`. It fills the column
 (`flex-1 min-h-0`) and scrolls inside itself.
 
