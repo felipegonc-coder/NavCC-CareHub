@@ -142,6 +142,30 @@ function choose(trigger: HTMLElement, item: string) {
   fireEvent.click(screen.getByRole('menuitem', { name: item }));
 }
 
+/** Lays the cards out 200 px apart, as the page would: their middles are at 90, 290 and 490. */
+function layOutCards() {
+  document.querySelectorAll<HTMLElement>('[data-question-index]').forEach((item) => {
+    const top = Number(item.dataset.questionIndex) * 200;
+    item.getBoundingClientRect = () =>
+      ({
+        top,
+        bottom: top + 180,
+        height: 180,
+        left: 0,
+        right: 600,
+        width: 600,
+        x: 0,
+        y: top,
+      }) as DOMRect;
+  });
+}
+
+/** A pointer event at height `y`, sent as a MouseEvent (all that's needed of a PointerEvent). */
+const pointer = (target: Element, type: string, clientY: number) =>
+  fireEvent(target, new MouseEvent(type, { bubbles: true, cancelable: true, clientY }));
+
+const handle = (name: string) => within(card(name)).getByTestId('form-question-handle');
+
 function openSettings() {
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
   return screen.getByRole('complementary', { name: 'Settings' });
@@ -230,6 +254,40 @@ describe('Form view builder', () => {
     expect(saved().questions[1]).toMatchObject({ logic: null, logicChanged: true });
     expect(within(card('Notes')).getByText('Logic changed')).toBeInTheDocument();
     await waitFor(() => expect(within(card('Name')).getByLabelText('Question')).toHaveFocus());
+  });
+
+  it('drags a question to a new place by its handle', () => {
+    const { saved } = renderFormView(formDatabase({ questions: threeQuestions }));
+    layOutCards();
+    pointer(handle('Name'), 'pointerdown', 90);
+    pointer(handle('Name'), 'pointermove', 400);
+    expect(card('Name')).toHaveClass('opacity-50');
+    pointer(handle('Name'), 'pointerup', 400);
+    expect(order(saved())).toEqual([PROPS.priority, PROPS.name, PROPS.notes]);
+    expect(card('Name')).not.toHaveClass('opacity-50');
+  });
+
+  it("FM-05: a drag that would break a question's logic is blocked with the message", () => {
+    const { actions } = renderFormView(formDatabase({ questions: threeQuestions }));
+    layOutCards();
+    pointer(handle('Notes'), 'pointerdown', 490);
+    pointer(handle('Notes'), 'pointermove', 100);
+    pointer(handle('Notes'), 'pointerup', 100);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "'Notes' depends on 'Priority', so it must stay below it.",
+    );
+    expect(actions.updateView).not.toHaveBeenCalled();
+  });
+
+  it('Escape cancels a drag', () => {
+    const { actions } = renderFormView(formDatabase({ questions: threeQuestions }));
+    layOutCards();
+    pointer(handle('Name'), 'pointerdown', 90);
+    pointer(handle('Name'), 'pointermove', 550);
+    fireEvent.keyDown(handle('Name'), { key: 'Escape' });
+    pointer(handle('Name'), 'pointerup', 550);
+    expect(actions.updateView).not.toHaveBeenCalled();
+    expect(card('Name')).not.toHaveClass('opacity-50');
   });
 
   it('"Show if…" sets up conditions on the questions above', () => {
@@ -352,6 +410,14 @@ describe('Form view builder', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Form title')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit form' }));
+    expect(screen.getByLabelText('Form title')).toHaveValue('Jobs');
+  });
+
+  it('FM-21: a form block in a page shows the fill screen, and Edit form opens the builder', () => {
+    renderFormView(formDatabase({ questions: threeQuestions }, { inline: true }));
+    expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Form title')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Edit form' }));
     expect(screen.getByLabelText('Form title')).toHaveValue('Jobs');
