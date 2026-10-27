@@ -10,6 +10,7 @@ import { PAGE_FIELD, pageExtensions } from './schema';
 import { SlashCommand, type SlashMenuStore } from './slash';
 import { ToolbarKeys } from './toolbar-keys';
 import type { CollabProvider, EditorUser, NodeViews } from './types';
+import { UndoShortcut } from './undo-shortcut';
 
 export const DEFAULT_PLACEHOLDER = "Type '/' for commands";
 
@@ -114,6 +115,7 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
       },
     }),
     Collaboration.configure({ document: ydoc, field }),
+    UndoShortcut,
     ...(awareness && user
       ? [
           CollaborationCaret.configure({
