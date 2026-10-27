@@ -1,6 +1,6 @@
 # Knowledge base
 
-_Copied from the Notion spec (https://app.notion.com/p/5881ceb25bee45c9b656d8d51deda4ac) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > 📚 Phase 3 · Notion parity plus Care Hub extras · Depends on: Databases (wiki databases, the Verification property), Pages and blocks, Roles and permissions, Messages (🔔 notices) · Related: Search (✓ badge and ranking), Page history and Trash (archive), Templates and buttons (the Team wiki starter)
 
@@ -95,7 +95,7 @@ Turning a page into a team knowledge base, like Notion's wikis, so people can tr
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **KB-01** Turn Support handbook (24 sub-pages) into a knowledge base. → 24 pages with Owner, Published and Not verified; their addresses, links, comments and history stay.
 2. ⭐ **KB-03** Add a new page, then open the knowledge base as Riley, a reader. → The page starts as Draft, and Riley can't see it anywhere, including search.
@@ -123,6 +123,6 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **KB-12** A verified page ranks above an otherwise equal unverified page in search (SR-05); the health line's numbers match the views.
 - **KB-13** Everything works by keyboard and screen reader; axe finds no serious problems; the phone layout works.
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **KB-D1** A separate draft copy for published pages: owners edit privately and publish all the changes at once, while readers keep seeing the published version. Notion edits published pages live. **Default:** later; edits are live for now.

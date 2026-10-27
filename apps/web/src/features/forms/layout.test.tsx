@@ -425,9 +425,43 @@ describe('Share form', () => {
       target: { value: 'members_and_guests' },
     });
     expect(saved().audience).toBe('members_and_guests');
+  });
+
+  it('lets anyone on the network respond without signing in, always anonymously', () => {
+    const { saved } = renderFormView(formDatabase({ allowMultiple: false }));
+    const share = openShare();
+    fireEvent.change(within(share).getByLabelText('Who can respond'), {
+      target: { value: 'anyone' },
+    });
+    expect(saved()).toMatchObject({ audience: 'anyone', allowMultiple: true });
     expect(
-      within(share).queryByRole('option', { name: 'Anyone on the Care Hub network with the link' }),
-    ).toBeNull();
+      within(share).getByText(
+        'No sign-in. Always anonymous, with no Person or Relation questions.',
+      ),
+    ).toBeInTheDocument();
+    const settings = openSettings();
+    const anonymous = within(settings).getByRole('switch', { name: 'Anonymous responses' });
+    expect(anonymous).toBeChecked();
+    expect(anonymous).toBeDisabled();
+    expect(
+      within(settings).getByRole('switch', { name: 'Allow more than one response' }),
+    ).toBeDisabled();
+  });
+
+  it('keeps a form that asks for people to members', () => {
+    const { actions } = renderFormView(
+      formDatabase({
+        questions: [question(PROPS.name, 'Name'), question(PROPS.technician, 'Technician')],
+      }),
+    );
+    const share = openShare();
+    fireEvent.change(within(share).getByLabelText('Who can respond'), {
+      target: { value: 'anyone' },
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Forms anyone can fill in can't ask for people or rows.",
+    );
+    expect(actions.updateView).not.toHaveBeenCalled();
   });
 
   it('only Full access turns responses off or changes the link', () => {
