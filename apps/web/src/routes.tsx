@@ -58,6 +58,9 @@ import { routes as formsRoutes } from './features/forms/routes';
 
 // feature: notifications
 
+// feature: reminders
+import { routes as remindersRoutes } from './features/reminders/routes';
+
 // feature: claude
 import { routes as claudeRoutes } from './features/claude/routes';
 
@@ -118,6 +121,9 @@ export const appRoutes: RouteObject[] = [
   // feature: analytics
 
   // feature: notifications
+
+  // feature: reminders
+  ...remindersRoutes,
 
   // feature: claude
   ...claudeRoutes,
