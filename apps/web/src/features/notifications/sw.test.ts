@@ -1,4 +1,3 @@
-import { CSRF_COOKIE, CSRF_HEADER } from '@carehub/shared';
 import { describe, expect, it } from 'vitest';
 import workerSource from '../../../public/sw.js?raw';
 
@@ -45,18 +44,12 @@ function subscription(endpoint: string) {
   return {
     endpoint,
     options: { applicationServerKey: KEY_BYTES.slice().buffer },
-    toJSON: () => ({
-      endpoint,
-      expirationTime: null,
-      keys: { p256dh: 'test-p256dh', auth: 'test-auth' },
-    }),
   };
 }
 
 interface WorkerOptions {
   tabs?: Tab[];
   publicKey?: string | null;
-  csrf?: string | null;
   keyOffline?: boolean;
 }
 
@@ -75,13 +68,6 @@ function loadWorker(options: WorkerOptions = {}) {
       state.skipped = true;
     },
     atob: (text: string) => atob(text),
-    cookieStore:
-      options.csrf === null
-        ? undefined
-        : {
-            get: async (name: string) =>
-              name === CSRF_COOKIE ? { value: options.csrf ?? 'test-csrf' } : null,
-          },
     clients: {
       claim: async () => {
         state.claimed = true;
@@ -154,6 +140,8 @@ describe('sw.js', () => {
       'pushsubscriptionchange',
     ]);
     expect(workerSource).not.toContain('caches');
+    // Web code never reads the CSRF cookie (0007), and only the app saves subscriptions.
+    expect(workerSource).not.toMatch(/cookie/i);
   });
 
   it("shows the sender and preview, replacing the chat's older notification", async () => {
@@ -238,43 +226,26 @@ describe('sw.js', () => {
     expect(worker.opened).toEqual(['/messages/chat-7', '/', '/']);
   });
 
-  it('subscribes again with the server key and tells the server what it replaces', async () => {
+  it('subscribes again with the server key, and leaves saving it to the app', async () => {
     const worker = loadWorker();
     await worker.fire('pushsubscriptionchange', { oldSubscription: subscription(OLD_ENDPOINT) });
     expect(worker.subscribed).toHaveLength(1);
     expect(worker.subscribed[0]?.userVisibleOnly).toBe(true);
     expect([...(worker.subscribed[0]?.applicationServerKey as Uint8Array)]).toEqual([...KEY_BYTES]);
-    const [key, save] = worker.requests;
-    expect(key).toMatchObject({ url: '/api/push/key', init: { credentials: 'same-origin' } });
-    expect(save).toMatchObject({
-      url: '/api/push/subscriptions',
-      init: { method: 'POST', credentials: 'same-origin' },
-    });
-    // Header names ignore case; CSRF_HEADER is in lower case.
-    const headers = Object.entries(save?.init?.headers ?? {}).map(([name, value]) => [
-      name.toLowerCase(),
-      value,
+    // Only the key is read; syncPushSubscription saves the new subscription when the app starts.
+    expect(worker.requests).toEqual([
+      { url: '/api/push/key', init: { credentials: 'same-origin' } },
     ]);
-    expect(Object.fromEntries(headers)).toEqual({
-      'content-type': 'application/json',
-      [CSRF_HEADER]: 'test-csrf',
-    });
-    expect(JSON.parse(String(save?.init?.body))).toEqual({
-      endpoint: NEW_ENDPOINT,
-      expirationTime: null,
-      keys: { p256dh: 'test-p256dh', auth: 'test-auth' },
-      replaces: OLD_ENDPOINT,
-    });
   });
 
-  it('uses the subscription the browser made, or the old key when offline', async () => {
+  it('keeps the subscription the browser made, or uses the old key when offline', async () => {
     const made = loadWorker();
     await made.fire('pushsubscriptionchange', {
       oldSubscription: subscription(OLD_ENDPOINT),
       newSubscription: subscription(NEW_ENDPOINT),
     });
     expect(made.subscribed).toEqual([]);
-    expect(made.requests.map((request) => request.url)).toEqual(['/api/push/subscriptions']);
+    expect(made.requests).toEqual([]);
 
     const offline = loadWorker({ keyOffline: true });
     await offline.fire('pushsubscriptionchange', { oldSubscription: subscription(OLD_ENDPOINT) });
@@ -282,15 +253,10 @@ describe('sw.js', () => {
     expect([...new Uint8Array(key)]).toEqual([...KEY_BYTES]);
   });
 
-  it("stops when push is off on the server, and leaves saving to the app when it can't", async () => {
+  it('stops when push is off on the server', async () => {
     const off = loadWorker({ publicKey: null });
     await off.fire('pushsubscriptionchange', { oldSubscription: subscription(OLD_ENDPOINT) });
     expect(off.subscribed).toEqual([]);
-    expect(off.requests).toHaveLength(1);
-
-    const noCookie = loadWorker({ csrf: null });
-    await noCookie.fire('pushsubscriptionchange', { oldSubscription: subscription(OLD_ENDPOINT) });
-    expect(noCookie.subscribed).toHaveLength(1);
-    expect(noCookie.requests.map((request) => request.url)).toEqual(['/api/push/key']);
+    expect(off.requests.map((request) => request.url)).toEqual(['/api/push/key']);
   });
 });

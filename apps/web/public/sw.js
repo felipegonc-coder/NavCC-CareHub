@@ -2,13 +2,11 @@
 // Care Hub's service worker. It shows push notifications and opens Care Hub when one is clicked.
 // Push only: there is no fetch handler, so nothing is cached, /api included.
 // The payload comes from apps/server/src/features/push/payload.ts and is checked again here.
+// It changes nothing on the server: the app saves subscriptions (syncPushSubscription).
 // ICON and BADGE are at the end of the file.
 
 const GENERIC = { title: 'Care Hub', body: 'New notification', url: '/' };
 const MAX_TEXT = 300;
-// The names in @carehub/shared, which this file can't import; sw.test.ts checks they match.
-const CSRF_COOKIE = 'carehub_csrf';
-const CSRF_HEADER = 'X-CSRF-Token';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -97,27 +95,17 @@ function askAppToOpen(client, url) {
   });
 }
 
-/** The browser replaced or dropped the subscription: subscribe again and tell the server. */
+/**
+ * The browser replaced or dropped the subscription: subscribe again, with the server's key, unless
+ * the browser already did. The app saves the new subscription the next time it starts.
+ */
 async function renew(oldSubscription, newSubscription) {
-  let subscription = newSubscription;
-  if (!subscription) {
-    const key = await currentKey(oldSubscription);
-    if (!key) return;
-    subscription = await self.registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: key,
-    });
-  }
-  // Without the CSRF cookie the server would refuse; the app sends it again when it next opens.
-  const csrf = await csrfToken();
-  if (!csrf) return;
-  const body = subscription.toJSON();
-  if (oldSubscription) body.replaces = oldSubscription.endpoint;
-  await self.fetch('/api/push/subscriptions', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', [CSRF_HEADER]: csrf },
-    body: JSON.stringify(body),
+  if (newSubscription) return;
+  const key = await currentKey(oldSubscription);
+  if (!key) return;
+  await self.registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: key,
   });
 }
 
@@ -140,16 +128,6 @@ function decodeKey(base64url) {
   const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
   const binary = self.atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
-/** The readable CSRF cookie, where the browser lets a service worker read cookies. */
-async function csrfToken() {
-  try {
-    const cookie = self.cookieStore ? await self.cookieStore.get(CSRF_COOKIE) : null;
-    return (cookie && cookie.value) || null;
-  } catch {
-    return null;
-  }
 }
 
 // PNG, because some browsers can't draw an SVG in a notification. The icon is the favicon's "C"
