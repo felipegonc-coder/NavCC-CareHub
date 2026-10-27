@@ -2,6 +2,7 @@ import { defaultConfig, type Id, type Property, type View } from '@carehub/datab
 import { DropdownMenuItem } from '@carehub/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
 import { jobsDatabase, jobsRows, PROPS, queryRow, VIEWS } from '../fixtures';
 import { PROPERTY_TEXT } from './messages';
 import type { PropertyActions } from './property-actions';
@@ -195,7 +196,7 @@ describe('PropertyMenu: the items each property gets', () => {
     const { trigger } = renderMenu(PROPS.name, { onPropertyAccess: vi.fn() });
     await openMenu(trigger);
     expect(nameField()).toHaveValue('Name');
-    expect(itemTexts()).toEqual([PROPERTY_TEXT.insertRight]);
+    expect(itemTexts()).toEqual([PROPERTY_TEXT.editProperty, PROPERTY_TEXT.insertRight]);
   });
 
   it('adds the layout items between the type and the column items', async () => {
@@ -203,8 +204,9 @@ describe('PropertyMenu: the items each property gets', () => {
       viewItems: <DropdownMenuItem>Sort ascending</DropdownMenuItem>,
     });
     await openMenu(trigger);
-    expect(itemTexts().slice(0, 3)).toEqual([
+    expect(itemTexts().slice(0, 4)).toEqual([
       'Change type Number',
+      PROPERTY_TEXT.editProperty,
       'Sort ascending',
       'Hide in this view',
     ]);
@@ -215,6 +217,7 @@ describe('PropertyMenu: the items each property gets', () => {
     await openMenu(trigger);
     expect(itemTexts()).toEqual([
       'Change type Number',
+      PROPERTY_TEXT.editProperty,
       PROPERTY_TEXT.duplicate,
       PROPERTY_TEXT.delete,
     ]);
@@ -487,5 +490,71 @@ describe('PropertyMenu: deleting', () => {
     expect(onError).toHaveBeenCalledWith(refused);
     expect(onChanged).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('PropertyMenu: opened by the layout', () => {
+  /** A layout that opens the menu from its own control, as a table header's keys would. */
+  function Layout({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Open the menu
+        </button>
+        <PropertyMenu
+          meta={db}
+          property={property(PROPS.cost)}
+          actions={fakeActions()}
+          ctx={cellCtx()}
+          open={open}
+          onOpenChange={(next) => {
+            onOpenChange(next);
+            setOpen(next);
+          }}
+        >
+          <button type="button">Cost</button>
+        </PropertyMenu>
+      </>
+    );
+  }
+
+  it('opens from `open` on the name, and says when it closes', async () => {
+    const onOpenChange = vi.fn();
+    render(<Layout onOpenChange={onOpenChange} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open the menu' }));
+    await settle();
+    expect(nameField()).toHaveFocus();
+    expect(nameField()).toHaveValue('Cost');
+
+    pressKey('Escape');
+    await settle();
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cost' })).toHaveFocus();
+  });
+
+  it('starts on its main page each time it opens', async () => {
+    render(<Layout onOpenChange={vi.fn()} />);
+    const opener = screen.getByRole('button', { name: 'Open the menu' });
+    fireEvent.click(opener);
+    await settle();
+    await choose('Change type Number');
+    expect(itemTexts()).not.toContain(PROPERTY_TEXT.duplicate);
+
+    pressOutside();
+    await settle();
+    fireEvent.click(opener);
+    await settle();
+    expect(itemTexts()).toContain(PROPERTY_TEXT.duplicate);
+  });
+
+  it('asks the layout before opening from its button', async () => {
+    const onOpenChange = vi.fn();
+    const { trigger } = renderMenu(PROPS.cost, { open: false, onOpenChange });
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    await settle();
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 });
