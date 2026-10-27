@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { screens as databases } from './databases/screens.js';
+import { screens as extras } from './extras/screens.js';
 import { screens as forms } from './forms/screens.js';
 import { screens as learning } from './learning/screens.js';
 import { screens, type Screen } from './screens.js';
 import { screens as team } from './team/screens.js';
 
-const lanes: Record<string, Screen[]> = { learning, databases, forms, team };
+const lanes: Record<string, Screen[]> = { learning, databases, forms, team, extras };
 
 describe('screens.ts', () => {
   it('names every screen once, in kebab-case, with a path from the site root', () => {

@@ -5,8 +5,8 @@ import { usePageTitle } from '../lib/usePageTitle';
 export function NotFoundPage() {
   usePageTitle('Not found');
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="text-2xl font-bold">Not found</h1>
+    <main className="mx-auto max-w-page px-6 py-16">
+      <h1 className="text-title">Not found</h1>
       <p className="mt-2">This was deleted, or the link is wrong.</p>
       <Link to="/" className="mt-6 inline-block underline">
         Go to Home

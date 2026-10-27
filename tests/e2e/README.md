@@ -25,6 +25,7 @@ so pull requests of different lanes never edit the same lines:
 | databases | [`databases/screens.ts`](databases/screens.ts) | `databases-`            |
 | forms     | [`forms/screens.ts`](forms/screens.ts)         | `forms-`                |
 | team      | [`team/screens.ts`](team/screens.ts)           | `team-`                 |
+| extras    | [`extras/screens.ts`](extras/screens.ts)       | `extras-`               |
 
 ```ts
 import type { Screen } from '../screens.js';
