@@ -3,8 +3,7 @@
 Sends web push notifications, so people hear about messages and reminders when Care Hub isn't
 open (Messages: "Unread and notifications"; Home and reminders: reminders). Built from RFC 8030,
 8291, 8292 and 8188 with `node:crypto` only. It keeps each person's browsers and notification
-settings and sends to all of a person's browsers; sending on new messages and notices comes in a
-later part.
+settings, sends to all of a person's browsers, and sends on new notices and messages.
 
 ## Settings
 
@@ -75,7 +74,7 @@ signed-in person, and none returns an endpoint or keys.
 | `DELETE /subscriptions`                  | `{ endpoint }`: turns this browser off. 204.                                                      |
 | `DELETE /subscriptions/:subscriptionId`  | Removes another of the person's browsers. 204, or 404.                                            |
 | `POST /test`                             | Sends a test notification to the person's browsers: `{ sent, removed, failed }`. 429 within 10 s. |
-| `GET /preferences`, `PATCH /preferences` | `{ preferences: { notifyAbout, showText } }`: Settings → Notifications.                           |
+| `GET /preferences`, `PATCH /preferences` | `{ preferences: { notifyAbout, showText, pause } }`: Settings → Notifications.                    |
 
 A browser is saved only with an https endpoint on a push service in `PUSH_SERVICE_HOSTS` and usable
 keys; `sendPush` checks the endpoint again before every send, follows no redirects and gives up
@@ -83,8 +82,45 @@ after 10 seconds. An endpoint is one browser, so it belongs to whoever saved it 
 computer, the previous person stops getting notifications there. Each person keeps the 20 browsers
 used most recently.
 
+`pause` is `{ until }` while notifications are paused, with `until` an ISO instant, or null for
+"until turned back on". It's null when not paused, and once `until` has passed. Send
+`{ pause: { until } }` to pause, for at most 7 days (400 otherwise), and `{ pause: null }` to turn
+notifications back on. The web app works out "1 hour" and "tomorrow 8:00 AM" in the person's time
+zone.
+
+## Sending on new notices and messages
+
+`delivery.ts`, which the routes plugin hooks to `app.events` while push is on:
+
+- `notices.notice.created`: the notice's owner.
+- `messages.message.created`: each recipient but the sender, 4 at a time.
+
+A person gets a push only when all of these hold. They have no Care Hub tab open (`hasOpenTabs` from
+live; the tab shows the notification itself). They have a browser with notifications on. They
+haven't paused notifications. They can see the notice or message. team-chat's `notifyDecision` says
+yes, after the "Notify me about" setting, mute and @mentions.
+
+`sources.ts` reads from the other features through their `index.ts`: `getNotice` (notices),
+`getMessageForPush` (Messages), `hasOpenTabs` (live) and `notifyDecision` (`@carehub/team-chat`).
+
+| What                         | `kind`     | Opens                                    | Tag             | Urgency |
+| ---------------------------- | ---------- | ---------------------------------------- | --------------- | ------- |
+| A message                    | `message`  | `/messages/<chatId>?message=<messageId>` | `chat:<chatId>` | normal  |
+| A message that mentions them | `mention`  | The same                                 | `chat:<chatId>` | normal  |
+| A reminder notice            | `reminder` | The notice's link                        | `notice:<id>`   | high    |
+| A mention notice             | `mention`  | The notice's link                        | `notice:<id>`   | normal  |
+| An alert notice              | `notice`   | The notice's link                        | `notice:<id>`   | high    |
+| Other notices                | `notice`   | The notice's link                        | `notice:<id>`   | normal  |
+
+A mention in a group chat starts its text with the chat's name, such as "Night shift · …". A
+notice's link that isn't a Care Hub path opens the 🔔 chat (`/messages/care-hub`) instead. A grouped
+notice keeps its ID, so its newer push replaces the older one. When one person's push fails, it's
+logged and the others still get theirs.
+
 ## Tables
 
 `push_subscriptions` (one row per browser) and `push_preferences` (one row per person who changed a
-setting; the defaults are all messages, with message text shown). Both are in
-`migrations/202610270400_push_tables.sql`, mirrored by `schema.ts`, and deleted with the person.
+setting; the defaults are all messages, with message text shown, and no pause). Both are in
+`migrations/202610270400_push_tables.sql`, with the pause columns in
+`migrations/202610271000_push_pause.sql`. `schema.ts` mirrors them, and both are deleted with the
+person.
