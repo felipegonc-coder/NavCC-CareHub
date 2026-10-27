@@ -1,0 +1,20 @@
+// The page model's HTTP routes and `app.requirePageAccess` (decision 0007, sections 3.3 and 4.1).
+import fp from 'fastify-plugin';
+import { requirePageAccess } from './access';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** preHandler: 404 if the page is missing or in Trash, 403 if the person has less than `min`. */
+    requirePageAccess: typeof requirePageAccess;
+  }
+}
+
+// fastify-plugin makes `app.requirePageAccess` visible to every feature registered after this one
+// (decision 0005). A prefix wouldn't apply here, so the routes use their full /api/... paths.
+export default fp(
+  async (app) => {
+    app.decorate('requirePageAccess', requirePageAccess);
+    // Spaces, pages, Trash, favorites and recent pages come in the next pull requests.
+  },
+  { name: 'carehub-pages', fastify: '5.x', dependencies: ['carehub-auth'] },
+);
