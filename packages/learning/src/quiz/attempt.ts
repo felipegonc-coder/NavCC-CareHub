@@ -31,10 +31,7 @@ export function scoreAttempt(
   plan: AttemptPlan,
   responses: Readonly<Record<Id, QuestionResponse>>,
 ): AttemptResult {
-  const byId = new Map<Id, Question>();
-  const pools = [quiz.questions, ...(quiz.bankDraws ?? []).map((draw) => draw.questions ?? [])];
-  for (const pool of pools)
-    for (const question of pool) if (!byId.has(question.id)) byId.set(question.id, question);
+  const byId = questionsById(quiz);
   const survey = quiz.settings.mode === 'survey';
   const results: QuestionResult[] = [];
   for (const id of new Set(plan.questionIds)) {
@@ -57,4 +54,16 @@ export function scoreAttempt(
   const percent = max > 0 ? Math.round((earned * 100) / max) : 0;
   const passed = !survey && max > 0 && earned * 100 >= quiz.settings.passMark * max;
   return { attemptId: plan.attemptId, results, earned, max, percent, passed };
+}
+
+/**
+ * The lesson's questions and then its bank-draw snapshots, by id (the first question with an id
+ * wins), for looking up the ids of a plan.
+ */
+export function questionsById(quiz: QuizLesson): Map<Id, Question> {
+  const byId = new Map<Id, Question>();
+  const pools = [quiz.questions, ...(quiz.bankDraws ?? []).map((draw) => draw.questions ?? [])];
+  for (const pool of pools)
+    for (const question of pool) if (!byId.has(question.id)) byId.set(question.id, question);
+  return byId;
 }
