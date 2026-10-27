@@ -4,6 +4,10 @@ import type { ComputedValue } from '../types';
 import { CASE_PROPERTIES, CASE_ROW, CASES_SCHEMA, fixtureContext } from './fixtures';
 import {
   MAX_PATTERN_LENGTH,
+  MAX_PATTERN_PROGRAM,
+  MAX_PATTERN_WORK,
+  PATTERN_CACHE_SIZE,
+  PATTERN_CALL_MS,
   PATTERN_MESSAGES,
   PATTERN_TEXT_LENGTH,
   TOO_COMPLEX,
@@ -21,6 +25,29 @@ const yes = { ok: true, value: true };
 const no = { ok: true, value: false };
 const ok = <T>(value: T) => ({ ok: true, value });
 const bad = (error: string) => ({ ok: false, error });
+
+/** A pattern's instructions once compiled. */
+const size = (pattern: string) => RE2JS.compile(RE2JS.translateRegExp(pattern)).programSize();
+/** The most characters a call may read with a pattern, counting `groups` groups as well. */
+const most = (pattern: string, groups = 0) =>
+  Math.min(PATTERN_TEXT_LENGTH, Math.floor(MAX_PATTERN_WORK / (size(pattern) * (1 + groups))));
+/** `unit` repeated to `length` characters. */
+const fill = (unit: string, length: number) =>
+  unit.repeat(Math.ceil(length / unit.length)).slice(0, length);
+/** What a search at the most work allowed must take less than: well inside the row's 50 ms. */
+const QUICK_MS = 40;
+/** A clock that doesn't move: on it, no match or replace runs out of its own time. */
+const STILL = () => 0;
+/** The quickest of three runs, in milliseconds. */
+function fastest(call: () => unknown): number {
+  let best = Infinity;
+  for (let k = 0; k < 3; k++) {
+    const started = performance.now();
+    call();
+    best = Math.min(best, performance.now() - started);
+  }
+  return best;
+}
 
 function stored(source: string): string {
   const s = toStoredFormula(source, CASES_SCHEMA);
@@ -62,69 +89,196 @@ describe('pattern engine (re2js)', () => {
     expect(engine.check('(a{2,1000}b){2}')).toBe(M.tooComplex);
     expect(engine.check('a{1001}')).toBe(M.tooComplex);
     expect(engine.compiled).toBe(0);
-    // Under the copy limit, so compiled, but too big a program once compiled.
-    expect(engine.check('(a{10}){100}')).toBe(M.tooComplex);
+    // Under the copy limit, so compiled, but too big a program once compiled: 3,002 instructions.
+    expect(engine.check('(a?){600}a{600}')).toBe(M.tooComplex);
     expect(engine.check('a{2,5}b{0,3}[{]x{,3}')).toBeNull();
     expect(engine.compiled).toBe(2);
-    expect(engine.check('(a?){600}a{600}')).toBe(M.tooComplex);
+    // 1,000 copies in 1,202 instructions: within both limits.
+    expect(engine.check('(a{10}){100}')).toBeNull();
+    // The biggest program allowed, and one instruction more.
+    expect(size('[ab]{999}[ab]{998}c')).toBe(MAX_PATTERN_PROGRAM);
+    expect(engine.check('[ab]{999}[ab]{998}c')).toBeNull();
+    expect(engine.check('[ab]{999}[ab]{999}c')).toBe(M.tooComplex);
   });
 
-  it("keeps one call well inside the row's 50 ms with the costliest patterns allowed", () => {
+  it('refuses a search with more work than one call may take, before running it', () => {
     const engine = createPatternEngine();
-    expect(engine.check('[ab]{999}c')).toBe(M.tooComplex);
-    /** The most copies a pattern of this shape may have. */
-    const most = (shape: (n: number) => string) => {
-      let n = 1;
-      while (engine.check(shape(n + 1)) === null) n++;
-      return n;
-    };
-    const [n1, n2, n3, n4, n5] = [
-      most((n) => `[ab]{${n}}c`),
-      most((n) => `[ab]{${n}}[^ab]`),
-      most((n) => `(?i)[ab]{${n}}[^ab]`),
-      most((n) => `\\pL{${n}}\\PL`),
-      most((n) => `[ab]*a[ab]{${n}}[^ab]`),
-    ];
-    expect(Math.min(n1, n2, n3, n4, n5)).toBeGreaterThan(20);
     const T = PATTERN_TEXT_LENGTH;
-    const fill = (unit: string) => unit.repeat(Math.ceil(T / unit.length)).slice(0, T);
+    // 32 instructions read the whole 10,000 characters; 33 read up to 9,696.
+    expect(size('[ab]{29}c')).toBe(32);
+    expect(engine.test('a'.repeat(T), '[ab]{29}c')).toEqual(no);
+    expect(engine.test('a'.repeat(T + 5), '[ab]{29}c')).toEqual(no);
+    expect(most('[ab]{30}c')).toBe(9_696);
+    expect(engine.test('a'.repeat(9_696), '[ab]{30}c')).toEqual(no);
+    expect(engine.test('a'.repeat(9_697), '[ab]{30}c')).toEqual(bad(M.tooSlow));
+    expect(engine.match('a'.repeat(9_697), '[ab]{30}c')).toEqual(bad(M.tooSlow));
+    expect(engine.replace('a'.repeat(9_697), '[ab]{30}c', 'x', true)).toEqual(bad(M.tooSlow));
+    // 1,002 instructions read up to 319 characters, 2,000 up to 160.
+    expect(most('[ab]{999}c')).toBe(319);
+    expect(engine.test('a'.repeat(319), '[ab]{999}c')).toEqual(no);
+    expect(engine.test('a'.repeat(320), '[ab]{999}c')).toEqual(bad(M.tooSlow));
+    expect(most('[ab]{999}[ab]{998}c')).toBe(160);
+    expect(engine.test('a'.repeat(161), '[ab]{999}[ab]{998}c')).toEqual(bad(M.tooSlow));
+    // What's past the characters read doesn't count, and plain text has no work limit.
+    expect(engine.test(`${'a'.repeat(T)}${'b'.repeat(T)}`, '[ab]{29}c')).toEqual(no);
+    expect(engine.test('a'.repeat(T), 'a'.repeat(MAX_PATTERN_LENGTH))).toEqual(yes);
+    // In a formula.
+    expect(run('test(repeat("a", 320), "[ab]{999}c")')).toEqual({
+      kind: 'error',
+      message: M.tooSlow,
+    });
+    expect(run('test(repeat("a", 318) + "c", "[ab]{999}c")')).toEqual({
+      kind: 'boolean',
+      value: false,
+    });
+  });
+
+  it("keeps each search well inside the row's 50 ms at the most work allowed", () => {
+    const engine = createPatternEngine();
+    const T = PATTERN_TEXT_LENGTH;
     let seed = 7;
     const coin = () => ((seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) < 2 ** 30 ? 'a' : 'b');
-    // 10,000 characters that never match, made to keep every copy busy on every character.
-    const cases: [string, string][] = [
-      [`[ab]{${n1}}c`, fill(`${'a'.repeat(n1 - 1)}c`)],
-      [`[ab]{${n2}}[^ab]`, fill('a')],
-      [`(?i)[ab]{${n3}}[^ab]`, fill('ab')],
-      [`\\pL{${n4}}\\PL`, fill('α')],
-      [`[ab]*a[ab]{${n5}}[^ab]`, Array.from({ length: T }, coin).join('')],
-      // Plain text has no instruction limit: it's found like indexOf.
-      [`${'a'.repeat(MAX_PATTERN_LENGTH - 1)}x`, fill('a')],
+    // Texts as long as the pattern may read, made to keep every instruction busy on every character.
+    const cases: [string, (length: number) => string][] = [
+      // 32 instructions on 10,000 characters.
+      ['[ab]{29}c', (n) => fill(`${'a'.repeat(28)}c`, n)],
+      ['[ab]{29}[^ab]', (n) => fill('a', n)],
+      ['(?i)[ab]{29}[^ab]', (n) => fill('ab', n)],
+      ['\\pL{29}\\PL', (n) => fill('α', n)],
+      ['(?i)[\\pL\\pN]{29}\\PL', (n) => fill('α', n)],
+      ['[ab]*a[ab]{26}[^ab]', (n) => Array.from({ length: n }, coin).join('')],
+      // Big programs on short texts.
+      ['[ab]{999}c', (n) => `${'a'.repeat(n - 1)}c`],
+      ['[ab]{999}[ab]{998}c', (n) => `${'a'.repeat(n - 1)}c`],
+      ['(?:[ab]?){999}', (n) => fill('ab', n)],
+      ['(?:[ab]?){990}c', (n) => `${fill('ab', n - 1)}c`],
+      ['(?:\\pL?){990}\\PL', (n) => fill('α', n)],
     ];
-    const fastest = (call: () => unknown) => {
-      let best = Infinity;
-      for (let k = 0; k < 3; k++) {
-        const started = performance.now();
-        call();
-        best = Math.min(best, performance.now() - started);
-      }
-      return best;
-    };
-    for (const [pattern, text] of cases) {
-      expect(text.length).toBe(T);
-      expect(engine.test(text, pattern)).toEqual(no);
-      expect(engine.match(text, pattern)).toEqual(ok([]));
-      expect(engine.replace(text, pattern, 'x', true)).toEqual(ok(text));
+    for (const [pattern, make] of cases) {
+      const text = make(most(pattern));
+      expect(size(pattern) * text.length).toBeLessThanOrEqual(MAX_PATTERN_WORK);
+      expect(size(pattern) * (text.length + 1) > MAX_PATTERN_WORK || text.length === T).toBe(true);
+      expect(engine.test(text, pattern)).toMatchObject({ ok: true });
       const ms = Math.max(
         fastest(() => engine.test(text, pattern)),
         fastest(() => engine.match(text, pattern)),
         fastest(() => engine.replace(text, pattern, 'x', true)),
       );
-      expect([pattern, ms < 25]).toEqual([pattern, true]);
+      expect([pattern, ms < QUICK_MS]).toEqual([pattern, true]);
     }
+    // Plain text has no work limit: it's found like indexOf.
+    const plain = `${'a'.repeat(MAX_PATTERN_LENGTH - 1)}x`;
+    const as = 'a'.repeat(T);
+    expect(engine.replace(as, plain, 'x', true)).toEqual(ok(as));
+    expect(fastest(() => engine.replace(as, plain, 'x', true))).toBeLessThan(QUICK_MS);
+  });
+
+  it('counts the groups into the work when a replacement puts one in', () => {
+    const engine = createPatternEngine(PATTERN_CACHE_SIZE, STILL);
+    const T = PATTERN_TEXT_LENGTH;
+    const nine = '(((((((((a)))))))))';
+    const as = 'a'.repeat(T);
+    // Finding it, or putting in the whole match, takes 21 instructions a character…
+    expect(size(nine)).toBe(21);
+    expect(engine.test(as, nine)).toEqual(yes);
+    expect(engine.replace(as, nine, '<$&>', true)).toEqual(ok('<a>'.repeat(T)));
+    expect(engine.replace(as, nine, '$$1', true)).toEqual(ok('$1'.repeat(T)));
+    // …but a group makes re2js match again keeping all nine: 10 times the work.
+    const n = most(nine, 9);
+    expect(n).toBe(1_523);
+    expect(engine.replace(as, nine, '$1', true)).toEqual(bad(M.tooSlow));
+    expect(engine.replace(as.slice(0, n + 1), nine, '$9', true)).toEqual(bad(M.tooSlow));
+    const nines = '$1$2$3$4$5$6$7$8$9';
+    expect(engine.replace(as.slice(0, n), nine, nines, true)).toEqual(ok('a'.repeat(9 * n)));
+    expect(fastest(() => engine.replace(as.slice(0, n), nine, nines, true))).toBeLessThan(QUICK_MS);
+    // Named groups count the same way; a name the pattern hasn't got puts in nothing.
+    const named = '(?<x>[ab]{20})';
+    expect(engine.test(as, named)).toEqual(yes);
+    expect(engine.replace(as, named, '$<x>', true)).toEqual(bad(M.tooSlow));
+    expect(engine.replace(as, named, '$<y>', true)).toEqual(ok(''));
+    // Twenty groups that take part in one long match, read by the first replacement.
+    const twenty = `${'([ab]*)'.repeat(20)}c`;
+    const text = (length: number) => `${fill('ab', length - 1)}c`;
+    expect(engine.test(text(most(twenty)), twenty)).toEqual(yes);
+    expect(engine.replace(text(most(twenty)), twenty, '$20', false)).toEqual(bad(M.tooSlow));
+    const most20 = most(twenty, 20);
+    const ab = text(most20);
+    expect(engine.replace(ab, twenty, '$1|$20', false)).toEqual(ok(`${ab.slice(0, -1)}|`));
+    expect(engine.replace(`${ab}c`, twenty, '$1|$20', false)).toEqual(bad(M.tooSlow));
+    const ms = Math.max(
+      fastest(() => engine.replace(ab, twenty, '$1$2$3$4$5$6$7$8$9$20', false)),
+      fastest(() => engine.test(text(most(twenty)), twenty)),
+    );
+    expect(ms).toBeLessThan(QUICK_MS);
+  });
+
+  it('stops a replaceAll of empty matches with "⚠ Pattern too slow" on the row\'s time', () => {
+    const engine = createPatternEngine();
+    const as = 'a'.repeat(PATTERN_TEXT_LENGTH);
+    // 10,001 empty matches, each putting in an empty group 5,000 times: seconds of work.
+    expect(engine.check('()')).toBeNull();
+    const started = performance.now();
+    const overTime = () => performance.now() > started + 50;
+    expect(engine.replace(as, '()', '$1'.repeat(5_000), true, { overTime })).toEqual(
+      bad(M.tooSlow),
+    );
+    expect(performance.now() - started).toBeLessThan(75);
+    // In a formula on a real clock, where a row gets 50 ms.
+    const clock = () => performance.now();
+    const ctx = fixtureContext(CASE_PROPERTIES, { clock, patterns: engine });
+    const source = 'replaceAll(repeat("a", 10000), "()", repeat("$1", 5000))';
+    const compiled = compileFormula(stored(source), CASES_SCHEMA);
+    if (!compiled.ok) throw new Error(compiled.error.message);
+    const from = performance.now();
+    expect(compiled.run(CASE_ROW, ctx)).toEqual({ kind: 'error', message: M.tooSlow });
+    expect(performance.now() - from).toBeLessThan(75);
+  });
+
+  it('holds each match and replace to its own time, clock or no clock', () => {
+    expect(PATTERN_CALL_MS).toBe(50);
+    // On a clock that moves 1 ms a reading, a call stops after its 51st match, whatever its row.
+    let now = 0;
+    const ticking = createPatternEngine(PATTERN_CACHE_SIZE, () => now++);
+    expect(ticking.match('a'.repeat(1_000), 'a')).toEqual(bad(M.tooSlow));
+    expect(now).toBe(52);
+    now = 0;
+    const overTime = () => false;
+    expect(ticking.replace('a'.repeat(1_000), 'a', 'b', true, { overTime })).toEqual(
+      bad(M.tooSlow),
+    );
+    expect(now).toBe(52);
+    expect(ticking.replace('a'.repeat(50), 'a', 'b', true)).toEqual(ok('b'.repeat(50)));
+    // 8 instructions, well inside MAX_PATTERN_WORK, but each of the 10,000 matches reads the rest
+    // of the text looking for a c: seconds of work, growing with the square of the text. On the
+    // real clock each call stops soon after its 50 ms.
+    const engine = createPatternEngine();
+    const as = 'a'.repeat(PATTERN_TEXT_LENGTH);
+    const pattern = '(?:a.*c|a)';
+    expect(size(pattern) * PATTERN_TEXT_LENGTH).toBeLessThan(MAX_PATTERN_WORK);
+    for (const call of [
+      () => engine.match(as, pattern),
+      () => engine.replace(as, pattern, 'x', true),
+    ]) {
+      const started = performance.now();
+      expect(call()).toEqual(bad(M.tooSlow));
+      expect(performance.now() - started).toBeLessThan(200);
+    }
+    expect(engine.replace('a'.repeat(100), pattern, 'x', true)).toEqual(ok('x'.repeat(100)));
+    // In a formula with neither a clock nor a budget, whose row has no time limit of its own.
+    const from = performance.now();
+    expect(run('replaceAll(repeat("a", 10000), "(?:a.*c|a)", "x")')).toEqual({
+      kind: 'error',
+      message: M.tooSlow,
+    });
+    expect(run('match(repeat("a", 10000), "(?:a.*c|a)")')).toEqual({
+      kind: 'error',
+      message: M.tooSlow,
+    });
+    expect(performance.now() - from).toBeLessThan(400);
   });
 
   it('handles the empty pattern', () => {
-    const engine = createPatternEngine();
+    const engine = createPatternEngine(PATTERN_CACHE_SIZE, STILL);
     expect(engine.test('abc', '')).toEqual(yes);
     expect(engine.test('', '')).toEqual(yes);
     expect(engine.match('abc', '')).toEqual(ok(['', '', '', '']));
@@ -198,7 +352,7 @@ describe('pattern engine (re2js)', () => {
   });
 
   it('reads the first 10,000 characters of a text and keeps the rest', () => {
-    const engine = createPatternEngine();
+    const engine = createPatternEngine(PATTERN_CACHE_SIZE, STILL);
     const text = `${'a'.repeat(PATTERN_TEXT_LENGTH)}b`;
     expect(engine.test(text, 'b')).toEqual(no);
     expect(engine.replace(text, 'a+', 'x', false)).toEqual(ok('xb'));
