@@ -32,7 +32,7 @@ const pages = new Map<string, FakePage>();
 const members = new Map<string, { isAdmin: boolean; permissions: string[] }>();
 const supportMembers = new Set<string>();
 const privateSpaces = new Map<string, string>();
-const versions: string[] = [];
+const versions: { pageId: string; reason: string; by: string | null }[] = [];
 const copiedDatabases: { databaseId: string; parentId: string; includeRows: boolean }[] = [];
 
 function addPage(
@@ -142,8 +142,9 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
         const page = pages.get(pageId);
         if (page) page.markdown = markdown;
       },
-      saveVersionNow: async (_tx, pageId) => {
-        versions.push(pageId);
+      saveVersionNow: async (_tx, pageId, options) => {
+        versions.push({ pageId, ...options });
+        return null;
       },
       duplicateDatabase: async (_tx, input) => {
         copiedDatabases.push(input);
@@ -326,7 +327,7 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
     });
     expect(response.statusCode).toBe(201);
     expect(response.json().pageId).toBe(empty.id);
-    expect(versions).toContain(empty.id);
+    expect(versions).toContainEqual({ pageId: empty.id, reason: 'template', by: sam.id });
     expect(empty.title).toBe('Weekly huddle');
     expect(empty.markdown).toContain('**Host:** Sam Ortiz');
     expect(empty.markdown).not.toContain('carehub:inline');
@@ -460,7 +461,7 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
       expect(applied.statusCode).toBe(201);
       expect(pages.get(applied.json().pageId)?.parentId).toBe(empty.id);
       expect(empty.title).toBe('');
-      expect(versions).not.toContain(empty.id);
+      expect(versions.map((version) => version.pageId)).not.toContain(empty.id);
       const coaching = made.at(-1)?.database;
       const template = coaching?.templates.find((t) => t.id === coaching.defaultTemplateId);
       expect(template?.markdown).toContain('## What to work on');

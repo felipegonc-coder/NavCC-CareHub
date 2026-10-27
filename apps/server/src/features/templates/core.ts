@@ -77,7 +77,11 @@ export interface TemplatesCore {
   markdown(db: Db | Tx, pageId: string): Promise<string>;
   setMarkdown(tx: Tx, pageId: string, markdown: string, by: string): Promise<void>;
   /** A version in the page's history, before a template changes it (history, HT-02). */
-  saveVersionNow(tx: Tx, pageId: string, by: string): Promise<void>;
+  saveVersionNow(
+    tx: Tx,
+    pageId: string,
+    options: { reason: 'template'; by: string | null },
+  ): Promise<{ id: string; pageId: string; kind: string; createdAt: Date } | null>;
   /** A copy of a database under `parentId`; null when databases can't be copied yet. */
   duplicateDatabase(
     tx: Tx,
@@ -175,9 +179,8 @@ const standIn: TemplatesCore = {
   setMarkdown: async () => {
     throw notYet(); // stand-in: setPageContentFromMarkdown (collab #200)
   },
-  saveVersionNow: async () => {
-    throw notYet(); // stand-in: saveVersionNow (history, HT-02)
-  },
+  // stand-in: saveVersionNow from '../history' (#317), which also gives null until pages land.
+  saveVersionNow: async () => null,
   duplicateDatabase: async () => null, // stand-in: duplicateDatabase (Databases api.ts)
   createDatabase: async () => null, // stand-in: createDatabase (Databases api.ts)
   rowCount: async () => 0, // stand-in: the Databases lane's row count
