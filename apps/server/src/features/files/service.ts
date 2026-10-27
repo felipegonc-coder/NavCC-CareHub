@@ -5,7 +5,7 @@ import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { getDefaultWorkspace } from '../workspaces';
 import { hasBlockedEnding } from './detect';
-import { keepFile, PROGRAMS } from './keep';
+import { keepFile, NOT_THERE, PROGRAMS } from './keep';
 import { cleanFileName, tooLargeMessage } from './names';
 import { files } from './schema';
 import { hasFileScope } from './scopes';
@@ -97,7 +97,7 @@ export async function saveFile(
 ): Promise<UploadedFile> {
   const feature = file.scope.slice(0, Math.max(0, file.scope.indexOf(':')));
   if (!fileScopeSchema.safeParse(file.scope).success || !hasFileScope(feature)) {
-    throw httpError(400, 'invalid', "Files can't be added there.");
+    throw httpError(400, 'invalid', NOT_THERE);
   }
   const { FILES_DIR, FILES_MAX_MB } = readFilesSettings();
   if (file.bytes.length > FILES_MAX_MB * MB) {

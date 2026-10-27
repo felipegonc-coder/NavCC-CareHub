@@ -4,7 +4,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { HttpError, httpError } from '../../core/errors';
 import { registerPeriodicTask } from '../jobs';
 import { hasBlockedEnding } from './detect';
-import { keepFile, PROGRAMS } from './keep';
+import { keepFile, NOT_THERE, PROGRAMS, type Destination } from './keep';
 import { cleanFileName, tooLargeMessage } from './names';
 import { canUseFileScope, hasFileScope, type FileScopeContext } from './scopes';
 import { FILE_CSP, sendStoredFile } from './serve';
@@ -25,8 +25,8 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
   const store = fileStore(root);
   await store.prepare();
   // Every hour, one run at a time across servers.
-  registerPeriodicTask('files.clean-up', HOUR_MS, async ({ signal }) => {
-    await cleanUpFiles(app.db, { root, signal });
+  registerPeriodicTask('files.clean-up', HOUR_MS, async ({ now, signal }) => {
+    await cleanUpFiles(app.db, { now, root, signal });
   });
   await app.register(multipart, {
     limits: {
@@ -67,16 +67,22 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     return file;
   };
 
+  /** Where the person's file goes, once it's clear they may add files to `scope`. */
+  const destination = async (request: FastifyRequest, scope: string): Promise<Destination> => {
+    const feature = scope.slice(0, scope.indexOf(':'));
+    if (!hasFileScope(feature)) throw httpError(400, 'invalid', NOT_THERE);
+    const ctx = context(request, scope.slice(feature.length + 1));
+    if (!(await canUseFileScope('write', feature, ctx))) throw httpError(403, 'forbidden');
+    const { workspaceId } = ctx.member;
+    return { workspaceId, feature, scopeId: ctx.scopeId, uploadedBy: ctx.user.id };
+  };
+
   // Guests too: the scope decides (a page shared with them, for example).
   const guarded = { config: { allowGuests: true }, preHandler: app.requireMember };
 
   app.post('/', guarded, async (request, reply) => {
     const { scope } = fileUploadQuerySchema.parse(request.query);
-    const feature = scope.slice(0, scope.indexOf(':'));
-    if (!hasFileScope(feature)) throw httpError(400, 'invalid', "Files can't be added there.");
-    const ctx = context(request, scope.slice(feature.length + 1));
-    if (!(await canUseFileScope('write', feature, ctx))) throw httpError(403, 'forbidden');
-
+    const to = await destination(request, scope);
     const limitMb = readFilesSettings(app.log).FILES_MAX_MB;
     const declared = Number(request.headers['content-length'] ?? 0);
     if (declared > limitMb * MB + WRAPPING_BYTES) {
@@ -89,12 +95,6 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
       if (upload.truncated) {
         throw httpError(413, 'too_large', tooLargeMessage(limitMb * MB + 1, limitMb));
       }
-      const to = {
-        workspaceId: ctx.member.workspaceId,
-        feature,
-        scopeId: ctx.scopeId,
-        uploadedBy: ctx.user.id,
-      };
       const file = await keepFile(app.db, store, tempPath, upload, to);
       await store.settle(file.storageKey);
       return reply.code(201).send(uploadedFileJson(file));

@@ -5,6 +5,7 @@ import { files } from './schema';
 import type { FileStore, ReceivedFile } from './storage';
 
 export const PROGRAMS = "Programs can't be uploaded.";
+export const NOT_THERE = "Files can't be added there.";
 
 /** Where a file goes, and who added it. */
 export interface Destination {
