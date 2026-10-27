@@ -1,3 +1,5 @@
+import type { ImportQuestionsReply } from '@carehub/learning';
+import { useState } from 'react';
 import { useParams } from 'react-router';
 import { StudioRoot } from '../context';
 import { ErrorState, LoadingState } from '../states';
@@ -16,6 +18,8 @@ export function BanksScreen() {
 
 function LoadBank({ bankId }: { bankId: string }) {
   const bank = useBank(bankId);
+  // The editor starts again with the bank as loaded after an import, so what the import added is kept here.
+  const [imported, setImported] = useState<ImportQuestionsReply | null>(null);
   if (bank.isPending || (bank.isFetching && !bank.isError)) {
     return (
       <main className="mx-auto flex max-w-page flex-col gap-6 px-6 py-8">
@@ -35,7 +39,16 @@ function LoadBank({ bankId }: { bankId: string }) {
   }
   // A reload remounts the editor, so it starts again from the version just loaded.
   return (
-    <BankEditor key={bank.dataUpdatedAt} reply={bank.data} onReload={() => void bank.refetch()} />
+    <BankEditor
+      key={bank.dataUpdatedAt}
+      reply={bank.data}
+      imported={imported}
+      onImported={setImported}
+      onReload={() => {
+        setImported(null);
+        void bank.refetch();
+      }}
+    />
   );
 }
 
