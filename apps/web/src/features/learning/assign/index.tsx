@@ -6,7 +6,7 @@ import { AssignmentList } from './AssignmentList';
 import { useAssignments, useGroups, usePathOptions, usePeople } from './data';
 import { entriesOf, type Names } from './entries';
 
-// The Assign screen (B4): assign courses and learning paths to people and groups, and see and
+// The Assign screen: assign courses and learning paths to people and groups, and see and
 // remove what's assigned. Only people who may assign (learning.assign) get past the first call.
 
 /** `/learning/assign`: assigning courses and paths to people and groups. */

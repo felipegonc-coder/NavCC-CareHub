@@ -46,7 +46,7 @@ async function orNull<T>(load: Promise<T>, statuses: readonly number[]): Promise
   }
 }
 
-// What the Assign screen reads of the Studio's course list (B1, GET /studio/courses).
+// What the Assign screen reads of the Studio's course list (GET /studio/courses).
 const StudioCourseSchema = z.object({
   id: IdSchema,
   title: z.string(),
