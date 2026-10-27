@@ -29,6 +29,7 @@ import { IconPicker } from './IconPicker';
 import { Problem } from './PageStates';
 import { EntryIcon } from './PageTree';
 import { ACCESS_LABELS, KindChoices } from './SpaceDialogs';
+import { SpaceMembers } from './SpaceMembers';
 import { SpaceConfirm, type SpaceAsk } from './SpaceMenu';
 import {
   applyChange,
@@ -154,6 +155,9 @@ function SettingsForm({ settings }: { settings: SpaceSettings }) {
           settings={settings}
           onSave={(description) => change({ description }, "Couldn't change the description.")}
         />
+      </Section>
+      <Section title="Members">
+        <SpaceMembers space={settings} />
       </Section>
       <Section title="Access">
         <KindChoices

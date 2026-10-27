@@ -27,6 +27,8 @@ export const pagesKeys = {
   page: (id: string) => ['pages', 'page', id] as const,
   space: (id: string) => ['pages', 'space', id] as const,
   browse: ['pages', 'browse'] as const,
+  members: (spaceId: string) => ['pages', 'space', spaceId, 'members'] as const,
+  people: (query: string) => ['pages', 'people', query] as const,
 };
 
 /** A list from a response that is either the list itself or `{ [field]: list }`. */
@@ -84,6 +86,86 @@ export const fetchSpaceSettings = async (id: string): Promise<SpaceSettings | nu
 /** Changes some of a space's settings; a name another space has is refused (409). */
 export const changeSpace = (id: string, change: SpaceChange) =>
   api.patch(`/api/spaces/${id}`, change);
+
+/** Someone in a space: a person or a group, as an owner or a member. */
+export interface SpaceMember {
+  /** The person's or the group's ID. */
+  id: string;
+  type: 'user' | 'group';
+  name: string;
+  email?: string | undefined;
+  avatarUrl?: string | undefined;
+  role: SpaceRole;
+}
+export type SpaceRole = 'owner' | 'member';
+
+/** Someone asking to join a Closed space. */
+export interface JoinRequest {
+  id: string;
+  user: { id: string; name: string; email?: string | undefined; avatarUrl?: string | undefined };
+  requestedAt: string;
+}
+
+export interface SpaceMembers {
+  members: SpaceMember[];
+  requests: JoinRequest[];
+}
+
+export async function fetchSpaceMembers(spaceId: string): Promise<SpaceMembers> {
+  const data = (await api.get(`/api/spaces/${spaceId}/members`)) as Partial<SpaceMembers> | null;
+  return {
+    members: Array.isArray(data?.members) ? data.members : [],
+    requests: Array.isArray(data?.requests) ? data.requests : [],
+  };
+}
+export const addSpaceMember = (
+  spaceId: string,
+  who: { type: SpaceMember['type']; id: string },
+  role: SpaceRole,
+) => api.post(`/api/spaces/${spaceId}/members`, { ...who, role });
+/** A space always keeps an owner: taking away the last one is refused (409). */
+export const setSpaceRole = (spaceId: string, memberId: string, role: SpaceRole) =>
+  api.patch(`/api/spaces/${spaceId}/members/${memberId}`, { role });
+export const removeSpaceMember = (spaceId: string, memberId: string) =>
+  api.delete(`/api/spaces/${spaceId}/members/${memberId}`);
+export const answerJoinRequest = (spaceId: string, requestId: string, approve: boolean) =>
+  api.post(`/api/spaces/${spaceId}/requests/${requestId}`, { approve });
+
+/** A person or group that could join a space. Guests can't (Sidebar spec, section 3.3). */
+export interface Candidate {
+  type: SpaceMember['type'];
+  id: string;
+  name: string;
+  email?: string | undefined;
+  avatarUrl?: string | undefined;
+  isGuest?: boolean | undefined;
+  /** How many people a group has. */
+  size?: number | undefined;
+}
+
+type Person = Omit<Candidate, 'type' | 'size'>;
+type Group = { id: string; name: string; memberIds?: string[] | undefined };
+
+/** People from accounts that match, then groups whose name does (decision 0007, 4.1 and 4.3). */
+export async function findCandidates(query: string): Promise<Candidate[]> {
+  const [people, groups] = await Promise.all([
+    getList<Person>(`/api/workspace/members?q=${encodeURIComponent(query)}`, 'members'),
+    getList<Group>('/api/workspace/groups', 'groups').catch((): Group[] => []),
+  ]);
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const named = groups.filter((group) =>
+    words.every((word) => group.name.toLowerCase().includes(word)),
+  );
+  return [
+    ...people.map((person): Candidate => ({ ...person, type: 'user' })),
+    ...named.map((group): Candidate => ({
+      type: 'group',
+      id: group.id,
+      name: group.name,
+      size: group.memberIds?.length,
+    })),
+  ];
+}
 
 /** Every Open and Closed space in the workspace, for Browse spaces. */
 export const fetchBrowseSpaces = () => getList<BrowseSpace>('/api/spaces/browse', 'spaces');
