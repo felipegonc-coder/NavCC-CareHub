@@ -57,6 +57,7 @@ function show(reply: unknown = { space: care }) {
   api.get.mockImplementation(async (path) => {
     if (reply instanceof Error) throw reply;
     if (path === '/api/spaces/care') return reply;
+    if (path === '/api/spaces/care/members') return { members: [], requests: [] };
     throw new Error(`Unexpected GET ${path}`);
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
