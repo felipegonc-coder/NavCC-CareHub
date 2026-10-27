@@ -148,18 +148,20 @@ test.describe('Databases: board moves', () => {
     const s = await makeBoard(page);
     const row = await s.add(title, 'To do', 1);
     const viewer = await signedInPage(browser, 'viewer');
+    try {
+      const refused = await (
+        await apiFor(viewer)
+      ).send('PATCH', `/api/databases/${s.database.id}/rows/${row.id}`, {
+        values: { [s.status.id]: s.key('Doing') },
+      });
+      expect(refused.status()).toBe(403);
+      expect(await refused.json()).toMatchObject({ error: { code: 'forbidden' } });
 
-    const refused = await (
-      await apiFor(viewer)
-    ).send('PATCH', `/api/databases/${s.database.id}/rows/${row.id}`, {
-      values: { [s.status.id]: s.key('Doing') },
-    });
-    expect(refused.status()).toBe(403);
-    expect(await refused.json()).toMatchObject({ error: { code: 'forbidden' } });
-
-    const board = await s.open(viewer);
-    await expect(board.cards(s.key('To do'))).toHaveText([containing(title)]);
-    expect(await s.statusOf(row)).toBe(s.key('To do'));
-    await viewer.context().close();
+      const board = await s.open(viewer);
+      await expect(board.cards(s.key('To do'))).toHaveText([containing(title)]);
+      expect(await s.statusOf(row)).toBe(s.key('To do'));
+    } finally {
+      await viewer.context().close();
+    }
   });
 });
