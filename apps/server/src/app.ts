@@ -4,9 +4,6 @@ import type { HealthResponse } from '@carehub/shared';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Config } from './config';
-import { DEFAULT_ERROR_MESSAGES, errorBody, errorHandler } from './core/errors';
-import { databasePlugin } from './db';
-import { authPlugin } from './features/auth/plugin';
 
 export interface BuildAppOptions {
   config: Config;
@@ -20,16 +17,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const { config } = options;
   const app = Fastify({ logger: options.logger ?? false });
 
-  // Errors are { error: { code, message } } (decision 0007, section 2.2).
-  app.setErrorHandler(errorHandler);
-  await app.register(databasePlugin, { databaseUrl: config.DATABASE_URL });
-  // Every /api route after this needs a signed-in user unless it sets config: { public: true }.
-  await app.register(authPlugin, {
-    cookieSecure: config.COOKIE_SECURE,
-    publicUrl: config.CAREHUB_PUBLIC_URL,
-  });
-
-  app.get('/api/health', { config: { public: true } }, async (): Promise<HealthResponse> => ({
+  app.get('/api/health', async (): Promise<HealthResponse> => ({
     status: 'ok',
     version: config.CAREHUB_VERSION,
   }));
@@ -38,13 +26,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // `await app.register(import('./features/auth/routes'), { prefix: '/api/auth' });`,
   // so parallel pull requests never edit the same lines.
 
-  await app.register(import('./features/auth/routes'), { prefix: '/api/auth' });
+  // feature: auth
 
   // feature: admin
 
   // feature: workspaces
 
-  await app.register(import('./features/pages/routes')); // /api/spaces, /api/pages, /api/trash, …
+  // feature: pages
 
   // feature: collab
 
@@ -71,7 +59,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       reply.sendFile('index.html');
       return;
     }
-    reply.code(404).send(errorBody('not_found', DEFAULT_ERROR_MESSAGES.not_found));
+    reply.code(404).send({
+      statusCode: 404,
+      error: 'Not Found',
+      message: `Route ${request.method}:${request.url} not found`,
+    });
   });
 
   return app;
