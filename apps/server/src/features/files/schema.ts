@@ -1,6 +1,7 @@
 import { bigint, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-// Mirrors migrations/202610270130_files_files.sql, which is the source of truth (a test compares them).
+// Mirrors migrations/202610270130_files_files.sql and 202610271420_files_claims.sql, which are the source
+// of truth (a test compares them).
 
 export const files = pgTable('files', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -23,4 +24,6 @@ export const files = pgTable('files', {
   storageKey: uuid('storage_key').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** Anonymous scopes only: deleted unless claimed (claimFiles) by then. Null once claimed. */
+  claimDeadline: timestamp('claim_deadline', { withTimezone: true }),
 });

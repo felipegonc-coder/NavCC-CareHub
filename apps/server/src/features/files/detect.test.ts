@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detectFileType, hasBlockedEnding, showsInBrowser, type ReadAt } from './detect';
+import { zip } from './testing';
 
 // Small made-up files: only the bytes each format is recognised by.
 const hex = (value: string) => Buffer.from(value.replace(/\s/g, ''), 'hex');
@@ -12,37 +13,6 @@ function detect(data: Buffer | string, name = 'file') {
   const file = typeof data === 'string' ? Buffer.from(data) : data;
   const read: ReadAt = async (offset, length) => file.subarray(offset, offset + length);
   return detectFileType({ head: file.subarray(0, 4096), size: file.length, name, read });
-}
-
-/** A ZIP file with stored (uncompressed) entries. */
-function zip(entries: Array<[name: string, content: string]>): Buffer {
-  const local: Buffer[] = [];
-  const central: Buffer[] = [];
-  let offset = 0;
-  for (const [name, content] of entries) {
-    const nameBytes = Buffer.from(name);
-    const data = Buffer.from(content);
-    const header = Buffer.alloc(30);
-    header.writeUInt32LE(0x04034b50, 0);
-    header.writeUInt32LE(data.length, 18);
-    header.writeUInt32LE(data.length, 22);
-    header.writeUInt16LE(nameBytes.length, 26);
-    const entry = Buffer.alloc(46);
-    entry.writeUInt32LE(0x02014b50, 0);
-    entry.writeUInt16LE(nameBytes.length, 28);
-    entry.writeUInt32LE(offset, 42);
-    local.push(header, nameBytes, data);
-    central.push(entry, nameBytes);
-    offset += 30 + nameBytes.length + data.length;
-  }
-  const directory = Buffer.concat(central);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(entries.length, 8);
-  end.writeUInt16LE(entries.length, 10);
-  end.writeUInt32LE(directory.length, 12);
-  end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...local, directory, end]);
 }
 
 /** An OLE compound file (old Office, Outlook and Windows Installer) whose root entry has `classId`. */

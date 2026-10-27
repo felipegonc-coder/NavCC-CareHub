@@ -1,6 +1,7 @@
 // Fictional sample pictures for the tests: the real structure of each format, with made-up details
-// that must go. The image data is filler: the cleaners never decode pixels.
+// that must go. The image data is filler (the cleaners never decode pixels), except in samplePhoto.
 
+import jpeg from 'jpeg-js';
 import { orientationExif } from './exif';
 import { pngChunk } from './png';
 
@@ -84,7 +85,7 @@ export function sampleJpeg() {
   ]);
   const orientationOnly = segment(0xe1, Buffer.concat([text('Exif\0\0'), orientationExif(6)]));
   const cleaned = Buffer.concat([start, jfif, orientationOnly, colours, tables, frame, scan, end]);
-  return { file, cleaned, width: 48, height: 64 };
+  return { file, cleaned, width: 48, height: 64, orientation: 6 };
 }
 
 /** A PNG with text, Exif (orientation 6) and a time, and bytes after its end. */
@@ -114,7 +115,7 @@ export function samplePng() {
     image,
     last,
   ]);
-  return { file, cleaned, width: 48, height: 64 };
+  return { file, cleaned, width: 48, height: 64, orientation: 6 };
 }
 
 const riffChunk = (type: string, data: Buffer) => {
@@ -143,7 +144,7 @@ export function sampleWebp() {
     riffChunk('XMP ', text(DETAIL)),
   ]);
   const cleaned = riff([extended(0x28), colours, image, riffChunk('EXIF', orientationExif(6))]);
-  return { file, cleaned, width: 48, height: 64 };
+  return { file, cleaned, width: 48, height: 64, orientation: 6 };
 }
 
 const subBlocks = (data: Buffer) =>
@@ -177,7 +178,7 @@ export function sampleGif() {
     text(DETAIL),
   ]);
   const cleaned = Buffer.concat([screen, looping, timing, image, Buffer.from([0x3b])]);
-  return { file, cleaned, width: 64, height: 48 };
+  return { file, cleaned, width: 64, height: 48, orientation: 1 };
 }
 
 const box = (type: string, ...contents: Buffer[]) => {
@@ -255,5 +256,17 @@ export function sampleHeic() {
     '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"/><?xpacket end="w"?>',
   ).copy(blankXmp);
   const cleaned = Buffer.concat([head, box('mdat', image, blankExif, blankXmp)]);
-  return { file, cleaned, width: 48, height: 64 };
+  return { file, cleaned, width: 48, height: 64, orientation: 1 };
+}
+
+/**
+ * A real photo to draw again: 16 pixels wide and 8 high, red on the left and blue on the right, stored
+ * with Exif orientation 6 (shown a quarter turn clockwise: 8 wide, red on top) and made-up details.
+ */
+export function samplePhoto(): Buffer {
+  const pixel = (x: number) => (x < 8 ? [220, 20, 20, 255] : [20, 20, 220, 255]);
+  const data = Uint8Array.from(Array.from({ length: 8 * 16 }, (_, at) => pixel(at % 16)).flat());
+  const plain = jpeg.encode({ width: 16, height: 8, data }, 95).data;
+  const exif = segment(0xe1, Buffer.concat([text('Exif\0\0'), sampleExif(6)]));
+  return Buffer.concat([plain.subarray(0, 2), exif, plain.subarray(2)]);
 }

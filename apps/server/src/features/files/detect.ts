@@ -236,7 +236,7 @@ async function zipType(head: Buffer, size: number, read: ReadAt): Promise<FileTy
 }
 
 /** Entry names from a ZIP file's central directory (empty if it can't be read, e.g. ZIP64). */
-async function zipEntryNames(size: number, read: ReadAt): Promise<string[]> {
+export async function zipEntryNames(size: number, read: ReadAt): Promise<string[]> {
   const tailStart = Math.max(0, size - 65_557);
   const tail = await read(tailStart, size - tailStart);
   const end = tail.lastIndexOf('PK\x05\x06', undefined, 'latin1');

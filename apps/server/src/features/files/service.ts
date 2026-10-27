@@ -1,5 +1,5 @@
 import { fileParamsSchema, fileUrl, type UploadedFile } from '@carehub/shared';
-import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
 import { files } from './schema';
 import { readFilesSettings } from './settings';
@@ -18,12 +18,28 @@ export interface FileInfo {
   mimeType: string;
   /** Where it was uploaded: `<feature>:<id>`, for example `messages:<channel id>`. */
   scope: string;
-  /** Null once the person's account is deleted. */
+  /** Null in anonymous scopes, and once the person's account is deleted. */
   uploadedBy: string | null;
   createdAt: Date;
 }
 
 const isFileId = (id: string): boolean => fileParamsSchema.shape.id.safeParse(id).success;
+
+const infoColumns = {
+  id: files.id,
+  name: files.name,
+  size: files.size,
+  mimeType: files.mimeType,
+  scopeFeature: files.scopeFeature,
+  scopeId: files.scopeId,
+  uploadedBy: files.uploadedBy,
+  createdAt: files.createdAt,
+};
+type InfoRow = { scopeFeature: string; scopeId: string } & Omit<FileInfo, 'scope'>;
+const toInfo = ({ scopeFeature, scopeId, ...file }: InfoRow): FileInfo => ({
+  ...file,
+  scope: `${scopeFeature}:${scopeId}`,
+});
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -57,23 +73,60 @@ export async function getFiles(
   const found = new Map<string, FileInfo>();
   for (const batch of batches([...new Set(ids)].filter(isFileId))) {
     const rows = await db
-      .select({
-        id: files.id,
-        name: files.name,
-        size: files.size,
-        mimeType: files.mimeType,
-        scopeFeature: files.scopeFeature,
-        scopeId: files.scopeId,
-        uploadedBy: files.uploadedBy,
-        createdAt: files.createdAt,
-      })
+      .select(infoColumns)
       .from(files)
       .where(and(inArray(files.id, batch), isNull(files.deletedAt)));
-    for (const { scopeFeature, scopeId, ...file } of rows) {
-      found.set(file.id, { ...file, scope: `${scopeFeature}:${scopeId}` });
-    }
+    for (const row of rows) found.set(row.id, toInfo(row));
   }
   return found;
+}
+
+/**
+ * Anonymous scopes (registered with `allowAnonymous: true`): attaches uploads to what they were added
+ * for, in the caller's transaction, for example a form response as it's saved. Takes only files
+ * uploaded to `scope` (`<feature>:<id>`) that are still waiting, so each upload is claimed once; returns
+ * those, leaving out the others. Files no one claims within an hour are deleted (cleanUpFiles).
+ */
+export async function claimFiles(
+  db: Db | Tx,
+  ids: readonly string[],
+  { scope }: { scope: string },
+): Promise<Map<string, FileInfo>> {
+  const colon = scope.indexOf(':');
+  const claimed = new Map<string, FileInfo>();
+  if (colon < 1) return claimed;
+  for (const batch of batches([...new Set(ids)].filter(isFileId))) {
+    const rows = await db
+      .update(files)
+      .set({ claimDeadline: null })
+      .where(
+        and(
+          inArray(files.id, batch),
+          eq(files.scopeFeature, scope.slice(0, colon)),
+          eq(files.scopeId, scope.slice(colon + 1)),
+          gt(files.claimDeadline, sql`now()`),
+          isNull(files.deletedAt),
+        ),
+      )
+      .returning(infoColumns);
+    for (const row of rows) claimed.set(row.id, toInfo(row));
+  }
+  return claimed;
+}
+
+/** Bytes uploaded to a scope over the last day, deleted files included: for the anonymous quota. */
+export async function bytesUploadedToday(db: Db | Tx, feature: string, scopeId: string) {
+  const [row] = await db
+    .select({ bytes: sql<string>`coalesce(sum(${files.size}), 0)` })
+    .from(files)
+    .where(
+      and(
+        eq(files.scopeFeature, feature),
+        eq(files.scopeId, scopeId),
+        gt(files.createdAt, sql`now() - interval '1 day'`),
+      ),
+    );
+  return Number(row?.bytes ?? 0);
 }
 
 /**
@@ -143,8 +196,9 @@ export async function removeDeletedFiles(
 }
 
 /**
- * The hourly clean-up (routes.ts registers it): removes files deleted over a day ago, so the night's
- * backup still has their bytes (Data settings, DS-02).
+ * The hourly clean-up (routes.ts registers it): deletes uploads to anonymous scopes still unclaimed at
+ * their deadline, and removes files deleted over a day ago, so the night's backup still has their bytes
+ * (Data settings, DS-02).
  */
 export async function cleanUpFiles(
   db: Db,
@@ -153,9 +207,15 @@ export async function cleanUpFiles(
     root = readFilesSettings().FILES_DIR,
     signal,
   }: { now?: Date; root?: string; signal?: AbortSignal } = {},
-): Promise<{ removed: number }> {
+): Promise<{ unclaimed: number; removed: number }> {
+  const unclaimed = await db
+    .update(files)
+    .set({ deletedAt: now })
+    .where(and(lt(files.claimDeadline, now), isNull(files.deletedAt)))
+    .returning({ id: files.id });
   const deletedBefore = new Date(now.getTime() - DAY_MS);
-  return { removed: await removeDeletedFiles(db, { deletedBefore, root, signal }) };
+  const removed = await removeDeletedFiles(db, { deletedBefore, root, signal });
+  return { unclaimed: unclaimed.length, removed };
 }
 
 /** The answer of POST /api/files. */

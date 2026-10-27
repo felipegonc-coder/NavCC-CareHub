@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { access, mkdir, open, rename, rm, statfs } from 'node:fs/promises';
+import { access, mkdir, open, readFile, rename, rm, statfs } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -82,6 +82,8 @@ export function fileStore(root: string) {
         close: () => handle.close(),
       };
     },
+    /** All of a file's bytes, for a picture to be drawn again (at most a few tens of MB). */
+    readAll: (filePath: string): Promise<Buffer> => readFile(filePath),
     /** Moves a checked upload into place under a new storage key, and returns the key. */
     async keep(tempPath: string): Promise<string> {
       const key = randomUUID();
