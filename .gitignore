@@ -8,6 +8,8 @@ playwright-report/
 test-results/
 blob-report/
 screenshots/
+# Written by apps/web/scripts/write-icons.mjs from apps/web/icons/.
+apps/web/public/icons/
 /data/
 .env
 .env.*
