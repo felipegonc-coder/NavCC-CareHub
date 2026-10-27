@@ -89,6 +89,7 @@ test.describe('Notices: the 🔔 chat as inbox', () => {
     page,
     browser,
   }) => {
+    needs('noticeReply');
     test.setTimeout(120_000);
     await signInAs(page, 'editor');
     const id = await pageWith(page);
@@ -144,6 +145,7 @@ test.describe('Notices: the 🔔 chat as inbox', () => {
     page,
     browser,
   }) => {
+    needs('following');
     test.setTimeout(150_000);
     await signInAs(page, 'editor');
     const [first, second] = [

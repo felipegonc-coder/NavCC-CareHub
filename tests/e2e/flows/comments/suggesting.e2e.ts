@@ -23,7 +23,7 @@ async function pageWith(page: Page, ...paragraphs: string[]): Promise<PageScreen
 
 test.describe('Comments: suggested edits', () => {
   onlyIn('desktop-light');
-  needs('signIn', 'appShell', 'pages', 'editor', 'comments');
+  needs('signIn', 'appShell', 'pages', 'editor', 'comments', 'suggestedEdits');
 
   test('CM-05 in Suggesting mode a deleted word and an added sentence show as suggestions by their author; Accept applies one and Reject drops the other', async ({
     page,
