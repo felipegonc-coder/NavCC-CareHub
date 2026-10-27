@@ -41,6 +41,7 @@ import { routes as learningRoutes } from './features/learning/routes';
 // feature: automations
 
 // feature: analytics
+import { routes as analyticsRoutes } from './features/analytics/routes';
 
 // feature: notifications
 
@@ -85,6 +86,7 @@ export const appRoutes: RouteObject[] = [
   // feature: automations
 
   // feature: analytics
+  ...analyticsRoutes,
 
   // feature: notifications
 
