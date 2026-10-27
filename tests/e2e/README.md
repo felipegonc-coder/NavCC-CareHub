@@ -25,6 +25,7 @@ so pull requests of different lanes never edit the same lines:
 | databases | [`databases/screens.ts`](databases/screens.ts) | `databases-`            |
 | forms     | [`forms/screens.ts`](forms/screens.ts)         | `forms-`                |
 | team      | [`team/screens.ts`](team/screens.ts)           | `team-`                 |
+| extras    | [`extras/screens.ts`](extras/screens.ts)       | `extras-`               |
 
 ```ts
 import type { Screen } from '../screens.js';
@@ -45,7 +46,8 @@ export const screens: Screen[] = [
 Names are unique and kebab-case; they are used in the test titles and the screenshot names. The
 core screens (`home`) stay in `screens.ts`. `npm test --workspace tests/e2e` checks the lists
 without a browser. Use fictional data only. In CI the database is seeded first (see below); the
-seeded accounts use the password in `process.env.CAREHUB_SEED_PASSWORD`.
+seeded accounts use the password in `process.env.CAREHUB_SEED_PASSWORD`, which CI makes up anew
+for each run. Nothing has a default for it, so set it yourself when you run them locally.
 
 ## Run them in CI
 
@@ -58,10 +60,11 @@ Browser tests cost CI minutes, so they do not run on every push
 2. Each time the label is added, one run starts. To run again, remove the label and add it again.
    **At most 2 runs per pull request** without asking the lead first.
 3. The run writes one comment on the pull request, separate from the quick checks' comment, and
-   updates it on later runs: "Browser tests passed" or "failed on <commit>", the counts, the
-   failed checks, on failure the end of the failed step's log (for the tests also the end of the
-   server output), and a table with the screenshots (linked to full size). On failure the
-   Playwright report is also uploaded as the artifact `playwright-report`.
+   updates it on later runs. Its first line, "✅ Browser tests passed" or "❌ Browser tests
+   failed on <commit>", comes from GitHub: go by that line. Below it is the test job's report
+   (the counts, the failed checks, on failure the end of the failed step's log, for the tests
+   also the end of the server output), then a table with the screenshots (linked to full size).
+   On failure the Playwright report is also uploaded as the artifact `playwright-report`.
 4. Put the result and the link to that comment in your pull request description, for example
    `Browser tests: passed (run 1 of 2), screenshots: <link to the comment>`.
 
@@ -80,7 +83,7 @@ Two jobs, so that no code from a pull request or its dependencies gets a token t
   with `npm ci --ignore-scripts` (`npm install --ignore-scripts` when `package-lock.json` is out
   of date), starts PostgreSQL from the npm package `embedded-postgres`
   ([`ci/postgres.mjs`](ci/postgres.mjs)), builds, runs `node apps/server/dist/cli.js seed` (once
-  the server has that command), starts the server on port 38080 with `NODE_ENV=production` and
+  the server has that command) with a new random `CAREHUB_SEED_PASSWORD`, starts the server on port 38080 with `NODE_ENV=production` and
   `CAREHUB_PUBLIC_URL` set to that address, installs Chromium and runs the tests. npm,
   Playwright, the database and temporary files stay in `$RUNNER_TEMP`, and the server and
   PostgreSQL are stopped even when a step fails. The report, the screenshots and Playwright's
@@ -89,7 +92,7 @@ Two jobs, so that no code from a pull request or its dependencies gets a token t
   write. It checks out nothing and runs no npm: it downloads `e2e-results`, checks the file names
   and sizes, pushes the screenshots and `results.json` (every test's status) to the branch
   `ci-screenshots`, one folder per pull request (`pr-12/`, and `main/` for the nightly run), and
-  writes the comment. That branch has a single commit and is rewritten on every
+  writes the comment: the result line from the test job's result, then the uploaded report. That branch has a single commit and is rewritten on every
   run; do not base work on it.
 
 The workflow also runs every night at 01:00 UTC on `main` when `main` had a commit in the last

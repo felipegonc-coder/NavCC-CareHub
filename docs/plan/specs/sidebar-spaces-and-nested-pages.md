@@ -1,6 +1,6 @@
 # Sidebar, spaces and nested pages
 
-_Copied from the Notion spec (https://app.notion.com/p/e5897b49ed3c499d824cf8ede24e8204) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > 🧭 Phase 1 · Notion parity · Depends on: accounts, workspaces, Roles and permissions · Used by: every screen · Related: Pages and blocks, Search, Page history and Trash, Templates and buttons, Settings and members
 
@@ -14,7 +14,7 @@ The left-hand sidebar is how people get around Care Hub: switch workspaces, open
 
 - **Workspace switcher:** workspace icon and name. Menu: the person's other workspaces (click to switch), Settings, Invite members (Admins), Create workspace (site admins), Sign out.
 - **New page** button next to the switcher (Ctrl+Alt+N): opens a new page with a "Add to:" picker at the top (Private by default, or a space or page).
-- **Top items:** Search (Ctrl+K), Home, Messages (unread badge), Calendar. Later phases add Learning and Claude. Each can be hidden except Search.
+- **Top items:** Search (Ctrl+K), Home, Messages (unread badge), Calendar. Learning comes in Phase 4, and Claude shows once an Admin switches on the Assistant (Claude features). Each can be hidden except Search.
 - **Favorites:** pages the person starred, in their own order.
 - **Spaces:** each space the person belongs to, with its pages as a tree. Hovering a space shows "…" and "+".
 - **Shared:** pages shared with the person directly (not through a space), and their private pages they've shared with others.
@@ -116,7 +116,7 @@ The left-hand sidebar is how people get around Care Hub: switch workspaces, open
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **SB-01** Sign in as a new member, Riley Chen. → The General space is there, with the Private, Shared and Favorites sections.
 2. ⭐ **SB-03** Drag "Refund steps" onto "Policies", then above it, then onto Trash. → It becomes a sub-page, then moves back up, then goes to Trash.

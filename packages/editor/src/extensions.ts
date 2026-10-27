@@ -2,15 +2,15 @@ import type { AnyExtension, Extensions, NodeViewRenderer, Node as TiptapNode } f
 import { Collaboration } from '@tiptap/extension-collaboration';
 import { CollaborationCaret } from '@tiptap/extension-collaboration-caret';
 import { Placeholder } from '@tiptap/extensions';
-import { ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react';
-import type { ComponentType } from 'react';
+import { ReactNodeViewRenderer } from '@tiptap/react';
 import type * as Y from 'yjs';
+import { blockNodeViews } from './blocks/ui';
 import { laneFeature } from './lanes';
 import { PAGE_FIELD, pageExtensions } from './schema';
-import type { CollabProvider, EditorUser } from './types';
-
-/** React views for nodes, by node name, like `{ database: DatabaseView }`. */
-export type NodeViews = Record<string, ComponentType<ReactNodeViewProps>>;
+import { SlashCommand, type SlashMenuStore } from './slash';
+import { ToolbarKeys } from './toolbar-keys';
+import type { CollabProvider, EditorUser, NodeViews } from './types';
+import { UndoShortcut } from './undo-shortcut';
 
 export const DEFAULT_PLACEHOLDER = "Type '/' for commands";
 
@@ -90,8 +90,10 @@ export interface BlockExtensionsOptions {
   user?: EditorUser;
   /** Placeholder for an empty page. */
   placeholder?: () => string | undefined;
-  /** React views by node name (see `NodeViews`). */
+  /** React views by node name (see `NodeViews`), on top of the block groups' own views. */
   nodeViews?: NodeViews;
+  /** Enables the "/" menu. */
+  slashMenu?: SlashMenuStore;
   /** More behavior, like shortcuts or plugins. Nodes and marks here are ignored (use lanes/). */
   extensions?: AnyExtension[];
 }
@@ -99,10 +101,11 @@ export interface BlockExtensionsOptions {
 /** The extensions of the page editor: the page schema with views, Yjs, carets and placeholders. */
 export function createBlockExtensions(options: BlockExtensionsOptions): Extensions {
   const { ydoc, field = PAGE_FIELD, provider, user, placeholder } = options;
-  const { nodeViews = {}, extensions = [] } = options;
+  const { nodeViews, slashMenu, extensions = [] } = options;
   const awareness = provider?.awareness;
+  const views = { ...blockNodeViews, ...nodeViews };
   return [
-    ...pageExtensions().map((extension) => withView(extension, nodeViews)),
+    ...pageExtensions().map((extension) => withView(extension, views)),
     Placeholder.configure({
       includeChildren: true,
       placeholder: ({ editor, node }) => {
@@ -112,6 +115,7 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
       },
     }),
     Collaboration.configure({ document: ydoc, field }),
+    UndoShortcut,
     ...(awareness && user
       ? [
           CollaborationCaret.configure({
@@ -122,6 +126,8 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
           }),
         ]
       : []),
+    ...(slashMenu ? [SlashCommand.configure({ store: slashMenu })] : []),
+    ToolbarKeys,
     ...extensions.filter(isBehavior),
   ];
 }

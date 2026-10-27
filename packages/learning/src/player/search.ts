@@ -1,4 +1,5 @@
-import type { Block, Course, Id, Link, Question } from '../format/index';
+import type { Block, Id, Link, Question } from '../format/index';
+import type { PlayerCourse } from './course';
 import { imageWords, plainOf } from './text';
 
 /** Queries with fewer letters than this (spaces and edge punctuation aside) find nothing. */
@@ -211,7 +212,7 @@ function blockWords(block: Block): string[] {
 // ---------- Index and search ----------
 
 /** Collects the text a learner can see in every lesson and block, ready for `searchCourseIndex`. */
-export function buildCourseSearchIndex(course: Pick<Course, 'lessons'>): CourseSearchIndex {
+export function buildCourseSearchIndex(course: Pick<PlayerCourse, 'lessons'>): CourseSearchIndex {
   const targets: SearchTarget[] = [];
   const add = (target: Omit<SearchTarget, 'fields'>, texts: readonly string[]) => {
     const fields = texts
@@ -329,7 +330,7 @@ export function searchCourseIndex(
 
 /** Searches a course once. To search as someone types, build the index once and call `searchCourseIndex`. */
 export function searchCourse(
-  course: Pick<Course, 'lessons'>,
+  course: Pick<PlayerCourse, 'lessons'>,
   query: string,
   options: { limit?: number } = {},
 ): CourseSearchResult {

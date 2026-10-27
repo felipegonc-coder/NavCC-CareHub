@@ -1,4 +1,5 @@
-import type { Block, ContentLesson, Course, Id } from '../format/index';
+import type { Block, ContentLesson, Id } from '../format/index';
+import type { PlayerCourse, PlayerLesson } from '../player/course';
 import type { LearnerCourseState, ScenarioProgress } from './types';
 
 type CompletedBlocks = readonly Id[] | ReadonlySet<Id>;
@@ -73,13 +74,18 @@ export type CanCompleteLesson =
   | { ok: true }
   | ({ ok: false } & (LessonBlocker | { reason: 'unknown_lesson' | 'wrong_lesson_kind' }));
 
-/** Whether a content lesson can be completed now (quiz lessons complete through their attempts). */
+/**
+ * Whether a content lesson can be completed now (quiz lessons complete through their attempts).
+ * Takes the full course or the learner view (`PlayerCourse`): it reads only lesson ids, kinds and
+ * content blocks, never quiz questions.
+ */
 export function canCompleteLesson(
-  course: Course,
+  course: PlayerCourse,
   state: LearnerCourseState,
   lessonId: Id,
 ): CanCompleteLesson {
-  const lesson = course.lessons.find((candidate) => candidate.id === lessonId);
+  const lessons: readonly PlayerLesson[] = course.lessons;
+  const lesson = lessons.find((candidate) => candidate.id === lessonId);
   if (!lesson) return { ok: false, reason: 'unknown_lesson' };
   if (lesson.kind !== 'content') return { ok: false, reason: 'wrong_lesson_kind' };
   const progress = state.lessons.find((candidate) => candidate.lessonId === lessonId);
@@ -96,9 +102,15 @@ export function canCompleteLesson(
  * Where "Next" goes from a lesson: where the latest finished scenario in it jumped, else the next
  * lesson in order. If that one is locked, the first open lesson not completed yet; null at the end.
  * Button blocks aren't followed here: the player navigates them with go(link) and records no event.
+ * Takes the full course or the learner view (`PlayerCourse`), like `canCompleteLesson`.
  */
-export function nextLesson(course: Course, state: LearnerCourseState, fromLessonId: Id): Id | null {
-  const from = course.lessons.findIndex((lesson) => lesson.id === fromLessonId);
+export function nextLesson(
+  course: PlayerCourse,
+  state: LearnerCourseState,
+  fromLessonId: Id,
+): Id | null {
+  const lessons: readonly PlayerLesson[] = course.lessons;
+  const from = lessons.findIndex((lesson) => lesson.id === fromLessonId);
   if (from === -1) return null;
   const status = new Map(state.lessons.map((lesson) => [lesson.lessonId, lesson.status]));
   let jump: ScenarioProgress | null = null;
@@ -108,10 +120,10 @@ export function nextLesson(course: Course, state: LearnerCourseState, fromLesson
     if (status.has(target) && (jump === null || run.lastFinishedAt >= jump.lastFinishedAt))
       jump = run;
   }
-  const candidate = jump?.lessonJump ?? course.lessons[from + 1]?.id;
+  const candidate = jump?.lessonJump ?? lessons[from + 1]?.id;
   if (candidate === undefined) return null;
   if (status.get(candidate) !== 'locked') return candidate;
-  const open = course.lessons.find((lesson) => {
+  const open = lessons.find((lesson) => {
     const current = status.get(lesson.id);
     return lesson.id !== fromLessonId && current !== 'locked' && current !== 'completed';
   });

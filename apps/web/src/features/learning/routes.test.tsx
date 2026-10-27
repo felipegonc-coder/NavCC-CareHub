@@ -1,5 +1,6 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen } from '@testing-library/react';
-import { matchRoutes } from 'react-router';
+import { matchRoutes, MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { routes, screens } from './routes';
 
@@ -26,7 +27,7 @@ const PLAN_PATHS = [
   'learning/reports/people/:personId',
   'learning/reports/team',
   'learning/reports/paths/:pathId',
-  'learning/review/:token',
+  'learning/review',
 ];
 
 afterEach(cleanup);
@@ -51,7 +52,8 @@ describe('Learning routes', () => {
     );
     expect(matched('/learning/reports/overdue')).toBe('learning/reports/overdue');
     expect(matched('/learning/reports/courses/c1')).toBe('learning/reports/courses/:courseId');
-    expect(matched('/learning/review/abc123')).toBe('learning/review/:token');
+    expect(matched('/learning/review')).toBe('learning/review');
+    expect(matched('/learning/review/abc123')).toBeUndefined();
     expect(matched('/learning/unknown/page')).toBeUndefined();
   });
 
@@ -59,7 +61,15 @@ describe('Learning routes', () => {
     const problems: string[] = [];
     for (const { path, load } of screens) {
       const Screen = await load();
-      render(<Screen />);
+      // Real screens read their route and call the API, as inside the app.
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <Screen />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
       if (screen.queryAllByRole('main').length !== 1) problems.push(`${path}: needs one main`);
       if (!screen.queryByRole('heading', { level: 1 })?.textContent) {
         problems.push(`${path}: needs a heading`);

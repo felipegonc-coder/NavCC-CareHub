@@ -9,6 +9,7 @@
 import { decimalToNumber } from '../decimal';
 import { plainText } from '../richtext';
 import { readValue } from '../row';
+import { VERIFICATION_LABELS, verificationState } from '../verification';
 import { LIMITS } from '../types';
 import type {
   ChecklistItem,
@@ -341,6 +342,9 @@ export function readProperty(row: Row, ctx: FormulaContext, prop: Property): Com
     }
     case 'button':
       return EMPTY;
+    case 'verification':
+      // "Verified", "Expired" or "Not verified", like the badge.
+      return txt(VERIFICATION_LABELS[verificationState(raw)]);
   }
 }
 

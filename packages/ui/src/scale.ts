@@ -67,11 +67,20 @@ export const shadows = {
 /** `max-w-page` (the reading column), `w-sidebar`, `max-w-dialog`, `max-w-toast`. */
 export const widths = { page: '48rem', sidebar: '16rem', dialog: '32rem', toast: '24rem' } as const;
 
+/** `max-h-sheet`: how tall a bottom sheet can grow on a phone before it scrolls. */
+export const heights = { sheet: '85dvh' } as const;
+
+/** `grid-cols-control`: a checkbox or switch, then its label (`Field` with `inline`). */
+export const gridColumns = { control: 'auto 1fr' } as const;
+
 /** `outline-offset-inset`: a focus outline drawn inside rows that sit in a scrolling list. */
 export const outlineOffsets = { inset: '-2px' } as const;
 
 /** `z-toast`: toasts stay above dialogs and menus (`z-50`). */
 export const layers = { toast: '100' } as const;
+
+/** `md:` starts at 768px, as in Tailwind. Narrower is the phone layout (the sidebar slides in). */
+export const breakpoints = { md: '768px' } as const;
 
 /**
  * The CSS variables (`--ch-space-2`, `--ch-radius`, `--ch-text-small` ...), with the same values
@@ -101,5 +110,6 @@ export function scaleVariables(): Record<string, string> {
     variables[`--ch-shadow-${name}`] = value;
   }
   for (const [name, value] of Object.entries(widths)) variables[`--ch-${name}-width`] = value;
+  for (const [name, value] of Object.entries(heights)) variables[`--ch-${name}-height`] = value;
   return variables;
 }

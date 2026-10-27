@@ -1,20 +1,28 @@
 import { describe, expect, it } from 'vitest';
+import type { Property, SelectOption } from '@carehub/databases';
 import {
+  findQueryRow,
   mapQueryRows,
   mergeMore,
   moreRequest,
   moveInCache,
+  savedOptionIds,
   titlePropertyId,
+  withOptionIds,
+  withTypedOptions,
   withValues,
 } from './cache';
 import {
   groupedByStatus,
+  jobsDatabase,
   jobsProperties,
   jobsRows,
+  PRIORITY,
   PROPS,
   queryData,
   queryRow,
   STATUS,
+  USERS,
 } from './fixtures';
 import type { ViewQueryData } from './contract';
 
@@ -85,6 +93,70 @@ describe('mergeMore', () => {
   });
 });
 
+describe('mergeMore and the names of people', () => {
+  it('adds the names the next page gives to the ones shown, in the view and in groups', () => {
+    const avery = { name: USERS.avery.name, avatarUrl: null };
+    const jordan = { name: USERS.jordan.name, avatarUrl: '/api/files/photo-jordan' };
+    const rows = jobsRows();
+    const first = queryData([at(rows, 0)], {
+      count: 2,
+      nextCursor: 'c2',
+      people: { [USERS.avery.id]: avery },
+    });
+    const page = queryData([at(rows, 1)], {
+      continued: true,
+      people: { [USERS.jordan.id]: jordan },
+    });
+    const both = { [USERS.avery.id]: avery, [USERS.jordan.id]: jordan };
+    expect(mergeMore(first, page).people).toEqual(both);
+
+    const grouped = { ...groupedByStatus(), people: { [USERS.avery.id]: avery } };
+    const more = { ...grouped, continued: true, groups: [], people: { [USERS.jordan.id]: jordan } };
+    expect(mergeMore(grouped, more, STATUS.done).people).toEqual(both);
+    const nameless = queryData([], { people: undefined });
+    expect(mergeMore(nameless, { ...nameless, continued: true }).people).toBeUndefined();
+  });
+});
+
+describe('options typed into cells', () => {
+  const urgent: SelectOption = { id: 'typed-urgent', name: 'Urgent', color: 'orange' };
+  // Typed in lower case: the property's own "High" is used instead.
+  const high: SelectOption = { id: 'typed-high', name: 'high', color: 'blue' };
+  const priority = (meta: { properties: Property[] }) =>
+    meta.properties.find((p) => p.id === PROPS.priority);
+  const names = (property: Property | undefined) =>
+    property?.config.type === 'select' ? property.config.options.map((o) => o.name) : [];
+
+  it('adds new options once, in the order typed, leaving out names the property has', () => {
+    const meta = jobsDatabase();
+    const added = withTypedOptions(meta, PROPS.priority, [urgent, high, urgent]);
+    expect(names(priority(added))).toEqual(['High', 'Medium', 'Low', 'Urgent']);
+    expect(priority(meta)).toEqual(priority(jobsDatabase()));
+    expect(withTypedOptions(added, PROPS.priority, [urgent, high])).toBe(added);
+    // Status options aren't typed into cells.
+    expect(withTypedOptions(meta, PROPS.status, [urgent])).toBe(meta);
+  });
+
+  it('saves the id of the option of the same name the property already had', () => {
+    const property = priority(withTypedOptions(jobsDatabase(), PROPS.priority, [urgent, high]));
+    expect(savedOptionIds(property, [urgent, high])).toEqual({
+      'typed-urgent': 'typed-urgent',
+      'typed-high': PRIORITY.high,
+    });
+    expect(savedOptionIds(undefined, [urgent])).toEqual({ 'typed-urgent': 'typed-urgent' });
+  });
+
+  it('swaps the ids in Select and Multi-select values, once each', () => {
+    const ids = { 'typed-high': PRIORITY.high };
+    expect(withOptionIds('typed-high', ids)).toBe(PRIORITY.high);
+    expect(withOptionIds([PRIORITY.high, 'typed-high', 'typed-urgent'], ids)).toEqual([
+      PRIORITY.high,
+      'typed-urgent',
+    ]);
+    expect(withOptionIds(null, ids)).toBeNull();
+  });
+});
+
 describe('mapQueryRows', () => {
   it('removes rows everywhere and keeps counts right', () => {
     const grouped = groupedByStatus();
@@ -140,5 +212,22 @@ describe('moveInCache', () => {
     const grouped = groupedByStatus();
     expect(moveInCache(grouped, 'row-heater', { toGroupKey: 'missing' })).toBe(grouped);
     expect(moveInCache(grouped, 'missing', { toGroupKey: STATUS.done })).toBe(grouped);
+  });
+});
+
+describe('findQueryRow', () => {
+  it('finds a loaded row in the rows, a group or a sub-group', () => {
+    expect(findQueryRow(queryData(), 'row-drain')?.title).toBe('Unclog bathroom drain');
+    expect(findQueryRow(groupedByStatus(), 'row-boiler')?.title).toBe('Annual boiler service');
+    const grouped = groupedByStatus();
+    const lanes: ViewQueryData = {
+      ...grouped,
+      groups: (grouped.groups ?? []).map((g) => ({ ...g, rows: [], subGroups: [g] })),
+    };
+    expect(findQueryRow(lanes, 'row-sink')?.title).toBe('Fix kitchen sink leak');
+  });
+
+  it("is undefined for a row that isn't loaded", () => {
+    expect(findQueryRow(queryData(), 'row-gone')).toBeUndefined();
   });
 });

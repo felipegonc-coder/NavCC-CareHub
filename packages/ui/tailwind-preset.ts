@@ -2,8 +2,11 @@ import type { Config } from 'tailwindcss';
 import plugin from 'tailwindcss/plugin';
 import { colorNames, colorVariables, darkColors, lightColors } from './src/palette';
 import {
+  breakpoints,
   fontStacks,
   fontWeights,
+  gridColumns,
+  heights,
   layers,
   outlineOffsets,
   radii,
@@ -48,11 +51,14 @@ const preset = {
   darkMode: 'class',
   theme: {
     extend: {
+      screens: { md: breakpoints.md },
       colors,
       borderColor: { DEFAULT: 'rgb(var(--ch-border))' },
       borderRadius: { ...radii },
       spacing: { ...spacing, sidebar: widths.sidebar },
       maxWidth: { page: widths.page, dialog: widths.dialog, toast: widths.toast },
+      maxHeight: { sheet: heights.sheet },
+      gridTemplateColumns: { ...gridColumns },
       fontFamily: { sans: [...fontStacks.sans], mono: [...fontStacks.mono] },
       fontSize,
       fontWeight: { ...fontWeights },
@@ -63,11 +69,13 @@ const preset = {
         'ch-fade-in': { from: { opacity: '0' } },
         'ch-pop-in': { from: { opacity: '0', scale: '0.97' } },
         'ch-slide-in-left': { from: { translate: '-100% 0' } },
+        'ch-slide-in-bottom': { from: { translate: '0 100%' } },
       },
       animation: {
         'fade-in': 'ch-fade-in 150ms ease-out',
         'pop-in': 'ch-pop-in 150ms ease-out',
         'slide-in-left': 'ch-slide-in-left 200ms ease-out',
+        'slide-in-bottom': 'ch-slide-in-bottom 200ms ease-out',
       },
     },
   },

@@ -5,7 +5,6 @@ import type {
   QuestionResponse,
   ScenarioScene,
 } from '../format/index';
-import type { QuestionResult } from '../questions/index';
 import type { AttemptPlan, AttemptResult, QuizStatus } from '../quiz/index';
 
 export type LessonProgressStatus = 'locked' | 'not_started' | 'in_progress' | 'completed';
@@ -30,10 +29,18 @@ export type QuizAttemptRecord = {
   plan: AttemptPlan;
   startedAt: IsoDateTime;
   submittedAt: IsoDateTime;
-  /** The answers to the plan's questions (anything else sent is dropped). */
+  /** The answers to the plan's questions, on the paper's ids as sent (anything else is dropped). */
   responses: Record<Id, QuestionResponse>;
-  /** Scored again with scoreAttempt; scores sent by a browser are never used. */
+  /**
+   * Scored again with scoreAttempt, after paperResponses maps the paper's ids back to the quiz's
+   * own; scores sent by a browser are never used.
+   */
   result: AttemptResult;
+  /**
+   * The right answers on the paper's ids (B2's `paperAnswerKey`, decision 0316). Only in the
+   * learner's own state, and only while the quiz's `revealAnswers` allows it.
+   */
+  answers?: Record<Id, QuestionResponse>;
 };
 
 /** quizStatus for the lesson, plus its attempts. */
@@ -47,14 +54,13 @@ export type QuizProgress = QuizStatus & {
   openAttempt: { plan: AttemptPlan; startedAt: IsoDateTime } | null;
 };
 
+/** Knowledge checks are practice: `firstCorrect` and `lastCorrect` are as the player reported. */
 export type KnowledgeCheckProgress = {
   lessonId: Id;
   blockId: Id;
   answers: number;
   firstCorrect: boolean;
-  /** The latest answer and its result. */
-  response: QuestionResponse;
-  result: QuestionResult;
+  lastCorrect: boolean;
   firstAnsweredAt: IsoDateTime;
   lastAnsweredAt: IsoDateTime;
 };
@@ -88,7 +94,6 @@ export type ProgressRejectReason =
   | 'not_ready' // complete_above continue too early (blockIds), acknowledgement too early (lessonIds)
   | 'minimum_time' // lesson completed before its minimum time (secondsLeft)
   | 'continue_blocks' // lesson completed with continue blocks not passed (blockIds)
-  | 'bad_response' // a knowledge check answer that doesn't fit its question
   | 'already_answered' // knowledge check without allowRetry
   | 'bad_choices' // scenario choices that don't follow the scenes to an ending or a lesson jump
   | 'no_attempts_left'
@@ -96,7 +101,10 @@ export type ProgressRejectReason =
   | 'invalid_plan' // fails isPlanFor, or its attemptId was used before
   | 'unknown_attempt' // no open attempt with this id
   | 'not_required' // acknowledgement on a course that doesn't ask for one
-  | 'bad_statement'; // not the course's acknowledgement statement
+  | 'bad_statement' // not the course's acknowledgement statement
+  | 'server_only' // quiz_attempt_started sent by a browser (the server starts attempts)
+  | 'future' // dated more than MAX_SECONDS_AHEAD after the server's clock
+  | 'restarted'; // dated before the learner's progress started over (a reset or a retake)
 
 export type RejectedEvent = {
   /** The event's id, type and time when they can be read, so the player can drop it from its queue. */

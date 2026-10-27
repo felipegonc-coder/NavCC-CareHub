@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CourseSchema, type Course } from '../format/index';
+import { learnerCourse } from '../quiz/index';
 import { courseOutline, previousLessonId, type OutlineProgress } from './outline';
 import { helpDesk } from './test-course';
 
@@ -44,6 +45,13 @@ describe('courseOutline', () => {
     ]);
     expect(outline.rows[3]).toMatchObject({ kind: 'quiz', number: 4 });
     expect(outline.rows[3]?.icon).toBeUndefined();
+  });
+
+  it('reads the learner view, whose quiz lessons have no questions, like the full course', () => {
+    expect(courseOutline(learnerCourse(helpDesk), progress, 'l-refunds')).toEqual(
+      courseOutline(helpDesk, progress, 'l-refunds'),
+    );
+    expect(previousLessonId(learnerCourse(helpDesk), 'l-quiz')).toBe('l-esc');
   });
 
   it("explains a locked lesson by naming the first earlier lesson that isn't finished", () => {
