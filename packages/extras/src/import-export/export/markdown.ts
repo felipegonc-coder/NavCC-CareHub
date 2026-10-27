@@ -28,6 +28,20 @@ export function escapeMarkdown(text: string): string {
   return text.replace(/[\\`*_[\]<>~|$]/g, '\\$&');
 }
 
+/** Spaces, control characters, `(`, `)`, `<`, `>` and `\`: they'd end a link's address early. */
+const LINK_UNSAFE = /[^\x21-\x7e\u0080-\uffff]|[()<>\\]/g;
+
+/**
+ * A link's address as written between `(` and `)`, with the characters that could end the link
+ * or start another one percent-encoded. `%` escapes already in it stay as they are.
+ */
+export function markdownHref(href: string): string {
+  return href.replace(
+    LINK_UNSAFE,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`,
+  );
+}
+
 /** Keeps a line of text from starting a heading, quote, list, rule or code block. */
 function guardLineStart(text: string): string {
   const line = text.trimStart();
@@ -64,7 +78,9 @@ function delimiters(marks: readonly ContentMark[], links: ExportLinks): Delimite
   for (const mark of marks) {
     if (mark.type === 'link') {
       const href = markHref(mark, links);
-      if (href !== null) found.push({ key: `link ${href}`, open: '[', close: `](${href})` });
+      if (href !== null) {
+        found.push({ key: `link ${href}`, open: '[', close: `](${markdownHref(href)})` });
+      }
       continue;
     }
     const emphasis = EMPHASIS[mark.type];
@@ -85,7 +101,7 @@ function inlineNode(node: ContentNode, links: ExportLinks): string {
       if (pageId !== undefined) {
         // Never the mention's saved label: it could name a page they can't open.
         const page = links.page(pageId);
-        return page ? `[${escapeMarkdown(page.title)}](${page.href})` : 'No access';
+        return page ? `[${escapeMarkdown(page.title)}](${markdownHref(page.href)})` : 'No access';
       }
       const label = attrText(node, 'label', 'name', 'date') ?? '';
       const person =
@@ -210,7 +226,7 @@ function toggle(node: ContentNode, links: ExportLinks): string[] {
 }
 
 function linkLine(title: string, href: string | null | undefined): string[] {
-  return href ? [`[${escapeMarkdown(title)}](${href})`] : [];
+  return href ? [`[${escapeMarkdown(title)}](${markdownHref(href)})`] : [];
 }
 
 function block(node: ContentNode, links: ExportLinks): string[] {
@@ -251,7 +267,8 @@ function block(node: ContentNode, links: ExportLinks): string[] {
       const href = file?.href ?? (id === undefined && src ? links.href(src) : null);
       if (!href) return ['*Picture not included*'];
       const caption = attrText(node, 'caption');
-      const picture = `![${escapeMarkdown(altOf(node, file?.name ?? 'Picture'))}](${href})`;
+      const alt = escapeMarkdown(altOf(node, file?.name ?? 'Picture'));
+      const picture = `![${alt}](${markdownHref(href)})`;
       return caption ? [picture, '', `*${escapeMarkdown(caption)}*`] : [picture];
     }
     case 'file': {

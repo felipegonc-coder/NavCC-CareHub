@@ -36,6 +36,11 @@ export type QuizAttemptRecord = {
    * own; scores sent by a browser are never used.
    */
   result: AttemptResult;
+  /**
+   * The right answers on the paper's ids (B2's `paperAnswerKey`, decision 0316). Only in the
+   * learner's own state, and only while the quiz's `revealAnswers` allows it.
+   */
+  answers?: Record<Id, QuestionResponse>;
 };
 
 /** quizStatus for the lesson, plus its attempts. */
@@ -97,7 +102,9 @@ export type ProgressRejectReason =
   | 'unknown_attempt' // no open attempt with this id
   | 'not_required' // acknowledgement on a course that doesn't ask for one
   | 'bad_statement' // not the course's acknowledgement statement
-  | 'server_only'; // quiz_attempt_started sent by a browser (the server starts attempts)
+  | 'server_only' // quiz_attempt_started sent by a browser (the server starts attempts)
+  | 'future' // dated more than MAX_SECONDS_AHEAD after the server's clock
+  | 'restarted'; // dated before the learner's progress started over (a reset or a retake)
 
 export type RejectedEvent = {
   /** The event's id, type and time when they can be read, so the player can drop it from its queue. */
