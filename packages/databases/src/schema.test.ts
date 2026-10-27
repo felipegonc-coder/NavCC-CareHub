@@ -7,7 +7,7 @@ import {
   newProperty,
   uniqueViewName,
 } from './schema';
-import type { Row } from './types';
+import { VIEW_LAYOUTS, type Row } from './types';
 
 const row = (over: Partial<Row> = {}): Row => ({
   id: 'r1',
@@ -78,5 +78,38 @@ describe('readValue', () => {
       value: 3,
     });
     expect(isEmptyValue(readValue(row(), score!))).toBe(true);
+  });
+});
+
+describe('view defaults from the v2 spec', () => {
+  it('loads 50 rows per group in every layout', () => {
+    const { properties } = newDatabaseSchema();
+    for (const layout of VIEW_LAYOUTS) {
+      expect(defaultView(layout, properties).loadLimit).toBe(50);
+    }
+  });
+
+  it('makes Feed and Dashboard views', () => {
+    const { properties } = newDatabaseSchema();
+    expect(defaultView('feed', properties)).toMatchObject({
+      name: 'Feed',
+      feed: { showContent: true, showComments: true },
+    });
+    expect(defaultView('dashboard', properties)).toMatchObject({
+      name: 'Dashboard',
+      dashboard: { widgets: [] },
+    });
+  });
+});
+
+describe('reading stored web addresses (issue #12)', () => {
+  const url = newProperty('Website', defaultConfig('url'));
+  it('returns safe links and drops unsafe ones', () => {
+    expect(readValue(row({ values: { [url.id]: 'https://bluepine.example' } }), url)).toBe(
+      'https://bluepine.example',
+    );
+    for (const bad of ['javascript:alert(1)', ' https://x.example', 'https://u@evil.example', 42]) {
+      expect(readValue(row({ values: { [url.id]: bad } }), url)).toBeNull();
+    }
   });
 });

@@ -1,3 +1,2 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind layers, colour tokens and base styles come from the design kit. */
+@import '@carehub/ui/styles.css';

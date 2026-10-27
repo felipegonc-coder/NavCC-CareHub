@@ -1,0 +1,75 @@
+import type { AnyExtension, Extensions } from '@tiptap/core';
+import { Collaboration } from '@tiptap/extension-collaboration';
+import { CollaborationCaret } from '@tiptap/extension-collaboration-caret';
+import { Placeholder } from '@tiptap/extensions';
+import type * as Y from 'yjs';
+import { PAGE_FIELD, pageExtensions } from './schema';
+import type { CollabProvider, EditorUser } from './types';
+
+export const DEFAULT_PLACEHOLDER = "Type '/' for commands";
+
+/** Only plain CSS color syntax, so another person's color can't inject styles. */
+const safeColor = (color: unknown) =>
+  typeof color === 'string' && /^(#[\da-f]{3,8}|(rgb|hsl)a?\([\d\s.,%/]+\))$/i.test(color)
+    ? color
+    : 'currentColor';
+
+/** Another person's caret, with their name. Built from text nodes only (no HTML). */
+export function renderCaret(user: Record<string, unknown>): HTMLElement {
+  const caret = document.createElement('span');
+  caret.className = 'ch-caret';
+  caret.setAttribute('aria-hidden', 'true');
+  caret.style.setProperty('--ch-caret', safeColor(user.color));
+  const label = document.createElement('span');
+  label.className = 'ch-caret-label';
+  label.textContent = typeof user.name === 'string' ? user.name : '';
+  caret.append('\u2060', label, '\u2060');
+  return caret;
+}
+
+const renderSelection = (user: Record<string, unknown>) => ({
+  nodeName: 'span',
+  class: 'ch-remote-selection',
+  style: `--ch-caret: ${safeColor(user.color)}`,
+});
+
+export interface BlockExtensionsOptions {
+  /** The page's Y.Doc; the blocks live in its XML fragment `field`. */
+  ydoc: Y.Doc;
+  field?: string;
+  /** With `user`, publishes your caret and shows other people's (through its awareness). */
+  provider?: CollabProvider | null;
+  user?: EditorUser;
+  /** Placeholder for an empty page. */
+  placeholder?: () => string | undefined;
+  /** More nodes, marks and extensions (like a database block), added after the built-in ones. */
+  extensions?: AnyExtension[];
+}
+
+/** The extensions of the page editor: the page schema, Yjs, carets and placeholders. */
+export function createBlockExtensions(options: BlockExtensionsOptions): Extensions {
+  const { ydoc, field = PAGE_FIELD, provider, user, placeholder, extensions = [] } = options;
+  const awareness = provider?.awareness;
+  return [
+    ...pageExtensions(extensions),
+    Placeholder.configure({
+      includeChildren: true,
+      placeholder: ({ editor, node }) => {
+        if (node.type.name === 'heading') return `Heading ${String(node.attrs.level)}`;
+        if (node.type.name !== 'paragraph') return '';
+        return (editor.isEmpty && placeholder?.()) || DEFAULT_PLACEHOLDER;
+      },
+    }),
+    Collaboration.configure({ document: ydoc, field }),
+    ...(awareness && user
+      ? [
+          CollaborationCaret.configure({
+            provider: { awareness },
+            user,
+            render: renderCaret,
+            selectionRender: renderSelection,
+          }),
+        ]
+      : []),
+  ];
+}

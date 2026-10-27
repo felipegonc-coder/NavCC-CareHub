@@ -29,3 +29,9 @@
 - Optional settings (Google sign-in, web push keys, calendar secret key, Claude key, speech models folder) are read by each feature with `readSettings`; `config.ts` doesn't change. The lane lists them in `docs/team/settings.md` and sends the `deploy/.env.example` lines to the main lead.
 - `GET /api/status` uses `config: { public: true }`; `/status` is in `publicRoutes`. Home takes `/`.
 - The live updates, jobs and notices interfaces in the Team tools brief are adopted as written (0007 section 4.4).
+
+## Security review before merge (added 2026-10-26, after the security reviewer's first pass)
+
+- Every PR that adds dependencies, or touches `.github/`, `deploy/`, a Dockerfile or `.npmrc`, gets a look from the security reviewer before it merges. The author or lane lead messages the reviewer with the PR number and what each new package is for, and merges once it says OK or its comments are fixed. Other PRs don't wait; the reviewer still checks PRs and `main` twice a day.
+- No workflow on any branch targets `self-hosted` (Felipe's Mac) until Felipe decides which macOS account the runner uses (issue #7). Before the first Mac job, browser-test jobs run with install scripts off, no sudo, nothing written outside the job folder and the tool cache, and the write token out of reach of installs, tests and the server (issue #8).
+- Defaults while nothing is deployed: production runs a pinned image version that a person bumps (issue #10; revisit when the server is set up), and Care Hub is reachable only over the tailnet, with Caddy listening on the Tailscale interface (issue #15).

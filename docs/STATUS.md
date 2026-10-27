@@ -1,36 +1,40 @@
 # Status
 
-_Updated by the lead. Last update: 2026-10-26 (evening, 23:00 UTC)._
+_Updated by the lead. Last update: 2026-10-26 (evening, 23:59 UTC)._
 
 ## Done
 
 - Repository, README, LICENSE, builder rules (`AGENTS.md`) and the plan in `docs/plan/`.
-- CI rules to fit GitHub's free 2,000 minutes a month ([decision 0006](decisions/0006-ci-within-free-minutes.md)), with Felipe's Mac as a runner for browser tests once it is online.
+- CI rules to fit GitHub's free 2,000 minutes a month ([decision 0006](decisions/0006-ci-within-free-minutes.md)). Felipe's Mac runner is online but unused until Felipe picks the macOS account it runs under (issue #7).
 - Monorepo skeleton and the quick checks (#1).
-- Shared contracts between the four lanes ([decision 0007](decisions/0007-shared-contracts.md)) and the first answers to the lane leads ([0010](decisions/0010-answers-to-lane-leads.md)); BlueOak-1.0.0 allowed in shipped code ([0009](decisions/0009-blueoak-for-shipped-code.md)).
-- Databases and Forms: the shared contract and pure helpers in `packages/databases` (#6). Lane status: [docs/databases/STATUS.md](databases/STATUS.md).
+- Shared contracts between the lanes ([0007](decisions/0007-shared-contracts.md)), answers to the lane leads and the security review rule ([0010](decisions/0010-answers-to-lane-leads.md)), BlueOak-1.0.0 ([0009](decisions/0009-blueoak-for-shipped-code.md)), more permissive licenses and CI hardening ([0011](decisions/0011-licenses-and-ci-hardening.md)).
+- Databases and Forms: shared contract and pure helpers in `packages/databases` (#6). Lane status: [docs/databases/STATUS.md](databases/STATUS.md).
+- Design kit: colour tokens, light and dark theme, base components, logo and the `/design` gallery (#2, [0008](decisions/0008-design-kit.md)).
+- Editor package: block editor on Yjs with Markdown shortcuts, safe links and other people's carets (#17).
+- Specs: every Phase 1 core spec, plus Formulas, Knowledge base, Data settings and the Notion parity checklist (in Notion; copies are coming to `docs/plan/specs/`).
 
-## In progress (Phase 0)
+## In review
 
-- Browser tests on request: Playwright smoke test with axe, screenshots in light and dark; license check and `THIRD_PARTY_NOTICES.md`.
-- Docker image (server also serves the web app), built and smoke-tested once a day or on request, pushed to a private GHCR package; `deploy/` for the ThinkCentre later.
-- Design kit and app shell.
+- #3 Docker image and deploy files: fixing security issues #10 and #15 first.
+- #4 browser tests with screenshots: fixing security issue #8 first (read-only test job, separate publish job).
+- #5 license check and `THIRD_PARTY_NOTICES.md`: adding the 0011 lists.
 
 ## In progress (Phase 1)
 
-- Accounts and sign-in (server), spaces and pages (server), the editor package.
-- Lane plumbing: every `// feature:` line, events, settings, the web API client and slots (`feat/lanes`, Oct 27 morning).
-- Learning, Databases and Forms, and Team tools lanes: pure-logic PRs first, then server and web parts. Each lane lead merges its own lane's PRs.
+- Lane plumbing (`feat/lanes`: every `// feature:` line, events, settings, API client, slots), then security headers (#11), then the sign-in screens.
+- Accounts and sign-in (server), spaces and pages (server), files, live co-editing, and the pages screens (sidebar tree, page view, new page).
+- Design kit overlays (menus, dialogs, toasts), then the app shell.
+- Editor: the "/" menu, the rich-text field, block IDs, then the block groups (toggle, callout, colours, code, table, columns, tabs, math, table of contents, synced blocks, page links, media and embeds).
+- Learning, Databases and Forms, and Team tools lanes; each lead merges its own lane's PRs (for example #18, databases CSV import and export).
 
 ## Next
 
-- Phase 1: sign-in screens, sidebar and page tree, page view, live co-editing.
-- Phase 2 (pulled forward): Databases and Messages, from the specs.
+- Comments and mentions (needs Team tools' `sendNotice` and notifications chat, due Oct 28), sharing (guests, groups, share links, access requests), search, page history and Trash, templates and buttons, import and export, settings and members.
 
 ## CI minutes (estimate)
 
-Free allowance: 2,000 minutes a month. Estimated from check-run times (each job rounded up to the minute).
+Free allowance: 2,000 minutes a month.
 
 | Date | Used (est.) | Notes |
 | --- | --- | --- |
-| 2026-10-26 | ~12 | #1 (one quick-check run on the PR, one on `main`); #6 (one on the PR, one on `main`). |
+| 2026-10-26 | ~60 | Rough estimate (our token can't read job times): quick checks on #1, #2, #5, #6, #17 and #18 and their merges (about 2 to 3 minutes a run), two browser-test runs on #4 and one image run on #3 (about 6 to 10 minutes each). |
