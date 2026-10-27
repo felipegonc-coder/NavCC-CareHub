@@ -436,7 +436,14 @@ export async function addRow(
     },
   });
   const preset = checkPresets(presets, record.properties, propertyViewer, access);
-  const sent = checkValues(input.values ?? {}, record.properties, propertyViewer, access);
+  const formAnswer = actor.source === 'form';
+  const sent = checkValues(
+    input.values ?? {},
+    record.properties,
+    propertyViewer,
+    access,
+    formAnswer,
+  );
   if (!sent.ok) throw refused(sent);
   let title = sent.checked.title ?? preset.title ?? '';
   if (input.title !== undefined) {

@@ -201,7 +201,7 @@ const nothing = <T>(value: T) => ({ value, effects: mergeEffects([]) });
 
 export interface CreateRowInput {
   databaseId: string;
-  /** null: an empty row. Left out: the database's default template. */
+  /** null: an empty row. Left out: the database's default template. Never with source 'form'. */
   templateId?: Id | null;
   /** By property id, as the row routes take them; the Name property's id sets the title. */
   values?: Readonly<Record<Id, unknown>>;
@@ -218,21 +218,23 @@ export interface CreateRowInput {
  * Adds a row with every check the routes make: who may add rows, template presets, value checks,
  * ID numbers and two-way relations. 404 when the database is missing or in Trash.
  *
- * A form answer (source 'form') needs `formId` to name one of the database's form views (400
- * otherwise); the respondent's access to the database isn't checked (the forms server checked the
- * form's gate), and the links it sends need only be rows of their database, not in Trash (the forms
- * server checked the respondent can open them). Property access lists still apply to them.
+ * A form answer (source 'form') names one of the database's form views in `formId` and sends values
+ * only for that form's questions, without a template (400 otherwise; see formOf). The respondent's
+ * access to the database isn't checked (the forms server checked the form's gate), and the links it
+ * sends need only be rows of their database, not in Trash (the forms server checked the respondent
+ * can open them). Its values skip property access lists, see and change alike: the form decides
+ * which properties it writes (see checkValues).
  */
 export function createRow(tx: Tx, input: CreateRowInput): Promise<{ rowId: string }> {
   return inSavepoint(tx, async (sp) => {
     const record = await liveDatabase(sp, input.databaseId);
-    const form = input.source === 'form' ? formOf(record, input.formId) : null;
+    const form = input.source === 'form' ? formOf(record, input) : null;
     const actor = await actorFor(sp, input.actorUserId, record, input.source);
     const level = form ? 'edit_content' : await databaseLevel(sp, actor, record);
     const { rowId, effects } = await addRow(
       sp,
       record,
-      { templateId: input.templateId, values: input.values },
+      { templateId: form ? null : input.templateId, values: input.values },
       actor,
       level,
       form ? { formId: form.id, responseId: input.responseId } : {},
@@ -241,10 +243,18 @@ export function createRow(tx: Tx, input: CreateRowInput): Promise<{ rowId: strin
   });
 }
 
-/** The form view a form answer names: 400 unless it's one of this database's form views. */
-function formOf(record: DatabaseRecord, formId: string | undefined) {
-  const form = record.views.find((v) => v.id === formId);
-  if (!form || form.layout !== 'form') throw invalidRequest();
+/**
+ * The form view a form answer names, once the answer fits it (400 otherwise): one of this database's
+ * form views, no template (unasked properties get only their defaults), and values only for the
+ * form's questions. The Name property may always be sent: when the form doesn't ask for it, the
+ * title comes from who answered ("Response from Avery Lin", "Anonymous response").
+ */
+function formOf(record: DatabaseRecord, input: CreateRowInput) {
+  const form = record.views.find((v) => v.id === input.formId);
+  if (!form || form.layout !== 'form' || input.templateId) throw invalidRequest();
+  const asked = new Set(form.form?.questions.map((q) => q.propertyId));
+  for (const prop of record.properties) if (prop.config.type === 'title') asked.add(prop.id);
+  if (Object.keys(input.values ?? {}).some((id) => !asked.has(id))) throw invalidRequest();
   return form;
 }
 
