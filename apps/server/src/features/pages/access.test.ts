@@ -1,6 +1,6 @@
+import type { AccessLevel, PermissionKey } from '@carehub/shared';
 import { describe, expect, it } from 'vitest';
 import { limitByRole, type Membership } from './access';
-import type { AccessLevel, PermissionKey } from './levels';
 
 const member = (permissions: PermissionKey[], kind: Membership['kind'] = 'member'): Membership => ({
   workspaceId: '00000000-0000-4000-8000-000000000001',

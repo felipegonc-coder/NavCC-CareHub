@@ -1,17 +1,17 @@
 // Who can open what (decision 0012; names in decision 0007, section 3.3). Routes, live co-editing,
 // comments, search and the other lanes all ask these functions, so the rules live in one place.
-import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
-import type { FastifyRequest } from 'fastify';
-import { httpError } from '../../core/errors';
-import type { Db, Tx } from '../../db';
-import { forbidden, invalid, isUuid, notFound, uuidArray } from './http';
 import {
   ACCESS_LEVELS,
   atLeast,
   type AccessLevel,
   type GrantLevel,
   type PermissionKey,
-} from './levels';
+} from '@carehub/shared';
+import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import type { FastifyRequest } from 'fastify';
+import { httpError } from '../../core/errors';
+import type { Db, Tx } from '../../db';
+import { forbidden, invalid, isUuid, notFound, uuidArray } from './http';
 import { accessGrants, accessHistory, type AccessGrant } from './schema';
 
 export type Executor = Db | Tx;
@@ -54,7 +54,7 @@ export async function loadViewer(db: Executor, userId: string): Promise<Viewer> 
   const { rows } = await db.execute<Row>(sql`
     SELECT m.workspace_id AS "workspaceId", m.kind, m.role_id AS "roleId", r.permissions
     FROM workspace_members m LEFT JOIN roles r ON r.id = m.role_id
-    WHERE m.user_id = ${userId}
+    WHERE m.user_id = ${userId} AND m.removed_at IS NULL
     ORDER BY m.workspace_id`);
   for (const { permissions, ...row } of rows) {
     const keys = new Set(permissions ?? []);
@@ -142,13 +142,18 @@ type PageFacts = Place & {
   deleted: boolean;
   best: number | null;
   granted: number | null;
+  /** The best level from anything but a 'rows_only' grant on the page itself. */
+  plain: number | null;
 };
 export type PageAnswer = Pick<PageFacts, 'kind' | 'deleted' | 'workspaceId'> & {
   level: AccessLevel;
+  /** Only an "Only rows they're in" grant opens this database (`level` is then 'view'). */
+  rowsOnly: boolean;
 };
 
 /**
- * The person's level on each existing page (pages in Trash too, marked `deleted`). Grants reach a
+ * The person's level on each existing page (pages in Trash or in a space in Trash too, marked
+ * `deleted`). Grants reach a
  * page from the page itself, then from each parent while the page below inherits, then from the
  * space (its grants, and its default access or Full access for its members and owners). Below a
  * database, its 'edit_content' counts as 'edit' and its 'rows_only' as nothing (on the database
@@ -191,30 +196,34 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
     ),
     best AS (
       SELECT page_id, max(array_position(${RANKS}, level)) AS best,
-        max(array_position(${GRANT_RANKS}, granted)) FILTER (WHERE depth > 0) AS granted
+        max(array_position(${GRANT_RANKS}, granted)) FILTER (WHERE depth > 0) AS granted,
+        max(array_position(${RANKS}, level)) FILTER (WHERE depth > 0 OR granted <> 'rows_only')
+          AS plain
       FROM reaching GROUP BY page_id
     )
     SELECT p.id, p.workspace_id AS "workspaceId", p.kind, p.parent_id AS "parentId",
-      p.deleted_at IS NOT NULL AS deleted, s.kind AS "spaceKind", s.owner_id AS "ownerId",
+      p.deleted_at IS NOT NULL OR s.deleted_at IS NOT NULL AS deleted, s.kind AS "spaceKind",
+      s.owner_id AS "ownerId",
       s.archived_at IS NOT NULL AS archived, b.best, b.granted
     FROM pages p JOIN spaces s ON s.id = p.space_id LEFT JOIN best b ON b.page_id = p.id
     WHERE p.id = ANY(${ids})`);
   const answers = new Map<string, PageAnswer>();
   const resolver = resolvers.get('row');
   await Promise.all(
-    rows.map(async ({ best, granted, ...page }) => {
+    rows.map(async ({ best, granted, plain, ...page }) => {
       const member = viewer.memberships.get(page.workspaceId);
       if (!member) {
-        answers.set(page.id, { ...page, level: 'none' });
+        answers.set(page.id, { ...page, level: 'none', rowsOnly: false });
         return;
       }
       let level = levelFrom(viewer, member, page, best);
+      const rowsOnly = page.kind === 'database' && level === 'view' && (plain ?? 0) < 1;
       if (resolver && page.kind === 'row' && page.parentId) {
         const grantLevel = GRANTS[(granted ?? 0) - 1] ?? null;
         const ctx = { db, userId: viewer.userId, rowPageId: page.id, inherited: level, grantLevel };
         level = await resolver({ ...ctx, databasePageId: page.parentId });
       }
-      answers.set(page.id, { ...page, level: finish(level, member, page) });
+      answers.set(page.id, { ...page, level: finish(level, member, page), rowsOnly });
     }),
   );
   return answers;
@@ -237,6 +246,20 @@ export async function getAccessForPages(
 
 export async function getPageAccess(db: Executor, userId: string, pageId: string) {
   return (await getAccessForPages(db, userId, [pageId])).get(pageId) ?? 'none';
+}
+
+/**
+ * 0007: the person's level like getPageAccess, but 'rows_only' where only an "Only rows they're
+ * in" grant opens a database (getPageAccess says 'view' there), for the Databases lane.
+ */
+export async function getGrantLevel(
+  db: Executor,
+  userId: string,
+  pageId: string,
+): Promise<GrantLevel> {
+  const answer = (await resolvePages(db, await loadViewer(db, userId), [pageId])).get(pageId);
+  if (!answer || answer.deleted) return 'none';
+  return answer.rowsOnly ? 'rows_only' : answer.level;
 }
 
 const checked = new WeakMap<FastifyRequest, PageAnswer & { pageId: string }>();
@@ -341,7 +364,7 @@ async function checkPrincipal(db: Executor, workspaceId: string, principal: Prin
   const { rows } = await db.execute<{ kind: string }>(
     principal.type === 'user'
       ? sql`SELECT kind FROM workspace_members
-          WHERE workspace_id = ${workspaceId} AND user_id = ${principal.id}`
+          WHERE workspace_id = ${workspaceId} AND user_id = ${principal.id} AND removed_at IS NULL`
       : sql`SELECT 'role' AS kind FROM roles
           WHERE workspace_id = ${workspaceId} AND id = ${principal.id}`,
   );

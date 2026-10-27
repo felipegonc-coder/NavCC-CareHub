@@ -1,6 +1,6 @@
-// Drizzle tables for migrations/202610270030_pages_spaces_access.sql.
+// Drizzle tables for migrations/202610270036_pages_spaces_access.sql.
+import type { GrantLevel } from '@carehub/shared';
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import type { GrantLevel } from './levels';
 
 const time = (name: string) => timestamp(name, { withTimezone: true });
 
