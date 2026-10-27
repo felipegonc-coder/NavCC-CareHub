@@ -49,6 +49,9 @@ const items: SidebarItem[] = [
   { id: 'home', label: 'Home', icon: House, to: '/', order: 10 },
 ];
 
+// Browsers read "Messages, 3 new"; jsdom puts a space between the spans ("Messages , 3 new").
+const badgeName = /^Messages ?, 3 new$/;
+
 function Screen({ title }: { title: string }) {
   return (
     <main>
@@ -92,7 +95,7 @@ describe('AppShell', () => {
     expect(links).toHaveLength(3);
     expect(links[0]).toHaveAccessibleName('Home');
     expect(links[0]).not.toHaveAttribute('aria-current');
-    expect(links[1]).toHaveAccessibleName('Messages, 3 new');
+    expect(links[1]).toHaveAccessibleName(badgeName);
     expect(links[1]).toHaveAttribute('aria-current', 'page');
     expect(links[2]).toHaveAccessibleName('Settings');
 
@@ -145,7 +148,7 @@ describe('AppShell', () => {
 
     fireEvent.click(open);
     const menu = screen.getByRole('dialog', { name: 'Menu' });
-    fireEvent.click(within(menu).getByRole('link', { name: 'Messages, 3 new' }));
+    fireEvent.click(within(menu).getByRole('link', { name: badgeName }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Messages' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
