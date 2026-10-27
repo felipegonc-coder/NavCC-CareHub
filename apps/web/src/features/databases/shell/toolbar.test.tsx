@@ -4,6 +4,7 @@ import { ApiError } from '../api';
 import {
   JOBS_ID,
   jobsDatabase,
+  jobsRows,
   mockClient,
   PROPS,
   queryData,
@@ -243,6 +244,9 @@ describe('Toolbar', () => {
     await screen.findByTestId('probe-panel');
     expect(panelProbe.props?.propertyIds).toEqual(propertyIds);
     expect(panelProbe.props?.rowTitles).toEqual(rowTitles);
+    expect(panelProbe.props?.data?.rows.map((row) => row.id)).toEqual(
+      jobsRows().map((row) => row.id),
+    );
   });
 
   it('keeps the sorts a viewer picks in a panel as their own', async () => {
