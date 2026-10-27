@@ -31,7 +31,7 @@ describe('anonymousRefusal', () => {
     expect(await refusal(office('xl'), 'rota.xlsx')).toBeNull();
     expect(await refusal(office('ppt'), 'talk.pptx')).toBeNull();
     expect(await refusal('Fictional notes', 'notes.txt')).toBeNull();
-    expect(await refusal('name,ward\nAvery Lin,Fictional', 'list.csv')).toBeNull();
+    expect(await refusal('name,colour\nSample Person,Blue', 'list.csv')).toBeNull();
   });
 
   it('keeps charts, whose workbooks are embedded', async () => {
