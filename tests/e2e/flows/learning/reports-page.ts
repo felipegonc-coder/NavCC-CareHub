@@ -11,7 +11,7 @@ export async function courseReport(page: Page, courseId: string) {
 /** CSV text as rows of cells; a quoted cell may hold commas, line breaks and doubled quotes. */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
-  let row: string[] = [];
+  const row: string[] = [];
   let cell = '';
   let quoted = false;
   const body = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
