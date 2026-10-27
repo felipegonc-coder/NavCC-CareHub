@@ -1,3 +1,4 @@
+import { CSRF_COOKIE, CSRF_HEADER } from '@carehub/shared';
 import type { z } from 'zod';
 
 /** A failed API call. Status 0 with code 'offline' means Care Hub couldn't be reached. */
@@ -38,8 +39,34 @@ const CODES: Record<number, string> = {
 };
 
 function csrfToken(): string | undefined {
-  const value = /(?:^|;\s*)carehub_csrf=([^;]*)/.exec(document.cookie)?.[1];
-  return value ? decodeURIComponent(value) : undefined;
+  for (const part of document.cookie.split(';')) {
+    const at = part.indexOf('=');
+    if (at < 0 || part.slice(0, at).trim() !== CSRF_COOKIE) continue;
+    const value = part.slice(at + 1).trim();
+    try {
+      return decodeURIComponent(value) || undefined;
+    } catch {
+      return value || undefined;
+    }
+  }
+  return undefined;
+}
+
+// A dot segment, plain or percent-encoded: the browser resolves it before sending.
+const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i;
+
+/**
+ * Only paths under /api/ on this site, with no "." or ".." segments, so a value put into a path (an
+ * ID, say) can't point the request at another endpoint. Backslashes and control characters are refused
+ * too: the browser reads "\" as "/" and drops tabs and line breaks, which could hide a "..".
+ */
+function checkPath(path: string): void {
+  const pathname = path.split(/[?#]/, 1)[0] ?? '';
+  const ok =
+    pathname.startsWith('/api/') &&
+    ![...pathname].some((char) => char === '\\' || char < ' ' || char === '\u007f') &&
+    !pathname.split('/').some((segment) => DOT_SEGMENT.test(segment));
+  if (!ok) throw new TypeError(`Not a Care Hub API path: ${path}`);
 }
 
 async function request<T, S extends Schema>(
@@ -48,10 +75,11 @@ async function request<T, S extends Schema>(
   body: unknown,
   { schema, signal }: ApiOptions<S> = {},
 ): Promise<ApiResult<T, S>> {
+  checkPath(path);
   const headers = new Headers({ Accept: 'application/json' });
   if (body !== undefined) headers.set('Content-Type', 'application/json');
   const token = method === 'GET' ? undefined : csrfToken();
-  if (token) headers.set('X-CSRF-Token', token);
+  if (token) headers.set(CSRF_HEADER, token);
 
   let response: Response;
   try {
@@ -110,7 +138,8 @@ const withBody =
 
 /**
  * Calls the Care Hub API with the session cookie, JSON bodies and, on changes, the CSRF header.
- * Pass `schema` to check the response, or a type for an unchecked one. Throws ApiError.
+ * Pass `schema` to check the response, or a type for an unchecked one. Throws ApiError, or a
+ * TypeError for a path it won't send (outside /api/, or with a "." or ".." segment).
  */
 export const api = {
   get: <T = unknown, S extends Schema = undefined>(path: string, options?: ApiOptions<S>) =>

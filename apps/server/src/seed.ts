@@ -1,13 +1,15 @@
 import type { FastifyBaseLogger } from 'fastify';
+import type { Db } from './db';
 
-// Stand-ins until the database and accounts PRs land; each replaces its own line.
-type Db = unknown; // database: `import type { Db } from './db';`
-
+// Stand-ins until the accounts PR lands; it replaces each line.
 type PermissionKey = string; // accounts: `import type { PermissionKey } from '@carehub/shared';`
 
 type User = { id: string; email: string; name: string }; // accounts: its `User` type
 
-/** What each feature's `seed(ctx)` gets (decision 0007, section 2.5). */
+/**
+ * What each feature's `seed(ctx)` gets (decision 0007, section 2.5). Seeded people have the password
+ * in CAREHUB_SEED_PASSWORD, or none when it's unset: a seed never sets a password of its own.
+ */
 export interface SeedContext {
   db: Db;
   workspaceId: string;
@@ -23,11 +25,23 @@ export interface SeedContext {
   createPerson(person: { key: string; name: string; email: string; roleId: string }): Promise<User>;
 }
 
+/** Throws with NODE_ENV=production: seed data is only for development and tests. */
+export function assertSeedAllowed(env: Record<string, string | undefined> = process.env): void {
+  if (env.NODE_ENV === 'production') {
+    throw new Error('Seed data is only for development and tests, so it never runs in production.');
+  }
+}
+
 /**
  * Runs every feature's seed after the core seed, which builds `ctx` (the accounts PR adds it and
- * the `seed` CLI command). Seeds load fictional data only and must be safe to run twice.
+ * the `seed` CLI command, which calls `assertSeedAllowed()` before writing anything). Seeds load
+ * fictional data only and must be safe to run twice. Throws in production, before any seed runs.
  */
-export async function seedFeatures(ctx: SeedContext): Promise<void> {
+export async function seedFeatures(
+  ctx: SeedContext,
+  env: Record<string, string | undefined> = process.env,
+): Promise<void> {
+  assertSeedAllowed(env);
   ctx.log.info('Seeding feature data');
 
   // Each feature replaces only its own line below with

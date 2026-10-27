@@ -1,3 +1,4 @@
+import { CSRF_COOKIE } from '@carehub/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { api, ApiError } from './api';
@@ -32,12 +33,12 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   fetchMock.mockReset();
-  document.cookie = 'carehub_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  document.cookie = `${CSRF_COOKIE}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
 });
 
 describe('api', () => {
   it('gets JSON with the session cookie and no CSRF header', async () => {
-    document.cookie = 'carehub_csrf=token-1; path=/';
+    document.cookie = `${CSRF_COOKIE}=token-1; path=/`;
     fetchMock.mockResolvedValue(json(200, { id: 'page-1' }));
 
     await expect(api.get('/api/pages/page-1')).resolves.toEqual({ id: 'page-1' });
@@ -49,9 +50,9 @@ describe('api', () => {
     expect(headers.has('Content-Type')).toBe(false);
   });
 
-  it('sends a JSON body and the CSRF token from the carehub_csrf cookie', async () => {
+  it('sends a JSON body and the CSRF token from the CSRF cookie', async () => {
     document.cookie = 'other=1; path=/';
-    document.cookie = 'carehub_csrf=abc%2Fdef%3D%3D; path=/';
+    document.cookie = `${CSRF_COOKIE}=abc%2Fdef%3D%3D; path=/`;
     fetchMock.mockResolvedValue(json(201, { id: 'page-2' }));
 
     await expect(api.post('/api/pages', { title: 'Shift notes' })).resolves.toEqual({
@@ -64,7 +65,7 @@ describe('api', () => {
   });
 
   it('uses the right method for put, patch and delete, and returns undefined without a body', async () => {
-    document.cookie = 'carehub_csrf=token-1; path=/';
+    document.cookie = `${CSRF_COOKIE}=token-1; path=/`;
     fetchMock.mockImplementation(async () => new Response(null, { status: 204 }));
 
     await expect(api.put('/api/favorites', ['page-1'])).resolves.toBeUndefined();
@@ -75,6 +76,50 @@ describe('api', () => {
     const { init, headers } = lastRequest();
     expect(init).toMatchObject({ method: 'DELETE', body: undefined });
     expect(headers.get('X-CSRF-Token')).toBe('token-1');
+  });
+
+  it('sends a CSRF cookie with broken percent-encoding as it is', async () => {
+    document.cookie = `${CSRF_COOKIE}=abc%E0%A4%A; path=/`;
+    fetchMock.mockImplementation(async () => new Response(null, { status: 204 }));
+
+    await api.post('/api/pages/page-1/restore');
+    expect(lastRequest().headers.get('X-CSRF-Token')).toBe('abc%E0%A4%A');
+  });
+
+  it('sends only to /api/ paths on this site', async () => {
+    fetchMock.mockImplementation(async () => new Response(null, { status: 204 }));
+    const paths = [
+      'https://other.example/api/pages',
+      '//other.example/api/pages',
+      '/apix/pages',
+      'api/pages',
+      '/api',
+      '/',
+    ];
+    for (const path of paths) await expect(api.get(path)).rejects.toThrow(TypeError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses "." and ".." segments, also encoded or hidden', async () => {
+    fetchMock.mockImplementation(async () => new Response(null, { status: 204 }));
+    const paths = [
+      '/api/pages/../admin/users',
+      '/api/pages/%2E%2e/admin/users',
+      '/api/pages/.%2e',
+      '/api/./pages',
+      '/api/pages/..\\admin',
+      '/api/pages/.\t./admin',
+      '/api/pages/..\u0001',
+    ];
+    for (const path of paths) await expect(api.delete(path)).rejects.toThrow(TypeError);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await api.get('/api/search?q=../notes');
+    await api.get('/api/files/notes..v2');
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/search?q=../notes',
+      '/api/files/notes..v2',
+    ]);
   });
 
   it('turns an error body into an ApiError', async () => {

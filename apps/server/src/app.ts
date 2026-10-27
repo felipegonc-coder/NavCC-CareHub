@@ -19,7 +19,9 @@ const API_PATH = /^\/api(?:[/?#]|$)/;
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config } = options;
-  const app = Fastify({ logger: options.logger ?? false });
+  // X-Forwarded-For counts only from TRUST_PROXY, so per-IP limits see the real client behind Caddy
+  // and nobody can pick their own address by sending the header.
+  const app = Fastify({ logger: options.logger ?? false, trustProxy: config.TRUST_PROXY ?? false });
   registerEvents(app);
 
   // Errors are { error: { code, message } } (decision 0007, section 2.2).
