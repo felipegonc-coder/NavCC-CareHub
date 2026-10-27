@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AccessLevel } from '@carehub/shared';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { STARTER_DATABASE_MESSAGES } from '@carehub/extras/templates/databases';
 import { httpError } from '../../core/errors';
 import {
   createTestApp,
@@ -11,7 +12,7 @@ import {
   type TestApp,
   type TestUser,
 } from '../../testing';
-import { bindTemplatesCore, type CorePage } from './core';
+import { bindTemplatesCore, type CorePage, type NewDatabase } from './core';
 import galleryRoutes from './gallery';
 import { getMadeFrom, type TemplateUsedEvent } from './index';
 import { tplHiddenStarters, tplMadeFrom, tplTemplatePages, tplTemplates } from './schema';
@@ -378,6 +379,88 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
     expect((await call(sam, 'GET', `/${card.id}`)).statusCode).toBe(404);
     const [made] = await test.db.select().from(tplMadeFrom).where(eq(tplMadeFrom.pageId, pageId));
     expect(made).toMatchObject({ templateId: null, templateName: 'Launch plan' });
+  });
+
+  it('makes a starter’s database with new ids and its sample rows (TB-17)', async () => {
+    const listed = (await call(sam, 'GET', '')).json();
+    expect(listed.templates.find((card: { id: string }) => card.id === 'agents')).toMatchObject({
+      category: 'Support',
+      contents: { subPages: 0, databases: 1, sampleRows: 3 },
+    });
+    const preview = (await call(sam, 'GET', '/qa-reviews')).json();
+    expect(preview.pages).toEqual([
+      {
+        key: 0,
+        parentKey: null,
+        kind: 'database',
+        title: 'QA reviews',
+        icon: { type: 'emoji', emoji: '📋' },
+      },
+    ]);
+    expect(preview.markdown).toContain('My reviews (Table)');
+
+    // Until the Databases lane binds createDatabase, nothing is made.
+    const refused = await call(sam, 'POST', '/qa-reviews/use', { target: { type: 'private' } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toBe(STARTER_DATABASE_MESSAGES.notYet);
+
+    const made: NewDatabase[] = [];
+    const rebind = bindTemplatesCore({
+      createDatabase: async (_tx, input) => {
+        made.push(input);
+        const parent = input.parentId ? pages.get(input.parentId) : undefined;
+        const page = addPage(input.title, [[sam, 'full']], {
+          kind: 'database',
+          spaceId: input.spaceId,
+          ...(parent ? { parent } : {}),
+        });
+        return page.id;
+      },
+    });
+    try {
+      const response = await call(sam, 'POST', '/qa-reviews/use', { target: { type: 'private' } });
+      expect(response.statusCode).toBe(201);
+      const { pageId } = response.json();
+      expect(pages.get(pageId)).toMatchObject({
+        kind: 'database',
+        title: 'QA reviews',
+        parentId: null,
+        spaceId: privateSpaces.get(sam.id),
+      });
+      const database = made[0]?.database;
+      const idOf = (name: string) => database?.properties.find((p) => p.name === name)?.id;
+      expect(idOf('Agent')).toMatch(/^[0-9a-f-]{36}$/);
+      expect(database?.accessRules).toMatchObject([{ propertyId: idOf('Agent'), level: 'view' }]);
+      expect(database?.rows).toHaveLength(3);
+      expect(database?.rows[0]?.values[idOf('Reviewer') ?? '']).toEqual([sam.id]);
+      expect(await getMadeFrom(test.db, pageId)).toMatchObject({
+        templateName: 'QA reviews',
+        usedBy: sam.id,
+      });
+
+      // Each use gets its own ids; without sample rows there are none.
+      await call(sam, 'POST', '/qa-reviews/use', {
+        target: { type: 'private' },
+        includeSampleRows: false,
+      });
+      expect(made[1]?.database.rows).toEqual([]);
+      expect(made[1]?.database.properties[0]?.id).not.toBe(database?.properties[0]?.id);
+
+      // On "this page", the database goes under the page, which is left as it is.
+      const empty = addPage('', [[sam, 'edit']]);
+      const applied = await call(sam, 'POST', '/coaching-conversations/use', {
+        target: { type: 'apply', pageId: empty.id },
+      });
+      expect(applied.statusCode).toBe(201);
+      expect(pages.get(applied.json().pageId)?.parentId).toBe(empty.id);
+      expect(empty.title).toBe('');
+      expect(versions).not.toContain(empty.id);
+      const coaching = made.at(-1)?.database;
+      const template = coaching?.templates.find((t) => t.id === coaching.defaultTemplateId);
+      expect(template?.markdown).toContain('## What to work on');
+    } finally {
+      rebind();
+    }
   });
 
   it('checks what it is sent', async () => {
