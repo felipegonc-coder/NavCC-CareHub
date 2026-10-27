@@ -46,6 +46,7 @@ export function CellView({
   onToggle,
   onPress,
   pressBlockedReason,
+  hiddenLinks = 0,
   className,
 }: CellViewProps) {
   const c = property.config;
@@ -152,7 +153,7 @@ export function CellView({
         </span>
       ) : null;
     case 'relation':
-      return <RelationView ids={idList(value)} ctx={ctx} className={chips} />;
+      return <RelationView ids={idList(value)} hidden={hiddenLinks} ctx={ctx} className={chips} />;
     case 'checklist':
       return Array.isArray(value) && value.length ? (
         <ChecklistView items={value as ChecklistItem[]} text={text} />
@@ -307,17 +308,20 @@ function PeopleView({
   );
 }
 
+/** Related rows by title; ones the viewer can't open are counted ("1 row you can't open"). */
 function RelationView({
   ids,
+  hidden: alsoHidden,
   ctx,
   className,
 }: {
   ids: string[];
+  hidden: number;
   ctx: CellContext;
   className: string;
 }) {
   const rows: { id: string; title: string }[] = [];
-  let hidden = 0;
+  let hidden = alsoHidden;
   for (const id of ids) {
     const title = ctx.rowTitle?.(id);
     if (title === undefined) hidden++;

@@ -98,7 +98,6 @@ function ListPicker({
   const [active, setActive] = useState(query.trim() ? 0 : -1);
   const last = useRef(0);
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => input.current?.focus(), []);
   const current = active < items.length ? active : -1;
   const pick = (i: number) => {
     const item = items[i];
@@ -163,7 +162,7 @@ function ListPicker({
         if (!onSave()) onCancel();
       }}
       onCancel={onCancel}
-      className="w-72 max-w-full"
+      initialFocus={input}
     >
       {chips.length > 0 && <div className="flex flex-wrap gap-1 px-1 pt-1">{chips}</div>}
       <input
@@ -408,6 +407,7 @@ export function RelationEditor({
   initialText,
   searchRows,
   onCreateRow,
+  hiddenLinks = 0,
   onCommit,
   onCancel,
 }: CellEditorProps) {
@@ -477,7 +477,7 @@ export function RelationEditor({
   const items: PickerItem[] = results.map((row) => ({
     key: row.id,
     label: row.title || CELL_TEXT.untitled,
-    node: <RowChip id={row.id} title={row.title} ctx={ctx} link={false} />,
+    node: <RowChip id={row.id} title={row.title} icon={row.icon} ctx={ctx} link={false} />,
     selected: picked.includes(row.id),
     onPick: () => pick(row),
   }));
@@ -489,7 +489,7 @@ export function RelationEditor({
       onPick: createRow,
     });
   }
-  let hidden = 0;
+  let hidden = hiddenLinks;
   const chips: ReactNode[] = [];
   for (const id of picked) {
     const title = titleOf(id);
