@@ -117,7 +117,7 @@ describe.skipIf(!hasDatabase)('calendar sync storage', () => {
     expect((await store.claimDue(later, 10)).sort()).toEqual([first.id, second.id].sort());
   });
 
-  it('leases one connection for its owner, unless it is held or was read just now', async () => {
+  it('leases one connection for its owner, and on Calendar open only if it is due or stale', async () => {
     const { id } = await addGoogle(avery.id);
     expect(await store.claim({ id, ownerId: sam.id, now: NOW })).toBe(false);
     expect(await store.claim({ id, ownerId: avery.id, now: NOW })).toBe(true);
@@ -129,6 +129,22 @@ describe.skipIf(!hasDatabase)('calendar sync storage', () => {
     expect(await store.claim(soon)).toBe(false);
     const later = { id, ownerId: avery.id, now: minutes(2), unlessSyncedAfter: minutes(1) };
     expect(await store.claim(later)).toBe(true);
+    // A calendar was just chosen, so it's due, though it was read a moment ago.
+    const due = { ...done, nextSyncAt: minutes(2), syncedAt: minutes(2) };
+    expect(await store.finish(id, TEST_SEALED_SECRET, due)).toBe(true);
+    const open = { id, ownerId: avery.id, now: minutes(2.2), unlessSyncedAfter: minutes(1.2) };
+    expect(await store.claim(open)).toBe(true);
+    // Waiting for a sign-in: Calendar open leaves it alone, and "Sync now" still tries.
+    const signIn = {
+      ...done,
+      status: 'needs-reconnect',
+      failures: 1,
+      nextSyncAt: minutes(3),
+    } as const;
+    expect(await store.finish(id, TEST_SEALED_SECRET, signIn)).toBe(true);
+    const reopen = { id, ownerId: avery.id, now: minutes(4), unlessSyncedAfter: minutes(3) };
+    expect(await store.claim(reopen)).toBe(false);
+    expect(await store.claim({ id, ownerId: avery.id, now: minutes(4) })).toBe(true);
   });
 
   it("loads a connection with its owner's address and its calendars", async () => {

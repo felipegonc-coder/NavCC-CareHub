@@ -78,7 +78,11 @@ export interface SyncOutcome {
 export interface SyncStore {
   /** Leases up to `limit` connections that are due, most overdue first. */
   claimDue(now: Date, limit: number): Promise<string[]>;
-  /** Leases one of the person's connections now, unless it's held or synced after `unlessSyncedAfter`. */
+  /**
+   * Leases one of the person's connections now, unless it's held. With `unlessSyncedAfter`
+   * (Calendar open), only when it's due, or fine and not read since then; never while it waits
+   * for a sign-in.
+   */
   claim(input: {
     id: string;
     ownerId: string;
@@ -217,7 +221,16 @@ export function pgSyncStore(db: Db): SyncStore {
             eq(connections.ownerId, ownerId),
             leaseFree(now),
             fresh
-              ? or(isNull(connections.lastSyncedAt), lt(connections.lastSyncedAt, fresh))
+              ? and(
+                  ne(connections.status, 'needs-reconnect'),
+                  or(
+                    lte(connections.nextSyncAt, now),
+                    and(
+                      eq(connections.status, 'ok'),
+                      or(isNull(connections.lastSyncedAt), lt(connections.lastSyncedAt, fresh)),
+                    ),
+                  ),
+                )
               : undefined,
           ),
         )
