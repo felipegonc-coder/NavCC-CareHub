@@ -2,8 +2,29 @@
 
 Remind me on pages and events, delivered in the person's 🔔 Care Hub chat (Home and reminders
 spec).
-This first part has the rules, the notice, the job that sends reminders and Calendar's event
-reminders. The Postgres store, the routes, Snooze and Done come next.
+So far: the rules, the notice, the job that sends reminders, Calendar's event reminders, the
+Postgres store and the routes. Snooze and Done come next.
+
+## Routes (`/api/reminders`)
+
+Only the signed-in person's own reminders: someone else's is 403, a deleted one 404 (HR-12).
+
+- `GET /`: `{ pending, sent }`. Pending (and snoozed) soonest first; sent or done in the last 30
+  days, newest first. Each is a `ReminderView` (`id`, `target`, `minutesBefore`, `dueAt`, `note`,
+  `status`, `sentAt`, `createdAt`), with times as ISO text.
+- `POST /`: `{ target: { type: 'page', pageId }, at, note? }` or
+  `{ target: { type: 'event', eventId, occurrenceStart? }, minutesBefore, note? }`. 201
+  `{ reminder }`. 400 "That time has already passed.", 403 for a page the person can't open or an
+  event Calendar doesn't find for them, 413 "You can have up to 500 pending reminders. Delete some
+  first." Notes are trimmed, up to 280 characters.
+- `PATCH /:id`: `{ at?, note? }` for a page, `{ minutesBefore?, note? }` for an event. Only while
+  pending or snoozed (409 "This reminder was already sent. Set a new one instead."). It takes the
+  person's time zone and 24-hour setting now.
+- `DELETE /:id`: 204. The list drops it and it's never sent.
+- Every change publishes `reminders-changed` to the owner, so open lists reload.
+
+The table is `reminders_reminders` (`migrations/202610270420_reminders_reminders.sql`). Inserts
+take a lock per person inside the transaction, so two at once can't pass 500.
 
 ## How a reminder is sent
 
@@ -35,23 +56,33 @@ Each takes `Db | Tx` first, so Calendar can call it inside its own transaction.
   9:00 AM the day before). `occurrenceStart` names one occurrence as on notice cards and must
   match exactly.
 - Open goes to `/calendar?event=<eventId>&occurrence=<occurrenceStart>`.
+- `registerEventLookup((tx, userId, { eventId, occurrenceStart? }) => EventStart | null)` at
+  start-up, for Remind me in the event panel: `POST /api/reminders` goes by the start it returns.
+  Null (no such event, or the person can't open it) or no lookup is 403. A negative
+  `minutesBefore` (after the start) only works for all-day events.
 
 ## Tests
 
 `bindMemoryReminders()` from `testing.ts` binds reminders to memory (also for Calendar's tests):
 it returns the store, the scheduled `jobs`, the `notices` sent, and `runDueJobs(now?)`. Pass
-`memoryDb` as the `db`.
+`memoryDb` as the `db`. `routes.test.ts` runs the routes and the store on Postgres.
 
 ## Stand-ins
 
-- `scheduleJob(input, { db })` and `registerJobHandler` until features/jobs lands.
+- Workspace: everyone is in `STAND_IN_WORKSPACE_ID` until accounts add `request.member`.
+- Page access: the `canOpenPage` route option, which lets everyone open every page until pages land
+  with `getPageAccess`.
+- `scheduleJob` doesn't take `{ db }` yet, so the job is saved outside the reminder's transaction.
+  It runs at least 5 seconds after it's scheduled, once the reminder is committed. When jobs take
+  `{ db }`, pass it in `routes.ts` and drop the 5 seconds.
+- Jobs run, and survive a restart (HR-11), once the jobs routes are registered in `app.ts`.
+  Notices need the notices routes registered the same way.
 
 ## Next
 
-- Postgres store and migration, the routes under `/api/reminders` (Remind me on pages, the list,
-  changes, delete), Snooze and Done, and the registration line. For Calendar:
-  `registerEventLookup` (Remind me in the event panel), `remapEventReminders` (series edits) and
-  `userIds` on `deleteEventReminders` (people removed from a meeting).
+- Snooze and Done on the notice, and the registration line in `app.ts`. For Calendar:
+  `remapEventReminders` (series edits) and `userIds` on `deleteEventReminders` (people removed from
+  a meeting).
 - The web: Remind me in the page "…" menu, the event panel and Ctrl+K; the Reminders list for
   Home's `/reminders`; browser tests.
 - Push for reminders, the Home section's data, date reminders (HR-16), and the Calendar default
