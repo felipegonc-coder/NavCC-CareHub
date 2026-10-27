@@ -6,6 +6,7 @@ import {
   defaultView,
   type FormDefinition,
   type Property,
+  type RichText,
   type Viewer,
 } from '@carehub/databases';
 import { ApiError, type DatabaseWithVersion } from '../databases/api';
@@ -23,6 +24,7 @@ import {
 } from '../databases/test-utils';
 import { FormsClientProvider } from './api';
 import FormLayout from './layout';
+import { writeSelection } from './rich-dom';
 import { mockFormsClient, question, stubResizeObserver } from './test-utils';
 
 const FORM_VIEW = 'view-form';
@@ -140,6 +142,30 @@ function choose(trigger: HTMLElement, item: string) {
   fireEvent.click(screen.getByRole('menuitem', { name: item }));
 }
 
+/** Lays the cards out 200 px apart, as the page would: their middles are at 90, 290 and 490. */
+function layOutCards() {
+  document.querySelectorAll<HTMLElement>('[data-question-index]').forEach((item) => {
+    const top = Number(item.dataset.questionIndex) * 200;
+    item.getBoundingClientRect = () =>
+      ({
+        top,
+        bottom: top + 180,
+        height: 180,
+        left: 0,
+        right: 600,
+        width: 600,
+        x: 0,
+        y: top,
+      }) as DOMRect;
+  });
+}
+
+/** A pointer event at height `y`, sent as a MouseEvent (all that's needed of a PointerEvent). */
+const pointer = (target: Element, type: string, clientY: number) =>
+  fireEvent(target, new MouseEvent(type, { bubbles: true, cancelable: true, clientY }));
+
+const handle = (name: string) => within(card(name)).getByTestId('form-question-handle');
+
 function openSettings() {
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
   return screen.getByRole('complementary', { name: 'Settings' });
@@ -230,6 +256,40 @@ describe('Form view builder', () => {
     await waitFor(() => expect(within(card('Name')).getByLabelText('Question')).toHaveFocus());
   });
 
+  it('drags a question to a new place by its handle', () => {
+    const { saved } = renderFormView(formDatabase({ questions: threeQuestions }));
+    layOutCards();
+    pointer(handle('Name'), 'pointerdown', 90);
+    pointer(handle('Name'), 'pointermove', 400);
+    expect(card('Name')).toHaveClass('opacity-50');
+    pointer(handle('Name'), 'pointerup', 400);
+    expect(order(saved())).toEqual([PROPS.priority, PROPS.name, PROPS.notes]);
+    expect(card('Name')).not.toHaveClass('opacity-50');
+  });
+
+  it("FM-05: a drag that would break a question's logic is blocked with the message", () => {
+    const { actions } = renderFormView(formDatabase({ questions: threeQuestions }));
+    layOutCards();
+    pointer(handle('Notes'), 'pointerdown', 490);
+    pointer(handle('Notes'), 'pointermove', 100);
+    pointer(handle('Notes'), 'pointerup', 100);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "'Notes' depends on 'Priority', so it must stay below it.",
+    );
+    expect(actions.updateView).not.toHaveBeenCalled();
+  });
+
+  it('Escape cancels a drag', () => {
+    const { actions } = renderFormView(formDatabase({ questions: threeQuestions }));
+    layOutCards();
+    pointer(handle('Name'), 'pointerdown', 90);
+    pointer(handle('Name'), 'pointermove', 550);
+    fireEvent.keyDown(handle('Name'), { key: 'Escape' });
+    pointer(handle('Name'), 'pointerup', 550);
+    expect(actions.updateView).not.toHaveBeenCalled();
+    expect(card('Name')).not.toHaveClass('opacity-50');
+  });
+
   it('"Show if…" sets up conditions on the questions above', () => {
     const { saved } = renderFormView(
       formDatabase({
@@ -313,11 +373,51 @@ describe('Form view builder', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it("formats a question's description and saves it as rich text", () => {
+    const { saved } = renderFormView();
+    const description = within(card('Name')).getByRole('textbox', { name: 'Description' });
+    act(() => {
+      description.focus();
+      description.textContent = 'Your full name';
+      writeSelection(description, { start: 5, end: 9 });
+    });
+    fireEvent.input(description);
+    fireEvent.click(within(card('Name')).getByRole('button', { name: 'Bold' }));
+    act(() => description.blur());
+    expect(saved().questions[0]?.description).toEqual([
+      { text: 'Your ' },
+      { text: 'full', marks: ['bold'] },
+      { text: ' name' },
+    ]);
+  });
+
+  it('FM-07: a description looks the same in the builder and in Preview', () => {
+    const description: RichText = [
+      { text: 'Call ' },
+      { text: 'Blue Pine', marks: ['bold', 'underline'], color: 'blue' },
+      { text: ' or see ' },
+      { text: 'the guide', link: 'https://bluepine.example/guide' },
+    ];
+    renderFormView(formDatabase({ description }));
+    const editing = screen.getByRole('textbox', { name: 'Form description' }).innerHTML;
+    expect(editing).toContain('<strong class="font-semibold">Blue Pine</strong>');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.getByText('Call or see').innerHTML).toBe(editing);
+  });
+
   it('Preview shows the form as people fill it in', () => {
     renderFormView(formDatabase({ questions: threeQuestions }));
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Form title')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit form' }));
+    expect(screen.getByLabelText('Form title')).toHaveValue('Jobs');
+  });
+
+  it('FM-21: a form block in a page shows the fill screen, and Edit form opens the builder', () => {
+    renderFormView(formDatabase({ questions: threeQuestions }, { inline: true }));
+    expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Form title')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Edit form' }));
     expect(screen.getByLabelText('Form title')).toHaveValue('Jobs');
@@ -425,9 +525,43 @@ describe('Share form', () => {
       target: { value: 'members_and_guests' },
     });
     expect(saved().audience).toBe('members_and_guests');
+  });
+
+  it('lets anyone on the network respond without signing in, always anonymously', () => {
+    const { saved } = renderFormView(formDatabase({ allowMultiple: false }));
+    const share = openShare();
+    fireEvent.change(within(share).getByLabelText('Who can respond'), {
+      target: { value: 'anyone' },
+    });
+    expect(saved()).toMatchObject({ audience: 'anyone', allowMultiple: true });
     expect(
-      within(share).queryByRole('option', { name: 'Anyone on the Care Hub network with the link' }),
-    ).toBeNull();
+      within(share).getByText(
+        'No sign-in. Always anonymous, with no Person or Relation questions.',
+      ),
+    ).toBeInTheDocument();
+    const settings = openSettings();
+    const anonymous = within(settings).getByRole('switch', { name: 'Anonymous responses' });
+    expect(anonymous).toBeChecked();
+    expect(anonymous).toBeDisabled();
+    expect(
+      within(settings).getByRole('switch', { name: 'Allow more than one response' }),
+    ).toBeDisabled();
+  });
+
+  it('keeps a form that asks for people to members', () => {
+    const { actions } = renderFormView(
+      formDatabase({
+        questions: [question(PROPS.name, 'Name'), question(PROPS.technician, 'Technician')],
+      }),
+    );
+    const share = openShare();
+    fireEvent.change(within(share).getByLabelText('Who can respond'), {
+      target: { value: 'anyone' },
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Forms anyone can fill in can't ask for people or rows.",
+    );
+    expect(actions.updateView).not.toHaveBeenCalled();
   });
 
   it('only Full access turns responses off or changes the link', () => {
