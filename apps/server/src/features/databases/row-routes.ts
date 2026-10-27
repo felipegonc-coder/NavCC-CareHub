@@ -1,7 +1,7 @@
 // Row routes at /api/databases (decision 0200): add a row, read and change one, change many, and
 // move rows to Trash and back (Undo restores). Every write answers after its commit and then
 // announces itself (events, a nudge on the `db:<databaseId>` live topic, Person notices). This
-// plugin also registers the row resolver with the page model (W2-1 owns the `db` topic itself).
+// plugin also registers the row resolver with the page model (#249 registers the `db` topic).
 import type { AccessLevel, Viewer, WeekDay } from '@carehub/databases';
 import { parseRequest, type RequestResult } from '@carehub/databases/schemas';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
