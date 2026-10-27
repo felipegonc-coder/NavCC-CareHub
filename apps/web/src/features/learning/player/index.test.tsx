@@ -23,11 +23,20 @@ type Call = { method: string; url: string; events: ProgressEvent[] };
 const reply = (status: number, data: unknown) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 
+const ERRORS: Record<number, { code: string; message: string }> = {
+  400: { code: 'invalid', message: 'Check the link, then try again.' },
+  403: { code: 'forbidden', message: "You don't have access to this." },
+  404: { code: 'not_found', message: 'This was deleted, or the link is wrong.' },
+};
+const failure = (status: number) => reply(status, { error: ERRORS[status] });
+
 /**
  * A fake Learning API for the sample course: the live course, the learner's state and the events
- * they send, applied as the server would. `course: 404` hides the course; `offline` fails sends.
+ * they send, applied as the server would. `server.course` is the status of the course call (try
+ * 403, 404 or 400); `server.offline` makes sending events fail.
  */
-function serve({ course = 200, offline = false } = {}) {
+function serve(options: { course?: number; offline?: boolean } = {}) {
+  const server = { course: 200, offline: false, ...options };
   let state: LearnerCourseState = start;
   const calls: Call[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -36,20 +45,19 @@ function serve({ course = 200, offline = false } = {}) {
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
     calls.push({ method, url, events: body.events ?? [] });
     if (method === 'GET' && url === API) {
-      return course === 200
-        ? reply(200, { course: inOrder, version: 3 })
-        : reply(course, { error: { code: 'not_found', message: 'Not found.' } });
+      if (server.course !== 200) return failure(server.course);
+      return reply(200, { course: inOrder, version: 3 });
     }
     if (method === 'GET' && url === `${API}/progress`) return reply(200, state);
     if (method === 'POST' && url === `${API}/events`) {
-      if (offline) throw new TypeError('Failed to fetch');
+      if (server.offline) throw new TypeError('Failed to fetch');
       state = withPending(inOrder, state, body.events);
       return reply(200, { state, rejected: [] });
     }
-    return reply(404, { error: { code: 'not_found', message: 'Not found.' } });
+    return failure(404);
   });
   const sent = () => calls.filter((call) => call.method === 'POST').flatMap((call) => call.events);
-  return { calls, sent };
+  return { server, calls, sent };
 }
 
 function renderScreen(path: string) {
@@ -140,6 +148,31 @@ describe('PlayerScreen', () => {
       await screen.findByRole('heading', { level: 1, name: 'Course not found' }),
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Go to My learning' })).toBeInTheDocument();
+  });
+
+  it('tells guests that courses are not for them yet', async () => {
+    serve({ course: 403 });
+    renderScreen(lessonPath(inOrder, 'calls-before'));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'No access to courses' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Courses aren't available for guest accounts yet."),
+    ).toBeInTheDocument();
+  });
+
+  it('says why the lesson did not load, and tries again', async () => {
+    const { server } = serve({ course: 400 });
+    renderScreen(lessonPath(inOrder, 'calls-before'));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: "This lesson didn't load" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Check the link, then try again.')).toBeInTheDocument();
+    server.course = 200;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Before the call' }),
+    ).toBeInTheDocument();
   });
 
   it('says the lesson is not found when the course has no such lesson', async () => {

@@ -7,7 +7,7 @@ import {
   type ProgressEvent,
 } from '@carehub/learning';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   createEventQueue,
@@ -16,6 +16,7 @@ import {
   type EventQueue,
   type ReplySchema,
 } from '../data';
+import { withPending } from './pending';
 
 // The player's calls (docs/learning/api.md): the live course, the learner's state, progress events.
 
@@ -137,4 +138,27 @@ export function useProgressEvents(courseId: Id) {
     [queue, courseId],
   );
   return { pending, emit };
+}
+
+/**
+ * A learner's course: the live version, their progress with the events not sent yet counted in,
+ * and `emit`. `course` and `state` come together; until then there is `error` or it is loading.
+ */
+export function useLearnerCourse(courseId: Id) {
+  const live = useLiveCourse(courseId);
+  const progress = useLearnerState(courseId);
+  const { pending, emit } = useProgressEvents(courseId);
+  const course = live.data?.course;
+  const saved = progress.data;
+  const state = useMemo(
+    () => (course && saved ? withPending(course, saved, pending) : undefined),
+    [course, saved, pending],
+  );
+  const { refetch: refetchCourse } = live;
+  const { refetch: refetchProgress } = progress;
+  const retry = useCallback(() => {
+    void refetchCourse();
+    void refetchProgress();
+  }, [refetchCourse, refetchProgress]);
+  return { course, state, emit, error: live.error ?? progress.error, retry };
 }
