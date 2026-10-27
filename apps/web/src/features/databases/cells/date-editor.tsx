@@ -1,7 +1,7 @@
 import { isValidDateValue } from '@carehub/databases';
 import { VALUE_MESSAGES, validateValue } from '@carehub/databases/values';
 import { Button, Field, Input, Switch } from '@carehub/ui';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import { NativeSelect } from './controls';
 import { EditorShell } from './editor-shell';
 import {
@@ -26,7 +26,6 @@ export function DateEditor({ property, value, ctx, onCommit, onCancel }: CellEdi
   const [zones] = useState(() => timeZoneChoices(draft.timeZone));
   const [error, setError] = useState<string | null>(null);
   const first = useRef<HTMLInputElement>(null);
-  useEffect(() => first.current?.focus(), []);
   const set = (patch: Partial<DateDraft>) => {
     setDraft((d) => ({ ...d, ...patch }));
     setError(null);
@@ -58,7 +57,8 @@ export function DateEditor({ property, value, ctx, onCommit, onCancel }: CellEdi
         if (!commit()) onCancel();
       }}
       onCancel={() => onCancel()}
-      className="w-72 max-w-full gap-2 p-2"
+      initialFocus={first}
+      className="gap-2 p-2"
     >
       <div className="grid grid-cols-2 gap-2">
         <Field label={hasEnd ? CELL_TEXT.start : CELL_TEXT.date}>

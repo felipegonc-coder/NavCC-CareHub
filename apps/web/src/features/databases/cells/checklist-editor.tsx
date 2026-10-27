@@ -2,7 +2,7 @@ import { newId, type ChecklistItem, type Id } from '@carehub/databases';
 import { validateValue } from '@carehub/databases/values';
 import { Checkbox, cn, IconButton, Input } from '@carehub/ui';
 import { X } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import { EditorShell } from './editor-shell';
 import { commitDetails } from './logic';
 import { CELL_TEXT } from './messages';
@@ -26,7 +26,6 @@ export function ChecklistEditor({
   const [draft, setDraft] = useState(initialText ?? '');
   const [error, setError] = useState<string | null>(null);
   const addInput = useRef<HTMLInputElement>(null);
-  useEffect(() => addInput.current?.focus(), []);
 
   const edit = (id: Id, patch: Partial<ChecklistItem>) => {
     setItems((list) => list.map((i) => (i.id === id ? { ...i, ...patch } : i)));
@@ -69,7 +68,8 @@ export function ChecklistEditor({
         if (!commit()) onCancel();
       }}
       onCancel={() => onCancel()}
-      className="w-80 max-w-full gap-2 p-2"
+      initialFocus={addInput}
+      className="w-80 gap-2 p-2"
     >
       {items.length > 0 && (
         <ul className="flex flex-col gap-1">

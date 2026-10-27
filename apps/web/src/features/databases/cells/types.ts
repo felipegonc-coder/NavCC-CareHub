@@ -6,6 +6,7 @@ import type {
   Property,
   SelectOption,
 } from '@carehub/databases';
+import type { RowPick } from '../api';
 
 /**
  * What cells need besides the value: the viewer (time zone, 12- or 24-hour clock) and names for
@@ -49,6 +50,8 @@ export interface CellViewProps {
   onPress?: () => unknown;
   /** Why the button can't be pressed, shown on hover ("Only people who can edit this page"). */
   pressBlockedReason?: string;
+  /** Relation: links to rows the viewer can't open, counted (QueryRow.hiddenLinks). */
+  hiddenLinks?: number;
   className?: string;
 }
 
@@ -60,11 +63,8 @@ export interface PersonChoice {
   avatarUrl?: string;
 }
 
-/** A row of the target database in a Relation picker. */
-export interface RowChoice {
-  id: Id;
-  title: string;
-}
+/** A row of the target database in a Relation picker (as `pickRows` answers). */
+export type RowChoice = RowPick;
 
 export interface CellEditorProps {
   property: Property;
@@ -90,4 +90,8 @@ export interface CellEditorProps {
   /** Button: as in CellView. */
   onPress?: () => unknown;
   pressBlockedReason?: string;
+  /** Relation: as in CellView. The server keeps these links when the value is saved. */
+  hiddenLinks?: number;
+  /** The cell it opens over; by default the element it's rendered in (which must be positioned). */
+  anchor?: Element | null;
 }

@@ -80,12 +80,15 @@ export function PersonChip({
 export function RowChip({
   id,
   title,
+  icon,
   ctx,
   link = true,
   children,
 }: {
   id: Id;
   title: string;
+  /** The row page's emoji, when it has one. */
+  icon?: string | null | undefined;
   ctx: CellContext;
   link?: boolean;
   children?: ReactNode;
@@ -93,7 +96,13 @@ export function RowChip({
   const href = link ? ctx.rowHref?.(id) : undefined;
   const content = (
     <>
-      <FileText aria-hidden className="size-3.5 shrink-0 text-muted" />
+      {icon ? (
+        <span aria-hidden className="shrink-0">
+          {icon}
+        </span>
+      ) : (
+        <FileText aria-hidden className="size-3.5 shrink-0 text-muted" />
+      )}
       <span className="truncate">{title || CELL_TEXT.untitled}</span>
     </>
   );

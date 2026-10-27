@@ -2,7 +2,7 @@ import { LIMITS, type FileRef } from '@carehub/databases';
 import { VALUE_MESSAGES, validateValue } from '@carehub/databases/values';
 import { Button, cn, IconButton, Input, Spinner } from '@carehub/ui';
 import { Paperclip, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import { FileChip } from './chips';
 import { EditorShell } from './editor-shell';
 import { commitDetails, webLinkFile } from './logic';
@@ -34,7 +34,6 @@ export function FilesEditor({
   const uploadButton = useRef<HTMLButtonElement>(null);
   const linkInput = useRef<HTMLInputElement>(null);
   const uploads = useRef(0);
-  useEffect(() => (uploadButton.current ?? linkInput.current)?.focus(), []);
 
   const replace = (key: string, next: Entry | null) =>
     setEntries((list) => list.flatMap((e) => (e.key !== key ? [e] : next ? [next] : [])));
@@ -114,7 +113,8 @@ export function FilesEditor({
         if (!uploading && !save(entries)) onCancel();
       }}
       onCancel={() => onCancel()}
-      className="w-80 max-w-full gap-2 p-2"
+      initialFocus={onUpload ? uploadButton : linkInput}
+      className="w-80 gap-2 p-2"
     >
       {entries.length > 0 && (
         <ul className="flex flex-col gap-1">

@@ -1,11 +1,12 @@
 import { VALUE_MESSAGES, parseTyped, type ValueResult } from '@carehub/databases/values';
 import { Checkbox, Input, Textarea } from '@carehub/ui';
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { CellView } from './cell-view';
 import { ChecklistEditor } from './checklist-editor';
 import { DateEditor } from './date-editor';
 import { EditorShell } from './editor-shell';
 import { FilesEditor } from './files-editor';
+import { EditorAnchor } from './overlay';
 import { commitDetails, editText } from './logic';
 import { OptionEditor, PersonEditor, RelationEditor } from './pickers';
 import type { CellEditorProps, CellMove } from './types';
@@ -17,6 +18,10 @@ import type { CellEditorProps, CellMove } from './types';
  * it starts from `value` when it opens.
  */
 export function CellEditor(props: CellEditorProps) {
+  return <EditorAnchor value={props.anchor ?? null}>{editorFor(props)}</EditorAnchor>;
+}
+
+function editorFor(props: CellEditorProps): ReactNode {
   switch (props.property.config.type) {
     case 'title':
     case 'text':
@@ -56,11 +61,6 @@ function TextEditor({ property, value, ctx, initialText, onCommit, onCancel }: C
   const errorId = useId();
   const input = useRef<HTMLInputElement>(null);
   const area = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    const el = input.current ?? area.current;
-    el?.focus();
-    el?.setSelectionRange(el.value.length, el.value.length);
-  }, []);
 
   const read = (): ValueResult => {
     // Unchanged text keeps its marks, links and mentions.
@@ -104,6 +104,8 @@ function TextEditor({ property, value, ctx, initialText, onCommit, onCancel }: C
         if (!commit()) onCancel();
       }}
       onCancel={() => onCancel()}
+      initialFocus={multiline ? area : input}
+      className="w-[var(--radix-popover-trigger-width)] min-w-72"
     >
       {multiline ? (
         <Textarea ref={area} rows={3} {...field} />
@@ -130,7 +132,6 @@ function TextEditor({ property, value, ctx, initialText, onCommit, onCancel }: C
 function CheckboxEditor({ property, value, onCommit, onCancel }: CellEditorProps) {
   const checked = value === true;
   const box = useRef<HTMLButtonElement>(null);
-  useEffect(() => box.current?.focus(), []);
   const save = (next: boolean, move?: CellMove) =>
     onCommit(next, commitDetails(checked, next, move));
   return (
@@ -139,6 +140,8 @@ function CheckboxEditor({ property, value, onCommit, onCancel }: CellEditorProps
       commit={(move) => save(checked, move)}
       onOutside={() => onCancel()}
       onCancel={() => onCancel()}
+      initialFocus={box}
+      className="w-auto"
     >
       <span className="flex items-center gap-2 px-1 py-0.5">
         <Checkbox
@@ -175,7 +178,6 @@ function ReadOnlyEditor({
       onOutside={() => onCancel()}
       onCancel={() => onCancel()}
       onEnter={() => onCancel()}
-      focusSelf
     >
       <span className="flex min-w-0 px-1 py-0.5">
         <CellView
