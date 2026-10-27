@@ -6,7 +6,7 @@ Secrets live only in the server's settings file. They never go in the repository
 
 | Setting | Feature | What it's for | When it's missing |
 | --- | --- | --- | --- |
-| `GOOGLE_CLIENT_ID` | calendar | Google sign-in client for two-way Google Calendar sync | "Google sign-in isn't set up yet." The other calendar connections still work. |
+| `GOOGLE_CLIENT_ID` | calendar | Google sign-in client for Google Calendar sync (read-only) | "Google sign-in isn't set up yet." The other calendar connections still work. |
 | `GOOGLE_CLIENT_SECRET` | calendar | The secret of that client | Same as above |
 | `PUSH_VAPID_PUBLIC_KEY` | push | Web push key pair (P-256, base64url), so notifications reach people when Care Hub isn't open, including phones | Notifications appear only while Care Hub is open |
 | `PUSH_VAPID_PRIVATE_KEY` | push | The private half of that key pair | Same as above |
@@ -25,13 +25,13 @@ Secrets live only in the server's settings file. They never go in the repository
   ```
 
   Changing the key pair later means everyone has to allow notifications again.
-- Google: an OAuth client of type "Web application" with the redirect URL `<CAREHUB_PUBLIC_URL>/api/calendar/google/callback`. Two-way sync needs read and write access to events. Step-by-step setup comes with the Google connection screens.
+- Google: an OAuth client of type "Web application" with the redirect URL `<CAREHUB_PUBLIC_URL>/api/calendar/google/callback`. Care Hub only reads calendars and events, so it asks for read-only access and never changes anything in Google. Set the client's publishing status to "In production": in "Testing", sign-ins end after 7 days. Step-by-step setup: `docs/team/google-sign-in-setup.md` (comes with the Google pull requests).
 
 ## Lines for `deploy/.env.example`
 
 ```sh
 # --- Team tools (all optional; a missing value switches only that feature off) ---
-# Google Calendar two-way sync: an OAuth client of type "Web application",
+# Google Calendar (read-only): an OAuth client of type "Web application",
 # redirect URL <CAREHUB_PUBLIC_URL>/api/calendar/google/callback
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=

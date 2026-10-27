@@ -1,38 +1,56 @@
 # Team tools: status
 
-Lane: Team tools (Messages, Home and reminders, notifications, Calendar, Meetings, Automations, Analytics, Status page, Claude features built off). Reviewer and merger: the Team tools lead. Updated Oct 26, 2026, late evening (UTC).
+Lane: Team tools (Messages, Home and reminders, notifications, Calendar, Meetings, Automations, Analytics, Status page, Claude features built off). Reviewer and merger: the Team tools lead. Updated Oct 27, 2026, early morning (UTC).
 
-Goal: every Team tools feature working by Friday, Oct 30. The last PR opens by Oct 30; anything not ready by Oct 31 is dropped for now.
+Goal: Felipe's bar for Friday, Oct 30 is everything: Notion parity, but better. First a working basic version of every Team tools feature on main, then polish. The last PR opens by Oct 30; anything not ready by Oct 31 is dropped for now. All colours, fonts, sizes and spacing come from the design kit tokens, so Felipe can restyle Care Hub later.
 
 ## On main
 
-Nothing yet.
+| PR | What |
+| --- | --- |
+| #26 | `@carehub/team-time` part 1: wall-clock dates and times, time zones |
+| #35 | Calendar sync types, iCalendar text and values, video meeting links |
+| #22 | Live updates server: one stream per browser tab, topics with access re-checks |
+| #32 | Web push sender: encryption, VAPID, payloads and settings (`node:crypto` only) |
+| #37 | Notices: the `sendNotice` contract, checks, grouping and table |
+| #38 | Status page logic and tables |
 
-## In progress
+## Building now
 
-| Part | What | Next |
+| Part | Now | Next (basic slice first) |
 | --- | --- | --- |
-| W1-A | `@carehub/team-time`: time zones, date and time formats, automation schedules, reminder times | Reminders |
-| W1-B | `@carehub/team-repeat`: repeating events, exceptions, series edits, RRULE | Calendar events on the server |
-| W1-C | Web push protocol (node:crypto only), sender, service worker, browser client | Push routes and notification settings |
-| W1-D | iCalendar read and write, video links, private calendar links | CalDAV client for iCloud |
-| W1-E | Google Calendar sign-in, client and mapping, with mocks | Google sync |
-| W1-F | Live updates (SSE) and background jobs (Postgres queue) | |
-| W1-G | Calendar layout maths (day, week, month, drag and keyboard) | Calendar screens |
-| W1-H | `@carehub/team-chat`: message rules, mentions, cards, unread, reactions, files, search helpers | Messages |
-| W2-N | Notices and the 🔔 Care Hub chat (needed by core's comments and mentions by Oct 28) | |
-| W2-S | Status page | |
+| W1-A | `@carehub/team-time` part 2: formats, schedules, reminder times | Reminders: Remind me, delivery, Snooze and Done |
+| W1-B | `@carehub/team-repeat`: repeating events (3 PRs) | Calendar events on the server and the date-range API |
+| W1-C | Web push in the browser: service worker and manifest | Push subscriptions, notification settings and delivery; then Claude features (built off) |
+| W1-D | iCalendar time zones, reader, writer and safe link fetcher | Meetings: notes, recording notice, private transcription; then iCloud |
+| W1-E | Google Calendar sign-in (read-only), client and mapping | Connect calendars: Google and links, sync engine |
+| W1-F | Live updates in the browser; background jobs | Automations |
+| W1-G | Calendar layout maths and editing | Calendar screens: day, week, month, side panel, drag, layers, Upcoming |
+| W1-H | `@carehub/team-chat` parts 1 to 4 (#31 waits for the package OK) | Messages: DMs, groups, files, reactions, search, unread |
+| W2-N | Notices store, routes and the 🔔 Care Hub chat | Home |
+| W2-S | Status page store, checks, routes and screen | Analytics |
 
-Not started: Analytics, Automations, Meetings (notes and private transcription), the Home screen, Claude features (built off).
+Every Team tools feature has a builder.
 
 ## Interfaces other lanes use
 
-From decision 0007, section 4.4: live updates (`features/live`), jobs (`features/jobs`) and notices (`features/notices`). Calendar layers from other lanes: `listDatedRows`, `listDateSources`, `setRowDate` (Databases) and `listLearningDueDates` (Learning).
+From decision 0007, section 4.4:
+
+- Live updates (`apps/server/src/features/live`): the server is on main; the web hooks come next.
+- Jobs (`apps/server/src/features/jobs`): next from W1-F.
+- Notices (`apps/server/src/features/notices`): the `sendNotice` contract is on main, and `bindMemoryNotices()` works in unit tests. Stored notices and the 🔔 chat come next (target Oct 28).
+
+Calendar layers from other lanes: `listDatedRows`, `listDateSources`, `setRowDate` (Databases) and `listLearningDueDates` (Learning).
 
 ## Settings
 
 See [settings.md](settings.md).
 
-## Waiting for Felipe
+## Decided
 
-- Replies (Going, Maybe, Not going) to events synced from Google or iCloud: send them back to that calendar? Two-way sync already has write access. Until he decides, people reply only to Care Hub events.
+- Google and iCloud calendars are read-only in Care Hub. Their events show "Reply in Google Calendar" or "Reply in iCloud"; Care Hub events get replies in Care Hub.
+
+## For Felipe
+
+- When he creates the Google sign-in client: type "Web application", the redirect URL from settings.md, and publishing status "In production" (in "Testing", sign-ins end after 7 days).
+- Only if he wants it later: two-way Google and iCloud calendars (editing and replying from Care Hub). That would need write access to Google.
