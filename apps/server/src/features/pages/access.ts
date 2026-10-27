@@ -267,6 +267,10 @@ const checked = new WeakMap<FastifyRequest, PageAnswer & { pageId: string }>();
 /**
  * preHandler, also `app.requirePageAccess`: 404 if the page is missing or in Trash, 403 if the
  * person's level is below `min`. The handler reads the result with `pageAccessOf(request)`.
+ *
+ * Guests: a route that sets `config: { allowGuests: true }` must check the page grant itself, with
+ * this guard or `getPageAccess`. `app.requireMember` lets guests through on such a route, and
+ * being in the workspace gives a guest nothing: only their own grants do.
  */
 export function requirePageAccess(
   min: AccessLevel,

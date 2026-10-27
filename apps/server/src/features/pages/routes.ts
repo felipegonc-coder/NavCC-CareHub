@@ -4,7 +4,11 @@ import { requirePageAccess } from './access';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    /** preHandler: 404 if the page is missing or in Trash, 403 if the person has less than `min`. */
+    /**
+     * preHandler: 404 if the page is missing or in Trash, 403 if the person has less than `min`.
+     * A route that sets `config: { allowGuests: true }` must check the page grant itself: this
+     * guard, or `getPageAccess`.
+     */
     requirePageAccess: typeof requirePageAccess;
   }
 }
