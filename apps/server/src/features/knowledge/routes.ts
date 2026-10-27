@@ -1,6 +1,7 @@
 // /api/knowledge: knowledge base extras on wiki databases (Knowledge base spec; decision 0400).
 // Open tabs of a knowledge base page hear `knowledge.changed` on `knowledge:<pageId>`. Reports are
-// private, so their `knowledge.reports` events go only to the people they concern.
+// private, so their `knowledge.reports` events go only to the people they concern. Expiry, the
+// Monday summary and Editing removes verification run in the jobs runner.
 import {
   replyInputSchema,
   reportInputSchema,
@@ -16,8 +17,11 @@ import type { CurrentUser } from '@carehub/shared';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { httpError } from '../../core/errors';
+import type { EventBus } from '../../core/events';
+import type { Db } from '../../db';
+import { registerPeriodicTask } from '../jobs';
 import { publishToUsers, publishTopic, registerTopic } from '../live';
-import { deliverNotices } from './notices';
+import { deliverNotices, type KbNotice } from './notices';
 import { registerRowAccessLimiter } from './ports';
 import {
   addReply,
@@ -28,6 +32,13 @@ import {
   setReportStatus,
   type ReportChange,
 } from './reports';
+import {
+  baseHealth,
+  expireDuePages,
+  ownerLeft,
+  removeEditedVerifications,
+  sendSummaries,
+} from './reviews';
 import {
   getSettings,
   openPage,
@@ -45,6 +56,8 @@ const pageParams = z.object({ pageId: z.uuid() });
 const baseParams = z.object({ databaseId: z.uuid() });
 const reportParams = z.object({ reportId: z.uuid() });
 const reportsQuery = z.object({ status: z.enum(['open', 'all']).default('open') });
+const memberRemoved = z.object({ workspaceId: z.uuid(), userId: z.uuid() });
+const MINUTE_MS = 60_000;
 
 function userOf(request: FastifyRequest): CurrentUser {
   if (!request.user) throw httpError(401, 'signed_out');
@@ -61,6 +74,23 @@ const knowledgeRoutes: FastifyPluginAsync = async (app) => {
       () => false,
     );
   });
+  // Each run sends its notices after its writes; a failed run waits for the next slot.
+  const every = (name: string, minutes: number, run: (db: Db) => Promise<KbNotice[]>) =>
+    registerPeriodicTask(name, minutes * MINUTE_MS, async () => {
+      await deliverNotices(await run(app.db), app.log);
+    });
+  every('knowledge.expiry', 1, (db) => expireDuePages(db));
+  every('knowledge.summaries', 5, (db) => sendSummaries(db));
+  every('knowledge.edits', 1, (db) => removeEditedVerifications(db));
+  // stand-in: core's `member.removed` event (decision 0007, section 2.4), typed once it's declared.
+  const events = app.events as unknown as EventBus<Record<'member.removed', unknown>>;
+  const off = events.on('member.removed', async (payload) => {
+    const parsed = memberRemoved.safeParse(payload);
+    if (!parsed.success) return;
+    const { workspaceId, userId } = parsed.data;
+    await deliverNotices(await ownerLeft(app.db, workspaceId, userId), app.log);
+  });
+  app.addHook('onClose', async () => off());
   const changed = (pageId: string) =>
     publishTopic(`${TOPIC}:${pageId}`, { type: 'knowledge.changed', data: { pageId } });
   /** After the commit: the notices, then a refresh for the people the report concerns. */
@@ -149,6 +179,11 @@ const knowledgeRoutes: FastifyPluginAsync = async (app) => {
     const { status } = reportStatusInputSchema.parse(request.body);
     const change = await setReportStatus(app.db, userOf(request), reportId, status);
     return sent(request, change);
+  });
+
+  app.get('/bases/:databaseId/health', async (request) => {
+    const { databaseId } = baseParams.parse(request.params);
+    return baseHealth(app.db, userOf(request), databaseId);
   });
 
   app.get('/bases/:databaseId/settings', async (request) => {

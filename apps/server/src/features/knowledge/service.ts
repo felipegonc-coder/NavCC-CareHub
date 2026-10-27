@@ -149,6 +149,7 @@ export async function indexPage(tx: Tx, row: WikiRow, by: string | null, now: Da
     verification: state.verification?.state ?? null,
     verifiedUntil: state.verification?.until ?? null,
     expiredAt: expired ? (current?.expiredAt ?? now) : null,
+    verifiedAt: state.verification ? new Date(state.verification.verifiedAt) : null,
     updatedAt: now,
   };
   await tx
