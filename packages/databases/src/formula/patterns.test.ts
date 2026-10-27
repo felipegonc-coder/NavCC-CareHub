@@ -1,3 +1,4 @@
+import { RE2JS } from 're2js';
 import { describe, expect, it } from 'vitest';
 import type { ComputedValue } from '../types';
 import { CASE_PROPERTIES, CASE_ROW, CASES_SCHEMA, fixtureContext } from './fixtures';
@@ -61,11 +62,65 @@ describe('pattern engine (re2js)', () => {
     expect(engine.check('(a{2,1000}b){2}')).toBe(M.tooComplex);
     expect(engine.check('a{1001}')).toBe(M.tooComplex);
     expect(engine.compiled).toBe(0);
-    expect(engine.check('(a{10}){100}')).toBeNull();
+    // Under the copy limit, so compiled, but too big a program once compiled.
+    expect(engine.check('(a{10}){100}')).toBe(M.tooComplex);
     expect(engine.check('a{2,5}b{0,3}[{]x{,3}')).toBeNull();
     expect(engine.compiled).toBe(2);
-    // Under the copy limit but too big a program once compiled.
     expect(engine.check('(a?){600}a{600}')).toBe(M.tooComplex);
+  });
+
+  it("keeps one call well inside the row's 50 ms with the costliest patterns allowed", () => {
+    const engine = createPatternEngine();
+    expect(engine.check('[ab]{999}c')).toBe(M.tooComplex);
+    /** The most copies a pattern of this shape may have. */
+    const most = (shape: (n: number) => string) => {
+      let n = 1;
+      while (engine.check(shape(n + 1)) === null) n++;
+      return n;
+    };
+    const [n1, n2, n3, n4, n5] = [
+      most((n) => `[ab]{${n}}c`),
+      most((n) => `[ab]{${n}}[^ab]`),
+      most((n) => `(?i)[ab]{${n}}[^ab]`),
+      most((n) => `\\pL{${n}}\\PL`),
+      most((n) => `[ab]*a[ab]{${n}}[^ab]`),
+    ];
+    expect(Math.min(n1, n2, n3, n4, n5)).toBeGreaterThan(20);
+    const T = PATTERN_TEXT_LENGTH;
+    const fill = (unit: string) => unit.repeat(Math.ceil(T / unit.length)).slice(0, T);
+    let seed = 7;
+    const coin = () => ((seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) < 2 ** 30 ? 'a' : 'b');
+    // 10,000 characters that never match, made to keep every copy busy on every character.
+    const cases: [string, string][] = [
+      [`[ab]{${n1}}c`, fill(`${'a'.repeat(n1 - 1)}c`)],
+      [`[ab]{${n2}}[^ab]`, fill('a')],
+      [`(?i)[ab]{${n3}}[^ab]`, fill('ab')],
+      [`\\pL{${n4}}\\PL`, fill('α')],
+      [`[ab]*a[ab]{${n5}}[^ab]`, Array.from({ length: T }, coin).join('')],
+      // Plain text has no instruction limit: it's found like indexOf.
+      [`${'a'.repeat(MAX_PATTERN_LENGTH - 1)}x`, fill('a')],
+    ];
+    const fastest = (call: () => unknown) => {
+      let best = Infinity;
+      for (let k = 0; k < 3; k++) {
+        const started = performance.now();
+        call();
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    };
+    for (const [pattern, text] of cases) {
+      expect(text.length).toBe(T);
+      expect(engine.test(text, pattern)).toEqual(no);
+      expect(engine.match(text, pattern)).toEqual(ok([]));
+      expect(engine.replace(text, pattern, 'x', true)).toEqual(ok(text));
+      const ms = Math.max(
+        fastest(() => engine.test(text, pattern)),
+        fastest(() => engine.match(text, pattern)),
+        fastest(() => engine.replace(text, pattern, 'x', true)),
+      );
+      expect([pattern, ms < 25]).toEqual([pattern, true]);
+    }
   });
 
   it('handles the empty pattern', () => {
@@ -192,6 +247,32 @@ describe('pattern engine (re2js)', () => {
       kind: 'text',
       value: '26.10.2026',
     });
+  });
+
+  it("reads only a pattern's own group names in $<name>", () => {
+    const replacement = '[$<constructor>|$<__proto__>|$<toString>|$<hasOwnProperty>|$<x>]';
+    const own = RE2JS.prototype.namedGroups;
+    // As in JavaScript, a name that isn't one of the pattern's groups gives nothing, also when
+    // re2js hands its names over in an ordinary object.
+    const ordinary = function (this: RE2JS) {
+      return { ...own.call(this) };
+    };
+    for (const names of [own, ordinary]) {
+      RE2JS.prototype.namedGroups = names;
+      try {
+        const engine = createPatternEngine();
+        expect(engine.replace('ab', '(?<x>a)', replacement, false)).toEqual(ok('[||||a]b'));
+        expect(engine.replace('ab', '(?<x>a)', replacement, false)).toEqual(
+          ok('ab'.replace(/(?<x>a)/, replacement)),
+        );
+        expect(engine.replace('ab', '(?<__proto__>b)', '[$<__proto__>]', false)).toEqual(
+          ok('a[b]'),
+        );
+        expect(engine.replace('ab', '(?<x>a)', '$<x', false)).toEqual(ok('$<xb'));
+      } finally {
+        RE2JS.prototype.namedGroups = own;
+      }
+    }
   });
 
   it('stops with "⚠ Pattern too slow" once the row\'s time is up', () => {

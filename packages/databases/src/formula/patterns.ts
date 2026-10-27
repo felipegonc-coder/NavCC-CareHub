@@ -7,8 +7,9 @@
  *
  * Limits: patterns up to MAX_PATTERN_LENGTH characters; counted repeats nested to at most
  * MAX_PATTERN_COPIES copies, checked before compiling, so ((a{100}){100}){100} never reaches the
- * compiler; compiled programs up to MAX_PATTERN_PROGRAM instructions; only the first
- * PATTERN_TEXT_LENGTH characters of a text are read (replace keeps the rest as it is). Each
+ * compiler; compiled programs up to MAX_PATTERN_PROGRAM instructions, except plain text, which is
+ * found like indexOf; only the first PATTERN_TEXT_LENGTH characters of a text are read (replace
+ * keeps the rest as it is). Each
  * pattern is checked and compiled once and kept in a small cache, refusals included. match stops
  * past its most matches and replace past its longest text while they're being made, and the row's
  * time is checked after compiling and after every match.
@@ -30,8 +31,12 @@ export const MAX_PATTERN_LENGTH: number = LIMITS.formulaPatternLength;
 export const PATTERN_TEXT_LENGTH: number = LIMITS.formulaPatternInput;
 /** Copies that counted repeats nested inside each other may make: (a{10}){100} makes 1,000. */
 export const MAX_PATTERN_COPIES = 1_000;
-/** Instructions a compiled pattern may have. */
-export const MAX_PATTERN_PROGRAM = 2_000;
+/**
+ * Instructions a compiled pattern may have (plain text has no limit but its length). One call can't
+ * be stopped halfway, and its worst case grows with this times the characters read: at 32 and
+ * 10,000 characters, [ab]{29}c or \pL{29}\PL takes about 15 ms, well inside the row's 50 ms.
+ */
+export const MAX_PATTERN_PROGRAM = 32;
 /** Patterns an engine keeps compiled; the least recently used goes first. */
 export const PATTERN_CACHE_SIZE = 128;
 
@@ -195,6 +200,9 @@ class Output {
   }
 }
 
+/** A pattern without special characters: RE2 finds it as a text search, whatever its length. */
+const PLAIN_TEXT = /^[^\\.+*?()|[\]{}^$]*$/;
+
 /** Checks a pattern and compiles it, or says why it can't run. */
 function prepare(pattern: string, compile: (source: string) => RE2JS): Entry {
   if (pattern.length > MAX_PATTERN_LENGTH) return { error: PATTERN_MESSAGES.tooLong };
@@ -213,7 +221,9 @@ function prepare(pattern: string, compile: (source: string) => RE2JS): Entry {
   } catch (e) {
     return { error: compileProblem(e) };
   }
-  if (re.programSize() > MAX_PATTERN_PROGRAM) return { error: PATTERN_MESSAGES.tooComplex };
+  if (!PLAIN_TEXT.test(source) && re.programSize() > MAX_PATTERN_PROGRAM) {
+    return { error: PATTERN_MESSAGES.tooComplex };
+  }
   return { re, groups: re.groupCount(), names: re.namedGroups() };
 }
 
@@ -370,7 +380,9 @@ function parseReplacement(r: string, c: Compiled): Piece[] {
         text += '$';
         i++;
       } else {
-        const group = c.names[r.slice(i + 2, close)];
+        const name = r.slice(i + 2, close);
+        // Own names only: $<constructor> or $<__proto__> must not find Object.prototype's.
+        const group = Object.hasOwn(c.names, name) ? c.names[name] : undefined;
         if (group !== undefined) push(group);
         i = close + 1;
       }
