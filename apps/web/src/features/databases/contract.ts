@@ -196,8 +196,8 @@ export function cellContext(
 
 /**
  * What the toolbar opens: Filter, Sort, Group and Properties (its buttons) and Layout ("…" →
- * Layout) open under the toolbar; Import CSV and Export CSV ("…") open as dialogs, with the title
- * and Close drawn by the shell.
+ * Layout) open under the toolbar; Import CSV, Export CSV, Row access and Property access ("…")
+ * open as dialogs, with the title and Close drawn by the shell.
  */
 export const PANEL_NAMES = [
   'filter',
@@ -207,6 +207,8 @@ export const PANEL_NAMES = [
   'layout',
   'importCsv',
   'exportCsv',
+  'rowAccess',
+  'propertyAccess',
 ] as const;
 
 export type PanelName = (typeof PANEL_NAMES)[number];
@@ -219,10 +221,17 @@ export const PANEL_LABELS: Record<PanelName, string> = {
   layout: 'Layout',
   importCsv: 'Import CSV',
   exportCsv: 'Export CSV',
+  rowAccess: 'Row access',
+  propertyAccess: 'Property access',
 };
 
-/** The panels drawn as dialogs (the CSV dialogs of spec section 2). */
-export const DIALOG_PANELS: ReadonlySet<PanelName> = new Set<PanelName>(['importCsv', 'exportCsv']);
+/** The panels drawn as dialogs: the CSV dialogs of spec section 2, and access (section 3.12). */
+export const DIALOG_PANELS: ReadonlySet<PanelName> = new Set<PanelName>([
+  'importCsv',
+  'exportCsv',
+  'rowAccess',
+  'propertyAccess',
+]);
 
 /** What the shell hands to a panel. */
 export interface PanelProps {
