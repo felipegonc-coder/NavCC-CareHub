@@ -6,11 +6,21 @@ export {
   PathListResponseSchema,
   PathPageResponseSchema,
   PathProgressSchema,
+  PathReportQuerySchema,
+  PathReportResponseSchema,
+  PathReportRowSchema,
   PathResponseSchema,
   PathSummarySchema,
   SavePathRequestSchema,
 } from './api';
-export type { CreatePathRequest, PathCourse, PathPage, PathSummary } from './api';
+export type {
+  CreatePathRequest,
+  PathCourse,
+  PathPage,
+  PathReportQuery,
+  PathReportResponse,
+  PathSummary,
+} from './api';
 export { pathPage } from './page';
 export type { PathCourseInfo } from './page';
 export { pathProblems } from './checks';
