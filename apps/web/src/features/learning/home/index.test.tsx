@@ -1,5 +1,6 @@
 import type { MyLearningEntry, MyLearningResponse } from '@carehub/learning';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, within } from '@testing-library/react';
+import { useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CatalogEntry } from '../catalog/data';
 import { errorReply, jsonReply, renderRoute } from '../player/test-utils';
@@ -84,7 +85,17 @@ function serveHome(me: MyLearningResponse, list: CatalogEntry[], options = { me:
   return server;
 }
 
-const show = () => renderRoute('/learning', { '/learning': <MyLearningScreen /> });
+/** A stand-in for a course's start page that says how it was opened. */
+function StandInStart() {
+  const { pathname, state } = useLocation();
+  return <p>{`The start page at ${pathname} with ${JSON.stringify(state ?? null)}`}</p>;
+}
+
+const show = () =>
+  renderRoute('/learning', {
+    '/learning': <MyLearningScreen />,
+    '/learning/courses/:courseId': <StandInStart />,
+  });
 
 const section = (name: string) => {
   const heading = screen.getByRole('heading', { level: 2, name });
@@ -134,6 +145,25 @@ describe('MyLearningScreen', () => {
       section('Assigned to you').getByText(`Due ${formatDueDate('2026-11-20')}`),
     ).toBeVisible();
     expect(section('Finished').getByText(`Passed on ${formatDay(FINISHED_AT)}`)).toBeVisible();
+  });
+
+  it('opens a course in progress where the learner stopped, and others at the start', async () => {
+    serveHome(mine, catalog);
+    show();
+    await screen.findByRole('heading', { level: 1, name: 'My learning' });
+    fireEvent.click(section('Continue').getByRole('link', { name: 'Handling calls with care' }));
+    expect(
+      await screen.findByText(
+        'The start page at /learning/courses/course-calls-with-care with {"resume":true}',
+      ),
+    ).toBeInTheDocument();
+    cleanup();
+    show();
+    await screen.findByRole('heading', { level: 1, name: 'My learning' });
+    fireEvent.click(section('Overdue').getByRole('link', { name: 'Privacy basics' }));
+    expect(
+      await screen.findByText('The start page at /learning/courses/course-privacy with null'),
+    ).toBeInTheDocument();
   });
 
   it('shows catalog courses that are not in My learning yet', async () => {

@@ -4,11 +4,13 @@ import {
   type Course,
   type LearnerCourseState,
 } from '@carehub/learning';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { inOrder, learner, renderRoute, serveCourse } from '../player/test-utils';
 import { CourseStartScreen } from './index';
 import { formatSignedAt } from './SignOff';
+import { RESUME_STATE } from './start';
 
 const TITLE = 'Handling calls with care';
 const locked = { status: 'locked' } as const;
@@ -37,12 +39,26 @@ const done = (state: Partial<LearnerCourseState>): LearnerCourseState => ({
   ...state,
 });
 
-/** Shows the start page of `course` from a fake API; lessons open a stand-in player. */
-function show(course: Course, state: LearnerCourseState, options?: { course?: number }) {
+/** A stand-in for the player that says where it opened. */
+function StandInPlayer() {
+  const { pathname, hash } = useLocation();
+  return <p>{`The player at ${pathname}${hash}`}</p>;
+}
+
+/**
+ * Shows the start page of `course` from a fake API, opened from My learning's link to a course in
+ * progress when `resume` is set; lessons open a stand-in player.
+ */
+function show(
+  course: Course,
+  state: LearnerCourseState,
+  { resume = false, ...options }: { course?: number; resume?: boolean } = {},
+) {
   const server = serveCourse(course, state, options);
-  renderRoute(`/learning/courses/${course.id}`, {
+  const pathname = `/learning/courses/${course.id}`;
+  renderRoute(resume ? { pathname, state: RESUME_STATE } : pathname, {
     '/learning/courses/:courseId': <CourseStartScreen />,
-    '/learning/courses/:courseId/lessons/:lessonId': <p>The player</p>,
+    '/learning/courses/:courseId/lessons/:lessonId': <StandInPlayer />,
   });
   return server;
 }
@@ -51,6 +67,7 @@ const button = (name: string) => screen.findByRole('link', { name });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  localStorage.clear();
 });
 
 describe('CourseStartScreen', () => {
@@ -160,7 +177,56 @@ describe('CourseStartScreen', () => {
     };
     show(linked, fresh);
     fireEvent.click(await screen.findByRole('link', { name: 'the quiz' }));
-    expect(await screen.findByText('The player')).toBeInTheDocument();
+    expect(
+      await screen.findByText(`The player at ${lessonHref(inOrder.id, 'calls-quiz')}`),
+    ).toBeInTheDocument();
+  });
+
+  it('goes straight on to where the learner stopped, from My learning', async () => {
+    show(inOrder, halfway, { resume: true });
+    const stopped = lessonHref(inOrder.id, 'calls-during', 'calls-during-check');
+    expect(await screen.findByText(`The player at ${stopped}`)).toBeInTheDocument();
+  });
+
+  it('shows the start page instead before the learner begins, and once they are done', async () => {
+    for (const state of [fresh, done({ status: 'passed', score: 90 })]) {
+      show(inOrder, state, { resume: true });
+      expect(await screen.findByRole('heading', { level: 1, name: TITLE })).toBeInTheDocument();
+      expect(screen.queryByText(/^The player at/)).not.toBeInTheDocument();
+      cleanup();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('shows the cover above the title, beside it or across the page', async () => {
+    const alt = 'A support agent smiling while talking on a headset';
+    for (const coverLayout of [undefined, 'banner', 'split', 'full'] as const) {
+      show({ ...inOrder, coverLayout }, fresh);
+      const cover = await screen.findByRole('img', { name: alt });
+      expect(cover).toHaveAttribute('src', '/api/files/sample-cover-1');
+      const heading = screen.getByRole('heading', { level: 1, name: TITLE });
+      expect(
+        cover.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      const layout = coverLayout ?? 'banner';
+      const header = heading.closest('[data-cover]');
+      expect(header).toHaveAttribute('data-cover', layout);
+      expect(header?.contains(cover)).toBe(layout !== 'full');
+      cleanup();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('leaves a decorative cover out of what screen readers read', async () => {
+    const cover: Course['cover'] = {
+      media: { kind: 'file', fileId: 'pattern-1' },
+      alt: 'Dots',
+      decorative: true,
+    };
+    show({ ...inOrder, cover }, fresh);
+    await screen.findByRole('heading', { level: 1, name: TITLE });
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(document.querySelector('img')).toHaveAttribute('alt', '');
   });
 
   it('says the course is not found when it is missing or not shared', async () => {
