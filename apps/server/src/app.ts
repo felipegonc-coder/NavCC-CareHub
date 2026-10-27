@@ -68,7 +68,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: roles
 
-  // feature: learning
+  await app.register(import('./features/learning/routes'), { prefix: '/api/learning' });
 
   // feature: databases
 

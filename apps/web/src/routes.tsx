@@ -26,6 +26,7 @@ import { HomePage } from './HomePage'; // placeholder until the home line takes 
 // feature: search
 
 // feature: learning
+import { routes as learningRoutes } from './features/learning/routes';
 
 // feature: databases
 
@@ -69,6 +70,7 @@ export const appRoutes: RouteObject[] = [
   // feature: search
 
   // feature: learning
+  ...learningRoutes,
 
   // feature: databases
 

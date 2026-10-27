@@ -11,6 +11,7 @@
     "start": "node --enable-source-maps dist/index.js"
   },
   "dependencies": {
+    "@carehub/learning": "*",
     "@carehub/shared": "*",
     "@carehub/team-time": "*",
     "@fastify/cookie": "^11.0.2",
