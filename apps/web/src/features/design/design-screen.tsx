@@ -266,7 +266,7 @@ export function DesignScreen() {
             action={
               <Button size="sm">
                 <Plus aria-hidden />
-                New page
+                Add a page
               </Button>
             }
           />
