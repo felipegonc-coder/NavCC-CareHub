@@ -10,6 +10,7 @@ export type {
   NoticeCreatedEvent,
   NoticeKind,
   NoticeLinkButton,
+  NoticeSummary,
   SendNotice,
   SendNoticeInput,
   SendNoticeResult,
@@ -17,4 +18,14 @@ export type {
 export { NOTICE_CREATED_EVENT, NOTICE_KINDS, NOTICES_CHANGED_EVENT } from './types';
 export { NOTICE_LIMITS, NoticeInputError } from './domain/validate';
 export { registerNoticeAction } from './domain/actions';
+export { eventCardKey } from './domain/view';
+export {
+  registerNoticeCardResolver,
+  type EventCardRef,
+  type EventCardResolver,
+  type EventCardResult,
+  type NoticeCardResolvers,
+  type NoticeReader,
+} from './cards';
 export { sendNotice } from './service';
+export { getNotice } from './store';

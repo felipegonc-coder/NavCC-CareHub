@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { colorClasses } from '@carehub/ui';
 import type { View } from '@carehub/databases';
 import {
@@ -41,7 +41,15 @@ function cellOf(rowId: string, propertyId: string): HTMLElement {
   return cell;
 }
 
-const headers = () => screen.getAllByRole('columnheader').map((h) => h.textContent);
+const headers = () =>
+  screen
+    .getAllByRole('columnheader')
+    .filter((h) => h.hasAttribute('data-property-id'))
+    .map((h) => h.textContent);
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 describe('TableLayout columns', () => {
   it('shows a column for each visible property, Name first', () => {
@@ -86,7 +94,8 @@ describe('TableLayout columns', () => {
       table: { frozenUpTo: PROPS.status, wrapCells: false, showVerticalLines: true },
     });
     render(<TableLayout {...layoutProps({ view })} />);
-    expect(screen.getByRole('columnheader', { name: 'Status' })).toHaveStyle({ left: '280px' });
+    // After the selection column (44 px) and Name (280 px).
+    expect(screen.getByRole('columnheader', { name: 'Status' })).toHaveStyle({ left: '324px' });
     expect(cellOf('row-sink', PROPS.name)).toHaveClass('sticky');
     expect(cellOf('row-sink', PROPS.status)).toHaveClass('sticky');
     expect(cellOf('row-sink', PROPS.priority)).not.toHaveClass('sticky');

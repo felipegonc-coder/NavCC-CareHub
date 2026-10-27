@@ -2,7 +2,7 @@
 
 _Copied from the Notion plan (the source of truth) on 2026-10-26. If they differ, Notion wins._
 
-> 🎨 The new Care Hub keeps today's look: the "Gonçalves Hub" style. Calm and Notion-like, with neutral greys and near-black accents. Our own design and name, with no copied names or logos.
+> 🎨 The new Care Hub keeps today's look. Calm and Notion-like, with neutral greys and near-black accents. Our own design and name, with no copied names or logos.
 
 ## Overall feel
 

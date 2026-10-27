@@ -2,13 +2,14 @@ import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { Check } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn';
-import { menuItemClasses, surfaceClasses } from './classes';
+import { bottomSheetClasses, menuItemClasses, surfaceClasses } from './classes';
 
 export const DropdownMenu = MenuPrimitive.Root;
 export const DropdownMenuTrigger = MenuPrimitive.Trigger;
 export const DropdownMenuGroup = MenuPrimitive.Group;
 export const DropdownMenuRadioGroup = MenuPrimitive.RadioGroup;
 
+/** Opens next to its button; on a phone, as a bottom sheet. */
 export function DropdownMenuContent({
   className,
   sideOffset = 4,
@@ -18,7 +19,8 @@ export function DropdownMenuContent({
     <MenuPrimitive.Portal>
       <MenuPrimitive.Content
         sideOffset={sideOffset}
-        className={cn(surfaceClasses, 'min-w-44', className)}
+        data-sheet=""
+        className={cn(surfaceClasses, 'min-w-44', bottomSheetClasses, className)}
         {...props}
       />
     </MenuPrimitive.Portal>

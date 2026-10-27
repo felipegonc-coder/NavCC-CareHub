@@ -45,13 +45,15 @@ export const repeatScheduleSchema = z
     timeZone: timeZoneSchema,
     start: calendarDateSchema,
     end: calendarDateSchema.nullable(),
+    timesLeft: z.int().min(0).max(LIMITS.repeatTimes).nullable().exactOptional(),
     paused: z.boolean(),
     ownerId: idSchema,
   })
   .refine((s) => s.every !== 'week' || (s.weekDays?.length ?? 0) > 0, 'Pick at least one day.')
+  .refine((s) => s.end === null || s.end >= s.start, "The end can't be before the start.")
   .refine(
-    (s) => s.end === null || s.end >= s.start,
-    "The end can't be before the start.",
+    (s) => s.end === null || (s.timesLeft ?? null) === null,
+    'End on a date or after a number of times, not both.',
   ) satisfies z.ZodType<RepeatSchedule>;
 
 /** A row template: a name, an icon, preset values and an optional repeat schedule. */
