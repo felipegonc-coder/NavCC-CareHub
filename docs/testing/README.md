@@ -87,23 +87,25 @@ test.describe('Comments and mentions', () => {
 
 ## Running them
 
-Agent computers have no network, so the app can't run there. Browser tests run on GitHub Actions
-(decision 0006), within the Testing lane's budget of about 60 minutes a day:
+Agent computers have no network, so the app can't run there. Browser tests run on GitHub Actions.
+While the repository is public, runs don't use Actions minutes, so there's no daily budget. The
+Free plan still runs at most 20 jobs at a time for every team together, so group the runs:
 
 - The nightly run on `main` (01:00 UTC) runs everything; the results page is updated from it.
-- A pull request gets at most 2 runs with the label `e2e`, added by the Testing lead, and runs only
-  the files it adds. Builders don't add the label.
+- The Testing lead adds the label `e2e` to a pull request on its final head (once more after fixes,
+  if needed). It runs only the files the pull request changes. Builders don't add the label.
 - On an agent computer, Playwright and Chromium are preinstalled, so a builder can still run pure
   logic checks and check that a file loads (`playwright test --list`) before pushing.
 
 ## Reporting a bug
 
 When a flow finds a bug, open a GitHub issue labelled `bug` and the lane (`core`, `learning`,
-`databases` or `team`), titled `<check ID>: <what goes wrong>`, with:
+`databases`, `team` or `extras`), titled `<check ID>: <what goes wrong>` (Extras titles start with
+"Extras: "), with:
 
 1. **Test:** the file and the test title, and the link to the failing run.
 2. **Steps:** what the test does, as a person would do it.
 3. **Expected:** what the spec says, with the spec and section.
 4. **Actual:** what happened, with the error and a screenshot if there is one.
 
-The Testing lead messages the owning lead about any bug that blocks a feature due on Friday.
+The Testing lead messages the owning lead about any bug that blocks a feature.
