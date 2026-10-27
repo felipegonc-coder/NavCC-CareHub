@@ -1,12 +1,13 @@
 // Keeps track of edits and saves automatic versions (HT-01): the collaboration server's saves
 // open a stretch of edits per page, and a periodic task saves a version for each stretch that's
-// due. Another one deletes expired versions at night (HT-03). Pages deleted for good lose their
-// versions (HT-11).
+// due (with "edited" entries in Updates, HT-08). Another one deletes expired versions and Updates
+// entries at night (HT-03). Pages deleted for good lose their versions and entries (HT-11).
 import type { FastifyInstance } from 'fastify';
 import { registerPeriodicTask } from '../jobs';
 import { publishTopic } from '../live';
 import { hasPageModel } from './pages';
 import { deleteExpiredVersions, hourStart, isCleanupHour } from './retention';
+import { startUpdates } from './updates';
 import { forgetPages, recordEdit, recordSavedEdits, saveDueVersions } from './versions';
 
 export const VERSIONS_TASK = 'history.versions';
@@ -66,6 +67,7 @@ export function startHistoryTracking(app: FastifyInstance): void {
     events.on('page.deleted', (payload) =>
       safely('forgetting deleted pages', () => forgetPages(db, pageIdsOf(payload))),
     ),
+    ...startUpdates(app, safely),
   ];
 
   activeApp = app;

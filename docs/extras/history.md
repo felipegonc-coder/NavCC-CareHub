@@ -9,8 +9,16 @@ Spec: [page-history-and-trash.md](../plan/specs/page-history-and-trash.md) (chec
 - **What's kept** (`history_versions`): a full copy of the title, icon, cover, page style and content (ProseMirror JSON), the kind, the name, the editors, who caused it, its size and a sha-256 digest. The spec allows storing changes with a full copy every 20 versions; full copies come first, and reading doesn't depend on it.
 - **Kinds:** `automatic`, `before_restore`, `before_import`, `before_template`, `before_replace` (Replace all), `before_accept_all` (Accept all suggestions) and `before_automation`. "Named" isn't a kind: any version can have a name.
 - **Named versions** are kept forever, up to 100 per page (409 after that).
-- **Clean-up** (HT-03): the hourly task `history.cleanup` runs in the 3 AM hour (Denver time until workspaces have their own) and deletes unnamed versions older than the workspace's period, counting ages from 3:00 sharp. Then it emits `history.versions.cleaned`.
-- **Deleted pages** (HT-11): `page.deleted` removes their versions.
+- **Clean-up** (HT-03): the hourly task `history.cleanup` runs in the 3 AM hour (Denver time until workspaces have their own) and deletes unnamed versions and Updates entries older than the workspace's period, counting ages from 3:00 sharp. Then it emits `history.versions.cleaned`.
+- **Deleted pages** (HT-11): `page.deleted` removes their versions and Updates entries.
+
+## Updates
+
+What happened on a page, for its Updates panel (HT-08). An entry (`history_updates`) holds the page, who did it (null for automations), the kind, a few details and, for edits, the version; never page content. Entries are kept as long as the automatic versions (above).
+
+- **Edits:** every version saved, automatic or before a change, adds an `edited` entry for each person whose edits it holds, in the same transaction. `changes` is how many changes Show changes marks against the version before; a page's first version has none to count.
+- **The page model's events** (#49), after the commit: `page.created` → `created`; `page.updated` with `title: { from, to }` → `renamed`, with `parentId: { from, to }` (null for the top of the space) → `moved`, with `locked: true | false` → `locked` or `unlocked`; `access.changed` → `shared`; `page.archived`, `page.unarchived`, `page.trashed` and `page.restored` → `archived`, `unarchived`, `trashed` and `untrashed`. Each needs `pageId`; `by` is the person (null for automations), and `workspaceId` is looked up when it's missing. Until core declares these events they're read loosely: other fields are ignored, and a payload without a valid `pageId` adds nothing.
+- **Comments and history:** `comment.created` → `commented` (a reply when `newThread` is false); `history.version.restored` → `restored`, with when the restored version was saved.
 
 ## Show changes and the preview
 
@@ -46,6 +54,7 @@ Spec: [page-history-and-trash.md](../plan/specs/page-history-and-trash.md) (chec
 - `countExpiringVersions(db, workspaceId, days, now?)`: how many unnamed versions are older than `days`, for "Tonight this permanently deletes 1,240 page versions…" (Data settings, DS-01). Pass `nextCleanupAt()` as `now` and the count is exactly what that night deletes.
 - `versionStorageBytes(db, workspaceId)`: bytes the workspace's versions take, for the storage numbers in Data settings.
 - Workspace setting `history.versionRetentionDays` (`VERSION_RETENTION_KEY`): `30`, `90`, `365` or `null` (forever); the default is 365 (DS-D2). Validate it with `versionRetentionSchema` from `@carehub/extras/history`. Anything else counts as the default.
+- `recordUpdates(tx, [{ pageId, workspaceId, kind, by, details? }])` adds entries to pages' Updates, in your transaction (a rollback drops them too). Databases: `kind: 'property_changed'` with `details: { property: { id, name, from, to } }`, the values as text ("Status: Open → Done"). Comments and mentions: `kind: 'suggestion_accepted'`. Keep details small, never page content.
 - Events, after the commit: `history.version.restored { pageId, workspaceId, versionId, restoredVersionId, by }` (`versionId` is the version saved just before the restore) and `history.versions.cleaned { workspaceId, deleted, at }` (for Data settings' clean-up record).
 
 ## API (`/api/history`)

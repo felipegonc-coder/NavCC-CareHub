@@ -1,9 +1,11 @@
 // How long unnamed versions are kept, and the nightly clean-up (HT-03; Data settings, DS-01).
-// Named versions are kept until someone removes their name.
+// Named versions are kept until someone removes their name. Updates entries go with the unnamed
+// versions of their time (section 3.3).
 import { DEFAULT_VERSION_RETENTION_DAYS, versionRetentionSchema } from '@carehub/extras/history';
 import { and, count, eq, isNull, lt, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
-import { historyVersions } from './schema';
+import { historyUpdates, historyVersions } from './schema';
+import { deleteExpiredUpdates } from './updates';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BATCH = 1000;
@@ -72,18 +74,25 @@ export interface CleanedVersions {
   deleted: number;
 }
 
-/** Deletes unnamed versions older than each workspace's period, a batch at a time. */
+/**
+ * Deletes unnamed versions and Updates entries older than each workspace's period, a batch at a
+ * time. Returns how many versions went.
+ */
 export async function deleteExpiredVersions(
   db: Db,
   now = new Date(),
   signal?: AbortSignal,
 ): Promise<CleanedVersions[]> {
-  const workspaces = await db
+  const withVersions = await db
     .selectDistinct({ workspaceId: historyVersions.workspaceId })
     .from(historyVersions)
     .where(isNull(historyVersions.name));
+  const withUpdates = await db
+    .selectDistinct({ workspaceId: historyUpdates.workspaceId })
+    .from(historyUpdates);
+  const workspaces = new Set([...withVersions, ...withUpdates].map((row) => row.workspaceId));
   const cleaned: CleanedVersions[] = [];
-  for (const { workspaceId } of workspaces) {
+  for (const workspaceId of workspaces) {
     if (signal?.aborted) break;
     const days = await versionRetentionDays(db, workspaceId);
     if (days === null) continue;
@@ -100,6 +109,7 @@ export async function deleteExpiredVersions(
       deleted += removed;
       if (removed < BATCH || signal?.aborted) break;
     }
+    await deleteExpiredUpdates(db, workspaceId, before, signal);
     if (deleted > 0) cleaned.push({ workspaceId, deleted });
   }
   return cleaned;
