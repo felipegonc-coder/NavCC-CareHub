@@ -27,7 +27,7 @@ const PLAN_PATHS = [
   'learning/reports/people/:personId',
   'learning/reports/team',
   'learning/reports/paths/:pathId',
-  'learning/review/:token',
+  'learning/review',
 ];
 
 afterEach(cleanup);
@@ -52,7 +52,8 @@ describe('Learning routes', () => {
     );
     expect(matched('/learning/reports/overdue')).toBe('learning/reports/overdue');
     expect(matched('/learning/reports/courses/c1')).toBe('learning/reports/courses/:courseId');
-    expect(matched('/learning/review/abc123')).toBe('learning/review/:token');
+    expect(matched('/learning/review')).toBe('learning/review');
+    expect(matched('/learning/review/abc123')).toBeUndefined();
     expect(matched('/learning/unknown/page')).toBeUndefined();
   });
 

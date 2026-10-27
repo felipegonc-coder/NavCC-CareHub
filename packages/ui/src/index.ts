@@ -4,6 +4,7 @@ export * from './palette';
 export * from './scale';
 export { cn } from './lib/cn';
 export { useMediaQuery } from './lib/use-media-query';
+export { useOnline } from './lib/use-online';
 
 export { applyTheme, DARK_QUERY, isTheme, THEME_STORAGE_KEY, useTheme } from './theme/theme';
 export type { ResolvedTheme, Theme, ThemeContextValue } from './theme/theme';
@@ -31,6 +32,7 @@ export * from './components/select';
 export * from './components/sheet';
 export * from './components/sidebar';
 export * from './components/spinner';
+export * from './components/states';
 export * from './components/switch';
 export * from './components/tabs';
 export * from './components/toast';
