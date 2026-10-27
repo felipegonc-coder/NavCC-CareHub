@@ -24,6 +24,7 @@ import {
   type MemberRow,
   type MessageRow,
 } from './schema';
+import { EMPTY_INDEX, type MessageIndex } from './search';
 
 type Executor = Db | Tx;
 
@@ -293,6 +294,7 @@ export interface NewMessage {
   text: string;
   mentions: readonly string[];
   pageIds: readonly string[];
+  index: MessageIndex;
 }
 
 /**
@@ -335,6 +337,8 @@ export async function sendMessage(
         text: input.text,
         mentions: [...input.mentions],
         pageIds: [...input.pageIds],
+        search: input.index.search,
+        has: [...input.index.has],
       })
       .returning();
     if (!message) throw new Error('The message was not saved.');
@@ -367,7 +371,12 @@ export async function findMessage(
 export async function editMessage(
   db: Executor,
   messageId: string,
-  change: { text: string; mentions: readonly string[]; pageIds: readonly string[] },
+  change: {
+    text: string;
+    mentions: readonly string[];
+    pageIds: readonly string[];
+    index: MessageIndex;
+  },
   now: Date,
 ): Promise<MessageRow | null> {
   const [message] = await db
@@ -376,6 +385,8 @@ export async function editMessage(
       text: change.text,
       mentions: [...change.mentions],
       pageIds: [...change.pageIds],
+      search: change.index.search,
+      has: [...change.index.has],
       editedAt: now,
     })
     .where(and(eq(msgMessages.id, messageId), isNull(msgMessages.deletedAt)))
@@ -383,7 +394,10 @@ export async function editMessage(
   return message ?? null;
 }
 
-/** Erases the text, mentions and cards; "This message was deleted" stays in their place. */
+/**
+ * Erases the text, mentions, cards and search index; "This message was deleted" stays in their
+ * place.
+ */
 export async function deleteMessage(
   db: Executor,
   messageId: string,
@@ -395,6 +409,8 @@ export async function deleteMessage(
       text: fields.text,
       mentions: fields.mentionedUserIds,
       pageIds: fields.pageIds,
+      search: EMPTY_INDEX.search,
+      has: [...EMPTY_INDEX.has],
       deletedAt: fields.deletedAt,
     })
     .where(and(eq(msgMessages.id, messageId), isNull(msgMessages.deletedAt)));
