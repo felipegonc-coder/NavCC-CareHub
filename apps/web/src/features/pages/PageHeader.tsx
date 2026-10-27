@@ -1,10 +1,10 @@
 // The page's header (Pages and blocks, sections 2 and 3.1): its cover, its icon and its title.
 import { cn, coverGradients, isCoverName, useToast } from '@carehub/ui';
-import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ApiError } from '../../lib/api';
-import { changePage, pagesKeys, type PageDetail } from './api';
-import { cleanTitle, patchCached, TITLE_MAX, type ShownFields } from './page';
+import { changePage, type PageDetail } from './api';
+import { reasonOf, showEverywhere } from './change';
+import { cleanTitle, TITLE_MAX } from './page';
 
 /** How long typing in the title pauses before the new title is sent. */
 const SAVE_AFTER_MS = 500;
@@ -12,20 +12,6 @@ const SAVE_AFTER_MS = 500;
 /** The text column: about 768 px, or the whole width with Full width. */
 export const columnClasses = (fullWidth: boolean) =>
   cn('mx-auto w-full px-6 max-md:px-4', fullWidth ? 'max-w-none md:px-24' : 'max-w-page');
-
-const isPageData = (key: readonly unknown[]) => !['prefs', 'me'].includes(String(key[1]));
-
-/** Shows `fields` of page `id` in every page list and screen at once, before the server answers. */
-export function showEverywhere(queryClient: QueryClient, id: string, fields: ShownFields) {
-  for (const [key, data] of queryClient.getQueriesData({ queryKey: pagesKeys.all })) {
-    if (data !== undefined && isPageData(key)) {
-      queryClient.setQueryData(key, patchCached(data, id, fields));
-    }
-  }
-}
-
-export const reasonOf = (error: unknown) =>
-  error instanceof ApiError && error.status < 500 ? error.message : undefined;
 
 export interface PageHeaderProps {
   page: PageDetail;

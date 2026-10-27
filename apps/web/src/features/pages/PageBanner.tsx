@@ -17,9 +17,8 @@ import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { atLeast } from './access';
 import { deleteForever, pagesKeys, parentInTrash, restoreFromTrash, type PageDetail } from './api';
-import { useChangePage } from './change';
+import { reasonOf, useChangePage } from './change';
 import { stampLabel } from './page';
-import { reasonOf } from './PageHeader';
 import { titleOf } from './PageTree';
 
 export function PageBanner({ page }: { page: PageDetail }) {
