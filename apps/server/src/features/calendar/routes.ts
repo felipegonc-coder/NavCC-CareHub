@@ -12,7 +12,7 @@ import {
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
 import { registerNoticeCardResolver } from '../notices';
-import { registerEventLookup } from '../reminders';
+import { registerEventLookup, registerTitleLookup } from '../reminders';
 import {
   createEvent,
   deleteEvent,
@@ -26,7 +26,7 @@ import {
   replyToEvent,
   type Viewer,
 } from './events/service';
-import { lookupStart, onReminderError } from './events/reminders';
+import { lookupStart, lookupTitles, onReminderError } from './events/reminders';
 import { changeLayer, listLayers } from './layers/service';
 import { changeSettings, getSettings } from './settings/service';
 
@@ -123,14 +123,16 @@ async function careHubCalendar(app: FastifyInstance) {
 
 /** Calendar routes under /api/calendar. */
 export default async function calendarRoutes(app: FastifyInstance) {
-  // Remind me in the event panel asks Calendar when an event starts, and the 🔔 Care Hub chat
-  // asks what the event cards under Calendar's notices show.
+  // Reminders ask Calendar when an event starts (Remind me) and for titles (the Reminders list);
+  // the 🔔 Care Hub chat asks what the event cards under Calendar's notices show.
   registerEventLookup(lookupStart);
+  registerTitleLookup('event', lookupTitles);
   onReminderError((error) => app.log.error({ err: error }, "Calendar couldn't change a reminder"));
   registerNoticeCardResolver('event', eventCards);
   onNoticeError((error) => app.log.error({ err: error }, "A Calendar notice wasn't sent"));
   app.addHook('onClose', async () => {
     registerEventLookup(null);
+    registerTitleLookup('event', null);
     registerNoticeCardResolver('event', null);
   });
 

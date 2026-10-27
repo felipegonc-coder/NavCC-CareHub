@@ -15,7 +15,7 @@ import {
   toInstant,
 } from '@carehub/team-time';
 import type { EventCardRef, EventCardResult, NoticeReader } from '../../notices';
-import type { StoredEvent } from './items';
+import { shownTitle, type StoredEvent } from './items';
 import { seriesOf } from './model';
 
 /** An event as cards need it, cancelled ones included. */
@@ -70,7 +70,7 @@ export function cardOf(
   const { id, organizerId, people, timeZone } = event;
   const isOn = organizerId === reader.userId || people.some((p) => p.userId === reader.userId);
   if (!isOn) return { locked: true };
-  const title = event.title.trim() || '(No title)';
+  const title = shownTitle(event.title);
   const key = card.occurrenceStart;
   const cancelled = (start: Civil, end: Civil): EventCardResult => ({
     title,

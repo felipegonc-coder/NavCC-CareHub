@@ -57,7 +57,7 @@ export async function findEvent(
   return event ?? null;
 }
 
-/** Events by id for notice cards, cancelled ones too. */
+/** Events by id, cancelled ones too. Ids that can't be ours are skipped. */
 export async function eventsById(db: Database, ids: readonly string[]) {
   const wanted = [...new Set(ids)].filter(isUuid);
   if (wanted.length === 0) return [];
