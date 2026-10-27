@@ -1,5 +1,5 @@
 // Why a page can't be edited, above its header (Pages and blocks, section 2, States): it's in
-// Trash, archived or locked.
+// Trash or locked. The archived banner comes from Page history and Trash, through pageBanners.
 import {
   Button,
   cn,
@@ -18,32 +18,16 @@ import { useNavigate } from 'react-router';
 import { atLeast } from './access';
 import { deleteForever, pagesKeys, parentInTrash, restoreFromTrash, type PageDetail } from './api';
 import { reasonOf, useChangePage } from './change';
-import { stampLabel } from './page';
+import { lockedLabel } from './page';
 import { titleOf } from './PageTree';
 
 export function PageBanner({ page }: { page: PageDetail }) {
   const change = useChangePage(page.id);
   if (page.deleted) return <TrashBanner page={page} />;
-  if (page.archived) {
-    return (
-      <Banner className={cn(colorClasses.yellow.bg, colorClasses.yellow.text)}>
-        {stampLabel('Archived', page.archived)}
-        {atLeast(page.access, 'full') && (
-          <BannerButton
-            onClick={() =>
-              void change({ archived: false }, { archived: null }, "Couldn't unarchive the page.")
-            }
-          >
-            Unarchive
-          </BannerButton>
-        )}
-      </Banner>
-    );
-  }
   if (page.locked) {
     return (
       <Banner className="bg-fill text-fg">
-        <span aria-hidden>🔒</span> {stampLabel('Locked', page.locked)}
+        <span aria-hidden>🔒</span> {lockedLabel(page.locked)}
         {atLeast(page.access, 'edit') && (
           <BannerButton
             onClick={() =>

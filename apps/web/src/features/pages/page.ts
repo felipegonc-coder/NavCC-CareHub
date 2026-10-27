@@ -49,15 +49,26 @@ export function editedLabel(at: string, now: number): string {
   return days < 7 ? `Edited ${days}d ago` : `Edited ${day.format(new Date(at))}`;
 }
 
-/** Who and when, for hovering "Edited 2m ago": "Edited by Sam Ortiz, Oct 26, 2026, 3:30 PM". */
-export const editedWhen = (stamp: Stamp): string =>
-  `Edited${stamp.by?.name ? ` by ${stamp.by.name}` : ''}, ${dayAndTime.format(new Date(stamp.at))}`;
+/** "Created by Sam Ortiz, Oct 26, 2026, 3:30 PM", for Page info and hovering "Edited 2m ago". */
+export const madeWhen = (what: 'Created' | 'Edited', stamp: Stamp): string =>
+  `${what}${stamp.by?.name ? ` by ${stamp.by.name}` : ''}, ${dayAndTime.format(new Date(stamp.at))}`;
 
-/** "Archived by Sam Ortiz on Oct 20, 2026", "Locked by Avery Lin" (section 2, States). */
-export function stampLabel(what: 'Archived' | 'Locked', stamp: Stamp): string {
-  const by = stamp.by?.name ? ` by ${stamp.by.name}` : '';
-  return what === 'Archived' ? `Archived${by} on ${day.format(new Date(stamp.at))}` : `Locked${by}`;
+export const editedWhen = (stamp: Stamp): string => madeWhen('Edited', stamp);
+
+const count = new Intl.NumberFormat('en-US');
+const letters = new Intl.Segmenter('en', { granularity: 'grapheme' });
+
+/** Page info's "4 words · 23 characters"; an emoji counts as one character, line breaks as none. */
+export function textCounts(text: string): string {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const characters = [...letters.segment(text.replace(/[\r\n]/g, ''))].length;
+  const plural = (n: number, one: string) => `${count.format(n)} ${one}${n === 1 ? '' : 's'}`;
+  return `${plural(words, 'word')} · ${plural(characters, 'character')}`;
 }
+
+/** "Locked by Avery Lin" (section 2, States). */
+export const lockedLabel = (stamp: Stamp): string =>
+  stamp.by?.name ? `Locked by ${stamp.by.name}` : 'Locked';
 
 /** The "start with" choices of a new empty page that the editor's "/" menu has, in this order. */
 export const START_WITH = ['Table', 'Board', 'List', 'Calendar', 'Gallery', 'Timeline', 'Chart'];

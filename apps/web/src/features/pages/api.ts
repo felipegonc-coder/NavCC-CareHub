@@ -154,6 +154,7 @@ export interface PageDetail {
   access: AccessLevel;
   /** Where it lives, space first; the page itself isn't in it. */
   path: Crumb[];
+  created: Stamp | null;
   edited: Stamp | null;
   locked: Stamp | null;
   archived: Stamp | null;
@@ -198,6 +199,7 @@ export function toPageDetail(body: unknown): PageDetail {
     fullWidth: data.fullWidth === true,
     access: data.access ?? 'view',
     path: Array.isArray(data.path) ? data.path : [],
+    created: stampOf(data, 'created'),
     edited: stampOf(data, 'updated'),
     locked: stampOf(data, 'locked'),
     archived: stampOf(data, 'archived'),

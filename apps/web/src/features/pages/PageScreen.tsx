@@ -20,6 +20,7 @@ import { useMoveDialogs } from './MoveDialog';
 import { startItems, tabTitle } from './page';
 import { PageBanner } from './PageBanner';
 import { columnClasses, PageHeader } from './PageHeader';
+import { PageMenu } from './PageMenu';
 import { PageTopBar, TopBarSkeleton } from './PageTopBar';
 
 /** Not found and no access don't get better by asking again. */
@@ -97,7 +98,7 @@ function PageView({ page }: { page: PageDetail }) {
   const navigate = useNavigate();
   const location = useLocation();
   const doc = usePageDoc(page.id);
-  const { host } = useMoveDialogs();
+  const { host, dialogs } = useMoveDialogs();
   const actions = useEntryActions(host);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [empty, setEmpty] = useState(true);
@@ -140,8 +141,13 @@ function PageView({ page }: { page: PageDetail }) {
   return (
     <main className="flex flex-col pb-32">
       <title>{tabTitle(page)}</title>
-      <PageTopBar page={page} actions={actions} />
+      <PageTopBar page={page} actions={actions}>
+        <PageMenu page={page} actions={actions} editor={editor} />
+      </PageTopBar>
       <PageBanner page={page} />
+      {slots.pageBanners.map(({ id, Component }) => (
+        <Component key={id} page={slotPage} />
+      ))}
       <PageHeader
         page={page}
         editable={editable}
@@ -187,6 +193,7 @@ function PageView({ page }: { page: PageDetail }) {
           />
         </>
       )}
+      {dialogs(actions.move)}
     </main>
   );
 }
