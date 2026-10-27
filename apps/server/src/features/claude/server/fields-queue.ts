@@ -1,6 +1,12 @@
-import { CLAUDE_FIELD_LIMITS, type ClaudeFieldProgress } from '@carehub/extras/claude/fields';
-import { and, asc, count, eq, gt, inArray, lte, or, sql } from 'drizzle-orm';
+import {
+  CLAUDE_FIELD_LIMITS,
+  claudeFieldFailureMessage,
+  type ClaudeFieldFailure,
+  type ClaudeFieldProgress,
+} from '@carehub/extras/claude/fields';
+import { and, asc, count, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Db } from '../../../db';
+import { sendNotice } from '../../notices';
 import { claudeFieldQueue } from '../schema';
 import { isClaudeFeatureOn } from './ask';
 import { claudeErrorReason } from './errors';
@@ -61,16 +67,26 @@ export async function claudeFieldRowChanged(db: Db, change: ClaudeFieldRowChange
     )
     .onConflictDoUpdate({
       target: [q.databaseId, q.propertyId, q.rowId],
-      set: { auto: true, requestedBy: null, dueAt, attempts: 0, version: sql`${q.version} + 1` },
-      // A By-hand fill waiting goes first. One filling now (claimed, so due after dueAt) may have read
-      // the row before this change: it finishes, then the row fills automatically again.
-      setWhere: or(eq(q.auto, true), gt(q.dueAt, dueAt)),
+      set: {
+        auto: true,
+        requestedBy: null,
+        dueAt,
+        attempts: 0,
+        version: sql`${q.version} + 1`,
+        batchId: null,
+        failedReason: null,
+      },
+      // A By-hand fill waiting goes first. One filling now (claimed, so due after dueAt) may have
+      // read the row before this change: it finishes, then the row fills automatically again. So
+      // does one that couldn't fill.
+      setWhere: or(eq(q.auto, true), gt(q.dueAt, dueAt), isNotNull(q.failedReason)),
     });
 }
 
 /**
  * Fills the rows that are due, 5 at a time, until none is left, `signal` aborts or `budgetMs` has
- * passed. The 'claude.fields' periodic task runs it. Returns how many rows it took.
+ * passed, then sends the notices for batches that are done. The 'claude.fields' periodic task runs
+ * it. Returns how many rows it took.
  */
 export async function runClaudeFieldQueue(
   db: Db,
@@ -84,6 +100,7 @@ export async function runClaudeFieldQueue(
     await Promise.all(batch.map((entry) => runEntry(db, entry)));
     taken += batch.length;
   }
+  await notifyFailures(db);
   return taken;
 }
 
@@ -93,7 +110,7 @@ async function claim(db: Db): Promise<QueueEntry[]> {
     const due: QueueEntry[] = await tx
       .select()
       .from(q)
-      .where(lte(q.dueAt, now))
+      .where(and(lte(q.dueAt, now), isNull(q.failedReason)))
       .orderBy(asc(q.dueAt))
       .limit(CLAUDE_FIELD_LIMITS.atOnce)
       .for('update', { skipLocked: true });
@@ -112,8 +129,10 @@ async function claim(db: Db): Promise<QueueEntry[]> {
   });
 }
 
+type Outcome = 'done' | 'wait' | 'retry' | { failed: ClaudeFieldFailure };
+
 async function runEntry(db: Db, entry: QueueEntry): Promise<void> {
-  let outcome: 'done' | 'wait' | 'retry';
+  let outcome: Outcome;
   try {
     outcome = await fillEntry(db, entry);
   } catch {
@@ -122,12 +141,18 @@ async function runEntry(db: Db, entry: QueueEntry): Promise<void> {
       { claude: { status: 0, type: 'field_fill_failed' } },
       'A Claude field fill failed.',
     );
-    outcome = entry.attempts + 1 < MAX_ATTEMPTS ? 'retry' : 'done';
+    // After the last try it counts as Claude not answering. The cell is left as it is.
+    outcome = entry.attempts + 1 < MAX_ATTEMPTS ? 'retry' : { failed: 'unavailable' };
   }
   // A change since the row was claimed queued it again (a new version): that request stays.
   const same = and(eq(q.id, entry.id), eq(q.version, entry.version));
   if (outcome === 'done') {
     await db.delete(q).where(same);
+    return;
+  }
+  if (typeof outcome === 'object') {
+    // It stays until the rest of its batch is done, for the notice (notifyFailures).
+    await db.update(q).set({ failedReason: outcome.failed }).where(same);
     return;
   }
   const dueAt = new Date(claudeRuntime().now().getTime() + RETRY_MS);
@@ -138,30 +163,111 @@ async function runEntry(db: Db, entry: QueueEntry): Promise<void> {
     .where(same);
 }
 
-/** Fills one row as whoever it's for, checked again now. Refusals and failed requests drop it. */
-async function fillEntry(db: Db, entry: QueueEntry): Promise<'done' | 'wait'> {
+/**
+ * Fills one row as whoever it's for, checked again now. Nobody is waiting for the answer, so a
+ * refusal or a failed request marks the cell with the reason, and the old text stays.
+ */
+async function fillEntry(db: Db, entry: QueueEntry): Promise<Exclude<Outcome, 'retry'>> {
   const host = claudeFieldHost();
   const field = await host.field(db, entry.databaseId, entry.propertyId);
   const userId = entry.auto ? field?.ownerId : entry.requestedBy;
+  // A field that's gone, or that no longer fills automatically, has nothing left to fill.
   if (!field || !userId || (entry.auto && field.setup.fill !== 'auto')) return 'done';
+  const { databaseId, propertyId } = field;
+  const [rowId] = await host.fillableRows(db, {
+    userId,
+    databaseId,
+    propertyId,
+    rowIds: [entry.rowId],
+    limit: 1,
+  });
+  // A row they can't edit any more, or that's gone, is left as it is.
+  if (!rowId || rowId !== entry.rowId) return { failed: 'no_permission' };
   try {
     await checkField(db, field, userId);
-    const [rowId] = await host.fillableRows(db, {
-      userId,
-      databaseId: field.databaseId,
-      propertyId: field.propertyId,
-      rowIds: [entry.rowId],
-      limit: 1,
-    });
-    if (rowId && rowId === entry.rowId) {
-      await fillRow(db, field, rowId, { userId, auto: entry.auto });
-    }
+    await fillRow(db, field, rowId, { userId, auto: entry.auto, background: true });
     return 'done';
   } catch (error) {
-    const reason = claudeErrorReason(error);
-    if (reason === 'user_rate_limit' || fieldErrorReason(error) === 'database_hour') return 'wait';
-    if (reason || fieldErrorReason(error)) return 'done';
-    throw error;
+    const reason = claudeErrorReason(error) ?? fieldErrorReason(error);
+    if (reason === 'user_rate_limit' || reason === 'database_hour') return 'wait';
+    if (!reason || reason === 'rows_changed') throw error;
+    await host.saveFill(db, { databaseId, propertyId, rowId, userId, value: null, reason });
+    return { failed: reason };
+  }
+}
+
+/**
+ * Sends one notice for each batch that's done with rows that couldn't fill, then removes them. A
+ * By-hand batch is one Fill, for the person who asked. A field's automatic fills are one batch
+ * until none is waiting, for the field's owner.
+ */
+async function notifyFailures(db: Db): Promise<void> {
+  const batches = await db
+    .selectDistinct({ databaseId: q.databaseId, propertyId: q.propertyId, batchId: q.batchId })
+    .from(q)
+    .where(isNotNull(q.failedReason));
+  for (const batch of batches) {
+    const inBatch = and(
+      eq(q.databaseId, batch.databaseId),
+      eq(q.propertyId, batch.propertyId),
+      batch.batchId === null ? isNull(q.batchId) : eq(q.batchId, batch.batchId),
+    );
+    const [waiting] = await db
+      .select({ n: count() })
+      .from(q)
+      .where(and(inBatch, isNull(q.failedReason)));
+    if ((waiting?.n ?? 0) > 0) continue;
+    // Only one run gets the rows, so only one notice goes out.
+    const failed = await db
+      .delete(q)
+      .where(and(inBatch, isNotNull(q.failedReason)))
+      .returning({ reason: q.failedReason, requestedBy: q.requestedBy });
+    if (failed.length > 0) await notify(db, batch, failed);
+  }
+}
+
+async function notify(
+  db: Db,
+  batch: { databaseId: string; propertyId: string; batchId: string | null },
+  failed: { reason: ClaudeFieldFailure | null; requestedBy: string | null }[],
+): Promise<void> {
+  const field = await claudeFieldHost().field(db, batch.databaseId, batch.propertyId);
+  const userId = batch.batchId === null ? field?.ownerId : failed[0]?.requestedBy;
+  if (!field || !userId) return;
+  const counts = new Map<ClaudeFieldFailure, number>();
+  for (const { reason } of failed) {
+    if (reason) counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  }
+  const [reason] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? ['unavailable' as const];
+  const one = failed.length === 1;
+  const rows = one ? 'a row' : `${failed.length} rows`;
+  const kept = one ? 'The row keeps its old text.' : 'The rows keep their old text.';
+  const { pageId } = field;
+  try {
+    await sendNotice({
+      workspaceId: field.workspaceId,
+      userId,
+      kind: 'alert',
+      sender: 'Claude fields',
+      title:
+        batch.batchId === null
+          ? `Claude couldn't fill ${rows} automatically`
+          : `Claude couldn't fill ${rows} you asked for`,
+      text: `${claudeFieldFailureMessage(reason)} ${kept}`,
+      ...(pageId
+        ? {
+            card: { type: 'page' as const, pageId },
+            buttons: [{ label: 'Open', href: `/p/${pageId}` }],
+          }
+        : {}),
+      // Automatic batches close often: those a few minutes apart become one notice.
+      groupKey: `claude.fields:${batch.batchId ?? `${batch.databaseId}:${batch.propertyId}`}`,
+    });
+  } catch {
+    claudeRuntime().log.warn(
+      { claude: { status: 0, type: 'field_notice_failed' } },
+      "A Claude field notice wasn't sent.",
+    );
   }
 }
 
@@ -178,6 +284,7 @@ export async function claudeFieldProgress(
         eq(q.databaseId, input.databaseId),
         eq(q.propertyId, input.propertyId),
         eq(q.requestedBy, input.userId),
+        isNull(q.failedReason),
       ),
     );
   return { waiting: row?.n ?? 0 };

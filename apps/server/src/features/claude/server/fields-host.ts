@@ -1,5 +1,6 @@
 import type {
   ClaudeFieldAudience,
+  ClaudeFieldFailure,
   ClaudeFieldInput,
   ClaudeFieldRows,
   ClaudeFieldSetup,
@@ -22,6 +23,8 @@ export interface ClaudeField {
   see: ClaudeFieldAudience;
   /** The properties in setup.uses that still exist, in that order. */
   inputs: ClaudeFieldInput[];
+  /** The database's page, for the card on the notice about rows that couldn't fill. */
+  pageId?: string;
 }
 
 /** A row's text as the person sees it. */
@@ -58,7 +61,7 @@ export interface ClaudeFieldHost {
   ): Promise<ClaudeRowText | null>;
   /**
    * Saves a fill as an edit by the person (updateRows); imports and duplicates never call it. A null
-   * value keeps the old text and marks it failed.
+   * value keeps the old text and marks it failed, with `reason` for the cell.
    */
   saveFill(
     db: Db | Tx,
@@ -68,6 +71,7 @@ export interface ClaudeFieldHost {
       rowId: string;
       userId: string;
       value: ClaudeFieldValue | null;
+      reason?: ClaudeFieldFailure | undefined;
     },
   ): Promise<void>;
 }

@@ -11,6 +11,8 @@ export interface UsageRow {
   userId: string;
   feature: ClaudeFeature;
   status: ClaudeUsageStatus;
+  /** A fill nobody is waiting for: it doesn't count toward the person's limit. */
+  background?: boolean;
   inputTokens?: number;
   outputTokens?: number;
   createdAt: Date;
@@ -67,11 +69,17 @@ export function capMonth(now: Date): string {
   return `${part('year')}-${part('month')}`;
 }
 
-/** Requests the person has sent since `since`, in any workspace. */
+/** Requests the person has sent since `since`, in any workspace, leaving out background fills. */
 export async function requestsSince(db: Db | Tx, userId: string, since: Date) {
   const [row] = await db
     .select({ n: count() })
     .from(claudeUsage)
-    .where(and(eq(claudeUsage.userId, userId), gte(claudeUsage.createdAt, since)));
+    .where(
+      and(
+        eq(claudeUsage.userId, userId),
+        eq(claudeUsage.background, false),
+        gte(claudeUsage.createdAt, since),
+      ),
+    );
   return row?.n ?? 0;
 }
