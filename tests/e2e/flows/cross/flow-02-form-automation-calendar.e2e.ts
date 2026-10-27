@@ -154,8 +154,9 @@ test.describe('Form answer → automation → calendar', () => {
     });
 
     await test.step('Eli answers: call me back late tonight, Denver time', async () => {
+      // The Name question's answer is the title itself, a plain string.
       const response = await sendAnswers(eli, form.form.linkCode, {
-        [name.id]: value.text(caller),
+        [name.id]: caller,
         [reason.id]: value.text('Fictional QA question about a bill'),
         [callbackAt.id]: { start: late.toISOString(), end: null, hasTime: true },
       });
