@@ -12,13 +12,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@carehub/editor": "*",
     "@carehub/shared": "*",
     "@carehub/ui": "*",
     "@tanstack/react-query": "^5",
     "lucide-react": "~0.577.0",
     "react": "^19",
     "react-dom": "^19",
-    "react-router": "^7"
+    "react-router": "^7",
+    "yjs": "^13"
   },
   "devDependencies": {
     "@testing-library/dom": "^10",
