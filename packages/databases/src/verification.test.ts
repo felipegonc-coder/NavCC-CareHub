@@ -39,6 +39,7 @@ import { formatValue } from './values';
 import {
   NOT_WIKI_MESSAGE,
   isVerificationValue,
+  verificationExpiresAt,
   verificationState,
   verificationText,
   wikiOnlyProblem,
@@ -69,14 +70,15 @@ const NAMES: Record<string, string> = {
   'u-jordan': 'Jordan Park',
   'u-avery': 'Avery Lin',
 };
-const ctx: EvalContext = {
+const ctxAt = (now: Date, timeZone = 'America/Denver'): EvalContext => ({
   properties: [title, verification],
-  viewer,
+  viewer: { ...viewer, now, timeZone },
   userName: (id) => NAMES[id],
   isRemovedUser: (id) => id === 'u-jordan',
-};
+});
+const ctx = ctxAt(NOW);
 
-// Stored the way @carehub/extras/knowledge writes them (newVerification, then expired()).
+// Stored the way @carehub/extras/knowledge writes them (newVerification, expired()).
 const untilJan20: VerificationValue = {
   state: 'verified',
   verifiedBy: 'u-riley',
@@ -109,26 +111,55 @@ const row = (id: string, value?: unknown, createdAt = '2026-10-20T15:00:00.000Z'
 
 describe('verificationState', () => {
   it('is Verified, Expired or Not verified', () => {
-    expect(verificationState(untilJan20)).toBe('verified');
-    expect(verificationState(expiredOct1)).toBe('expired');
-    expect(verificationState(forever)).toBe('verified');
-    expect(verificationState(null)).toBe('none');
-    expect(verificationState(undefined)).toBe('none');
+    expect(verificationState(untilJan20, viewer)).toBe('verified');
+    expect(verificationState(expiredOct1, viewer)).toBe('expired');
+    expect(verificationState(forever, viewer)).toBe('verified');
+    expect(verificationState(null, viewer)).toBe('none');
+    expect(verificationState(undefined, viewer)).toBe('none');
   });
 
-  it('takes the state as stored: the knowledge base marks it Expired at 9:00 AM (KB-05)', () => {
-    // Its until date has passed, but the knowledge base hasn't marked it Expired yet.
-    const due = { ...untilJan20, until: '2026-10-26' };
-    expect(verificationState(due)).toBe('verified');
-    expect(formatValue(verification, due, ctx)).toBe('Verified by Riley Chen until Oct 26, 2026');
-    const marked: VerificationValue = { ...due, state: 'expired' };
-    expect(verificationState(marked)).toBe('expired');
-    expect(formatValue(verification, marked, ctx)).toBe('Verification expired Oct 26, 2026');
+  it("turns Expired at 9:00 AM on the until date, in the viewer's time zone (KB-05)", () => {
+    const due: VerificationValue = { ...untilJan20, until: '2026-10-26' };
+    // Denver is on MDT (UTC−6) until Nov 1, 2026; London is back on GMT from Oct 25.
+    const at = (iso: string, timeZone: string) => ({ now: new Date(iso), timeZone });
+    expect(verificationState(due, at('2026-10-26T14:59:59.999Z', 'America/Denver'))).toBe(
+      'verified',
+    );
+    expect(verificationState(due, at('2026-10-26T15:00:00.000Z', 'America/Denver'))).toBe(
+      'expired',
+    );
+    expect(verificationState(due, at('2026-10-26T08:59:59.999Z', 'Europe/London'))).toBe(
+      'verified',
+    );
+    expect(verificationState(due, at('2026-10-26T09:00:00.000Z', 'Europe/London'))).toBe('expired');
+    expect(verificationExpiresAt(due, 'America/Denver')?.toISOString()).toBe(
+      '2026-10-26T15:00:00.000Z',
+    );
+    // Nothing is saved: the same value reads as expired once the moment has passed.
+    expect(formatValue(verification, due, ctx)).toBe('Verification expired Oct 26, 2026');
+    const before = ctxAt(new Date('2026-10-26T14:00:00.000Z'));
+    expect(formatValue(verification, due, before)).toBe(
+      'Verified by Riley Chen until Oct 26, 2026',
+    );
+  });
+
+  it('keeps a value marked Expired as Expired, and never expires with no end date', () => {
+    const marked: VerificationValue = { ...untilJan20, state: 'expired' };
+    expect(verificationState(marked, viewer)).toBe('expired');
+    const far = { now: new Date('2099-12-31T23:59:59.000Z'), timeZone: 'America/Denver' };
+    expect(verificationState(forever, far)).toBe('verified');
+    expect(verificationExpiresAt(forever, 'America/Denver')).toBe(null);
+  });
+
+  it('uses America/Denver for a time zone that is not valid', () => {
+    expect(verificationExpiresAt(untilJan20, 'Mars/Olympus_Mons')?.toISOString()).toBe(
+      '2027-01-20T16:00:00.000Z',
+    );
   });
 
   it('reads a time with an offset, as the knowledge base allows', () => {
     const offset = { ...untilJan20, verifiedAt: '2026-10-22T11:00:00-06:00' };
-    expect(verificationState(offset)).toBe('verified');
+    expect(verificationState(offset, viewer)).toBe('verified');
   });
 
   it('treats a value that is not well formed as Not verified', () => {
@@ -149,20 +180,22 @@ describe('verificationState', () => {
     ];
     for (const value of broken) {
       expect(isVerificationValue(value)).toBe(false);
-      expect(verificationState(value)).toBe('none');
+      expect(verificationState(value, viewer)).toBe('none');
     }
   });
 });
 
 describe('badge text', () => {
   it('says who verified it and until when', () => {
-    expect(verificationText(untilJan20, 'Riley Chen')).toBe(
+    expect(verificationText(untilJan20, viewer, 'Riley Chen')).toBe(
       'Verified by Riley Chen until Jan 20, 2027',
     );
-    expect(verificationText(untilJan20, undefined)).toBe('Verified until Jan 20, 2027');
-    expect(verificationText(forever, 'Jordan Park')).toBe('Verified by Jordan Park');
-    expect(verificationText(expiredOct1, 'Riley Chen')).toBe('Verification expired Oct 1, 2026');
-    expect(verificationText(null, undefined)).toBe('Not verified');
+    expect(verificationText(untilJan20, viewer, undefined)).toBe('Verified until Jan 20, 2027');
+    expect(verificationText(forever, viewer, 'Jordan Park')).toBe('Verified by Jordan Park');
+    expect(verificationText(expiredOct1, viewer, 'Riley Chen')).toBe(
+      'Verification expired Oct 1, 2026',
+    );
+    expect(verificationText(null, viewer, undefined)).toBe('Not verified');
   });
 
   it('shows in cells and exports through formatValue', () => {
@@ -233,14 +266,14 @@ describe('filters', () => {
     row('r-none'),
     row('r-broken', { verifiedBy: 'u-riley' }),
   ];
-  const only = (op: FilterOp): string[] => {
+  const only = (op: FilterOp, c: EvalContext = ctx): string[] => {
     const filter: FilterGroup = {
       kind: 'group',
       id: 'f',
       combinator: 'and',
       children: [{ kind: 'condition', id: 'c1', propertyId: 'p-verified', op }],
     };
-    return rows.filter((r) => matchesFilter(r, filter, ctx)).map((r) => r.id);
+    return rows.filter((r) => matchesFilter(r, filter, c)).map((r) => r.id);
   };
 
   it('offers is verified, is expired and is not verified, with no value', () => {
@@ -255,10 +288,14 @@ describe('filters', () => {
     }
   });
 
-  it('matches by state', () => {
+  it('matches by state at the viewer’s moment', () => {
     expect(only('is_verified')).toEqual(['r-verified', 'r-forever']);
     expect(only('is_expired')).toEqual(['r-expired']);
     expect(only('is_not_verified')).toEqual(['r-none', 'r-broken']);
+    // 9:00 AM MST on Jan 20, 2027.
+    const later = ctxAt(new Date('2027-01-20T16:00:00.000Z'));
+    expect(only('is_verified', later)).toEqual(['r-forever']);
+    expect(only('is_expired', later)).toEqual(['r-verified', 'r-expired']);
   });
 
   it('checks saved filters and request bodies', () => {

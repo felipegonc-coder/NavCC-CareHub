@@ -1,20 +1,38 @@
 /**
  * The Verification property (Databases spec 3.4; Knowledge base spec 3.3). Wiki databases only.
  *
- * The knowledge base owns the value (@carehub/extras/knowledge, verification.ts): Verify stores
- * who, when and until when; Remove verification clears it, and so does an edit when "Editing
- * removes verification" is on; at 9:00 AM on the until date, in the owner's time zone, it marks
- * the value Expired. This file only reads that value, for cells, exports, filters, sorts, totals
- * and formulas. Nobody types a verification into a cell: nothing turns into this type
- * (convert.ts), templates, buttons and imports leave it alone, and it's always added as a new
- * property.
+ * The knowledge base writes the value (@carehub/extras/knowledge, verificationSchema) through the
+ * rows API: Verify stores who, when and until when; Remove verification clears it, and so does an
+ * edit when "Editing removes verification" is on. Nothing is saved when it expires: a value reads
+ * as Expired from 9:00 AM on its until date, in the viewer's time zone, worked out as it's read.
+ * This file reads values for cells, exports, filters, sorts, totals and formulas. Nobody types a
+ * verification into a cell: nothing turns into this type (convert.ts), templates, buttons and
+ * imports leave it alone, and it's always added as a new property.
  *
  * Like an unticked checkbox, Not verified is a state, not an empty cell: it shows and exports as
  * "Not verified", sorts as the last state (first when descending), counts in totals, and formulas
  * read it as that text.
  */
-import { formatCalendarDate, isCalendarDate } from './dates';
-import type { DatabaseMeta, PropertyType, VerificationState, VerificationValue } from './types';
+import {
+  DEFAULT_TIME_ZONE,
+  formatCalendarDate,
+  isCalendarDate,
+  isValidTimeZone,
+  zonedToInstant,
+} from './dates';
+import type {
+  DatabaseMeta,
+  PropertyType,
+  VerificationState,
+  VerificationValue,
+  Viewer,
+} from './types';
+
+/** The viewer's moment and time zone, which decide whether a verification has expired. */
+export type VerificationClock = Pick<Viewer, 'now' | 'timeZone'>;
+
+/** A verification turns Expired at this hour (9:00 AM) on its until date. */
+export const EXPIRY_HOUR = 9;
 
 /** The words for each state, as filters, formulas and totals say them. */
 export const VERIFICATION_LABELS: Record<VerificationState, string> = {
@@ -41,11 +59,25 @@ export function isVerificationValue(v: unknown): v is VerificationValue {
 }
 
 /**
- * Verified, Expired or Not verified ('none'), as stored: the knowledge base marks a value Expired
- * at 9:00 AM on its until date. Anything but a verification is Not verified.
+ * The moment a verification turns Expired: 9:00 AM on its until date in `timeZone` (an invalid
+ * one means America/Denver). null with no end date: it never expires.
  */
-export function verificationState(value: unknown): VerificationState {
-  return isVerificationValue(value) ? value.state : 'none';
+export function verificationExpiresAt(value: VerificationValue, timeZone: string): Date | null {
+  if (value.until === null) return null;
+  const zone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
+  return new Date(zonedToInstant(value.until, EXPIRY_HOUR, 0, zone));
+}
+
+/**
+ * Verified, Expired or Not verified ('none') at the viewer's moment: Expired from 9:00 AM on the
+ * until date in the viewer's time zone, or when the value is already marked Expired. Anything but
+ * a verification is Not verified.
+ */
+export function verificationState(value: unknown, clock: VerificationClock): VerificationState {
+  if (!isVerificationValue(value)) return 'none';
+  if (value.state === 'expired') return 'expired';
+  const at = verificationExpiresAt(value, clock.timeZone);
+  return at !== null && clock.now.getTime() >= at.getTime() ? 'expired' : 'verified';
 }
 
 /**
@@ -54,10 +86,16 @@ export function verificationState(value: unknown): VerificationState {
  * verified". Dates keep their year, so an export reads the same in any year. `verifierName` is how
  * the verifier's name shows (undefined when unknown: "Verified until Jan 20, 2027").
  */
-export function verificationText(value: unknown, verifierName: string | undefined): string {
+export function verificationText(
+  value: unknown,
+  clock: VerificationClock,
+  verifierName: string | undefined,
+): string {
   if (!isVerificationValue(value)) return VERIFICATION_LABELS.none;
   const until = value.until === null ? null : formatCalendarDate(value.until, 'full');
-  if (value.state === 'expired' && until !== null) return `Verification expired ${until}`;
+  if (until !== null && verificationState(value, clock) === 'expired') {
+    return `Verification expired ${until}`;
+  }
   const by = verifierName ? ` by ${verifierName}` : '';
   return until === null ? `Verified${by}` : `Verified${by} until ${until}`;
 }

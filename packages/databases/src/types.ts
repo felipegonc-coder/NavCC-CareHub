@@ -156,11 +156,12 @@ export interface ChecklistItem {
 /**
  * A wiki page's verification (Verification property, wiki databases only; Knowledge base spec),
  * exactly as the knowledge base stores it (@carehub/extras/knowledge, verificationSchema). No value
- * means Not verified. Verify sets it and Remove verification clears it, never typing in a cell; at
- * 9:00 AM on `until`, in the owner's time zone, the knowledge base changes `state` to expired.
+ * means Not verified. Verify sets it and Remove verification clears it, never typing in a cell.
+ * Nothing is saved when it expires: from 9:00 AM on `until` it reads as Expired
+ * (verificationState).
  */
 export interface VerificationValue {
-  /** Expired always has an until date. */
+  /** Expired always has an until date. A verified value past its expiry reads as Expired too. */
   state: 'verified' | 'expired';
   /** Who verified it (an owner, or someone with Full access). */
   verifiedBy: Id;
@@ -364,21 +365,8 @@ export type ButtonAction =
   | { kind: 'open_link'; url: string }
   | {
       kind: 'send_message';
-      /**
-       * People, plus everyone in these Person properties of the row, in these groups and with these
-       * roles, or every member (up to LIMITS.buttonMessagePeople in all). Roles and Everyone only
-       * on buttons set up by Admins.
-       */
-      to: {
-        userIds: Id[];
-        propertyIds: Id[];
-        /** Groups (Roles and permissions): their members. Absent: none. */
-        groupIds?: Id[];
-        /** Workspace roles: everyone who has one. Absent: none. */
-        roleIds?: Id[];
-        /** Every member of the workspace (not guests). Absent: false. */
-        everyone?: boolean;
-      };
+      /** People, plus everyone in these Person properties of the row (up to LIMITS.buttonMessagePeople). */
+      to: { userIds: Id[]; propertyIds: Id[] };
       message: string;
     }
   | { kind: 'confirm'; title: string; message: string; confirmLabel: string }
@@ -935,19 +923,9 @@ export interface RepeatSchedule {
   time: string;
   timeZone: string;
   start: CalendarDate;
-  /** Ending on a date: the last day it makes a row. null: no end date. */
   end: CalendarDate | null;
-  /**
-   * Ending after a number of times: how many more rows it makes, up to LIMITS.repeatTimes. The
-   * server counts it down after each row it makes; at 0 the repeat has ended (saving it as it is
-   * still works). Not set together with an end date. Absent or null: no such limit.
-   */
-  timesLeft?: number | null;
   paused: boolean;
-  /**
-   * Who set it up; the rows are created under their name. If they lose access, it pauses and the
-   * people with Full access on the database get a notice.
-   */
+  /** Whose name the rows are created under; pausing notices go to them. */
   ownerId: Id;
 }
 
@@ -1101,8 +1079,6 @@ export const LIMITS = {
   dashboardWidgets: 12,
   dashboardColumns: 4,
   repeatingTemplates: 10,
-  /** Most times a repeat can be set to end after (ours; the spec has none). */
-  repeatTimes: 1_000,
   buttonActions: 10,
   buttonEditRows: 500,
   buttonMessagePeople: 50,
