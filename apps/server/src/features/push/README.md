@@ -75,7 +75,9 @@ signed-in person, and none returns an endpoint or keys.
 | `DELETE /subscriptions`                  | `{ endpoint }`: turns this browser off. 204.                                                      |
 | `DELETE /subscriptions/:subscriptionId`  | Removes another of the person's browsers. 204, or 404.                                            |
 | `POST /test`                             | Sends a test notification to the person's browsers: `{ sent, removed, failed }`. 429 within 10 s. |
-| `GET /preferences`, `PATCH /preferences` | `{ preferences: { notifyAbout, showText } }`: Settings → Notifications.                           |
+| `GET /preferences`, `PATCH /preferences` | `{ preferences: { notifyAbout, showText, pause } }`: Settings → Notifications.                    |
+| `PUT /pause`                             | `{ ends }`: pauses notifications. Answers `{ preferences }`.                                      |
+| `DELETE /pause`                          | Turns notifications back on. Answers `{ preferences }`.                                           |
 
 A browser is saved only with an https endpoint on a push service in `PUSH_SERVICE_HOSTS` and usable
 keys; `sendPush` checks the endpoint again before every send, follows no redirects and gives up
@@ -83,8 +85,22 @@ after 10 seconds. An endpoint is one browser, so it belongs to whoever saved it 
 computer, the previous person stops getting notifications there. Each person keeps the 20 browsers
 used most recently.
 
+### Pausing notifications
+
+"Pause notifications" in Settings → Notifications (Settings and members spec, 3.3). `ends` is
+`in_an_hour`, `tomorrow_8am` (8:00 AM on the next day in the person's time zone, worked out with
+`@carehub/team-time`) or `when_turned_on`. The server's clock decides, so a browser with the wrong
+time can't pause for longer.
+
+`pause` is `{ until }` while notifications are paused, with `until` an ISO instant, or null when it
+lasts until they're turned back on. It's null when not paused, and once `until` has passed. Notices
+still arrive in the 🔔 chat; `activePause` (in `index.ts`) tells other features whether a pause is
+on.
+
 ## Tables
 
 `push_subscriptions` (one row per browser) and `push_preferences` (one row per person who changed a
-setting; the defaults are all messages, with message text shown). Both are in
-`migrations/202610270400_push_tables.sql`, mirrored by `schema.ts`, and deleted with the person.
+setting; the defaults are all messages, with message text shown, and no pause). Both are in
+`migrations/202610270400_push_tables.sql`, with the pause columns in
+`migrations/202610271000_push_pause.sql`. `schema.ts` mirrors them, and both are deleted with the
+person.
