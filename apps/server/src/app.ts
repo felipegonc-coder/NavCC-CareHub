@@ -56,13 +56,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: files
 
-  // feature: search
+  await app.register(import('./features/search/routes'), { prefix: '/api/search' });
 
-  // feature: history
+  await app.register(import('./features/history/routes'), { prefix: '/api/history' });
 
-  // feature: templates
+  await app.register(import('./features/templates/routes'), { prefix: '/api/templates' });
 
-  // feature: import-export
+  await app.register(import('./features/import-export/routes'), { prefix: '/api/import-export' });
+
+  await app.register(import('./features/knowledge/routes'), { prefix: '/api/knowledge' });
 
   // feature: sharing
 
@@ -98,7 +100,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: status
 
-  // feature: claude
+  await app.register(import('./features/claude/routes'), { prefix: '/api/claude' });
 
   // The web app: files from the built SPA, with index.html for every other page route.
   await app.register(fastifyStatic, { root: config.WEB_DIST_DIR });

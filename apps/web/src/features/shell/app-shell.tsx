@@ -4,6 +4,7 @@ import {
   Dialog,
   DialogTrigger,
   IconButton,
+  OfflineBanner,
   SheetContent,
   useMediaQuery,
 } from '@carehub/ui';
@@ -30,7 +31,7 @@ export interface AppShellProps {
 
 /**
  * The signed-in frame: the sidebar (a slide-in menu under 768 px), a top bar that screens fill
- * with <ShellHeader>, and the screen, which renders its own <main>.
+ * with <ShellHeader>, the offline banner under it, and the screen, which renders its own <main>.
  */
 export function AppShell({ items, sections, children }: AppShellProps) {
   const { pathname } = useLocation();
@@ -68,6 +69,7 @@ export function AppShell({ items, sections, children }: AppShellProps) {
             )}
             <div ref={setHeaderTarget} className="flex min-w-0 flex-1 items-center gap-2" />
           </header>
+          <OfflineBanner className="sticky top-12 z-10 max-md:top-14" />
           <div id="main-content" tabIndex={-1} className="flex flex-1 flex-col focus:outline-none">
             <HeaderTargetContext.Provider value={headerTarget}>
               {children}

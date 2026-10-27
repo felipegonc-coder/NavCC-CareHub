@@ -10,3 +10,7 @@ This is a clean-room rebuild, written from scratch from the plan in [`docs/plan/
 - **Data:** fictional data only until approved otherwise.
 
 Private repository. Copyright © 2026 Felipe Gonçalves. All rights reserved. See [LICENSE](LICENSE).
+
+## Deploy
+
+Care Hub runs on one server with Docker Compose, reachable only over Tailscale. The server builds the image itself from a version that passed CI on `main`; nothing is published. [`deploy/README.md`](deploy/README.md) has the prerequisites, the first start and health check, updates and rollbacks, backups and restores, and where the data lives. A person or an AI assistant can follow it step by step.
