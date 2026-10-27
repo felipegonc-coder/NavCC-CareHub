@@ -23,6 +23,7 @@ const renderScreen = (path: string) =>
 
 afterEach(() => {
   vi.restoreAllMocks();
+  localStorage.clear();
 });
 
 describe('PlayerScreen', () => {
@@ -46,10 +47,9 @@ describe('PlayerScreen', () => {
       await screen.findByRole('heading', { level: 1, name: 'Before the call' }),
     ).toBeInTheDocument();
     expect(document.title).toBe('Care Hub · Before the call');
-    expect(calls.filter((call) => call.method === 'GET').map((call) => call.url)).toEqual([
-      API,
-      `${API}/progress`,
-    ]);
+    const asked = calls.filter((call) => call.method === 'GET').map((call) => call.url);
+    expect(asked).toHaveLength(3);
+    expect(asked).toEqual(expect.arrayContaining(['/api/auth/me', API, `${API}/progress`]));
     await waitFor(() => expect(sent()).toHaveLength(1));
     expect(sent()[0]).toMatchObject({ type: 'lesson_opened', lessonId: 'calls-before' });
     expect(sent()[0]).toEqual(
@@ -70,6 +70,7 @@ describe('PlayerScreen', () => {
       );
       cleanup();
       vi.restoreAllMocks();
+      localStorage.clear();
     }
   });
 
@@ -136,6 +137,16 @@ describe('PlayerScreen', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Before the call' }),
     ).toBeInTheDocument();
+  });
+
+  it("waits for the signed-in person, and says so when the session can't be read", async () => {
+    const { calls } = serveCourse(inOrder, start, { me: 401 });
+    renderScreen(lessonPath(inOrder, 'calls-before'));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: "This lesson didn't load" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong. Try again.')).toBeInTheDocument();
+    expect(calls.some((call) => call.method === 'POST')).toBe(false);
   });
 
   it('says the lesson is not found when the course has no such lesson', async () => {

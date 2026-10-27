@@ -1,9 +1,31 @@
+import { randomBytes } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import Fastify from 'fastify';
 import { z } from 'zod';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { errorHandler, httpError } from './errors';
+import { createTestApp, hasDatabase } from '../testing';
+import { errorHandler, httpError, loggableError } from './errors';
 
-const app = Fastify({ bodyLimit: 64 });
+const logs: string[] = [];
+const app = Fastify({
+  bodyLimit: 64,
+  logger: { level: 'error', stream: { write: (line: string) => void logs.push(line) } },
+});
+
+/** Shaped like Drizzle's DrizzleQueryError around a PostgreSQL error: both repeat the value sent. */
+function failedQuery(value: string) {
+  const cause = Object.assign(new Error(`invalid input syntax for type uuid: "${value}"`), {
+    code: '22P02',
+    severity: 'ERROR',
+    detail: `Value: ${value}`,
+    routine: 'string_to_uuid',
+  });
+  return Object.assign(new Error(`Failed query: select $1::uuid\nparams: ${value}`, { cause }), {
+    name: 'DrizzleQueryError',
+    query: 'select $1::uuid',
+    params: [value],
+  });
+}
 
 beforeAll(async () => {
   app.setErrorHandler(errorHandler);
@@ -20,6 +42,9 @@ beforeAll(async () => {
   );
   app.get('/broken', async () => {
     throw new Error('connection to 10.0.0.5 refused');
+  });
+  app.get('/failed-query', async () => {
+    throw failedQuery('riley.chen@example.test');
   });
   await app.ready();
 });
@@ -79,10 +104,63 @@ describe('errors', () => {
     expect(tooBig.json().error.code).toBe('too_large');
   });
 
-  it('hides the details of unexpected errors', async () => {
+  it('hides the details of unexpected errors, and logs them', async () => {
     const response = await app.inject({ method: 'GET', url: '/broken' });
     expect(response.statusCode).toBe(500);
     expect(response.json().error.code).toBe('server_error');
     expect(response.body).not.toContain('10.0.0.5');
+    expect(logs.join('\n')).toContain('connection to 10.0.0.5 refused');
+  });
+
+  it('logs failed queries without the values in them', async () => {
+    const response = await app.inject({ method: 'GET', url: '/failed-query' });
+    expect(response.statusCode).toBe(500);
+    expect(response.body).not.toContain('riley.chen');
+    const logged = logs.join('\n');
+    expect(logged).toContain('select $1::uuid');
+    expect(logged).toContain('22P02');
+    expect(logged).not.toContain('riley.chen');
+  });
+
+  it('loggableError keeps the type, SQL, database code, stack frames and causes', () => {
+    const logged = loggableError(failedQuery('secret'));
+    expect(logged).toMatchObject({
+      type: 'DrizzleQueryError',
+      query: 'select $1::uuid',
+      cause: { type: 'Error', code: '22P02', severity: 'ERROR', routine: 'string_to_uuid' },
+    });
+    expect(logged.stack).toMatch(/^\s+at /);
+    expect(JSON.stringify(logged)).not.toContain('secret');
+    expect(loggableError(new TypeError('x is undefined'))).toMatchObject({
+      type: 'TypeError',
+      message: 'x is undefined',
+    });
+    expect(loggableError('a thrown string')).toEqual({ type: 'string' });
+  });
+});
+
+describe.skipIf(!hasDatabase)('errors from PostgreSQL', () => {
+  it('are logged without the values sent with the query', async () => {
+    const marker = `marker-${randomBytes(6).toString('hex')}`;
+    const lines: string[] = [];
+    const testApp = await createTestApp({
+      logger: { level: 'error', stream: { write: (line: string) => void lines.push(line) } },
+      routes: (instance) => {
+        instance.get('/api/test/failed-query', { config: { public: true } }, async () => {
+          await instance.db.execute(sql`SELECT ${marker}::uuid AS id`);
+          return { ok: true };
+        });
+      },
+    });
+    try {
+      const response = await testApp.app.inject({ method: 'GET', url: '/api/test/failed-query' });
+      expect(response.statusCode).toBe(500);
+      const logged = lines.join('\n');
+      expect(logged).toContain('::uuid');
+      expect(logged).toContain('22P02');
+      expect(logged).not.toContain(marker);
+    } finally {
+      await testApp.close();
+    }
   });
 });
