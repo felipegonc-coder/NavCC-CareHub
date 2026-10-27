@@ -21,6 +21,7 @@ import { useEffect, useId, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { BlockView, type BlockViewMode } from '../blocks/registry';
 import { withPending } from './pending';
+import { useActiveTime } from './useActiveTime';
 
 export type LessonViewProps = {
   course: Course;
@@ -50,6 +51,8 @@ export function LessonView({ course, lesson, row, state, mode, emit, go }: Lesso
     () => (lesson.kind === 'content' ? visibleBlocks(lesson, completedIds ?? []) : []),
     [lesson, completedIds],
   );
+
+  const time = useActiveTime(mode === 'learn' && !locked ? lesson.id : null, emit);
 
   const opened = useRef(false);
   useEffect(() => {
@@ -115,7 +118,14 @@ export function LessonView({ course, lesson, row, state, mode, emit, go }: Lesso
         <p className={noteClasses}>This quiz can&apos;t be shown here yet.</p>
       )}
       {ended && (
-        <LessonEnd course={course} lesson={lesson} state={state} locked={locked} emit={emit} />
+        <LessonEnd
+          course={course}
+          lesson={lesson}
+          state={state}
+          locked={locked}
+          emit={emit}
+          time={time}
+        />
       )}
     </article>
   );
@@ -123,10 +133,11 @@ export function LessonView({ course, lesson, row, state, mode, emit, go }: Lesso
 
 type LessonEndProps = Pick<LessonViewProps, 'course' | 'lesson' | 'state' | 'emit'> & {
   locked: boolean;
+  time: ReturnType<typeof useActiveTime>;
 };
 
 /** Previous, and Next (completing the lesson first when it can be completed). */
-function LessonEnd({ course, lesson, state, locked, emit }: LessonEndProps) {
+function LessonEnd({ course, lesson, state, locked, emit, time }: LessonEndProps) {
   const navigate = useNavigate();
   const hintId = useId();
   const labels = playerLabels(course);
@@ -135,7 +146,20 @@ function LessonEnd({ course, lesson, state, locked, emit }: LessonEndProps) {
     (entry) => entry.lessonId === lesson.id && entry.status === 'completed',
   );
   const completing = lesson.kind === 'content' && !done && !locked;
-  const check = completing ? canCompleteLesson(course, state, lesson.id) : null;
+  // Time counted but not sent yet counts too; it's sent just before the lesson is completed.
+  const counted =
+    time.unsentSeconds > 0
+      ? withPending(course, state, [
+          {
+            type: 'time_active',
+            lessonId: lesson.id,
+            seconds: time.unsentSeconds,
+            id: 'unsent',
+            at: '',
+          },
+        ])
+      : state;
+  const check = completing ? canCompleteLesson(course, counted, lesson.id) : null;
   // Where Next goes once this lesson counts as completed (the next lesson may unlock).
   const after = completing
     ? withPending(course, state, [
@@ -149,7 +173,10 @@ function LessonEnd({ course, lesson, state, locked, emit }: LessonEndProps) {
       : null;
 
   const action = () => {
-    if (check?.ok) emit({ type: 'lesson_completed', lessonId: lesson.id });
+    if (check?.ok) {
+      time.flush();
+      emit({ type: 'lesson_completed', lessonId: lesson.id });
+    }
     if (next) navigate(lessonHref(course.id, next));
     else if (done) navigate(courseHref(course.id));
   };
