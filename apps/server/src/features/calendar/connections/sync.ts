@@ -58,7 +58,7 @@ const plain = (message: string) =>
     ? message
     : UNKNOWN;
 
-const googleTokensSchema: z.ZodType<GoogleTokens> = z.object({
+export const googleTokensSchema: z.ZodType<GoogleTokens> = z.object({
   accessToken: z.string().min(1),
   refreshToken: z.string().min(1),
   expiresAt: z.string(),
@@ -94,7 +94,8 @@ export interface CalendarSyncDeps {
   google: GoogleOAuth | undefined;
   /** Reaches the Google Calendar API. */
   fetch: FetchLike;
-  readLink: ReadCalendarLink;
+  /** Without it, private links say Care Hub can't read them yet. */
+  readLink?: ReadCalendarLink | undefined;
   notify: SendNotice;
   /** Tells the person's open screens which of their calendars changed: events, name or status. */
   changed: (ownerId: string, calendarIds: string[]) => void;
@@ -277,6 +278,8 @@ export function createCalendarSync(deps: CalendarSyncDeps) {
   ) {
     const [calendar] = calendars;
     if (!calendar?.shown) return;
+    const { readLink } = deps;
+    if (!readLink) throw new SyncFailure('broken', NOT_SUPPORTED);
     let url: string;
     try {
       ({ url } = open(box, connection, linkSecretSchema));
@@ -285,7 +288,7 @@ export function createCalendarSync(deps: CalendarSyncDeps) {
       throw error;
     }
     const at = now();
-    const result = await deps.readLink(url, calendar.cursor ?? undefined, {
+    const result = await readLink(url, calendar.cursor ?? undefined, {
       ownAddresses: [connection.ownerEmail],
       window: { start: monthsFrom(at, -6), end: monthsFrom(at, 12) },
     });

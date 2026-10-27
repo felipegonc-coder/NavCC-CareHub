@@ -480,6 +480,14 @@ describe('when calendar sync runs', () => {
     await t.sync.refresh(AVERY, [google, link]);
     expect(t.reads).toHaveLength(2);
     expect(t.google.requests.length).toBeGreaterThan(calls);
+
+    // A calendar chosen just now makes its connection due; a sign-in that stopped working waits.
+    const before = t.google.requests.length;
+    t.memory.update(link, { nextSyncAt: t.google.now() });
+    t.memory.update(google, { status: 'needs-reconnect', nextSyncAt: t.google.now() });
+    await t.sync.refresh(AVERY, [google, link]);
+    expect(t.reads).toHaveLength(3);
+    expect(t.google.requests.length).toBe(before);
   });
 
   it('drops the outcome when the person signed in again during the run', async () => {
