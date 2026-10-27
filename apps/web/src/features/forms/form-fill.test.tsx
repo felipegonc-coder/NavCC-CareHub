@@ -230,6 +230,21 @@ describe('FormFill', () => {
     );
   });
 
+  it('sends through the public route when nobody is signed in', async () => {
+    const client = mockFormsClient();
+    const data = fillForm({ audience: 'anyone' }, { respondent: null });
+    renderWithForms(<FormFill data={data} code="code-123" signedOut />, client);
+    expect(screen.getByText("Your name isn't recorded with this form.")).toBeInTheDocument();
+    answerRequired();
+    fireEvent.click(submitButton());
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks! Your response was sent.');
+    expect(client.submitPublicResponse).toHaveBeenCalledWith('code-123', {
+      [IDS.name]: 'Avery Lin',
+      [IDS.category]: 'opt-billing',
+    });
+    expect(client.submitResponse).not.toHaveBeenCalled();
+  });
+
   it('uploads files to the form, signed in', async () => {
     const { client } = renderFill({ questions: [question(IDS.photos, 'Photos')] });
     const file = new File(['leak'], 'sink.heic', { type: 'image/heic' });
