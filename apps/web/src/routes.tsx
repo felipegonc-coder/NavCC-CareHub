@@ -1,4 +1,5 @@
 import type { RouteObject } from 'react-router';
+import { RequireAuth } from './features/auth/require-auth';
 import { AppLayout } from './shell/AppLayout';
 import { NotFoundPage } from './shell/NotFoundPage';
 
@@ -9,6 +10,7 @@ import { NotFoundPage } from './shell/NotFoundPage';
 // and the spread in publicRoutes or appRoutes, `...messagesRoutes,`.
 
 // feature: auth
+import { routes as authRoutes } from './features/auth/routes';
 
 // feature: status
 
@@ -64,6 +66,7 @@ import { routes as claudeRoutes } from './features/claude/routes';
 /** Signed out, without the app shell: sign-in, set password, /status, the design kit gallery. */
 export const publicRoutes: RouteObject[] = [
   // feature: auth
+  ...authRoutes,
 
   // feature: status
 
@@ -127,7 +130,11 @@ export const routes: RouteObject[] = [
   ...publicRoutes,
   {
     path: '/',
-    element: <AppLayout />,
+    element: (
+      <RequireAuth>
+        <AppLayout />
+      </RequireAuth>
+    ),
     children: [...appRoutes, { path: '*', element: <NotFoundPage /> }],
   },
 ];

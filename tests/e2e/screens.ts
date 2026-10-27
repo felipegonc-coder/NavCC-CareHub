@@ -34,6 +34,7 @@ export const screens: Screen[] = [
   },
   { name: 'not-found', path: '/no-such-screen' },
   { name: 'design', path: '/design' },
+  { name: 'sign-in', path: '/sign-in' },
 
   ...(await import('./learning/screens.js')).screens, // feature: learning
 
