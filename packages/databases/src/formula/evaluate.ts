@@ -238,6 +238,15 @@ class CallImpl implements Call {
   step(n: number): void {
     tick(this.frame, n);
   }
+
+  timeUp(): boolean {
+    const f = this.frame;
+    if (f.deadline === null) return false;
+    const now = timeOf(f.ctx);
+    if (now <= f.deadline) return false;
+    if (f.budget && now > f.budget.deadline) f.budget.spent = true;
+    return true;
+  }
 }
 
 const propertyCache = new WeakMap<readonly Property[], Map<Id, Property>>();
