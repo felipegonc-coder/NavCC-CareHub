@@ -13,10 +13,10 @@ import {
   type TestApp,
   type TestUser,
 } from '../../testing';
-import { deleteFiles, getFiles, registerFileScope, removeDeletedFiles } from './index';
+import { deleteFiles, getFiles, registerFileScope, removeDeletedFiles, saveFile } from './index';
 import { files } from './schema';
 import { FILE_CSP } from './serve';
-import { cleanUpFiles } from './service';
+import { cleanUpFiles, removeUnsavedBytes } from './service';
 
 const MB = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
@@ -361,7 +361,7 @@ describe.skipIf(!hasDatabase)('files', () => {
     const yesterday = new Date(Date.now() - 25 * HOUR);
     await testApp.db.update(files).set({ deletedAt: yesterday }).where(eq(files.id, old.id));
 
-    expect(await cleanUpFiles(testApp.db, { root: filesDir })).toEqual({ removed: 1 });
+    expect(await cleanUpFiles(testApp.db, { root: filesDir })).toEqual({ removed: 1, unsaved: 0 });
     expect(await exists(oldPath)).toBe(false);
     expect(await exists(recentPath)).toBe(true);
     const left = await testApp.db
@@ -369,6 +369,91 @@ describe.skipIf(!hasDatabase)('files', () => {
       .from(files)
       .where(eq(files.id, recent.id));
     expect(left).toHaveLength(1);
+  });
+
+  describe('saveFile, for files other features bring in', () => {
+    const notes = {
+      scope: 'test:open',
+      name: 'Fictional notes.txt',
+      bytes: Buffer.from('Fictional.'),
+    };
+    /** The status and message a save is refused with, or null when it's saved. */
+    const refusal = (file: Partial<typeof notes>) =>
+      saveFile(testApp.db, { ...notes, ...file, uploadedBy: null }).then(
+        () => null,
+        (error: { statusCode?: number; message?: string }) => [error.statusCode, error.message],
+      );
+    /** The storage keys of all the bytes on disk. */
+    const keysOnDisk = async () => {
+      const keys = new Set<string>();
+      for (const first of (await readdir(filesDir)).filter((name) => /^[0-9a-f]{2}$/.test(name))) {
+        for (const second of await readdir(path.join(filesDir, first))) {
+          for (const key of await readdir(path.join(filesDir, first, second))) keys.add(key);
+        }
+      }
+      return keys;
+    };
+
+    it("saves a file in the caller's transaction, checked as uploads are", async () => {
+      const saved = await testApp.db.transaction((tx) =>
+        saveFile(tx, { ...notes, uploadedBy: editor.id }),
+      );
+      expect(saved).toEqual({
+        id: expect.any(String),
+        name: 'Fictional notes.txt',
+        size: notes.bytes.length,
+        mimeType: 'text/plain',
+        url: `/api/files/${saved.id}`,
+      });
+      const [row] = await testApp.db.select().from(files).where(eq(files.id, saved.id));
+      expect(row).toMatchObject({
+        workspaceId: editor.workspaceId,
+        scopeFeature: 'test',
+        scopeId: 'open',
+        uploadedBy: editor.id,
+      });
+      expect((await get(reader, saved.url)).body).toBe('Fictional.');
+
+      const program = Buffer.concat([Buffer.from('MZ'), Buffer.alloc(200)]);
+      expect(await refusal({ name: 'setup.pdf', bytes: program })).toEqual([
+        400,
+        "Programs can't be uploaded.",
+      ]);
+      expect(await refusal({ name: 'tool.exe' })).toEqual([400, "Programs can't be uploaded."]);
+      expect(await refusal({ scope: 'nowhere:1' })).toEqual([400, "Files can't be added there."]);
+      process.env.FILES_MAX_MB = '1';
+      try {
+        expect((await refusal({ bytes: Buffer.alloc(MB + 1) }))?.[0]).toBe(413);
+      } finally {
+        delete process.env.FILES_MAX_MB;
+      }
+      expect(await readdir(path.join(filesDir, 'tmp'))).toEqual([]);
+    });
+
+    it('keeps nothing when the transaction rolls back; the clean-up removes the bytes a day later', async () => {
+      const kept = (await upload(editor, 'Fictional, kept.', 'kept.txt')).json();
+      const saved = await saveFile(testApp.db, { ...notes, uploadedBy: null });
+      const before = await keysOnDisk();
+      let lostId = '';
+      await expect(
+        testApp.db.transaction(async (tx) => {
+          lostId = (await saveFile(tx, { ...notes, uploadedBy: editor.id })).id;
+          throw new Error('Fictional failure.');
+        }),
+      ).rejects.toThrow('Fictional failure.');
+      expect((await getFiles(testApp.db, [lostId])).size).toBe(0);
+      const lost = [...(await keysOnDisk())].filter((key) => !before.has(key));
+      expect(lost).toHaveLength(1);
+
+      // Only bytes unsaved for over a day go; the bytes of saved files stay.
+      expect(await removeUnsavedBytes(testApp.db, { root: filesDir })).toBe(0);
+      const tomorrow = new Date(Date.now() + 25 * HOUR);
+      expect(await removeUnsavedBytes(testApp.db, { now: tomorrow, root: filesDir })).toBe(1);
+      expect((await keysOnDisk()).has(lost[0] ?? '')).toBe(false);
+      expect(await exists(await storedPath(kept.id))).toBe(true);
+      expect(await exists(await storedPath(saved.id))).toBe(true);
+      expect(await readdir(path.join(filesDir, 'pending'))).toEqual([]);
+    });
   });
 
   it('creates the files table exactly as the Drizzle definition describes it', async () => {

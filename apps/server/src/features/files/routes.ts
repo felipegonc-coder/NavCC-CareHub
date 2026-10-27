@@ -3,9 +3,9 @@ import multipart from '@fastify/multipart';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { HttpError, httpError } from '../../core/errors';
 import { registerPeriodicTask } from '../jobs';
-import { detectFileType, hasBlockedEnding } from './detect';
+import { hasBlockedEnding } from './detect';
+import { keepFile, PROGRAMS } from './keep';
 import { cleanFileName, tooLargeMessage } from './names';
-import { files } from './schema';
 import { canUseFileScope, hasFileScope, type FileScopeContext } from './scopes';
 import { FILE_CSP, sendStoredFile } from './serve';
 import { cleanUpFiles, deleteFiles, getFile, uploadedFileJson, type StoredFile } from './service';
@@ -16,7 +16,6 @@ const MB = 1024 * 1024;
 const HOUR_MS = 60 * 60 * 1000;
 /** Room for the multipart wrapping around a file, when an upload is judged by its Content-Length. */
 const WRAPPING_BYTES = 64 * 1024;
-const PROGRAMS = "Programs can't be uploaded.";
 const NO_FILE = 'Choose a file to upload.';
 const CANCELLED = 'The upload was cancelled.';
 
@@ -25,7 +24,7 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
   const root = readFilesSettings(app.log).FILES_DIR;
   const store = fileStore(root);
   await store.prepare();
-  // Every hour, one run at a time across servers (Team tools' jobs).
+  // Every hour, one run at a time across servers.
   registerPeriodicTask('files.clean-up', HOUR_MS, async ({ signal }) => {
     await cleanUpFiles(app.db, { root, signal });
   });
@@ -90,32 +89,15 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
       if (upload.truncated) {
         throw httpError(413, 'too_large', tooLargeMessage(limitMb * MB + 1, limitMb));
       }
-      const reader = await store.reader(tempPath);
-      const type = await detectFileType({ ...upload, read: reader.read }).finally(reader.close);
-      if (type === 'program') throw httpError(400, 'invalid', PROGRAMS);
-
-      const storageKey = await store.keep(tempPath);
-      try {
-        const [file] = await app.db
-          .insert(files)
-          .values({
-            workspaceId: ctx.member.workspaceId,
-            scopeFeature: feature,
-            scopeId: ctx.scopeId,
-            uploadedBy: ctx.user.id,
-            name: upload.name,
-            mimeType: type.mimeType,
-            size: upload.size,
-            sha256: upload.sha256,
-            storageKey,
-          })
-          .returning();
-        if (!file) throw new Error('The file was not saved.');
-        return reply.code(201).send(uploadedFileJson(file));
-      } catch (error) {
-        await store.remove(store.pathOf(storageKey));
-        throw error;
-      }
+      const to = {
+        workspaceId: ctx.member.workspaceId,
+        feature,
+        scopeId: ctx.scopeId,
+        uploadedBy: ctx.user.id,
+      };
+      const file = await keepFile(app.db, store, tempPath, upload, to);
+      await store.settle(file.storageKey);
+      return reply.code(201).send(uploadedFileJson(file));
     } finally {
       await store.remove(tempPath);
     }
@@ -133,7 +115,7 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     },
   });
 
-  // The file is gone at once; the nightly clean-up removes its bytes (Data settings, DS-02).
+  // The file is gone at once; the clean-up removes its bytes a day later (Data settings, DS-02).
   app.delete('/:id', guarded, async (request, reply) => {
     const file = await findFile(request, 'write');
     await deleteFiles(app.db, [file.id]);
