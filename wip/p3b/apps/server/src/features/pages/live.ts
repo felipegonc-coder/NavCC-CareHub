@@ -4,7 +4,7 @@ import { atLeast } from '@carehub/shared';
 import type { Db } from '../../db';
 import { publishTopic, registerTopic } from '../live';
 import { loadViewer, resolvePages } from './access';
-import { spacePlace } from './tree';
+import { spacePlace } from './spaces';
 
 /** `space:<id>`: someone who can see the space's tree. `page:<id>`: someone who can open it. */
 export function registerPageTopics(db: Db): void {
@@ -24,8 +24,8 @@ export function registerPageTopics(db: Db): void {
 
 /** The space's tree changed: a page was added, renamed, moved or given a new icon. */
 export const treeChanged = (spaceId: string) =>
-  publishTopic(`space:${spaceId}`, { type: 'pages.tree', data: { spaceId } });
+  publishTopic(`space:${spaceId}`, { type: 'tree-changed', data: { spaceId } });
 
 /** The page's header changed: title, icon, cover, style or lock. */
 export const pageChanged = (pageId: string) =>
-  publishTopic(`page:${pageId}`, { type: 'pages.page', data: { pageId } });
+  publishTopic(`page:${pageId}`, { type: 'page-changed', data: { pageId } });

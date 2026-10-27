@@ -2,8 +2,7 @@
 // titles of pages they can't open are never sent (SB-06).
 import { atLeast, type AccessLevel, type PageIcon, type TreeNodeJson } from '@carehub/shared';
 import { sql } from 'drizzle-orm';
-import { memberOf, resolvePages, type Executor, type Viewer } from './access';
-import { forbidden, isUuid, notFound } from './http';
+import { resolvePages, type Executor, type Viewer } from './access';
 
 type TreeRow = {
   id: string;
