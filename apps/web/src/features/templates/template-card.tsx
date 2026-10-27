@@ -11,9 +11,12 @@ import type { KeyboardEvent, ReactNode } from 'react';
 export function TemplateIconView({
   icon,
   className,
+  pageSize = 'size-4',
 }: {
   icon: TemplateIcon | null;
   className?: string;
+  /** The page picture's size, to match the text around it. */
+  pageSize?: string;
 }) {
   if (icon?.type === 'emoji') {
     return (
@@ -22,7 +25,7 @@ export function TemplateIconView({
       </span>
     );
   }
-  return <FileText aria-hidden className={cn('size-[1em] text-muted', className)} />;
+  return <FileText aria-hidden className={cn('shrink-0 text-muted', pageSize, className)} />;
 }
 
 export interface TemplateCardViewProps {
@@ -57,13 +60,13 @@ export function TemplateCardView({
         )}
       >
         {compact ? (
-          <TemplateIconView icon={card.icon} className="text-h3" />
+          <TemplateIconView icon={card.icon} className="text-h3" pageSize="size-5" />
         ) : (
           <span className="flex h-24 w-full items-center justify-center bg-fill text-title">
-            <TemplateIconView icon={card.icon} />
+            <TemplateIconView icon={card.icon} pageSize="size-9" />
           </span>
         )}
-        <span className={cn('flex min-w-0 flex-col gap-1', !compact && 'w-full p-3 pr-12')}>
+        <span className={cn('flex min-w-0 flex-col gap-1', !compact && 'w-full p-3')}>
           <span className="truncate text-body font-medium">{card.name}</span>
           {card.description && (
             <span className="truncate text-small text-muted">{card.description}</span>
@@ -73,9 +76,7 @@ export function TemplateCardView({
           </span>
         </span>
       </button>
-      {menu && (
-        <div className={cn('absolute right-2', compact ? 'top-2.5' : 'top-[6.5rem]')}>{menu}</div>
-      )}
+      {menu && <div className={cn('absolute right-2', compact ? 'top-2.5' : 'top-2')}>{menu}</div>}
     </li>
   );
 }

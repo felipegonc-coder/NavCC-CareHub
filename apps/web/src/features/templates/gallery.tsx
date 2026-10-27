@@ -7,6 +7,7 @@ import { inCategory } from '@carehub/extras/templates/preview';
 import type { UseTarget } from '@carehub/extras/templates/schemas';
 import { pageUrl } from '@carehub/shared';
 import {
+  breakpoints,
   Button,
   cn,
   Field,
@@ -29,7 +30,8 @@ import { originTitle, readOrigin } from './links';
 import { addToChoices, TemplatePreview } from './preview';
 import { TemplateCardView } from './template-card';
 
-const PHONE = '(max-width: 767px)';
+/** Phones: narrower than the kit's `md:` breakpoint. */
+const PHONE = `not all and (min-width: ${breakpoints.md})`;
 /** The category list's first entry: every template. */
 const ALL = 'All templates';
 
@@ -161,7 +163,7 @@ export function GalleryScreen() {
   const count = shown.length === 1 ? '1 template' : `${shown.length} templates`;
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 text-fg md:px-6 md:py-10">
+    <main className="flex w-full flex-col gap-6 px-4 py-6 text-fg md:px-6 md:py-10">
       <div className="flex flex-col gap-1">
         <h1 className="text-h1">Templates</h1>
         <p className="text-body text-muted">Start from something good instead of a blank page.</p>
@@ -257,7 +259,7 @@ export function GalleryScreen() {
                 ref={listRef}
                 className={cn(
                   'grid gap-4',
-                  phone ? 'grid-cols-1 gap-2' : 'sm:grid-cols-2 lg:grid-cols-3',
+                  phone ? 'grid-cols-1 gap-2' : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
                 )}
               >
                 {shown.map((card, index) => (
