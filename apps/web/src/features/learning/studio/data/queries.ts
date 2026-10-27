@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CourseType, Id } from '@carehub/learning';
+import type { Block, CourseType, Id } from '@carehub/learning';
 import { useStudioClient } from '../context';
 
 /** TanStack Query keys for Studio data; they start with the feature name (0007 section 5.2). */
@@ -12,6 +12,7 @@ export const studioKeys = {
   preview: (courseId: Id) => ['learning', 'studio', 'draft', courseId, 'preview'] as const,
   examples: ['learning', 'studio', 'examples'] as const,
   versions: (courseId: Id) => ['learning', 'studio', 'versions', courseId] as const,
+  templates: ['learning', 'studio', 'templates'] as const,
 };
 
 /** The Studio list: the courses in use, or the archived ones. */
@@ -83,5 +84,34 @@ export function useCourseAction() {
     mutationFn: ({ action, courseId }: { action: CourseAction; courseId: Id }) =>
       client[action](courseId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: studioKeys.courseLists }),
+  });
+}
+
+/** The saved block templates, for the add-block menu. */
+export function useBlockTemplates() {
+  const client = useStudioClient();
+  return useQuery({
+    queryKey: studioKeys.templates,
+    queryFn: () => client.listBlockTemplates(),
+  });
+}
+
+/** Saves blocks as a template (`{ name, blocks }`), then refreshes the list. */
+export function useSaveBlockTemplate() {
+  const client = useStudioClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; blocks: Block[] }) => client.saveBlockTemplate(input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: studioKeys.templates }),
+  });
+}
+
+/** Deletes a template, then refreshes the list. */
+export function useDeleteBlockTemplate() {
+  const client = useStudioClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (templateId: Id) => client.deleteBlockTemplate(templateId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: studioKeys.templates }),
   });
 }
