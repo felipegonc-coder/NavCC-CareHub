@@ -263,8 +263,13 @@ describe('visibleQuestions', () => {
       q(files),
     ]);
     expect(shown(def, { gone: 'x', reason: 'y' })).toEqual(['details', 'files']);
-    expect(shown({ ...def, anonymous: true }, {})).toEqual(['details']);
+    expect(shown({ ...def, anonymous: true }, {})).toEqual(['details', 'files']);
     expect(shown(form([q(reason), q(reason)]), {})).toEqual(['reason']);
+  });
+  it('skips Person and Relation questions when anyone can fill the form in', () => {
+    const def = form([q(category), q(agent), q(review), q(files)]);
+    expect(shown(def, {})).toEqual(['category', 'agent', 'review', 'files']);
+    expect(shown({ ...def, audience: 'anyone' }, {})).toEqual(['category', 'files']);
   });
 });
 
@@ -272,7 +277,7 @@ describe('walkQuestions', () => {
   it('visits each question once, in order, with whether it shows', () => {
     const def = form([q(category), q(reason, all(when(category, 'is_not_empty')))]);
     const steps: string[] = [];
-    walkQuestions(def, properties, avery, false, ({ question, prop: p, shown: s }) => {
+    walkQuestions(def, properties, avery, ({ question, prop: p, shown: s }) => {
       steps.push(`${question.propertyId}:${p.name}:${s}`);
       return null;
     });
@@ -401,5 +406,19 @@ describe('pruneLogic', () => {
     const result = pruneLogic(firstWithLogic, properties);
     expect(result.changed).toEqual(['reason']);
     expect(result.def.questions[0]).toMatchObject({ logic: null, logicChanged: true });
+  });
+  it('removes a question that became Person in a form anyone can fill in', () => {
+    const anyone = form([q(category), q(reason, all(when(category, 'is_not_empty')))], {
+      audience: 'anyone',
+    });
+    const asPerson = prop('category', 'Category', { type: 'person', single: true, notify: false });
+    const result = pruneLogic(
+      anyone,
+      properties.map((p) => (p.id === 'category' ? asPerson : p)),
+    );
+    expect(result.removed).toEqual(['category']);
+    expect(result.changed).toEqual(['reason']);
+    expect(result.def.questions).toEqual([{ ...q(reason), logicChanged: true }]);
+    expect(pruneLogic({ ...anyone, audience: 'members' }, [asPerson, reason]).removed).toEqual([]);
   });
 });

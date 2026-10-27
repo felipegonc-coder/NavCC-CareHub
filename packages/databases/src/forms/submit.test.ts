@@ -185,6 +185,22 @@ describe('checkSubmission', () => {
         base(),
       ),
     ).toMatchObject({ title: 'Billing dispute' });
+    expect(
+      checkSubmission(form([q(category)], { audience: 'anyone' }), properties, {}, base()),
+    ).toMatchObject({ ok: true, title: 'Anonymous response' });
+  });
+  it('drops Person answers in a form anyone can fill in without checking them', () => {
+    const validate = makeValidate();
+    const def = form([q(category), q(agent, { required: true })], { audience: 'anyone' });
+    const result = checkSubmission(
+      def,
+      properties,
+      { category: 'opt-other', agent: ['u-avery'] },
+      base({ validate }),
+    );
+    expect(result).toMatchObject({ ok: true, values: { category: 'opt-other' } });
+    expect(result.ok && 'agent' in result.values).toBe(false);
+    expect(validate).toHaveBeenCalledTimes(1);
   });
   it('drops answers to hidden questions without checking them (FM-03)', () => {
     const validate = makeValidate();
@@ -312,7 +328,7 @@ describe('checkSubmission', () => {
       ).ok,
     ).toBe(true);
   });
-  it('allows up to 10 files and drops Files answers in anonymous forms', () => {
+  it('allows up to 10 files, also in anonymous forms', () => {
     const file = (i: number) => ({
       id: `up-${i}`,
       name: `call-${i}.mp3`,
@@ -329,15 +345,14 @@ describe('checkSubmission', () => {
       ok: false,
       errors: { files: 'Up to 10 files.' },
     });
-    const validate = makeValidate();
-    const anonymous = checkSubmission(
-      def,
-      properties,
-      { files: list(1) },
-      base({ anonymous: true, validate }),
-    );
-    expect(anonymous.ok && 'files' in anonymous.values).toBe(false);
-    expect(validate).toHaveBeenCalledTimes(0);
+    expect(
+      checkSubmission(
+        form([q(files)], { anonymous: true }),
+        properties,
+        { files: list(2) },
+        base(),
+      ),
+    ).toMatchObject({ ok: true, title: 'Anonymous response', values: { files: list(2) } });
   });
   it("uses the respondent's time zone and id for logic", () => {
     const def = form([
@@ -379,5 +394,6 @@ describe('draftKey', () => {
   it('keeps one draft per form and person', () => {
     expect(draftKey('form-1', 'u-avery')).toBe('carehub:form-draft:form-1:u-avery');
     expect(draftKey('form-1', 'u-jordan')).not.toBe(draftKey('form-1', 'u-avery'));
+    expect(draftKey('form-1', null)).toBe('carehub:form-draft:form-1:signed-out');
   });
 });

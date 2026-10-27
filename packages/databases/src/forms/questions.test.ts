@@ -12,9 +12,12 @@ import type {
 import {
   FORM_CHOICE_LIMIT,
   addableProperties,
+  anonymityWarning,
   conditionOpLabel,
   conditionOps,
   conditionProblem,
+  formAudience,
+  isAnonymousForm,
   isConditionSet,
   questionKind,
   questionLabel,
@@ -148,10 +151,14 @@ describe('questionKind', () => {
     expect(questionKind(category, { display: 'dropdown' })).toBe('dropdown');
     expect(questionKind(tags, { display: 'dropdown' })).toBe('multi_dropdown');
   });
-  it('leaves Files out of anonymous forms', () => {
-    expect(questionKind(files, null, { anonymous: true })).toBeNull();
-    expect(questionKind(files, null, { anonymous: false })).toBe('files');
-    expect(questionKind(agent, null, { anonymous: true })).toBe('person');
+  it('leaves Person and Relation out of forms anyone can fill in, and keeps Files', () => {
+    const anyone = { audience: 'anyone' } as const;
+    expect(questionKind(agent, null, anyone)).toBeNull();
+    expect(questionKind(review, null, anyone)).toBeNull();
+    expect(questionKind(files, null, anyone)).toBe('files');
+    expect(questionKind(reason, null, anyone)).toBe('short');
+    expect(questionKind(agent, null, { audience: 'members_and_guests' })).toBe('person');
+    expect(questionKind(review, null, { audience: 'members' })).toBe('relation');
   });
 });
 
@@ -172,11 +179,27 @@ describe('addableProperties', () => {
       'review',
     ]);
   });
-  it('leaves Files out of anonymous forms', () => {
-    const def = form([], { anonymous: true });
-    expect(addableProperties(def, properties).map((p) => p.id)).not.toContain('files');
-    expect(addableProperties(def, properties, false).map((p) => p.id)).toContain('files');
-    expect(addableProperties(form([]), properties, true).map((p) => p.id)).not.toContain('files');
+  it('offers Files in anonymous forms, and no Person or Relation when anyone can respond', () => {
+    const ids = (def: FormDefinition, audience?: 'anyone' | 'members') =>
+      addableProperties(def, properties, audience).map((p) => p.id);
+    expect(ids(form([], { anonymous: true }))).toEqual(expect.arrayContaining(['files', 'agent']));
+    const anyone = form([], { audience: 'anyone' });
+    expect(ids(anyone)).toContain('files');
+    expect(ids(anyone)).not.toContain('agent');
+    expect(ids(anyone)).not.toContain('review');
+    expect(ids(anyone, 'members')).toContain('agent');
+    expect(ids(form([]), 'anyone')).not.toContain('review');
+  });
+});
+
+describe('who can respond', () => {
+  it('defaults to members, and forms anyone can fill in are always anonymous', () => {
+    expect(formAudience(form([]))).toBe('members');
+    expect(formAudience(form([], { audience: 'members_and_guests' }))).toBe('members_and_guests');
+    expect(isAnonymousForm(form([]))).toBe(false);
+    expect(isAnonymousForm(form([], { anonymous: true }))).toBe(true);
+    expect(isAnonymousForm(form([], { audience: 'anyone' }))).toBe(true);
+    expect(isAnonymousForm(form([], { audience: 'members_and_guests' }))).toBe(false);
   });
 });
 
@@ -361,15 +384,29 @@ describe('validateFormDefinition', () => {
       "'Stage' can't be a form question.",
     );
   });
-  it('refuses Files questions in anonymous forms (FM-D1)', () => {
-    expect(validateFormDefinition(form([q(files)], { anonymous: true }), properties)).toBe(
-      "Files questions can't be anonymous yet.",
-    );
-    expect(validateFormDefinition(form([q(files)]), properties)).toBeNull();
+  it('allows Files questions in anonymous forms', () => {
+    expect(validateFormDefinition(form([q(files)], { anonymous: true }), properties)).toBeNull();
   });
-  it('lets anonymous forms allow only one response (additions 8)', () => {
-    const def = form([q(name)], { anonymous: true, allowMultiple: false });
-    expect(validateFormDefinition(def, properties)).toBeNull();
+  it("refuses only one response in anonymous forms, which don't keep names (FM-17)", () => {
+    const message = 'One response per person needs names. Turn off anonymous responses first.';
+    const single = { allowMultiple: false };
+    expect(
+      validateFormDefinition(form([q(name)], { ...single, anonymous: true }), properties),
+    ).toBe(message);
+    expect(
+      validateFormDefinition(form([q(name)], { ...single, audience: 'anyone' }), properties),
+    ).toBe(message);
+    expect(validateFormDefinition(form([q(name)], single), properties)).toBeNull();
+  });
+  it('refuses Person and Relation questions when anyone can respond (FM-18)', () => {
+    const message = "Forms anyone can fill in can't ask for people or rows.";
+    const anyone = { audience: 'anyone' } as const;
+    expect(validateFormDefinition(form([q(name), q(agent)], anyone), properties)).toBe(message);
+    expect(validateFormDefinition(form([q(review)], anyone), properties)).toBe(message);
+    expect(validateFormDefinition(form([q(name), q(files)], anyone), properties)).toBeNull();
+    expect(
+      validateFormDefinition(form([q(agent)], { audience: 'members_and_guests' }), properties),
+    ).toBeNull();
   });
   it('keeps logic off the first question', () => {
     const first = q(name, showIf(when(category, 'is_empty')));
@@ -423,5 +460,21 @@ describe('validateFormDefinition', () => {
       "That option doesn't exist.",
     );
     expect(validateFormDefinition(def(when(category, 'is_none_of')), properties)).toBeNull();
+  });
+});
+
+describe('anonymityWarning', () => {
+  const warning = 'Answers can still show who sent them (Person questions, or what people type).';
+  it('warns anonymous forms about Person questions and typed answers', () => {
+    expect(anonymityWarning(form([q(category), q(agent)], { anonymous: true }), properties)).toBe(
+      warning,
+    );
+    expect(anonymityWarning(form([q(reason)], { audience: 'anyone' }), properties)).toBe(warning);
+    expect(anonymityWarning(form([q(email)], { anonymous: true }), properties)).toBe(warning);
+  });
+  it('stays quiet for choices only, and for forms that record senders', () => {
+    const choices = [q(category), q(tags), q(callDate), q(confirm), q(files)];
+    expect(anonymityWarning(form(choices, { anonymous: true }), properties)).toBeNull();
+    expect(anonymityWarning(form([q(agent), q(reason)]), properties)).toBeNull();
   });
 });
