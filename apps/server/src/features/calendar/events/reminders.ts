@@ -2,12 +2,15 @@ import type { Db, Tx } from '../../../db';
 import {
   createEventReminder,
   deleteEventReminders,
-  syncEventReminders,
+  remapEventReminders,
+  type EventRemap,
   type EventStart,
 } from '../../reminders';
-import type { Schedule } from './model';
-import { sameStart, startOf } from './starts';
-import { findEvent } from './store';
+import { firstKey, type EditPlan } from './edit';
+import { shownTitle, type StoredPerson } from './items';
+import { seriesOf, type Schedule } from './model';
+import { startOf } from './starts';
+import { eventsById, findEvent } from './store';
 
 /** Whose reminder: the person, with the time settings their reminders use. */
 export type ReminderOwner = { id: string; workspaceId: string; timeZone: string; use24h: boolean };
@@ -31,6 +34,10 @@ async function guarded(tx: Tx, change: (savepoint: Tx) => Promise<unknown>): Pro
   }
 }
 
+/** The organizer and the people invited see an event; no one else does. */
+const sees = (event: { organizerId: string; people: StoredPerson[] }, userId: string) =>
+  event.organizerId === userId || event.people.some((person) => person.userId === userId);
+
 /** Remind me in the event panel: when it starts, for the organizer and the people invited. */
 export async function lookupStart(
   db: Db | Tx,
@@ -38,9 +45,18 @@ export async function lookupStart(
   target: { eventId: string; occurrenceStart?: string },
 ): Promise<EventStart | null> {
   const event = await findEvent(db, target.eventId);
-  if (!event) return null;
-  const sees = event.organizerId === userId || event.people.some((p) => p.userId === userId);
-  return sees ? startOf(event, target.occurrenceStart) : null;
+  return event && sees(event, userId) ? startOf(event, target.occurrenceStart) : null;
+}
+
+/** The Reminders list: titles of the events this person sees, and not of cancelled ones. */
+export async function lookupTitles(
+  db: Db | Tx,
+  userId: string,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, string>> {
+  const events = await eventsById(db, ids);
+  const open = events.filter((event) => !event.cancelledAt && sees(event, userId));
+  return new Map(open.map((event) => [event.id, shownTitle(event.title)]));
 }
 
 /**
@@ -70,25 +86,55 @@ export async function addDefaultReminder(
   );
 }
 
-/**
- * After an edit: pending reminders move with an event that doesn't repeat, or with the one
- * occurrence changed (`key`). Series-wide changes keep theirs until reminders can be remapped.
- */
-export async function moveReminders(
-  tx: Tx,
-  eventId: string,
-  before: Schedule,
-  after: Schedule,
-  key?: string,
-): Promise<void> {
-  const start = startOf(after, key);
-  if (!start || sameStart(startOf(before, key), start)) return;
-  const target = key === undefined ? { eventId, start } : { eventId, start, occurrenceStart: key };
-  await guarded(tx, (savepoint) => syncEventReminders(savepoint, target));
+/** Where reminders on `key` (null: the whole event) go in `schedule`, or null when it's gone. */
+function placeIn(eventId: string, schedule: Schedule, key: string | null): EventRemap | null {
+  const start = startOf(schedule, key ?? undefined);
+  if (!start) return null;
+  return key === null ? { eventId, start } : { eventId, occurrenceStart: key, start };
 }
 
-/** Reminders go with the deleted event, or with the one occurrence deleted. */
-export async function dropReminders(tx: Tx, eventId: string, key?: string): Promise<void> {
-  const target = key === undefined ? { eventId } : { eventId, occurrenceStart: key };
-  await guarded(tx, (savepoint) => deleteEventReminders(savepoint, target));
+/** People taken off a meeting lose their reminders on it. */
+async function dropPeople(tx: Tx, eventId: string, was: StoredPerson[], now: StoredPerson[]) {
+  const stay = new Set(now.map((person) => person.userId));
+  const userIds = was.map((person) => person.userId).filter((id) => !stay.has(id));
+  if (userIds.length === 0) return;
+  await guarded(tx, (savepoint) => deleteEventReminders(savepoint, { eventId, userIds }));
+}
+
+/**
+ * After an edit, pending reminders follow their occurrence: to its new start and key, or to the
+ * new series after This and following (`splitId`). They go when it's gone.
+ */
+export async function remindersAfterEdit(
+  tx: Tx,
+  people: StoredPerson[],
+  plan: EditPlan,
+  ids: { eventId: string; splitId: string | null },
+): Promise<void> {
+  const map = (key: string | null) => {
+    const place = plan.placeOf(key);
+    if (!place) return null;
+    const [state, eventId] =
+      place.in === 'split' ? [plan.split, ids.splitId] : [plan.event, ids.eventId];
+    return state && eventId ? placeIn(eventId, state, place.key) : null;
+  };
+  await guarded(tx, (savepoint) => remapEventReminders(savepoint, { eventId: ids.eventId, map }));
+  await dropPeople(tx, ids.eventId, people, plan.event.people);
+  if (plan.split && ids.splitId) await dropPeople(tx, ids.splitId, people, plan.split.people);
+}
+
+/** After a delete, reminders go with the event or the occurrences deleted; the others stay. */
+export async function remindersAfterDelete(
+  tx: Tx,
+  eventId: string,
+  left: Schedule | null,
+): Promise<void> {
+  if (!left) {
+    await guarded(tx, (savepoint) => deleteEventReminders(savepoint, { eventId }));
+    return;
+  }
+  const series = seriesOf(left);
+  const first = series ? firstKey(series) : null;
+  const map = (key: string | null) => placeIn(eventId, left, key ?? first);
+  await guarded(tx, (savepoint) => remapEventReminders(savepoint, { eventId, map }));
 }

@@ -47,7 +47,7 @@ import {
   type EventRecord,
 } from './store';
 import { cancelNotices, editNotices, invites, replyNotice } from './notices';
-import { addDefaultReminder, dropReminders, moveReminders } from './reminders';
+import { addDefaultReminder, remindersAfterDelete, remindersAfterEdit } from './reminders';
 import { upcomingOf } from './upcoming';
 
 /** The signed-in member, as Calendar needs them. */
@@ -233,14 +233,11 @@ export async function editEvent(
     checkSchedule(plan.event);
     if (plan.split) checkSchedule(plan.split);
     await updateEvent(tx, event.id, plan.event);
-    if (!seriesOf(event)) await moveReminders(tx, event.id, event, plan.event);
-    else if (input.scope === 'one' && input.occurrence) {
-      await moveReminders(tx, event.id, event, plan.event, input.occurrence);
-    }
     const { workspaceId } = viewer;
     const splitId = plan.split
       ? await insertEvent(tx, { ...plan.split, workspaceId, organizerId: viewer.id })
       : null;
+    await remindersAfterEdit(tx, event.people, plan, { eventId: event.id, splitId });
     const later = idsOf(plan.split?.people ?? []);
     const notices = editNotices(viewer, event, plan, { eventId: event.id, splitId }, input);
     return { splitId, seen: [...peopleIds(event), ...idsOf(plan.event.people), ...later], notices };
@@ -262,9 +259,7 @@ export async function deleteEvent(
     const event = await ownEvent(tx, viewer, eventId);
     const left = planDelete(event, query);
     await (left ? updateEvent(tx, event.id, left) : cancelEvent(tx, event.id));
-    if (!left) await dropReminders(tx, event.id);
-    else if (query.scope === 'one')
-      await dropReminders(tx, event.id, query.occurrence ?? event.start);
+    await remindersAfterDelete(tx, event.id, left);
     return { seen: peopleIds(event), notices: cancelNotices(viewer, event, left, query) };
   });
   notify(eventId, seen);

@@ -23,10 +23,3 @@ export function startOf(schedule: Schedule, key?: string): EventStart | null {
   }
   return schedule.allDay ? { allDay: start } : { start: toInstant(start, schedule.timeZone) };
 }
-
-/** Whether two starts are the same day, or the same moment. */
-export function sameStart(a: EventStart | null, b: EventStart | null): boolean {
-  if (!a || !b) return a === b;
-  if ('allDay' in a) return 'allDay' in b && a.allDay === b.allDay;
-  return 'start' in b && a.start.getTime() === b.start.getTime();
-}

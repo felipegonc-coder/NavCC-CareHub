@@ -1,7 +1,7 @@
 import type { RepeatRule } from '@carehub/team-repeat';
 import { describe, expect, it } from 'vitest';
 import type { Schedule } from './model';
-import { sameStart, startOf } from './starts';
+import { startOf } from './starts';
 
 const denver = 'America/Denver';
 const tuesdays: RepeatRule = { freq: 'weekly', interval: 1, byDay: [{ day: 'TU' }] };
@@ -49,16 +49,5 @@ describe('startOf', () => {
     expect(startOf(weekly, 'not a key')).toBeNull();
     expect(startOf(weekly)).toBeNull();
     expect(startOf(visit, '2026-10-27T10:00')).toBeNull();
-  });
-});
-
-describe('sameStart', () => {
-  it('compares moments and days', () => {
-    const at = (iso: string) => ({ start: new Date(iso) });
-    expect(sameStart(at('2026-10-27T16:00:00Z'), at('2026-10-27T16:00:00.000Z'))).toBe(true);
-    expect(sameStart(at('2026-10-27T16:00:00Z'), at('2026-10-27T16:30:00Z'))).toBe(false);
-    expect(sameStart({ allDay: '2026-10-27' }, { allDay: '2026-10-27' })).toBe(true);
-    expect(sameStart({ allDay: '2026-10-27' }, at('2026-10-27T00:00:00Z'))).toBe(false);
-    expect(sameStart(null, { allDay: '2026-10-27' })).toBe(false);
   });
 });
