@@ -10,7 +10,7 @@ import {
   type TestApp,
   type TestUser,
 } from '../../testing';
-import { lookupStart } from './events/reminders';
+import { lookupStart, onReminderError } from './events/reminders';
 
 const MINUTE = 60_000;
 const utc = 'UTC';
@@ -97,5 +97,24 @@ describe.skipIf(!hasDatabase)('calendar reminders', () => {
     expect(await lookupStart(test.db, cy.id, target)).toBeNull();
     const missing = { eventId: '00000000-0000-4000-8000-000000000000' };
     expect(await lookupStart(test.db, ada.id, missing)).toBeNull();
+  });
+
+  it("saves events even while reminders aren't running, and logs each miss", async () => {
+    const errors: unknown[] = [];
+    onReminderError((error) => errors.push(error));
+    memory.unbind();
+    try {
+      const start = inHours(2);
+      const visit = await created({ allDay: false, start, end: inHours(3), timeZone: utc });
+      const later = { start: inHours(5).toISOString(), end: inHours(6).toISOString() };
+      expect((await send(ada, 'PATCH', `/events/${visit.id}`, later)).statusCode).toBe(200);
+      expect((await send(ada, 'DELETE', `/events/${visit.id}`)).statusCode).toBe(204);
+      expect((await send(ada, 'GET', `/events/${visit.id}`)).statusCode).toBe(404);
+    } finally {
+      memory = bindMemoryReminders();
+    }
+    // Adding the default reminder, moving it and deleting it each failed on their own.
+    expect(errors).toHaveLength(3);
+    expect(String(errors[0])).toContain('Reminders are not running');
   });
 });

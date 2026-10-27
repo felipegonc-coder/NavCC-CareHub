@@ -12,6 +12,25 @@ import { findEvent } from './store';
 /** Whose reminder: the person, with the time settings their reminders use. */
 export type ReminderOwner = { id: string; workspaceId: string; timeZone: string; use24h: boolean };
 
+let logReminderError: (error: unknown) => void = () => undefined;
+
+/** Where a reminder change that failed is logged; the routes pass the app's log. */
+export function onReminderError(log: (error: unknown) => void): void {
+  logReminderError = log;
+}
+
+/**
+ * Reminders are their own feature: each change runs in a savepoint of Calendar's transaction, and
+ * one that fails (for example while reminders aren't running) is logged and never fails the edit.
+ */
+async function guarded(tx: Tx, change: (savepoint: Tx) => Promise<unknown>): Promise<void> {
+  try {
+    await tx.transaction(change);
+  } catch (error) {
+    logReminderError(error);
+  }
+}
+
 /** Remind me in the event panel: when it starts, for the organizer and the people invited. */
 export async function lookupStart(
   db: Db | Tx,
@@ -38,15 +57,17 @@ export async function addDefaultReminder(
   const start = schedule.allDay ? null : startOf(schedule);
   if (minutesBefore === null || !start) return;
   const { id: userId, workspaceId, timeZone, use24h } = owner;
-  await createEventReminder(tx, {
-    workspaceId,
-    userId,
-    eventId,
-    start,
-    minutesBefore,
-    timeZone,
-    use24h,
-  });
+  await guarded(tx, (savepoint) =>
+    createEventReminder(savepoint, {
+      workspaceId,
+      userId,
+      eventId,
+      start,
+      minutesBefore,
+      timeZone,
+      use24h,
+    }),
+  );
 }
 
 /**
@@ -62,16 +83,12 @@ export async function moveReminders(
 ): Promise<void> {
   const start = startOf(after, key);
   if (!start || sameStart(startOf(before, key), start)) return;
-  await syncEventReminders(
-    tx,
-    key === undefined ? { eventId, start } : { eventId, start, occurrenceStart: key },
-  );
+  const target = key === undefined ? { eventId, start } : { eventId, start, occurrenceStart: key };
+  await guarded(tx, (savepoint) => syncEventReminders(savepoint, target));
 }
 
 /** Reminders go with the deleted event, or with the one occurrence deleted. */
 export async function dropReminders(tx: Tx, eventId: string, key?: string): Promise<void> {
-  await deleteEventReminders(
-    tx,
-    key === undefined ? { eventId } : { eventId, occurrenceStart: key },
-  );
+  const target = key === undefined ? { eventId } : { eventId, occurrenceStart: key };
+  await guarded(tx, (savepoint) => deleteEventReminders(savepoint, target));
 }
