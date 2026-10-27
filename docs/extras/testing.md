@@ -18,6 +18,12 @@ How search works and what's still a stand-in: [search.md](search.md).
 
 - **Until the page model (#49) and accounts 1b (#55) are on main, search finds nothing:** its stand-ins deny by default, so leave `search` off in `tests/e2e/flows/_support/features.ts` until then.
 - **Endpoint:** `POST /api/search/query` with `{ text, filters?, sort?, match?, cursor?, limit? }` answers `{ results, total, nextCursor }`. Share-link visitors and people outside the workspace get 403 "You don't have access to this."
+- **The window:** Ctrl+K or Ctrl+P (`ControlOrMeta`) on any screen, or **Search** at the top of the sidebar, opens the dialog named "Search". Its box is the combobox named "Search" and has the focus.
+  - Before typing it says "Type to search pages, databases and rows." (The "Recent" and "Recent searches" groups come in a later part.)
+  - Each result is an option named "<title>, page in <space> › <parent>, edited <day>" (database and row for the other kinds). The first is selected (`aria-selected`). ↑ and ↓ move, Enter opens `/p/<id>`, Ctrl+Enter opens it in a new tab and Esc closes.
+  - Other features' commands that match come first, under "Actions".
+  - When nothing matches: "No results for ‘<text>’." When the API fails: "Search isn't working right now." with **Try again**. Offline: "You're offline. Search works again once you're back online." A status region says "<n> results" or "No results".
+- **Screens:** `extras-search` (the window before typing) and `extras-search-results` (after typing "Fictional refund steps").
 - **Timing:** a new, renamed, moved, trashed or archived page is searchable (or hidden) at once; text typed into a page is searchable within about 2 seconds. Wait for the result to show (`expect(…).toBeVisible()`), not for a fixed time.
 - **Archived pages** are left out unless the Archived filter (`includeArchived`) is on.
 - **Data:** search shows what the seed's pages hold; it has no seed data of its own.

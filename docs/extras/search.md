@@ -34,6 +34,13 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 - **Best match** (`best`): exact title, then title starting with the words, then all words in the title, then headings, then text. Within each, boosts reorder: other features' boosts (`registerSearchBoost`, each kept between -2 and 2), +1 for ✓ Verified, +1 when edited in the last 7 days, -2 when archived. Ties go to the most recent edit.
 - **Results:** title with the matching words as ranges, icon, path, a snippet of up to 160 characters from the block with the most matching words, created and edited (with the editor's name), "Row in" the database, ✓ Verified and Archived.
 
+## The search window (`apps/web/src/features/search`)
+
+- **Opening it:** Ctrl+K or Ctrl+P (⌘ on a Mac) on any screen, through the shell's `overlays` slot, or **Search** at the top of the sidebar (`sidebarSections`). When the editor has already used Ctrl+K (a link, with text selected), the window stays shut. `openSearch()` in `open.ts` opens it too.
+- **Results:** `POST /api/search/query` 80 ms after typing stops, 20 at a time as you scroll or move down. The previous results stay while new ones load, and grey rows show after 150 ms if there were none. The first result is selected.
+- **Keys:** it's a combobox. ↑ and ↓ move through every list, Enter opens the page, Ctrl+Enter opens it in a new tab, and Esc closes the window and puts the focus back where it was. Commands from the `commands` slot that match the text come first, under "Actions".
+- **Not yet:** Recent and Recent searches before typing, the filter chips and sort, Did you mean and Search in Trash, and Shift+Enter for the side panel (once the page view has one).
+
 ## For other features (`apps/server/src/features/search/index.ts`)
 
 - `registerSearchText(kind, (db, pageId) => Promise<string>)`: text for every page of that kind, one block per line. Databases registers `'row'` with the values the toolbar search uses, leaving out properties with access rules (hidden properties are never matched or shown).
