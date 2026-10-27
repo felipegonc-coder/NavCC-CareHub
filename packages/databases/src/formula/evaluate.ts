@@ -54,11 +54,21 @@ export interface CompiledFormula {
   /** The result kind to save as the property's resultKind (null: always empty). */
   kind: ComputedKind | null;
   type: FormulaType;
-  /** The value for a row; a problem comes back as { kind: "error" } with its message. */
-  run(row: Row, ctx: FormulaContext): ComputedValue;
+  /**
+   * The value for a row; a problem comes back as { kind: "error" } with its message. `inputs` are
+   * the values of the schema's inputs by id (a button's Pressed by, variables); missing ones are empty.
+   */
+  run(row: Row, ctx: FormulaContext, inputs?: FormulaInputs): ComputedValue;
   /** The value and, for a problem, where in the formula it happened (the editor's preview). */
-  preview(row: Row, ctx: FormulaContext): { value: ComputedValue; error: FormulaError | null };
+  preview(
+    row: Row,
+    ctx: FormulaContext,
+    inputs?: FormulaInputs,
+  ): { value: ComputedValue; error: FormulaError | null };
 }
+
+/** The values of a formula's inputs (FormulaSchema.inputs) for one run, by id. */
+export type FormulaInputs = Readonly<Record<Id, ComputedValue>>;
 
 /** A compiled formula, or the first problem with its place. */
 export type CompileResult = CompiledFormula | { ok: false; error: FormulaError };
@@ -77,6 +87,7 @@ interface Frame {
   budget: FormulaBudget | null;
   /** Property values read so far, so reading one again builds nothing new. */
   reads: Map<Row, Map<Id, ComputedValue>>;
+  inputs: FormulaInputs | null;
 }
 
 type Run = (f: Frame) => ComputedValue;
@@ -360,6 +371,14 @@ function build(e: Expr): Run {
       const slot = e.slot;
       return (f) => f.slots[slot] ?? EMPTY;
     }
+    case 'input': {
+      const id = e.id;
+      return (f) => {
+        const v = f.inputs && Object.hasOwn(f.inputs, id) ? f.inputs[id] : undefined;
+        if (v?.kind === 'error') fail(v.message);
+        return v ?? EMPTY;
+      };
+    }
     case 'let': {
       const value = compile(e.value);
       const body = compile(e.body);
@@ -445,7 +464,7 @@ export function compileFormula(expression: string, schema: FormulaSchema): Compi
     value: { kind: 'error', message: TOO_SLOW } as ComputedValue,
     error: { message: TOO_SLOW, start: 0, end: expression.length },
   };
-  const preview = (row: Row, ctx: FormulaContext) => {
+  const preview = (row: Row, ctx: FormulaContext, inputs?: FormulaInputs) => {
     const budget = ctx.budget ?? null;
     if (budget?.spent) return tooSlow;
     let deadline: number | null = null;
@@ -467,6 +486,7 @@ export function compileFormula(expression: string, schema: FormulaSchema): Compi
       nextClock: 64,
       budget,
       reads: new Map(),
+      inputs: inputs ?? null,
     };
     const meter = { text: ROW_TEXT_LIMIT, step: (n: number) => tick(frame, n) };
     try {
@@ -482,7 +502,7 @@ export function compileFormula(expression: string, schema: FormulaSchema): Compi
     ok: true,
     kind: resultKindOf(checked.type),
     type: checked.type,
-    run: (row, ctx) => preview(row, ctx).value,
+    run: (row, ctx, inputs) => preview(row, ctx, inputs).value,
     preview,
   };
 }

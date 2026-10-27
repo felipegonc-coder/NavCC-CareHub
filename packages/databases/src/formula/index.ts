@@ -43,6 +43,7 @@ export type {
   FormulaBudget,
   FormulaContext,
   FormulaError,
+  FormulaInput,
   FormulaSchema,
   FormulaType,
   FunctionDef,
@@ -67,11 +68,11 @@ export {
 export type { CachedPatternEngine } from './patterns';
 export { parseFormula } from './parser';
 export type { Node, ParseResult } from './parser';
-export { LENGTH_MESSAGE, RELATION_DEPTH, TEXT_AND_NUMBER, checkFormula } from './check';
+export { LENGTH_MESSAGE, RELATION_DEPTH, TEXT_AND_NUMBER, checkFormula, findByName } from './check';
 export { basicSchema, defaultKindOf, fromComputedKind, propertyType, resultKindOf } from './kinds';
-export type { CheckMode, CheckResult } from './check';
+export type { CheckMode, CheckResult, PropertyRef } from './check';
 export { FORMULA_BROKE, compileFormula, readProperty } from './evaluate';
-export type { CompileResult, CompiledFormula } from './evaluate';
+export type { CompileResult, CompiledFormula, FormulaInputs } from './evaluate';
 export {
   CHAIN_MESSAGE,
   LOOP_MESSAGE,
@@ -84,3 +85,18 @@ export {
   toStoredFormula,
 } from './names';
 export type { ComputedNode, FormulaDependencies, StoredFormula } from './names';
+export {
+  BUTTON_INPUT_IDS,
+  BUTTON_INPUT_NAMES,
+  buttonEvaluator,
+  buttonFormulaReads,
+  buttonFormulas,
+  buttonInputValues,
+  usedTooSoon,
+} from './button-inputs';
+export type {
+  ButtonFormulas,
+  ButtonPress,
+  ButtonRowDatabase,
+  ButtonVariable,
+} from './button-inputs';
