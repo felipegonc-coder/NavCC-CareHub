@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { CSRF_COOKIE, CSRF_HEADER } from '@carehub/shared';
+import { BUILT_IN_ROLES, CSRF_COOKIE, CSRF_HEADER, currentUserSchema } from '@carehub/shared';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestApp } from '../../testing';
 import { csrfTokenForSession, newCsrfToken } from './csrf';
 import { sessions, users } from './schema';
@@ -16,6 +16,7 @@ interface ResponseCookie {
   name: string;
   value: string;
   path?: string;
+  domain?: string;
   maxAge?: number;
   httpOnly?: boolean;
   secure?: boolean;
@@ -48,7 +49,10 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
       routes: (instance) => {
         instance.get('/api/test/private', async (request) => ({ id: request.user?.id }));
         instance.post('/api/test/private', async () => ({ ok: true }));
-        instance.get('/api/test/open', { config: { public: true } }, async () => ({ ok: true }));
+        instance.get('/api/test/open', { config: { public: true } }, async (request) => ({
+          user: request.user?.id ?? null,
+          member: request.member?.kind ?? null,
+        }));
         instance.get('/api/test/site', { preHandler: instance.requireSiteAdmin }, async () => ({
           ok: true,
         }));
@@ -96,11 +100,45 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
       expect([401, 404]).toContain(response.statusCode);
     });
 
+    it('refuses to start with a route outside /api that nobody reviewed', async () => {
+      await expect(
+        createTestApp({
+          routes: (instance) => void instance.get('/feeds/calendar.ics', async () => 'BEGIN'),
+        }),
+      ).rejects.toThrow(/GET \/feeds\/calendar\.ics is outside \/api/);
+    });
+
     it('requireUser still guards a public route', async () => {
       expect((await send(app, { method: 'GET', url: '/api/test/open-user' })).statusCode).toBe(401);
       const user = await createUser(testApp.db);
       const response = await injectAs(app, user, { method: 'GET', url: '/api/test/open-user' });
       expect(response.statusCode).toBe(200);
+    });
+    it('on public routes, a failed session lookup (database down) counts as signed out', async () => {
+      const user = await createUser(testApp.db);
+      const { token, cookies } = await browserFor(user.id);
+      const select = vi.spyOn(testApp.db, 'select').mockImplementation(() => {
+        throw new Error('connect ECONNREFUSED 10.0.0.5:5432');
+      });
+      try {
+        const open = await send(app, { method: 'GET', url: '/api/test/open', cookies });
+        expect(open.statusCode).toBe(200);
+        expect(open.json()).toEqual({ user: null, member: null });
+        expect(cookieOf(open, SESSION_COOKIE)).toBeUndefined();
+        expect(cookieOf(open, CSRF_COOKIE)).toBeUndefined();
+        const closed = await send(app, { method: 'GET', url: '/api/test/private', cookies });
+        expect(closed.statusCode).toBe(500);
+      } finally {
+        select.mockRestore();
+      }
+      const warning = logs.find((line) => line.includes('session lookup failed'));
+      expect(JSON.parse(warning ?? '{}')).toMatchObject({
+        level: 40,
+        error: { message: 'connect ECONNREFUSED 10.0.0.5:5432' },
+      });
+      expect(logs.join('\n')).not.toContain(token);
+      const back = await send(app, { method: 'GET', url: '/api/test/open', cookies });
+      expect(back.json()).toEqual({ user: user.id, member: 'member' });
     });
   });
 
@@ -119,7 +157,7 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
       expect(cookieOf(second, CSRF_COOKIE)).toBeUndefined();
     });
 
-    it('returns the signed-in person', async () => {
+    it('returns the signed-in person, their membership and the workspace', async () => {
       const user = await createUser(testApp.db, { name: 'Riley Chen' });
       const response = await injectAs(app, user, { method: 'GET', url: '/api/auth/me' });
       expect(response.statusCode).toBe(200);
@@ -135,8 +173,15 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
           weekStart: 0,
           mustChangePassword: false,
         },
-        member: null,
-        workspace: null,
+        member: {
+          kind: 'member',
+          workspaceId: user.workspaceId,
+          roleId: user.roleId,
+          roleName: 'Editor',
+          permissions: [...BUILT_IN_ROLES.editor.permissions],
+          isAdmin: false,
+        },
+        workspace: { id: user.workspaceId, name: 'Care Hub' },
       });
     });
   });
@@ -291,6 +336,64 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
       expect(cookieOf(again, SESSION_COOKIE)).toBeUndefined();
     });
 
+    it('end 90 days after sign-in, however often they are used', async () => {
+      const user = await createUser(testApp.db);
+      const browser = await browserFor(user.id);
+      await testApp.db
+        .update(sessions)
+        .set({
+          createdAt: sql`now() - interval '89 days 23 hours'`,
+          lastSeenAt: sql`now() - interval '10 minutes'`,
+        })
+        .where(eq(sessions.userId, user.id));
+      const me = () => send(app, { method: 'GET', url: '/api/auth/me', cookies: browser.cookies });
+      expect((await me()).statusCode).toBe(200);
+      const [row] = await sessionRows(user.id);
+      // It slid forward only to 90 days after sign-in (an hour from now), not by 30 days.
+      expect(row?.expiresAt.getTime()).toBeLessThan(Date.now() + 2 * 60 * 60 * 1000);
+      await testApp.db
+        .update(sessions)
+        .set({ createdAt: sql`now() - interval '90 days 1 minute'` })
+        .where(eq(sessions.userId, user.id));
+      expect((await me()).statusCode).toBe(401);
+    });
+
+    it('use Secure __Host- cookies with the default settings, and ignore plain ones', async () => {
+      const secure = await createTestApp({ env: { COOKIE_SECURE: undefined } });
+      try {
+        const { names } = secure.app.sessionCookies;
+        expect(names).toEqual({ session: '__Host-carehub_session', csrf: '__Host-carehub_csrf' });
+        const signedOut = await send(secure.app, { method: 'GET', url: '/api/auth/me' });
+        expect(cookieOf(signedOut, names.csrf)).toMatchObject({ secure: true, path: '/' });
+        const user = await createUser(secure.db);
+        const { token } = await createSession(secure.db, user.id);
+        await secure.db
+          .update(sessions)
+          .set({ lastSeenAt: sql`now() - interval '10 minutes'` })
+          .where(eq(sessions.userId, user.id));
+        const cookies = { [names.session]: token, [names.csrf]: csrfTokenForSession(token) };
+        const response = await send(secure.app, { method: 'GET', url: '/api/auth/me', cookies });
+        expect(response.statusCode).toBe(200);
+        const session = cookieOf(response, names.session);
+        expect(session).toMatchObject({
+          value: token,
+          secure: true,
+          httpOnly: true,
+          sameSite: 'Lax',
+          path: '/',
+        });
+        expect(session?.domain).toBeUndefined();
+        const plain = await send(secure.app, {
+          method: 'GET',
+          url: '/api/auth/me',
+          cookies: { [SESSION_COOKIE]: token },
+        });
+        expect(plain.statusCode).toBe(401);
+      } finally {
+        await secure.close();
+      }
+    });
+
     it('end when expired, and the cookie is cleared', async () => {
       const user = await createUser(testApp.db);
       const browser = await browserFor(user.id);
@@ -323,7 +426,10 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
     it('getUserFromSessionToken finds the person behind a live token', async () => {
       const user = await createUser(testApp.db);
       const { token } = await browserFor(user.id);
-      expect(await getUserFromSessionToken(testApp.db, token)).toEqual(user);
+      // The CurrentUser part of the test user (without workspaceId and roleId).
+      expect(await getUserFromSessionToken(testApp.db, token)).toEqual(
+        currentUserSchema.parse(user),
+      );
       expect(await getUserFromSessionToken(testApp.db, 'not-a-token')).toBeNull();
       expect(await getUserFromSessionToken(testApp.db, sha256(token))).toBeNull();
     });
@@ -369,10 +475,14 @@ describe.skipIf(!hasDatabase)('accounts: sessions, me and guards', () => {
   });
 
   describe('testing helpers', () => {
-    it('createUser makes a fictional person at example.test', async () => {
+    it('createUser makes a fictional Editor at example.test, or someone outside the workspace', async () => {
       const user = await createUser(testApp.db);
-      expect(user.email).toMatch(/^person-[0-9a-f]+@example\.test$/);
-      expect(user).toMatchObject({ name: 'Test Person', isSiteAdmin: false });
+      expect(user.email).toMatch(/^editor-[0-9a-f]+@example\.test$/);
+      expect(user).toMatchObject({ name: 'Test Editor', isSiteAdmin: false });
+      expect(user.roleId).toEqual(expect.any(String));
+      const outsider = await createUser(testApp.db, { role: null });
+      expect(outsider.email).toMatch(/^person-[0-9a-f]+@example\.test$/);
+      expect(outsider).toMatchObject({ name: 'Test Person', workspaceId: null, roleId: null });
     });
 
     it('injectAs sends the CSRF header on state-changing requests', async () => {

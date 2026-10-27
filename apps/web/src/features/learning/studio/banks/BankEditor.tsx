@@ -7,7 +7,7 @@ import {
   setBankDetails,
   updateBankQuestion,
 } from '@carehub/learning';
-import type { BankReply, QuestionBank } from '@carehub/learning';
+import type { BankReply, ImportQuestionsReply, QuestionBank } from '@carehub/learning';
 import {
   Button,
   Dialog,
@@ -32,6 +32,7 @@ import type { Autosave, SaveStatus } from '../data/autosave';
 import { QuestionList } from '../editors/questions/QuestionList';
 import { questionCount } from './BankList';
 import { BANKS_PATH, bankKeys, saveBank, useDeleteBank } from './data';
+import { ImportedNotice, ImportQuestions } from './ImportQuestions';
 
 const STATUS_TEXT: Record<SaveStatus, string> = {
   saved: 'Saved',
@@ -40,6 +41,18 @@ const STATUS_TEXT: Record<SaveStatus, string> = {
   offline: "You're offline. Your changes are kept here and saved when you're back.",
   conflict: 'Not saved: someone else saved this bank since you opened it.',
   error: "Couldn't save. Trying again in a moment.",
+};
+
+const NO_TITLE = 'Give the bank a title first, so your changes are saved.';
+
+/** Why an import can't start while the latest changes aren't saved (it loads the bank again afterwards). */
+const NOT_SAVED: Record<Exclude<SaveStatus, 'saved'>, string> = {
+  unsaved: 'Your latest changes are still being saved. Try again in a moment.',
+  saving: 'Your latest changes are still being saved. Try again in a moment.',
+  offline:
+    "You're offline. Import when you're back online, so your latest changes are saved first.",
+  conflict: 'Someone else saved this bank since you opened it. Reload it before importing.',
+  error: "Your latest changes couldn't be saved, so nothing was imported. Try again in a moment.",
 };
 
 function startAutosave(
@@ -131,13 +144,18 @@ export type BankEditorProps = {
   reply: BankReply;
   /** Loads the bank again (after someone else saved it). */
   onReload(): void;
+  /** What the last spreadsheet import added. The screen keeps it, as the editor starts again after an import. */
+  imported: ImportQuestionsReply | null;
+  /** Keeps what an import added, or forgets it (null). */
+  onImported(reply: ImportQuestionsReply | null): void;
 };
 
 /**
- * Edits one question bank: title, description and up to 500 questions, saved automatically. A bank needs a title
- * to be saved. When someone else saved the bank first, nothing is overwritten: the editor offers to reload.
+ * Edits one question bank: title, description and up to 500 questions, saved automatically, plus the spreadsheet
+ * import. A bank needs a title to be saved. When someone else saved the bank first, nothing is overwritten: the
+ * editor offers to reload.
  */
-export function BankEditor({ reply, onReload }: BankEditorProps) {
+export function BankEditor({ reply, onReload, imported, onImported }: BankEditorProps) {
   const id = useId();
   const navigate = useNavigate();
   const { status, autosave } = useBankAutosave(reply);
@@ -151,6 +169,13 @@ export function BankEditor({ reply, onReload }: BankEditorProps) {
     latest.current = next;
     setBank(next);
     if (next.title.trim() !== '') autosave.current?.change(next);
+  };
+
+  // The import adds to the bank on the server, which is then loaded again: save what's waiting first.
+  const beforeImport = async (): Promise<string | null> => {
+    if (latest.current.title.trim() === '') return NO_TITLE;
+    const saved = (await autosave.current?.flush()) ?? 'saved';
+    return saved === 'saved' ? null : NOT_SAVED[saved];
   };
 
   return (
@@ -183,6 +208,7 @@ export function BankEditor({ reply, onReload }: BankEditorProps) {
           </Button>
         </div>
       )}
+      {imported && <ImportedNotice reply={imported} onDismiss={() => onImported(null)} />}
       <Field label="Title" required error={untitled ? 'Give the bank a title.' : undefined}>
         <Input
           value={bank.title}
@@ -209,9 +235,17 @@ export function BankEditor({ reply, onReload }: BankEditorProps) {
           <h2 id={`${id}-questions`} className="text-h3 text-fg">
             Questions
           </h2>
-          <p className="text-small text-muted">
-            {bank.questions.length} of {BANK_LIMITS.questions}
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-small text-muted">
+              {bank.questions.length} of {BANK_LIMITS.questions}
+            </p>
+            <ImportQuestions
+              bankId={bank.id}
+              questionCount={bank.questions.length}
+              beforeImport={beforeImport}
+              onImported={onImported}
+            />
+          </div>
         </div>
         <QuestionList
           questions={bank.questions}

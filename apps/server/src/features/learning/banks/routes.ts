@@ -11,8 +11,10 @@ import { requirePermission, viewerOf } from '../auth';
 import { parseInput } from '../errors';
 import * as banks from './service';
 import { bankStore } from './store';
+import { surveyResults } from './surveys';
 
 const IdParams = z.object({ id: IdSchema });
+const SurveyParams = z.object({ id: IdSchema, lessonId: IdSchema });
 
 /**
  * Bank saves (up to 500 questions) and imports (about 2 MB of spreadsheet text, which grows when sent as JSON)
@@ -20,11 +22,12 @@ const IdParams = z.object({ id: IdSchema });
  */
 const LARGE_BODY = { bodyLimit: 4 * QUESTION_CSV_MAX_CHARACTERS };
 
-// Question banks (B9): Studio's bank API and spreadsheet import (learning.build). Survey summaries come with
-// the survey results screen. Endpoints in docs/learning/api.md.
+// Question banks: Studio's bank API and spreadsheet import (learning.build), and survey results for
+// reports (learning.analytics). Endpoints in docs/learning/api.md.
 const banksRoutes: FastifyPluginAsync = async (app) => {
   const store = bankStore(app.db);
   const build = { preHandler: requirePermission('learning.build') };
+  const analytics = { preHandler: requirePermission('learning.analytics') };
   const idOf = (request: FastifyRequest) => parseInput(IdParams, request.params).id;
   const workspaceOf = (request: FastifyRequest) => viewerOf(request).workspaceId;
 
@@ -47,6 +50,10 @@ const banksRoutes: FastifyPluginAsync = async (app) => {
   app.post('/studio/banks/:id/import', { ...build, ...LARGE_BODY }, async (request) => {
     const { csv } = parseInput(ImportQuestionsRequestSchema, request.body);
     return banks.importQuestions(store, workspaceOf(request), idOf(request), csv);
+  });
+  app.get('/reports/courses/:id/surveys/:lessonId', analytics, async (request) => {
+    const { id, lessonId } = parseInput(SurveyParams, request.params);
+    return surveyResults(app.db, workspaceOf(request), id, lessonId);
   });
 };
 

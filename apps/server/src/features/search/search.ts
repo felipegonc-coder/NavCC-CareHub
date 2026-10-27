@@ -51,6 +51,10 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const config = (name: 'english' | 'simple') => sql.raw(`'${name}'`);
 
+/** Timestamps from `db.execute` come back as text (Drizzle's node-postgres driver), or as Dates. */
+type Timestamp = Date | string;
+const toDate = (value: Timestamp) => (value instanceof Date ? value : new Date(value));
+
 /** One term as a tsquery: its English word forms or its plain words. */
 function termQuery(term: SearchTerm): SQL {
   const parts = wordsOf(term.text);
@@ -58,12 +62,15 @@ function termQuery(term: SearchTerm): SQL {
   if (!term.prefix || last === undefined) {
     return sql`(phraseto_tsquery('english', ${term.text}) || phraseto_tsquery('simple', ${term.text}))`;
   }
-  // `last` is only letters and digits, so it's safe in to_tsquery's syntax.
+  const before = term.text.slice(0, term.text.lastIndexOf(last));
+  // Postgres reads "qa-17" as "qa" and "-17", so digits after a hyphen keep it. The operand is
+  // only letters and digits, or a hyphen and digits, so it's safe in to_tsquery's syntax.
+  const operand = /^[0-9]+$/.test(last) && before.endsWith('-') ? `-${last}` : last;
   const start = (name: 'english' | 'simple') => {
-    const prefix = sql`to_tsquery(${config(name)}, ${`${last}:*`})`;
+    const prefix = sql`to_tsquery(${config(name)}, ${`${operand}:*`})`;
     return parts.length === 0
       ? prefix
-      : sql`(phraseto_tsquery(${config(name)}, ${parts.join(' ')}) && ${prefix})`;
+      : sql`(phraseto_tsquery(${config(name)}, ${before}) && ${prefix})`;
   };
   return sql`(${start('english')} || ${start('simple')})`;
 }
@@ -112,7 +119,7 @@ type Candidate = {
   page_id: string;
   hits: number;
   tier: number;
-  updated_at: Date;
+  updated_at: Timestamp;
   archived: boolean;
 };
 
@@ -193,7 +200,7 @@ export async function runSearch(
     const now = Date.now();
     const score = (match: Candidate) =>
       (extra.get(match.page_id)?.boost ?? 0) +
-      (now - match.updated_at.getTime() < WEEK_MS ? 1 : 0) -
+      (now - toDate(match.updated_at).getTime() < WEEK_MS ? 1 : 0) -
       (match.archived ? 2 : 0);
     // Postgres sorted by words matched and tier, then newest edit; the score only reorders within.
     const order = new Map(visible.map((match, index) => [match.page_id, index]));
@@ -253,11 +260,11 @@ type Detail = {
   ancestors: string[];
   body: string;
   extra: string;
-  created_at: Date;
-  updated_at: Date;
+  created_at: Timestamp;
+  updated_at: Timestamp;
   updated_by: string | null;
   editor_name: string | null;
-  archived_at: Date | null;
+  archived_at: Timestamp | null;
 };
 
 function iconOf(icon: unknown): SearchIcon | null {
@@ -328,8 +335,8 @@ export async function describeResults(
         icon: iconOf(row.icon),
         path: space ? [space, ...path] : path,
         snippet: snippets ? makeSnippet(`${row.body}\n${row.extra}`, words) : null,
-        createdAt: row.created_at.toISOString(),
-        editedAt: row.updated_at.toISOString(),
+        createdAt: toDate(row.created_at).toISOString(),
+        editedAt: toDate(row.updated_at).toISOString(),
         editedBy:
           row.updated_by && row.editor_name ? { id: row.updated_by, name: row.editor_name } : null,
         rowIn: row.kind === 'row' && parentId ? (parentTitles.get(parentId) ?? null) : null,
