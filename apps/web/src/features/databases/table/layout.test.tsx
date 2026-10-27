@@ -94,7 +94,8 @@ describe('TableLayout columns', () => {
       table: { frozenUpTo: PROPS.status, wrapCells: false, showVerticalLines: true },
     });
     render(<TableLayout {...layoutProps({ view })} />);
-    expect(screen.getByRole('columnheader', { name: 'Status' })).toHaveStyle({ left: '280px' });
+    // After the selection column (44 px) and Name (280 px).
+    expect(screen.getByRole('columnheader', { name: 'Status' })).toHaveStyle({ left: '324px' });
     expect(cellOf('row-sink', PROPS.name)).toHaveClass('sticky');
     expect(cellOf('row-sink', PROPS.status)).toHaveClass('sticky');
     expect(cellOf('row-sink', PROPS.priority)).not.toHaveClass('sticky');

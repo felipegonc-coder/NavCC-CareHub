@@ -30,14 +30,26 @@ export const onMain = {
   /** Live co-editing: two people in one page, names and cursors. */
   coEditing: false,
 
+  /** Live updates and jobs in app.ts (#288): others' changes show without a reload. */
+  liveUpdates: false,
+
   /** Sharing: the share dialog, access levels, guests and share links. */
   sharing: false,
 
   /** Comments, replies and @ mentions of people, pages and dates. */
   comments: false,
 
+  /** Suggested edits: Suggesting mode, the marks by their author, Accept and Reject (all). */
+  suggestedEdits: false,
+
+  /** Following a page (a notice for each new comment) and muting a thread. */
+  following: false,
+
   /** The 🔔 Care Hub chat where notices arrive. */
   notices: false,
+
+  /** Reply in a comment notice: the answer goes into the thread without leaving the 🔔 chat. */
+  noticeReply: false,
 
   /** Search from the search box and Ctrl/Cmd + K. */
   search: false,
