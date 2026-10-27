@@ -292,4 +292,9 @@ describe('readCsrfToken', () => {
     expect(readCsrfToken('theme=dark')).toBe('');
     expect(readCsrfToken('')).toBe('');
   });
+
+  it('prefers the __Host- cookie, which the server sets over HTTPS', () => {
+    expect(readCsrfToken('carehub_csrf=plain; __Host-carehub_csrf=abc%3D123')).toBe('abc=123');
+    expect(readCsrfToken('__Host-carehub_csrf=host-token; theme=dark')).toBe('host-token');
+  });
 });

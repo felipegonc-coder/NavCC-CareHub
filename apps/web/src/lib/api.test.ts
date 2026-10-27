@@ -30,6 +30,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   fetchMock.mockReset();
   document.cookie = 'carehub_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
@@ -61,6 +62,25 @@ describe('api', () => {
     expect(init).toMatchObject({ method: 'POST', body: '{"title":"Shift notes"}' });
     expect(headers.get('Content-Type')).toBe('application/json');
     expect(headers.get('X-CSRF-Token')).toBe('abc/def==');
+  });
+
+  it('sends the __Host- CSRF cookie, which the server sets over HTTPS', async () => {
+    // jsdom runs on http, where browsers refuse __Host- cookies, so the cookie string is stubbed.
+    vi.spyOn(document, 'cookie', 'get').mockReturnValue(
+      'carehub_csrf=plain-token; __Host-carehub_csrf=host%2Ftoken',
+    );
+    fetchMock.mockImplementation(async () => new Response(null, { status: 204 }));
+
+    await api.post('/api/pages/page-1/restore');
+    expect(lastRequest().headers.get('X-CSRF-Token')).toBe('host/token');
+  });
+
+  it('sends a CSRF cookie with broken percent-encoding as it is', async () => {
+    document.cookie = 'carehub_csrf=abc%E0%A4%A; path=/';
+    fetchMock.mockImplementation(async () => new Response(null, { status: 204 }));
+
+    await api.post('/api/pages/page-1/restore');
+    expect(lastRequest().headers.get('X-CSRF-Token')).toBe('abc%E0%A4%A');
   });
 
   it('uses the right method for put, patch and delete, and returns undefined without a body', async () => {

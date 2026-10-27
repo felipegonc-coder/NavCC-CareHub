@@ -1,3 +1,4 @@
+import { readCsrfToken } from '@carehub/shared';
 import type { z } from 'zod';
 
 /** A failed API call. Status 0 with code 'offline' means Care Hub couldn't be reached. */
@@ -37,9 +38,16 @@ const CODES: Record<number, string> = {
   429: 'rate_limited',
 };
 
+// `__Host-carehub_csrf` over HTTPS, `carehub_csrf` on a plain-HTTP development server. A value with
+// broken percent-encoding is sent as it is.
 function csrfToken(): string | undefined {
-  const value = /(?:^|;\s*)carehub_csrf=([^;]*)/.exec(document.cookie)?.[1];
-  return value ? decodeURIComponent(value) : undefined;
+  const value = readCsrfToken(document.cookie);
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 async function request<T, S extends Schema>(
