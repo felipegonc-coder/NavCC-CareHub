@@ -9,5 +9,11 @@ export {
   type AskClaudeJsonInput,
 } from './server/ask';
 export { ClaudeError, claudeErrorReason, claudeHttpError } from './server/errors';
+export { summarizeMeeting, type MeetingInput } from './server/meeting';
 export { MAX_REQUEST_CHARS, type ClaudeDocument } from './server/prompt';
-export { configureClaude, type ClaudeAccess, type ClaudeRuntime } from './server/runtime';
+export {
+  configureClaude,
+  type ClaudeAccess,
+  type ClaudePages,
+  type ClaudeRuntime,
+} from './server/runtime';

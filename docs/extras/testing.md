@@ -40,9 +40,11 @@ The tests never reach Claude. The server is pointed at a local stub:
   - `ANTHROPIC_API_KEY`: any fictional value, for example `test-key-not-real`.
   - `ANTHROPIC_BASE_URL=http://127.0.0.1:4599`. The server accepts only loopback addresses here.
 - **The stub:** `tests/e2e/extras/claude-stub.ts`, from the Claude PRs.
-  - Start it with `startClaudeStub({ port })`, which returns `{ url, requests(), clear(), close() }`, or as a process with `node tests/e2e/extras/claude-stub.ts` (port from `CLAUDE_STUB_PORT`, default 4599).
-  - `POST /v1/messages` answers with canned, predictable text.
-  - A selection containing `STUB-429`, `STUB-500` or `STUB-SLOW` makes it answer 429, 500, or after 35 s.
+  - Start it with `startClaudeStub({ port })`, which returns `{ url, requests(), clear(), answerNext(text), close() }` (`clear()` also drops queued answers), or as a process with `node tests/e2e/extras/claude-stub.ts` (port from `CLAUDE_STUB_PORT`, default 4599).
+  - `POST /v1/messages` answers with canned, predictable text: `STUB_TEXT`, or `STUB_JSON` (a meeting summary) when the request asks for one JSON value.
+  - To choose the next answer, call `answerNext(text)` or `POST /__answers` with `{ "text": "…" }`. Queued answers are used once, in order.
+  - A selection containing `STUB-429`, `STUB-500` or `STUB-SLOW` makes it answer 429, 500, or after 35 s. The server tries 429 and 500 twice more, so expect three recorded requests.
+  - Without an `x-api-key` header it answers 401, and without `anthropic-version` it answers 400.
   - `GET /__requests` returns every recorded request: time, path, body, and headers with the key replaced by `"<present>"`.
   - `DELETE /__requests` clears them.
 - **CL-01:** with the switches off, `GET /__requests` stays empty whatever the test does.
