@@ -4,7 +4,8 @@ import { ImportFileError } from '@carehub/extras/import-export/import/index';
 import { describe, expect, it } from 'vitest';
 import { inflateRaw, openZip, zipParts } from './zip';
 
-const encode = (text: string) => new TextEncoder().encode(text);
+// Copied into this realm's Uint8Array: under jsdom, TextEncoder's arrays come from another realm.
+const encode = (text: string) => Uint8Array.from(new TextEncoder().encode(text));
 
 function joined(parts: readonly Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0));
