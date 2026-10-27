@@ -107,7 +107,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 
 **🆕 Moving pages changes access**
 
-- Moving a page somewhere with different access first shows what will change: "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." Move or Cancel. Pages with Stop inheriting keep their own access, and the confirm says so.
+- Moving a page somewhere with different access first shows what will change, in one sentence: "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." People who lose access are counted, each person once even if they had access several ways ("1 person loses access"). Each person, group or role that gains access or gets a different level is named with its new level, joined with "and". A part that doesn't apply is left out. Move to (Pages and blocks) and dragging in the sidebar use this same confirm. Move or Cancel. Pages with Stop inheriting keep their own access, and the confirm says so.
 - Moving into a private space removes everyone else's inherited access; moving out of one gives the new place's access.
 - Moving needs Full access on the page and Can edit where it's going.
 
@@ -138,6 +138,21 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 - Phone: Members becomes a list (tap someone to change their role), and a role's permissions are one switch per row.
 - 🆕 Share dialog: the invite box searches as you type, ↑ and ↓ pick, Enter adds; each entry's level is a menu; Esc closes and returns focus to Share. On phones it's a full screen.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **RP-16** Share Onboarding plan with Sam (Can edit), the group Phoenix team, the role Agent and the guest Casey (Can view), then change Sam's level on a sub-page. → Each gets the chosen level and inherited entries show their source; the sub-page change asks first and turns on Stop inheriting.
+2. ⭐ **RP-03** Give Morgan, a Viewer, Can edit on a page. → Morgan can still only view, and the Share dialog says why.
+3. ⭐ **RP-09** Change Sam from Editor to Viewer while Sam has a page open. → Within 5 seconds Sam's page turns view-only, with the banner.
+4. ⭐ **RP-18** Sign in as the guest Casey. → Casey sees only pages shared with her and can't open others, make top-level pages or see the member list.
+5. ⭐ **RP-21** Make a share link with sub-pages off, open it signed out, then Turn off the link. → The page is read only and its sub-pages are locked; afterwards the link says "This link isn't active."
+6. **RP-07** Share a page with the role Agent as Can view, then add a new Agent. → Every Agent can see it, including the new one.
+7. **RP-05** Turn off Create for the Agent role and sign in as Avery, an Agent. → New page, New database, Duplicate and Import are gone.
+8. **RP-10** Try to remove the last Admin or change their role. → Care Hub refuses.
+9. **RP-24** As Riley, open a link to a page you can't open and choose Request access; decline it as the owner, then ask again as Riley. → Riley never sees the title and is told the answer; asking again within 24 hours is refused.
+10. **RP-25** Move a page into a space with different access. → Care Hub lists the exact changes first, and afterwards access matches the list.
+
 ## 7. Acceptance checks
 
 - **RP-01** The built-in roles match the table and can't be changed or deleted.
@@ -164,7 +179,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 - 🆕 **RP-22** Share links never show databases with row rules or property access, comments, or history.
 - 🆕 **RP-23** The Admins' share-link list shows every live link, and Turn off works from there.
 - 🆕 **RP-24** Access requests: no title is shown to the requester; the notice buttons work; the first answer wins; the requester is told; asking again within 24 hours of a decline is refused.
-- 🆕 **RP-25** Moving a page to a place with different access lists the exact changes, and afterwards access matches the list.
+- 🆕 **RP-25** Moving a page to a place with different access first shows the section 3 sentence, such as "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." Afterwards access matches it: the people counted can't open the page, and those named have the stated level.
 - 🆕 **RP-26** The permission test (RP-12) and leak tests (RP-13) also pass for guests, groups and share-link visitors.
 
 ## Decisions for Felipe

@@ -3,6 +3,6 @@ export { apiFor } from './api.js';
 export { signInAs } from './auth.js';
 export { DEFAULT_TIME_ZONE, shownDate, shownTime, uniqueName } from './data.js';
 export { needs, onMain, type Feature } from './features.js';
-export { people, type PersonKey } from './people.js';
+export { lanePeople, people, type PersonKey } from './people.js';
 export { onlyIn, type ProjectName } from './projects.js';
 export { expect, test } from './test.js';

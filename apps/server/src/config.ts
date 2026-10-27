@@ -15,6 +15,14 @@ const configSchema = z.object({
     .transform((dir) => resolve(dir)),
   CAREHUB_VERSION: z.string().min(1).default('0.0.0-dev'),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /** PostgreSQL, for example postgres://carehub@localhost:5432/carehub */
+  DATABASE_URL: z
+    .string({ error: 'Set DATABASE_URL to a postgres:// address.' })
+    .regex(/^postgres(?:ql)?:\/\//, 'Set DATABASE_URL to a postgres:// address.'),
+  /** The address people use, for example https://carehub.example.test. Requests from other origins are refused. */
+  CAREHUB_PUBLIC_URL: z.url({ protocol: /^https?$/ }).optional(),
+  /** Secure cookies (only sent over HTTPS). Turn off only for local development over plain HTTP. */
+  COOKIE_SECURE: z.stringbool().default(true),
 });
 
 /** Server settings, read from environment variables. */

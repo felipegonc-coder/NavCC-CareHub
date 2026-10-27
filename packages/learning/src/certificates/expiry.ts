@@ -1,8 +1,11 @@
 import type { IsoDate } from '../format/index';
 import { addMonths, daysBetween } from '../util/index';
 
+/** Where a certificate stands on a given day, in the order a certificate goes through them. */
+export const CERTIFICATE_STATUSES = ['valid', 'expiring_soon', 'expired'] as const;
+
 /** Where a certificate stands on a given day. */
-export type CertificateStatus = 'valid' | 'expiring_soon' | 'expired';
+export type CertificateStatus = (typeof CERTIFICATE_STATUSES)[number];
 
 /**
  * The day a certificate stops being valid: `issuedOn` plus `validForMonths` calendar months

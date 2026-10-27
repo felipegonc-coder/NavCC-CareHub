@@ -1,2 +1,10 @@
-// scenario module: owned by B2; see docs/learning/PLAN.md. Stub until it lands.
-export {};
+export {
+  startScenario,
+  chooseScenario,
+  replayScenario,
+  choicePoints,
+  type ScenarioState,
+  type ScenarioStep,
+  type ScenarioReplay,
+} from './play';
+export { scenarioResult, scenarioMaxScore, type ScenarioResult } from './score';
