@@ -10,6 +10,7 @@
     "./formula": "./src/formula/index.ts",
     "./csv": "./src/csv/index.ts",
     "./forms": "./src/forms/index.ts",
+    "./schemas": "./src/schemas/index.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {

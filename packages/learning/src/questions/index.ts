@@ -1,2 +1,4 @@
-// questions module: owned by B2; see docs/learning/PLAN.md. Stub until it lands.
-export {};
+export { normalizeAnswer } from './normalize';
+export { spotContainsPoint } from './hotspot';
+export { isResponseFor, type ResponseFor } from './response';
+export { scoreQuestion, type QuestionResult } from './score';
