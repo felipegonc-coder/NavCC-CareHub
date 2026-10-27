@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api';
-import { heicAsJpeg, isHeic, uploadFile } from './files';
+import { copyPictureFromUrl, heicAsJpeg, isHeic, uploadFile } from './files';
+
+const json = (body: unknown, status: number) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 /** Stands in for XMLHttpRequest: keeps what was sent, and answers when a test says so. */
 class FakeRequest {
@@ -174,6 +177,40 @@ describe('uploadFile', () => {
     expect(close).toHaveBeenCalledTimes(1);
     request.respond(201, { ...uploaded, name: 'IMG_0001.jpg', mimeType: 'image/jpeg' });
     await expect(done).resolves.toMatchObject({ name: 'IMG_0001.jpg' });
+  });
+});
+
+describe('copyPictureFromUrl', () => {
+  it('asks Care Hub to copy the picture into the scope', async () => {
+    const copied = {
+      id: '0b0c7f39-5d9e-4c55-9e57-3f4f3a1e2d10',
+      name: 'Harbour at dusk.png',
+      size: 2048,
+      mimeType: 'image/png',
+      url: '/api/files/0b0c7f39-5d9e-4c55-9e57-3f4f3a1e2d10',
+    };
+    const fetch = vi.fn(async (_path: string, _init: RequestInit) => json(copied, 201));
+    vi.stubGlobal('fetch', fetch);
+    document.cookie = 'carehub_csrf=fictional-token; path=/';
+
+    const url = 'https://pictures.example/harbour.png';
+    expect(await copyPictureFromUrl(url, { scope: 'learning:course-1' })).toEqual(copied);
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/files/from-url');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ url, scope: 'learning:course-1' });
+    expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('fictional-token');
+  });
+
+  it("rejects with Care Hub's reason, so the link can stay a link", async () => {
+    const message = 'Care Hub copies pictures only from public websites.';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => json({ error: { code: 'invalid', message } }, 400)),
+    );
+    const failed = copyPictureFromUrl('http://10.0.0.8/a.png', { scope: 'pages:page-1' });
+    await expect(failed).rejects.toBeInstanceOf(ApiError);
+    await expect(failed).rejects.toMatchObject({ status: 400, code: 'invalid', message });
   });
 });
 

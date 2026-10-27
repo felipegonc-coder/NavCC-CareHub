@@ -1,5 +1,5 @@
 import { CSRF_HEADER, readCsrfToken, uploadedFileSchema, type UploadedFile } from '@carehub/shared';
-import { ApiError } from './api';
+import { api, ApiError } from './api';
 
 // Uploads to Care Hub's files (decision 0007, section 4.3).
 
@@ -112,6 +112,18 @@ function answer(status: number, text: string): UploadedFile {
     );
   }
   return parsed.data;
+}
+
+/**
+ * Copies a picture from another website into Care Hub (POST /api/files/from-url), for example one pasted
+ * into a page. Only pictures of up to 10 MB on public websites are copied: anything else throws an
+ * ApiError saying why, and the caller keeps the link instead.
+ */
+export function copyPictureFromUrl(
+  url: string,
+  { scope, signal }: { scope: string; signal?: AbortSignal },
+): Promise<UploadedFile> {
+  return api.post('/api/files/from-url', { url, scope }, { schema: uploadedFileSchema, signal });
 }
 
 /** Whether a file is a HEIC or HEIF photo (some browsers give no type, so the ending counts too). */
