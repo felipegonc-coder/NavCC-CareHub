@@ -1,6 +1,7 @@
 // Request bodies for /api/knowledge and the shapes it answers with, shared by server and web.
 import { z } from 'zod';
 import { KB_LIMITS, KB_STATUSES, type KbStatus } from './constants';
+import type { ReportReason, ReportStatus } from './reports';
 import type { CivilDate } from './time';
 import { VERIFY_PERIODS, civilDateSchema, type VerifyPeriod } from './verification';
 
@@ -76,4 +77,34 @@ export interface KbPageInfo {
     manageReports: boolean;
     report: boolean;
   };
+}
+
+/** A report, for its reporter, the page's owners and the knowledge base's editors only. */
+export interface KbReport {
+  id: string;
+  pageId: string;
+  pageTitle: string;
+  reason: ReportReason;
+  text: string;
+  quote: string | null;
+  blockId: string | null;
+  reporter: KbPerson;
+  status: ReportStatus;
+  createdAt: string;
+  closedAt: string | null;
+}
+
+export interface KbReply {
+  id: string;
+  author: KbPerson;
+  text: string;
+  createdAt: string;
+}
+
+/** GET /api/knowledge/reports/:reportId. */
+export interface KbReportDetail {
+  report: KbReport;
+  replies: KbReply[];
+  /** Owners and editors set the status; the reporter can only add to it. */
+  canManage: boolean;
 }
