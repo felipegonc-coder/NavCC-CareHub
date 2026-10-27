@@ -1,5 +1,6 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import {
+  paperAnswerKey,
   progressIntake,
   quizAttemptStart,
   quizPaper,
@@ -147,6 +148,27 @@ export async function runVersion(
   return row?.version ?? null;
 }
 
+/**
+ * The learner's own state with the right answers on each submitted attempt, on that attempt's
+ * paper (`paperAnswerKey`), for the quizzes whose `revealAnswers` allows it now (decisions 0302
+ * and 0316). Only the learner's own replies get them: never resets, completions marked by hand or
+ * reports.
+ */
+function withAnswers(course: Course, state: LearnerCourseState): LearnerCourseState {
+  return {
+    ...state,
+    quizzes: state.quizzes.map((quiz) => {
+      const lesson = course.lessons.find((candidate) => candidate.id === quiz.lessonId);
+      if (!quiz.revealAnswers || lesson?.kind !== 'quiz') return quiz;
+      const attempts = quiz.attempts.map((attempt) => ({
+        ...attempt,
+        answers: paperAnswerKey(lesson, attempt.plan),
+      }));
+      return { ...quiz, attempts };
+    }),
+  };
+}
+
 /** GET /courses/:id/progress: the learner's state in their run's version (none: not started). */
 export async function getProgress(
   db: Db | Tx,
@@ -156,9 +178,8 @@ export async function getProgress(
   const live = await visibleCourse(db, actor, courseId);
   const row = await findProgress(db, learnerOf(actor, courseId));
   if (!row) return stateOf(live.course, undefined, []);
-  // TODO(0316): once B2's paperAnswerKey(quiz, plan) is on main, give each submitted attempt its
-  // `answers` while its quiz's revealAnswers is true: here and in recordEvents, never in reports.
-  return stateOf(await runCourse(db, row, live), row, await runEvents(db, row));
+  const course = await runCourse(db, row, live);
+  return withAnswers(course, stateOf(course, row, await runEvents(db, row)));
 }
 
 /**
@@ -166,7 +187,7 @@ export async function getProgress(
  * state and the batch's refusals (progressIntake), in their run's version. A first batch pins the
  * run to the live version. An event sent again is stored once; events dated ahead of the server's
  * clock, or before the run began, are refused. 422 when the run would go past
- * MAX_EVENTS_PER_LEARNER_COURSE.
+ * MAX_EVENTS_PER_LEARNER_COURSE. Submitted attempts carry their right answers as in getProgress.
  */
 export async function recordEvents(
   db: Db,
@@ -194,8 +215,7 @@ export async function recordEvents(
         .where(progressKey(learner));
       await issueCertificate(tx, { ...learner, course, version: row.version, finish: state });
     }
-    // TODO(0316): each submitted attempt's `answers`, as in getProgress.
-    return { ...intake.reply, state };
+    return { ...intake.reply, state: withAnswers(course, state) };
   });
 }
 
