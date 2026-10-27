@@ -20,7 +20,7 @@ CREATE TABLE comment_threads (
   last_comment_at timestamptz NOT NULL DEFAULT now(),
   resolved_at timestamptz,
   resolved_by uuid REFERENCES users (id),
-  CONSTRAINT comment_threads_spot_check CHECK (
+  CONSTRAINT comment_threads_place_check CHECK (
     (spot = 'page' AND block_id IS NULL AND property_id IS NULL AND quote IS NULL)
     OR (spot = 'text' AND block_id IS NOT NULL AND property_id IS NULL AND quote IS NOT NULL)
     OR (spot = 'block' AND block_id IS NOT NULL AND property_id IS NULL AND quote IS NULL)
