@@ -7,8 +7,8 @@ import { setLiveClientForTest } from '../../live/client';
 import { createFakeLive } from '../../live/testSource';
 import { LIMIT_MESSAGE } from './ConnectedCalendars';
 import { TRUNCATED_NOTE } from './ConnectionItem';
-import { browser } from './data';
-import { ConnectionsScreen } from './index';
+import { browser, connectionsKey } from './data';
+import { ConnectionsScreen, useRefreshOnOpen } from './index';
 import { connectionsRoutes } from './routes';
 
 const BASE = '/api/calendar/connections';
@@ -73,6 +73,7 @@ function serve(start: Partial<ConnectionsResponse> = {}) {
     }
     if (server.refuse) return reply(400, { error: { code: 'invalid', message: server.refuse } });
     if (url === `${BASE}/google`) return reply(200, { url: GOOGLE_SIGN_IN });
+    if (url === `${BASE}/refresh`) return reply(200, server.data);
     if (url === `${BASE}/links`) {
       const added = link({ id: 'conn-new', status: 'ok', lastError: null, ...(body as object) });
       server.data.connections.push(added);
@@ -369,5 +370,25 @@ describe('Connected calendars', () => {
     server.down = false;
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('listitem', { name: 'School' })).toBeInTheDocument();
+  });
+});
+
+describe('useRefreshOnOpen', () => {
+  it('reads the connections once when Calendar opens, and keeps the fresh list', async () => {
+    const server = serve();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function CalendarScreen() {
+      useRefreshOnOpen();
+      return null;
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <CalendarScreen />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(client.getQueryData(connectionsKey)).toEqual(server.data));
+    expect(server.calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+      `POST ${BASE}/refresh`,
+    ]);
   });
 });

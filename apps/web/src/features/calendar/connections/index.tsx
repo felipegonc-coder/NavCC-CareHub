@@ -1,5 +1,7 @@
 import { ConnectedCalendars } from './ConnectedCalendars';
 
+export { useRefreshOnOpen, useSyncConnection } from './data';
+
 /** `/calendar/connections`: connect Google Calendar or calendar links, and look after them. */
 export function ConnectionsScreen() {
   return (

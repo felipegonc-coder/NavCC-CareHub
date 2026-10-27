@@ -34,3 +34,15 @@
   - A listed origin skips only the private-address check and may use http. Redirects are checked again on their own origin; the 15-second timeout and 10 MB limit still apply.
 - Main now 89b09cf (08:00Z); latest migration 202610270625_comments_threads.sql → PR3 migration must be renamed to a later timestamp at open time (and schema.ts comment). 6a oauth migration after that.
 - Local: drizzle-orm not installed → DB test files (store/layers/sync-store/routes tests) can't load locally; only secrets/bounds/sync/oauth/client/map tests run. vitest shim now has describe.skipIf.
+
+## 08:55Z agreements
+- W1-G: adds "@carehub/team-calendar-api": "*" to apps/web/package.json in their first screen PR (after #168 + #188). If I'm first, tell them before opening. Their apps/web/src/features/calendar/routes.tsx exports `routes: RouteObject[]` ({ path: 'calendar', lazy }); my connectionsRoutes path 'calendar/connections' (relative). Whoever merges SECOND adds to their routes.tsx: `import { connectionsRoutes } from './connections/routes';` + `...connectionsRoutes,` in the array (I may edit it if theirs is on main first). Left panel "Connect calendar" -> /calendar/connections.
+- Exported from web connections/index.tsx: useRefreshOnOpen() (POST /refresh once, setQueryData ['calendar','connections']) and useSyncConnection() (for W1-G's Retry in their later layers PR). W1-G query keys ['calendar','items',from,to], ['calendar','layers']; they invalidate ['calendar'] on calendar.changed and live-reconnected.
+- W1-B fallback stands (S2a-2 also waits on #55 requireMember). If I land first: app.ts replace `// feature: calendar` with exactly `await app.register(import('./features/calendar/routes'), { prefix: '/api/calendar' });` (NEED LEAD OK: brief says don't edit app.ts) and features/calendar/routes.ts shell:
+  import type { FastifyInstance } from 'fastify';
+  /** Calendar routes under /api/calendar. */
+  export default async function calendarRoutes(app: FastifyInstance) {
+    await app.register(import('./connections/routes'));
+  }
+  Keep guard inside my own plugin (no fastify-plugin). If S2a-2 lands first, just replace the `// calendar: connections` line.
+- Web WIP typecheck: only expected errors are `unavailable.links` (PR8 link button parts) since package draft dropped links.

@@ -8,6 +8,7 @@ import {
   type LinkConnect,
 } from '@carehub/team-calendar-api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { api } from '../../../lib/api';
 import { useLiveEvent } from '../../live';
 
@@ -37,6 +38,26 @@ export function useConnections() {
     queryFn: ({ signal }) => api.get(BASE, { schema: connectionsResponseSchema, signal }),
     refetchInterval: 60_000,
   });
+}
+
+/**
+ * For the Calendar screen, once: reads the connections that weren't read in the last minute
+ * (Calendar spec: also when Calendar opens). Calendars that changed send `calendar.changed`.
+ */
+export function useRefreshOnOpen() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const controller = new AbortController();
+    api
+      .post(`${BASE}/refresh`, undefined, {
+        schema: connectionsResponseSchema,
+        signal: controller.signal,
+      })
+      .then((answer) => queryClient.setQueryData(connectionsKey, answer))
+      // Calendar still shows what it has; the sync every few minutes catches up.
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [queryClient]);
 }
 
 /** After a change: read the list again. */
