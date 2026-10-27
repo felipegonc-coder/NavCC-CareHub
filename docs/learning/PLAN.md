@@ -226,8 +226,10 @@ every bank problem by title, and returns the course with bank snapshots) and `pr
 
 ### Learning help (Claude, 0315)
 Writing help in blocks, summaries and key points, quiz questions from a lesson, and a first draft of a course. Studio
-only (`learning.author`). Calls Extras' shared client (`askClaude`, `isClaudeFeatureOn` from `@carehub/extras/claude`)
-with the feature key `learning_help`: off until an admin switches it on, and every button is hidden while it's off.
+only (`learning.author`, plus `claude.use`). Calls Extras' shared client on the server (`askClaude`, `askClaudeJson`,
+`isClaudeFeatureOn` from `apps/server/src/features/claude/index.ts`; feature keys, error reasons and messages from
+`@carehub/extras/claude`) with the feature key `learning_help`: off until an admin switches it on, and every button is
+hidden while it's off. The server loads the course text itself by id; see 0315 for the rules.
 Owner: to be named. Paths: `packages/learning/src/help/`, `apps/server/src/features/learning/help/`,
 `apps/web/src/features/learning/studio/help/`. B8 and B9 give it a place for its buttons (rich text toolbar, lesson
 editor, New course, quiz editor).
