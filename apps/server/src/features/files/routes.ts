@@ -1,15 +1,22 @@
-import { fileParamsSchema, fileReadQuerySchema, fileUploadQuerySchema } from '@carehub/shared';
+import { Readable } from 'node:stream';
+import {
+  fileFromUrlBodySchema,
+  fileParamsSchema,
+  fileReadQuerySchema,
+  fileUploadQuerySchema,
+} from '@carehub/shared';
 import multipart from '@fastify/multipart';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { HttpError, httpError } from '../../core/errors';
-import { detectFileType, hasBlockedEnding } from './detect';
-import { cleanFileName, tooLargeMessage } from './names';
+import { detectFileType, hasBlockedEnding, type FileType } from './detect';
+import { cleanFileName, tooLargeMessage, withPictureEnding } from './names';
+import { downloadRemoteFile, RemoteError, type RemoteFailure } from './remote';
 import { files } from './schema';
 import { canUseFileScope, hasFileScope, type FileScopeContext } from './scopes';
 import { FILE_CSP, sendStoredFile } from './serve';
 import { deleteFiles, getFile, uploadedFileJson, type StoredFile } from './service';
 import { readFilesSettings } from './settings';
-import { fileStore, type FileStore } from './storage';
+import { fileStore, type FileStore, type ReceivedFile } from './storage';
 
 const MB = 1024 * 1024;
 /** Room for the multipart wrapping around a file, when an upload is judged by its Content-Length. */
@@ -17,6 +24,20 @@ const WRAPPING_BYTES = 64 * 1024;
 const PROGRAMS = "Programs can't be uploaded.";
 const NO_FILE = 'Choose a file to upload.';
 const CANCELLED = 'The upload was cancelled.';
+/** Pictures copied from other websites (Pages and blocks, PB-D3). */
+const FROM_URL_MAX_MB = 10;
+/** Copies at once: each holds its picture in memory until it's checked. */
+const MAX_COPIES = 4;
+const BUSY = 'Care Hub is copying other pictures. Try again in a moment.';
+const NOT_A_PICTURE = "That address isn't a picture. Only pictures are copied from other websites.";
+const COPY_FAILED: Readonly<Record<Exclude<RemoteFailure, 'status' | 'too_large'>, string>> = {
+  address: 'Paste a full web address that starts with https://.',
+  not_public: 'Care Hub copies pictures only from public websites.',
+  not_found: "That website couldn't be found. Check the address.",
+  unreachable: "That website couldn't be reached. Try again later.",
+  redirects: 'That address sends you on to too many others.',
+  timeout: 'That website took too long to answer.',
+};
 
 /** /api/files: upload, show or download, and delete files (decision 0007, section 4.3). */
 const filesRoutes: FastifyPluginAsync = async (app) => {
@@ -61,16 +82,55 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     return file;
   };
 
+  /** The scope's feature and context, once it's clear the person may add files there. */
+  const writableScope = async (request: FastifyRequest, scope: string) => {
+    const feature = scope.slice(0, scope.indexOf(':'));
+    if (!hasFileScope(feature)) throw httpError(400, 'invalid', "Files can't be added there.");
+    const ctx = context(request, scope.slice(feature.length + 1));
+    if (!(await canUseFileScope('write', feature, ctx))) throw httpError(403, 'forbidden');
+    return { feature, ctx };
+  };
+
+  const typeOf = async (tempPath: string, file: ReceivedFile & { name: string }) => {
+    const reader = await store.reader(tempPath);
+    return detectFileType({ ...file, read: reader.read }).finally(reader.close);
+  };
+
+  /** Moves a checked file into place and records it; returns what POST answers. */
+  const keepFile = async (
+    tempPath: string,
+    file: ReceivedFile & { name: string; type: FileType; feature: string; ctx: FileScopeContext },
+  ) => {
+    const storageKey = await store.keep(tempPath);
+    try {
+      const [row] = await app.db
+        .insert(files)
+        .values({
+          workspaceId: file.ctx.member.workspaceId,
+          scopeFeature: file.feature,
+          scopeId: file.ctx.scopeId,
+          uploadedBy: file.ctx.user.id,
+          name: file.name,
+          mimeType: file.type.mimeType,
+          size: file.size,
+          sha256: file.sha256,
+          storageKey,
+        })
+        .returning();
+      if (!row) throw new Error('The file was not saved.');
+      return uploadedFileJson(row);
+    } catch (error) {
+      await store.remove(store.pathOf(storageKey));
+      throw error;
+    }
+  };
+
   // Guests too: the scope decides (a page shared with them, for example).
   const guarded = { config: { allowGuests: true }, preHandler: app.requireMember };
 
   app.post('/', guarded, async (request, reply) => {
     const { scope } = fileUploadQuerySchema.parse(request.query);
-    const feature = scope.slice(0, scope.indexOf(':'));
-    if (!hasFileScope(feature)) throw httpError(400, 'invalid', "Files can't be added there.");
-    const ctx = context(request, scope.slice(feature.length + 1));
-    if (!(await canUseFileScope('write', feature, ctx))) throw httpError(403, 'forbidden');
-
+    const { feature, ctx } = await writableScope(request, scope);
     const limitMb = readFilesSettings(app.log).FILES_MAX_MB;
     const declared = Number(request.headers['content-length'] ?? 0);
     if (declared > limitMb * MB + WRAPPING_BYTES) {
@@ -83,32 +143,39 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
       if (upload.truncated) {
         throw httpError(413, 'too_large', tooLargeMessage(limitMb * MB + 1, limitMb));
       }
-      const reader = await store.reader(tempPath);
-      const type = await detectFileType({ ...upload, read: reader.read }).finally(reader.close);
+      const type = await typeOf(tempPath, upload);
       if (type === 'program') throw httpError(400, 'invalid', PROGRAMS);
+      return reply.code(201).send(await keepFile(tempPath, { ...upload, type, feature, ctx }));
+    } finally {
+      await store.remove(tempPath);
+    }
+  });
 
-      const storageKey = await store.keep(tempPath);
-      try {
-        const [file] = await app.db
-          .insert(files)
-          .values({
-            workspaceId: ctx.member.workspaceId,
-            scopeFeature: feature,
-            scopeId: ctx.scopeId,
-            uploadedBy: ctx.user.id,
-            name: upload.name,
-            mimeType: type.mimeType,
-            size: upload.size,
-            sha256: upload.sha256,
-            storageKey,
-          })
-          .returning();
-        if (!file) throw new Error('The file was not saved.');
-        return reply.code(201).send(uploadedFileJson(file));
-      } catch (error) {
-        await store.remove(store.pathOf(storageKey));
-        throw error;
+  // A picture pasted from another website, copied so it keeps working (Pages and blocks, PB-D3).
+  let copies = 0;
+  app.post('/from-url', guarded, async (request, reply) => {
+    const { url, scope } = fileFromUrlBodySchema.parse(request.body);
+    const { feature, ctx } = await writableScope(request, scope);
+    const limitMb = Math.min(FROM_URL_MAX_MB, readFilesSettings(app.log).FILES_MAX_MB);
+    if (copies >= MAX_COPIES) throw httpError(429, 'rate_limited', BUSY);
+    copies += 1;
+    const remote = await downloadRemoteFile(url, { maxBytes: limitMb * MB })
+      .catch((error: unknown) => {
+        throw error instanceof RemoteError ? copyFailed(error, limitMb) : error;
+      })
+      .finally(() => {
+        copies -= 1;
+      });
+    const tempPath = store.tempPath();
+    try {
+      const received = await store.receive(Readable.from([remote.bytes]), tempPath);
+      const name = cleanFileName(remote.name || 'picture');
+      const type = await typeOf(tempPath, { ...received, name });
+      if (type === 'program' || type.kind !== 'picture') {
+        throw httpError(400, 'invalid', NOT_A_PICTURE);
       }
+      const picture = { ...received, name: withPictureEnding(name, type.mimeType), type };
+      return reply.code(201).send(await keepFile(tempPath, { ...picture, feature, ctx }));
     } finally {
       await store.remove(tempPath);
     }
@@ -133,6 +200,21 @@ const filesRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(204).send();
   });
 };
+
+/** The answer when a picture couldn't be copied: 413 when it's too large, else 400 saying why. */
+function copyFailed(error: RemoteError, limitMb: number): HttpError {
+  if (error.reason === 'too_large') {
+    const message = error.detail
+      ? tooLargeMessage(error.detail, limitMb)
+      : `This picture is over the ${limitMb} MB limit.`;
+    return httpError(413, 'too_large', message);
+  }
+  if (error.reason === 'status') {
+    const message = `That website answered with error ${error.detail ?? ''} instead of a picture.`;
+    return httpError(400, 'invalid', message);
+  }
+  return httpError(400, 'invalid', COPY_FAILED[error.reason]);
+}
 
 /**
  * Writes the upload in the multipart field `file` to `tempPath`, refusing program endings before any byte

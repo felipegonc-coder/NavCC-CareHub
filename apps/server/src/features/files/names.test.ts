@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanFileName, contentDisposition, tooLargeMessage } from './names';
+import { cleanFileName, contentDisposition, tooLargeMessage, withPictureEnding } from './names';
 
 const MB = 1024 * 1024;
 
@@ -41,5 +41,18 @@ describe('tooLargeMessage', () => {
     );
     expect(tooLargeMessage(100 * MB + 1, 100)).toBe('This file is 100.1 MB; the limit is 100 MB.');
     expect(tooLargeMessage(310 * MB, 100)).toBe('This file is 310 MB; the limit is 100 MB.');
+  });
+});
+
+describe('withPictureEnding', () => {
+  it("adds the picture's own ending when the name lacks it", () => {
+    expect(withPictureEnding('Harbour at dusk.png', 'image/png')).toBe('Harbour at dusk.png');
+    expect(withPictureEnding('PHOTO.JPEG', 'image/jpeg')).toBe('PHOTO.JPEG');
+    expect(withPictureEnding('picture', 'image/webp')).toBe('picture.webp');
+    expect(withPictureEnding('render.php', 'image/png')).toBe('render.php.png');
+    expect(withPictureEnding(`${'a'.repeat(300)}.gif`, 'image/svg+xml')).toBe(
+      `${'a'.repeat(251)}.svg`,
+    );
+    expect(withPictureEnding('notes.txt', 'text/plain')).toBe('notes.txt');
   });
 });

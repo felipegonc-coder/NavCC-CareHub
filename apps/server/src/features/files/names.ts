@@ -1,4 +1,5 @@
 // File names as people gave them, made safe to keep and to send back in a header.
+import { fileEnding } from './detect';
 
 /** Control characters, and the invisible ones that reorder text (they can disguise an ending). */
 const UNSAFE = /[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/gu;
@@ -48,4 +49,23 @@ const formatMb = (mb: number) => String(Number(mb.toFixed(1)));
 export function tooLargeMessage(size: number, limitMb: number): string {
   const shown = Math.max(Math.round((size / MB) * 10) / 10, limitMb + 0.1);
   return `This file is ${formatMb(shown)} MB; the limit is ${formatMb(limitMb)} MB.`;
+}
+
+/** The endings each picture type may have; the first is added when a name has none of them. */
+const PICTURE_ENDINGS: Readonly<Record<string, readonly string[]>> = {
+  'image/png': ['png'],
+  'image/jpeg': ['jpg', 'jpeg', 'jpe', 'jfif'],
+  'image/gif': ['gif'],
+  'image/webp': ['webp'],
+  'image/avif': ['avif'],
+  'image/heic': ['heic'],
+  'image/heif': ['heif', 'heic'],
+  'image/svg+xml': ['svg'],
+};
+
+/** A picture's name, ending as its type does: "sunset" and "photo.php" as PNG become "sunset.png" and "photo.php.png". */
+export function withPictureEnding(name: string, mimeType: string): string {
+  const endings = PICTURE_ENDINGS[mimeType];
+  if (!endings?.[0] || endings.includes(fileEnding(name))) return name;
+  return cleanFileName(`${name}.${endings[0]}`);
 }

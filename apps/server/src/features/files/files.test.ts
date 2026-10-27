@@ -1,10 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { access, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createTestApp,
   createUser,
@@ -14,8 +16,25 @@ import {
   type TestUser,
 } from '../../testing';
 import { deleteFiles, getFiles, registerFileScope, removeDeletedFiles } from './index';
+import type { RemoteOptions } from './remote';
 import { files } from './schema';
 import { FILE_CSP } from './serve';
+
+// Copies from other websites reach only public addresses; here they may also reach the test's own
+// website on 127.0.0.1 (remote.test.ts checks the guard itself).
+vi.mock('./remote', async (importOriginal: () => Promise<unknown>) => {
+  const remote = (await importOriginal()) as typeof import('./remote');
+  return {
+    ...remote,
+    downloadRemoteFile: (address: string, options: RemoteOptions = {}) =>
+      remote.downloadRemoteFile(address, {
+        ...options,
+        isAllowedAddress: (ip) => ip === '127.0.0.1',
+        isAllowedPort: () => true,
+        timeoutMs: 1000,
+      }),
+  };
+});
 
 const MB = 1024 * 1024;
 const PNG = Buffer.concat([
@@ -348,6 +367,112 @@ describe.skipIf(!hasDatabase)('files', () => {
     expect(await removeDeletedFiles(testApp.db)).toBe(1);
     expect(await exists(keptPath)).toBe(true);
     expect((await getFiles(testApp.db, [copy?.id ?? ''])).size).toBe(1);
+  });
+
+  describe('copying pictures from other websites', () => {
+    let site: Server;
+    let address = '';
+    let visits = 0;
+    const photo = () => `${address}/photos/Harbour%20at%20dusk.png`;
+
+    beforeAll(async () => {
+      site = createServer((request, response) => {
+        visits += 1;
+        if (request.url === '/photos/Harbour%20at%20dusk.png') response.writeHead(200).end(PNG);
+        else if (request.url === '/page')
+          response.writeHead(200).end('<!doctype html><p>Fictional');
+        else if (request.url === '/huge')
+          response.writeHead(200, { 'content-length': 11 * MB }).end();
+        else if (request.url !== '/slow') response.writeHead(404).end();
+      });
+      await new Promise<void>((resolve) => site.listen(0, '127.0.0.1', resolve));
+      address = `http://127.0.0.1:${(site.address() as AddressInfo).port}`;
+    });
+
+    afterAll(async () => {
+      site.closeAllConnections();
+      await new Promise((resolve) => site.close(resolve));
+    });
+
+    const copy = (user: TestUser, url: string, scope = 'test:open') =>
+      injectAs(testApp.app, user, {
+        method: 'POST',
+        url: '/api/files/from-url',
+        payload: { url, scope },
+      });
+    const message = async (user: TestUser, url: string) =>
+      (await copy(user, url)).json().error.message;
+
+    it('keeps a copy of a picture, named from its address', async () => {
+      const copied = await copy(editor, photo());
+      expect(copied.statusCode).toBe(201);
+      const body = copied.json();
+      expect(body).toEqual({
+        id: expect.any(String),
+        name: 'Harbour at dusk.png',
+        size: PNG.length,
+        mimeType: 'image/png',
+        url: `/api/files/${body.id}`,
+      });
+      expect((await get(reader, body.url)).rawPayload.equals(PNG)).toBe(true);
+      const [row] = await testApp.db.select().from(files).where(eq(files.id, body.id));
+      expect(row).toMatchObject({ uploadedBy: editor.id, scopeFeature: 'test', scopeId: 'open' });
+      expect(await readdir(path.join(filesDir, 'tmp'))).toEqual([]);
+    });
+
+    it('copies only pictures, and says why a copy failed', async () => {
+      const page = await copy(editor, `${address}/page`);
+      expect(page.statusCode).toBe(400);
+      expect(page.json().error.message).toBe(
+        "That address isn't a picture. Only pictures are copied from other websites.",
+      );
+      const huge = await copy(editor, `${address}/huge`);
+      expect(huge.statusCode).toBe(413);
+      expect(huge.json().error.message).toBe('This file is 11 MB; the limit is 10 MB.');
+      expect(await message(editor, `${address}/missing`)).toBe(
+        'That website answered with error 404 instead of a picture.',
+      );
+      expect(await message(editor, `${address}/slow`)).toBe(
+        'That website took too long to answer.',
+      );
+      expect(await message(editor, 'http://10.0.0.8/photo.png')).toBe(
+        'Care Hub copies pictures only from public websites.',
+      );
+      expect(await message(editor, 'ftp://pictures.example/photo.png')).toBe(
+        'Paste a full web address that starts with https://.',
+      );
+      expect(await readdir(path.join(filesDir, 'tmp'))).toEqual([]);
+    });
+
+    it('checks who may add files there before visiting the website', async () => {
+      const before = visits;
+      const signedOut = await testApp.app.inject({
+        method: 'POST',
+        url: '/api/files/from-url',
+        payload: { url: photo(), scope: 'test:open' },
+      });
+      expect(signedOut.statusCode).toBe(401);
+      expect((await copy(outsider, photo())).statusCode).toBe(403);
+      expect((await copy(reader, photo())).statusCode).toBe(403);
+      expect((await copy(editor, photo(), 'test:closed')).statusCode).toBe(403);
+      expect((await copy(editor, photo(), 'unknown:place')).statusCode).toBe(400);
+      expect(visits).toBe(before);
+    });
+
+    it('copies at most 4 pictures at once', async () => {
+      const before = visits;
+      const slow = Array.from({ length: 4 }, () => copy(editor, `${address}/slow`));
+      while (visits < before + 4) await new Promise((resolve) => setTimeout(resolve, 10));
+      const fifth = await copy(editor, photo());
+      expect(fifth.statusCode).toBe(429);
+      expect(fifth.json().error.message).toBe(
+        'Care Hub is copying other pictures. Try again in a moment.',
+      );
+      expect((await Promise.all(slow)).map((answer) => answer.statusCode)).toEqual([
+        400, 400, 400, 400,
+      ]);
+      expect((await copy(editor, photo())).statusCode).toBe(201);
+    });
   });
 
   it('creates the files table exactly as the Drizzle definition describes it', async () => {

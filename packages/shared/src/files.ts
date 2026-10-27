@@ -13,13 +13,23 @@ export const fileScopeSchema = z
 /** The query of POST /api/files (the file itself is the multipart field `file`). */
 export const fileUploadQuerySchema = z.object({ scope: fileScopeSchema });
 
+/** The body of POST /api/files/from-url: a picture on another website, and where its copy goes. */
+export const fileFromUrlBodySchema = z.object({
+  url: z
+    .string()
+    .trim()
+    .min(1, 'Paste the address of a picture.')
+    .max(2048, 'That address is too long.'),
+  scope: fileScopeSchema,
+});
+
 /** The params of GET and DELETE /api/files/:id. */
 export const fileParamsSchema = z.object({ id: z.uuid() });
 
 /** The query of GET /api/files/:id. `download=1` saves the file instead of showing it. */
 export const fileReadQuerySchema = z.object({ download: z.enum(['0', '1']).optional() });
 
-/** What POST /api/files answers. */
+/** What POST /api/files and POST /api/files/from-url answer. */
 export const uploadedFileSchema = z.object({
   id: z.string(),
   name: z.string(),
