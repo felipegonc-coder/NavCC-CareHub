@@ -20,6 +20,20 @@ attention now.
   shows its time ('Now' once started, 'All day'), its title ('(No title)' when empty) linking to
   Calendar, and Join from 10 minutes before the start until the end (HR-02, HR-17). It's live on
   `calendar.changed` and asks again when the day changes.
+- `UnreadSection.tsx`: chats with unread messages, up to 5, with Open Messages beside the heading.
+  The 🔔 Care Hub chat comes first while it has unread notices (HR-01), showing the latest
+  notice's title and the unread count from `features/notices`. Each row shows the chat's name,
+  the time of its latest message, its start and the unread count ('99+' over 99), and opens the
+  chat. With none: "You're all caught up." It's live on `notices-changed`, and on
+  `messages-changed` once Messages' hook is in.
+- `RemindersSection.tsx`: the next 5 pending reminders, soonest first (snoozed ones included),
+  with See all for `/reminders`. Each shows its page's or event's title, when it's due ('Today,
+  3:00 PM', 'Tomorrow, 9:00 AM', 'Mon, Nov 2, 9:00 AM') and its note, and opens the page or the
+  event in Calendar. One the person can't open says "A page you can't open" or "An event you
+  can't open". With none: "No reminders. Use Remind me on a page or event." It's live on
+  `reminders-changed`.
+- `time.ts`: how Home says times, after the person's settings: `reminderDue` for reminders and
+  `chatTime` for chats (the time today, Yesterday, the weekday this week, then the date).
 - `settings.ts`: the person's Home settings from `GET /api/home/settings` (server:
   `features/home`), with `useHomeSettings` and `useChangeHomeSettings`. A change shows straight
   away and is undone if the server refuses it. Other tabs follow on `home-settings-changed`.
@@ -39,9 +53,17 @@ attention now.
   `@carehub/team-calendar-api` and `features/calendar` once they're on main.
 - `viewer.ts`: no name and `DEFAULT_TIME_PREFS` until `useMe()` from `features/auth` lands
   (decision 0007, section 5.2).
+- `unread.ts`: `UnreadChat` and `useUnreadChats(limit)`, as `features/messages` will export them
+  (W1-H). Until Messages is on main there are no chats, so only the 🔔 row can show. Switch to
+  `import { useUnreadChats, type UnreadChat } from '../messages'` once it lands.
+- `reminders.ts`: `PendingReminder` and `usePendingReminders(limit)` over `GET /api/reminders`,
+  as `features/reminders` exports them on the web (W1-A, #376). Until the server sends each
+  reminder's title and link (#209), a reminder says "A page" or "An event" and opens the page or
+  the event in Calendar. Switch to theirs once it's on main.
 
 ## Next
 
-- The other sections, as their data lands: Unread messages (Messages), My tasks (task
-  databases), Reminders and its `/reminders` list (Reminders), My learning (hidden until Learning
-  ships, Phase 4), and Recent pages.
+- The other sections, as their data lands: My tasks (task databases), My learning (hidden until
+  Learning ships, Phase 4), and Recent pages.
+- `/reminders` itself is the Reminders list from `features/reminders` (W1-A). See all opens it
+  once that's on main.
