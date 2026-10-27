@@ -1,2 +1,9 @@
-// certificates module: owned by B3; see docs/learning/PLAN.md. Stub until it lands.
-export {};
+export {
+  CERTIFICATE_ALPHABET,
+  CERTIFICATE_CODE_RANDOM_BYTES,
+  createCertificateCode,
+  isCertificateCodeWellFormed,
+  normalizeCertificateCode,
+} from './code';
+export { certificateExpiry, certificateStatus } from './expiry';
+export type { CertificateStatus } from './expiry';

@@ -1,2 +1,4 @@
-// banks module: owned by B9; see docs/learning/PLAN.md. Stub until it lands.
-export {};
+// banks module (B9): shared question banks, bank draws at publish and survey summaries.
+export * from './bank';
+export * from './draws';
+export * from './survey';
