@@ -12,6 +12,7 @@
     "./xlsx": "./src/xlsx/index.ts",
     "./forms": "./src/forms/index.ts",
     "./schemas": "./src/schemas/index.ts",
+    "./engine": "./src/engine/index.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {
