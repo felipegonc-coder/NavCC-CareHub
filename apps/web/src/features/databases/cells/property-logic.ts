@@ -20,6 +20,7 @@ import {
   type ViewPropertySetting,
 } from '@carehub/databases';
 import { canConvert, planConversion } from '@carehub/databases/convert';
+import { wikiOnlyProblem } from '@carehub/databases/verification';
 import type { QueryRow } from '../contract';
 import { PROPERTY_TEXT } from './messages';
 import { engineRow } from './row-cell';
@@ -54,8 +55,11 @@ export function uniquePropertyName(base: string, properties: readonly Property[]
   return name;
 }
 
-/** Formula, Rollup, ID and Button are only ever added as new properties; nothing turns into them. */
-type AddedOnly = 'formula' | 'rollup' | 'unique_id' | 'button';
+/**
+ * Formula, Rollup, ID, Button and Verification are only ever added as new properties; nothing
+ * turns into them.
+ */
+type AddedOnly = 'formula' | 'rollup' | 'unique_id' | 'button' | 'verification';
 /** What a property can change into from the menu. */
 export type TargetType = Exclude<PropertyType, 'title' | 'relation' | AddedOnly>;
 const ADDED_ONLY: ReadonlySet<PropertyType> = new Set<AddedOnly>([
@@ -63,6 +67,7 @@ const ADDED_ONLY: ReadonlySet<PropertyType> = new Set<AddedOnly>([
   'rollup',
   'unique_id',
   'button',
+  'verification',
 ]);
 
 /** The types `property` can change to, in the type menu's order. Name never changes type. */
@@ -75,12 +80,18 @@ export function typeChoices(property: Property): TargetType[] {
 
 /**
  * Types a property can be added as from the menu. Relations (which pick their database) and
- * rollups (which pick a relation) are added from their settings.
+ * rollups (which pick a relation) are added from their settings. Verification is only for wiki
+ * databases: a menu lists newPropertyTypes(meta).
  */
 export type NewPropertyType = Exclude<PropertyType, 'title' | 'relation' | 'rollup'>;
 export const NEW_PROPERTY_TYPES: readonly NewPropertyType[] = PROPERTY_TYPES.filter(
   (t): t is NewPropertyType => t !== 'title' && t !== 'relation' && t !== 'rollup',
 );
+
+/** The types this database can add from the menu: Verification only in a wiki database. */
+export function newPropertyTypes(meta: Pick<DatabaseMeta, 'wiki'>): NewPropertyType[] {
+  return NEW_PROPERTY_TYPES.filter((t) => wikiOnlyProblem(t, meta) === null);
+}
 
 const EMPTY: ComputedValue = { kind: 'empty' };
 
@@ -115,11 +126,13 @@ export function clearedByChange(
 }
 
 /**
- * How many of `rows` have a value in `property` that deleting it removes. Only stored values
- * count (automatic and computed ones aren't kept in rows), and an unticked checkbox is no value.
+ * How many of `rows` have a value in `property` that deleting it removes. Only values kept in rows
+ * count (automatic and computed ones aren't; verifications are), and an unticked checkbox or Not
+ * verified is no value.
  */
 export function rowsWithValues(property: Property, rows: readonly QueryRow[]): number {
-  if (!isStoredType(property.config.type)) return 0;
+  const type = property.config.type;
+  if (type !== 'verification' && !isStoredType(type)) return 0;
   return rows.filter((row) => {
     const value = readValue(engineRow(row), property);
     return value !== false && !isEmptyValue(value);
