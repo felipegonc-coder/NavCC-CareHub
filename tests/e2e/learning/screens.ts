@@ -39,4 +39,18 @@ export const screens: Screen[] = [
       await page.getByRole('menu', { name: 'Add a block' }).waitFor();
     },
   },
+  // The preview of a copy of the first example course, at computer width.
+  {
+    name: 'learning-studio-preview',
+    path: '/learning/studio',
+    setup: async (page) => {
+      await page.getByRole('button', { name: 'New course' }).click();
+      await page
+        .getByRole('button', { name: /^Copy / })
+        .first()
+        .click();
+      await page.getByRole('link', { name: 'Preview', exact: true }).click();
+      await page.getByRole('region', { name: 'Preview at computer width' }).waitFor();
+    },
+  },
 ];
