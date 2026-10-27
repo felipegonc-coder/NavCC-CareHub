@@ -11,7 +11,9 @@ export type ReplySchema<T> = { parse(data: unknown): T };
 export type ApiOptions = { signal?: AbortSignal };
 
 export const LEARNING_API = '/api/learning';
-const CSRF_COOKIE = 'carehub_csrf';
+// Core's CSRF cookie: `__Host-carehub_csrf` over HTTPS, `carehub_csrf` over plain HTTP (dev). Both until core's
+// readCsrfToken() lands.
+const CSRF_COOKIES = ['__Host-carehub_csrf', 'carehub_csrf'] as const;
 const CSRF_HEADER = 'X-CSRF-Token';
 
 /** For replies without a body, such as a 204 after a delete. */
@@ -78,7 +80,10 @@ export async function api<T>(
 
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const csrf = method === 'GET' ? undefined : readCookie(CSRF_COOKIE);
+  const csrf =
+    method === 'GET' || typeof document === 'undefined'
+      ? undefined
+      : csrfTokenFrom(document.cookie);
   if (csrf) headers[CSRF_HEADER] = csrf;
 
   let response: Response;
@@ -125,9 +130,20 @@ async function errorFrom(response: Response): Promise<LearningApiError> {
   return new LearningApiError(response.status, standard.code, standard.message);
 }
 
-function readCookie(name: string): string | undefined {
-  if (typeof document === 'undefined') return undefined;
-  for (const part of document.cookie.split(';')) {
+/**
+ * The CSRF token in a `document.cookie` string. The HTTPS name wins: a page can only see that cookie over HTTPS,
+ * where it's the one the server checks.
+ */
+export function csrfTokenFrom(cookies: string): string | undefined {
+  for (const name of CSRF_COOKIES) {
+    const value = cookieValue(cookies, name);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function cookieValue(cookies: string, name: string): string | undefined {
+  for (const part of cookies.split(';')) {
     const [key, ...rest] = part.trim().split('=');
     if (key !== name) continue;
     const value = rest.join('=');

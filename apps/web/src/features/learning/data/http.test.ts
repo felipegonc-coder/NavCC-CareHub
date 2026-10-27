@@ -1,6 +1,6 @@
 import { ApiIssueSchema } from '@carehub/learning';
 import { afterEach, describe, expect, it } from 'vitest';
-import { api, LearningApiError, noContent, withQuery } from './http';
+import { api, csrfTokenFrom, LearningApiError, noContent, withQuery } from './http';
 
 type Call = { url: string; init: RequestInit };
 const realFetch = globalThis.fetch;
@@ -150,5 +150,17 @@ describe('Learning API client', () => {
       withQuery('/catalog', { q: 'fire & safety', topic: undefined, page: 2, empty: '' }),
     ).toBe('/catalog?q=fire+%26+safety&page=2');
     expect(withQuery('/catalog', { q: null })).toBe('/catalog');
+  });
+});
+
+describe('csrfTokenFrom', () => {
+  it("reads core's HTTPS cookie first, then the plain one", () => {
+    expect(csrfTokenFrom('a=1; __Host-carehub_csrf=t%2B1; carehub_csrf=old')).toBe('t+1');
+    expect(csrfTokenFrom('a=1; carehub_csrf=plain')).toBe('plain');
+  });
+
+  it('finds nothing without either cookie', () => {
+    expect(csrfTokenFrom('')).toBeUndefined();
+    expect(csrfTokenFrom('carehub_csrf_old=1; x=carehub_csrf')).toBeUndefined();
   });
 });
