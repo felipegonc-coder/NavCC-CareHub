@@ -14,10 +14,10 @@ export function CourseStartScreen() {
 
 /** The start page for a learner: the course (the version of their latest run) and progress. */
 function LiveCourseStart({ courseId }: { courseId: Id }) {
-  const { course, state, error, retry } = useLearnerCourse(courseId);
+  const { course, state, emit, error, retry } = useLearnerCourse(courseId);
   if (!course || !state) {
     if (!error) return <ScreenLoading label="Loading course" />;
     return <LoadFailed error={error} what="course" retry={retry} />;
   }
-  return <CourseStart course={course} state={state} />;
+  return <CourseStart course={course} state={state} emit={emit} />;
 }

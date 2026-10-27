@@ -1,19 +1,19 @@
 import type {
-  Course,
   Id,
   LearnerCourseState,
   LessonProgress,
+  PlayerCourse,
   ProgressEvent,
 } from '@carehub/learning';
 
 /**
  * The learner's state with the events still waiting to be sent laid over it, so the player answers
- * at once (a continue block opens, time counts, a lesson completes, the next one unlocks), even
- * offline. The server's reply replaces it. Only what the player shows is laid over, as the server
- * applies it.
+ * at once (a continue block opens, time counts, a lesson completes, the next one unlocks, the
+ * sign-off is signed), even offline. The server's reply replaces it. Only what the player shows is
+ * laid over, as the server applies it.
  */
 export function withPending(
-  course: Pick<Course, 'lessons' | 'settings'>,
+  course: Pick<PlayerCourse, 'lessons' | 'settings'>,
   state: LearnerCourseState,
   events: readonly ProgressEvent[],
 ): LearnerCourseState {
@@ -25,6 +25,7 @@ export function withPending(
   };
   const started = (entry: LessonProgress) =>
     entry.status === 'not_started' ? 'in_progress' : entry.status;
+  let acknowledgedAt = state.acknowledgedAt;
   for (const event of events) {
     switch (event.type) {
       case 'lesson_opened':
@@ -61,14 +62,40 @@ export function withPending(
         );
         unlockNext(course, lessons);
         break;
+      case 'acknowledged':
+        if (canSign(course, lessons, event.statement)) acknowledgedAt ??= event.at;
+        break;
     }
   }
-  return { ...state, lessons: state.lessons.map((entry) => lessons.get(entry.lessonId) ?? entry) };
+  return {
+    ...state,
+    acknowledgedAt,
+    lessons: state.lessons.map((entry) => lessons.get(entry.lessonId) ?? entry),
+  };
+}
+
+/**
+ * Whether the server takes the sign-off: the course asks for one, this is its statement, and every
+ * content lesson is completed.
+ */
+function canSign(
+  course: Pick<PlayerCourse, 'lessons' | 'settings'>,
+  lessons: Map<Id, LessonProgress>,
+  statement: string,
+): boolean {
+  const { completion, acknowledgement } = course.settings;
+  return (
+    completion.requireAcknowledgement &&
+    statement === (acknowledgement?.statement ?? statement) &&
+    course.lessons.every(
+      (lesson) => lesson.kind !== 'content' || lessons.get(lesson.id)?.status === 'completed',
+    )
+  );
 }
 
 /** In a course taken in order, opens the first locked lesson once all before it are done. */
 function unlockNext(
-  course: Pick<Course, 'lessons' | 'settings'>,
+  course: Pick<PlayerCourse, 'lessons' | 'settings'>,
   lessons: Map<Id, LessonProgress>,
 ) {
   if (course.settings.lessonOrder !== 'sequential') return;

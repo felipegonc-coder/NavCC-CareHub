@@ -2,10 +2,10 @@ import type {
   Block,
   BlockType,
   ContentLesson,
-  Course,
   LearnerCourseState,
   Link,
   NewProgressEvent,
+  PlayerCourse,
 } from '@carehub/learning';
 import type { JSX } from 'react';
 import { interactiveViews } from './interactive';
@@ -20,7 +20,8 @@ export type BlockViewMode = 'learn' | 'preview' | 'review';
 export type BlockViewProps<B extends Block = Block> = {
   block: B;
   lesson: ContentLesson;
-  course: Course;
+  /** The learner view of the course (decision 0314); the full draft in preview. */
+  course: PlayerCourse;
   mode: BlockViewMode;
   /** The learner's progress in this course (an empty one in preview and review). */
   state: LearnerCourseState;

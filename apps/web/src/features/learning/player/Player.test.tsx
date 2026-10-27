@@ -1,4 +1,5 @@
 import { fireEvent, screen, within } from '@testing-library/react';
+import { learnerCourse } from '@carehub/learning';
 import { describe, expect, it } from 'vitest';
 import { inOrder, learner, lessonPath, renderPlayer } from './test-utils';
 
@@ -94,6 +95,21 @@ describe('Player', () => {
     expect(emit).not.toHaveBeenCalledWith({ type: 'lesson_completed', lessonId: 'calls-before' });
   });
 
+  it('counts the last minute down in seconds', () => {
+    const almost = learner(inOrder, {
+      'calls-before': {
+        status: 'in_progress',
+        completedBlockIds: ['calls-before-continue'],
+        activeSeconds: 45,
+      },
+      'calls-during': locked,
+    });
+    renderPlayer(inOrder, almost, 'calls-before');
+    expect(
+      screen.getByText('Stay with this lesson a little longer to finish it (15 seconds left).'),
+    ).toBeInTheDocument();
+  });
+
   it('says what to finish first in a locked lesson, and records nothing', () => {
     const { emit } = renderPlayer(inOrder, start, 'calls-after');
     expect(screen.getByRole('heading', { level: 1, name: 'After the call' })).toBeInTheDocument();
@@ -109,7 +125,9 @@ describe('Player', () => {
 
   it('shows a note for a quiz until the quiz view lands, and ends on the last lesson', () => {
     const free = { ...inOrder, settings: { ...inOrder.settings, lessonOrder: 'free' as const } };
-    renderPlayer(free, learner(free), 'calls-quiz');
+    // Learners get the learner view: the quiz lesson has a question count and no questions.
+    renderPlayer(learnerCourse(free), learner(free), 'calls-quiz');
+    expect(screen.getByRole('heading', { level: 1, name: 'Final quiz' })).toBeInTheDocument();
     expect(screen.getByText("This quiz can't be shown here yet.")).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Next lesson' })).not.toBeInTheDocument();
   });
