@@ -139,6 +139,12 @@ describe('ImageField', () => {
     expect(button('Choose a file')).toHaveFocus();
   });
 
+  it('can only replace a picture that is required', () => {
+    render(<Harness initial={uploaded} courseId="course_1" required />);
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    expect(button('Replace')).toBeEnabled();
+  });
+
   it('opens the crop dialog for an uploaded picture and returns to Crop when it closes', () => {
     render(<Harness initial={uploaded} courseId="course_1" aspect="16:9" />);
     fireEvent.click(button('Crop'));

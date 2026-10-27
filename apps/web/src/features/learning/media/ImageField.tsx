@@ -18,6 +18,8 @@ export type ImageFieldProps = {
   caption?: boolean;
   /** Crops to this shape only, such as '16:9' for a cover. */
   aspect?: CropAspect;
+  /** The picture can be replaced but not removed (blocks that need one). */
+  required?: boolean;
   disabled?: boolean;
   className?: string;
 };
@@ -39,6 +41,7 @@ export function ImageField({
   courseId,
   caption = true,
   aspect,
+  required = false,
   disabled = false,
   className,
 }: ImageFieldProps) {
@@ -169,10 +172,12 @@ export function ImageField({
               <RefreshCw aria-hidden />
               Replace
             </Button>
-            <Button variant="ghost" size="sm" disabled={disabled} onClick={remove}>
-              <Trash2 aria-hidden />
-              Remove
-            </Button>
+            {!required && (
+              <Button variant="ghost" size="sm" disabled={disabled} onClick={remove}>
+                <Trash2 aria-hidden />
+                Remove
+              </Button>
+            )}
           </div>
           <Field
             label="Alt text"
