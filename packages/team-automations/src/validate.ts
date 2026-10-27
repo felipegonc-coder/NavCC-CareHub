@@ -123,6 +123,20 @@ export const automationChanges = z.object({
   actions: settings.actions.optional(),
 });
 
+/** GET /api/automations: the list's filters, from the query string. */
+export const automationListQuery = z.object({
+  databaseId: ref.optional(),
+  ownerUserId: z.guid().optional(),
+  enabled: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
+});
+
+/** POST /api/automations/:id/try: Send only to me (`me`, the default) or Send to everyone now. */
+export const tryNowInput = z.object({ to: z.enum(['me', 'everyone']).default('me') });
+export type TryNowInput = z.input<typeof tryNowInput>;
+
 export interface Problem {
   path: (string | number)[];
   message: string;

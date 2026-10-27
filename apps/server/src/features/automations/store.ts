@@ -319,6 +319,16 @@ export function createPostgresAutomationStore(db: SqlRunner): AutomationStore {
       return same[0] ? { run: toRun(same[0]), created: false } : null;
     },
 
+    async saveSteps(runId, steps, recipients) {
+      if (!isUuid(runId)) return false;
+      const { rows } = await db.query<{ id: string }>(
+        `UPDATE automations_runs SET steps = $2::jsonb, recipients = $3::int
+         WHERE id = $1::uuid AND result IS NULL RETURNING id`,
+        [runId, json(steps), recipients],
+      );
+      return rows.length > 0;
+    },
+
     async finishRun(runId, outcome, now) {
       if (!isUuid(runId)) return null;
       const { rows } = await db.query<RunRow>(

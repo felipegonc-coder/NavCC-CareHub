@@ -66,3 +66,11 @@ export interface AutomationResponse {
 export interface RunListResponse {
   runs: RunView[];
 }
+
+/**
+ * `POST /api/automations/:id/try` (body: `TryNowInput`), 202: the run's job. Watch it (useJob)
+ * to keep the button busy until the run ends.
+ */
+export interface TryNowResponse {
+  jobId: string;
+}

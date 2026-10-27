@@ -59,6 +59,8 @@ Triggers and actions are stored as JSON, so new kinds need no migration.
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `automationInput`                     | The zod schema for a new automation. It fills in `enabled: true`, no conditions and no variables                                                                                                           |
 | `automationChanges`                   | The same fields, each one optional, for a change                                                                                                                                                           |
+| `automationListQuery`                 | The list's filters from the query string: `databaseId`, `ownerUserId`, `enabled` (`'true'` or `'false'`)                                                                                                   |
+| `tryNowInput`                         | Try it now's body: `{ to: 'me' }` (Send only to me, the default) or `{ to: 'everyone' }`                                                                                                                   |
 | `automationProblems(automation, now)` | The rules zod can't check, each with its field's `path`: `'Pick at least one recipient.'`, `'Write a message.'`, `'Conditions need a database trigger.'`, `'A Person property needs a database trigger.'`… |
 | `Problem`, `AutomationInput`          | The types                                                                                                                                                                                                  |
 
@@ -72,4 +74,5 @@ renamed.
 What `/api/automations` sends, with times as ISO strings: `AutomationView` (the automation, its
 `nextRunAt`, `pausedReason` and `lastRun`), `RunView` (a run in the history: kind, times, result,
 source, steps, recipients and error) and the bodies `AutomationListResponse` (`{ automations }`),
-`AutomationResponse` (`{ automation }`) and `RunListResponse` (`{ runs }`).
+`AutomationResponse` (`{ automation }`) and `RunListResponse` (`{ runs }`). Try it now answers
+`TryNowResponse` (`{ jobId }`).
