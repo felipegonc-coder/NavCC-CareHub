@@ -20,6 +20,7 @@ import {
   type HistoryResponse,
   type MessageResponse,
   type NewChatResponse,
+  type PeopleListResponse,
   type UnreadResponse,
 } from '@carehub/team-chat';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
@@ -28,7 +29,7 @@ import { httpError } from '../../core/errors';
 import { isUniqueViolation } from '../../db';
 import type { MessageCreatedEvent } from './events';
 import { chatJson, messageJson, peopleInChats, peopleInMessages } from './json';
-import { canBeMessaged, isUuid, lookUpPeople } from './people';
+import { canBeMessaged, isUuid, listPeople, lookUpPeople } from './people';
 import type { ChatRow, MemberRow, MessageRow } from './schema';
 import * as store from './store';
 
@@ -93,7 +94,7 @@ const messagesRoutes: FastifyPluginAsync = async (app) => {
     if (!item) throw httpError(403, 'forbidden');
     const json = chatJson(item, viewer.userId);
     const people = await lookUpPeople(app.db, viewer.workspaceId, peopleInChats([json]));
-    return { chat: json, people } satisfies ChatResponse;
+    return { viewerId: viewer.userId, chat: json, people } satisfies ChatResponse;
   }
 
   async function messageAnswer(viewer: Viewer, row: MessageRow) {
@@ -102,16 +103,28 @@ const messagesRoutes: FastifyPluginAsync = async (app) => {
     return { message, people } satisfies MessageResponse;
   }
 
-  // The chat list, latest message first. Home asks for the first few with unread messages.
+  // The chat list, latest message first. Home asks for the first few that count toward the badge:
+  // unread messages, or unread @mentions in muted chats.
   app.get('/chats', async (request): Promise<ChatListResponse> => {
     const viewer = viewerOf(request);
     const query = chatListQuerySchema.parse(request.query);
     const items = await store.listChats(app.db, viewer.workspaceId, viewer.userId);
     const chats = items
-      .filter((item) => !query.unread || item.counts.unread > 0)
+      .filter(
+        ({ member, counts }) =>
+          !query.unread || (member.muted ? counts.mentions : counts.unread) > 0,
+      )
       .slice(0, query.limit)
       .map((item) => chatJson(item, viewer.userId));
-    return { chats, people: await lookUpPeople(app.db, viewer.workspaceId, peopleInChats(chats)) };
+    const people = await lookUpPeople(app.db, viewer.workspaceId, peopleInChats(chats));
+    return { viewerId: viewer.userId, chats, people };
+  });
+
+  // Everyone the person can message (New message, Add people): members, not guests (RP-D2).
+  app.get('/people', async (request): Promise<PeopleListResponse> => {
+    const viewer = viewerOf(request);
+    if (viewer.isGuest) throw httpError(403, 'forbidden');
+    return { people: await listPeople(app.db, viewer.workspaceId, viewer.userId) };
   });
 
   // The sidebar badge (MS-06): unread in unmuted chats, @mentions in muted ones.

@@ -5,6 +5,7 @@ import type {
   HistoryResponse,
   MessageResponse,
   NewChatResponse,
+  PeopleListResponse,
   UnreadResponse,
 } from '@carehub/team-chat';
 import { and, eq } from 'drizzle-orm';
@@ -293,6 +294,27 @@ describe.skipIf(!hasDatabase)('/api/messages: chats and messages', () => {
       .set({ muted: true })
       .where(and(eq(msgMembers.chatId, chatId), eq(msgMembers.userId, sam.id)));
     expect(await badge(sam)).toBe(before + 1);
+    const home = (await call(sam, 'GET', '/chats?unread=true')).json<ChatListResponse>();
+    expect(home.chats.find(({ id }) => id === chatId)).toMatchObject({ muted: true, mentions: 1 });
+    await testApp.db
+      .update(msgMembers)
+      .set({ lastReadSeq: 4 })
+      .where(and(eq(msgMembers.chatId, chatId), eq(msgMembers.userId, sam.id)));
+    const after = (await call(sam, 'GET', '/chats?unread=true')).json<ChatListResponse>();
+    expect(after.chats.map(({ id }) => id)).not.toContain(chatId);
+  });
+
+  it('lists the people you can message: members, not guests, outsiders or yourself', async () => {
+    const answer = await call(avery, 'GET', '/people');
+    expect(answer.statusCode).toBe(200);
+    const { people } = answer.json<PeopleListResponse>();
+    const ids = people.map(({ id }) => id);
+    expect(ids).toEqual(expect.arrayContaining([sam.id, riley.id, jordan.id]));
+    for (const id of [avery.id, morgan.id, casey.id]) expect(ids).not.toContain(id);
+    expect(people.find(({ id }) => id === sam.id)).toMatchObject({ name: 'Sam Ortiz' });
+    for (const user of [morgan, casey]) {
+      expect((await call(user, 'GET', '/people')).statusCode).toBe(403);
+    }
   });
 
   it("keeps guests and outsiders out, and they can't be messaged (RP-D2)", async () => {
@@ -315,7 +337,10 @@ describe.skipIf(!hasDatabase)('/api/messages: chats and messages', () => {
       .where(eq(workspaceMembers.userId, riley.id));
     const list = (await call(avery, 'GET', '/chats')).json<ChatListResponse>();
     expect(list.chats.map(({ id }) => id)).toContain(chatId);
+    expect(list.viewerId).toBe(avery.id);
     expect(list.people[riley.id]).toEqual({ name: 'Riley Chen', removed: true });
+    const { people } = (await call(avery, 'GET', '/people')).json<PeopleListResponse>();
+    expect(people.map(({ id }) => id)).not.toContain(riley.id);
     expect((await send(avery, chatId, 'Are you there?')).status).toBe(409);
     expect((await call(avery, 'GET', `/chats/${chatId}/messages`)).statusCode).toBe(200);
   });
