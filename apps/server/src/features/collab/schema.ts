@@ -7,12 +7,13 @@ const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
   fromDriver: (value) => new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
 });
 
-/** One row per page: its Y.Doc and the copies other features read. */
+/** One row per page: its Y.Doc state and the copies other features read. */
 export const pageDocs = pgTable('page_docs', {
   pageId: uuid('page_id').primaryKey(),
-  ydoc: bytea('ydoc').notNull(),
+  state: bytea('state').notNull(),
   markdown: text('markdown').notNull().default(''),
   text: text('text').notNull().default(''),
+  textUpdatedAt: timestamp('text_updated_at', { withTimezone: true }).notNull().defaultNow(),
   blockCount: integer('block_count').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   updatedBy: uuid('updated_by'),
