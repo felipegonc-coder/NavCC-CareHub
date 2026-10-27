@@ -1,17 +1,17 @@
 // Who can open what (decision 0012; names in decision 0007, section 3.3). Routes, live co-editing,
 // comments, search and the other lanes all ask these functions, so the rules live in one place.
-import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
-import type { FastifyRequest } from 'fastify';
-import { httpError } from '../../core/errors';
-import type { Db, Tx } from '../../db';
-import { forbidden, invalid, isUuid, notFound, uuidArray } from './http';
 import {
   ACCESS_LEVELS,
   atLeast,
   type AccessLevel,
   type GrantLevel,
   type PermissionKey,
-} from './levels';
+} from '@carehub/shared';
+import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import type { FastifyRequest } from 'fastify';
+import { httpError } from '../../core/errors';
+import type { Db, Tx } from '../../db';
+import { forbidden, invalid, isUuid, notFound, uuidArray } from './http';
 import { accessGrants, accessHistory, type AccessGrant } from './schema';
 
 export type Executor = Db | Tx;
@@ -54,7 +54,7 @@ export async function loadViewer(db: Executor, userId: string): Promise<Viewer> 
   const { rows } = await db.execute<Row>(sql`
     SELECT m.workspace_id AS "workspaceId", m.kind, m.role_id AS "roleId", r.permissions
     FROM workspace_members m LEFT JOIN roles r ON r.id = m.role_id
-    WHERE m.user_id = ${userId}
+    WHERE m.user_id = ${userId} AND m.removed_at IS NULL
     ORDER BY m.workspace_id`);
   for (const { permissions, ...row } of rows) {
     const keys = new Set(permissions ?? []);
@@ -93,7 +93,7 @@ function grantedTo(viewer: Viewer): SQL {
 }
 
 /** The person's space memberships (alias `m`, its space `s`), directly or through a group. */
-function memberOf(viewer: Viewer): SQL {
+export function memberOf(viewer: Viewer): SQL {
   return sql`(s.workspace_id = ANY(${memberWorkspaces(viewer)})
     AND ((m.principal_type = 'user' AND m.principal_id = ${viewer.userId}::uuid)
       OR (m.principal_type = 'group' AND m.principal_id = ANY(${uuidArray(viewer.groupIds)}))))`;
@@ -148,7 +148,8 @@ export type PageAnswer = Pick<PageFacts, 'kind' | 'deleted' | 'workspaceId'> & {
 };
 
 /**
- * The person's level on each existing page (pages in Trash too, marked `deleted`). Grants reach a
+ * The person's level on each existing page (pages in Trash or in a space in Trash too, marked
+ * `deleted`). Grants reach a
  * page from the page itself, then from each parent while the page below inherits, then from the
  * space (its grants, and its default access or Full access for its members and owners). Below a
  * database, its 'edit_content' counts as 'edit' and its 'rows_only' as nothing (on the database
@@ -195,7 +196,8 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
       FROM reaching GROUP BY page_id
     )
     SELECT p.id, p.workspace_id AS "workspaceId", p.kind, p.parent_id AS "parentId",
-      p.deleted_at IS NOT NULL AS deleted, s.kind AS "spaceKind", s.owner_id AS "ownerId",
+      p.deleted_at IS NOT NULL OR s.deleted_at IS NOT NULL AS deleted, s.kind AS "spaceKind",
+      s.owner_id AS "ownerId",
       s.archived_at IS NOT NULL AS archived, b.best, b.granted
     FROM pages p JOIN spaces s ON s.id = p.space_id LEFT JOIN best b ON b.page_id = p.id
     WHERE p.id = ANY(${ids})`);
@@ -341,7 +343,7 @@ async function checkPrincipal(db: Executor, workspaceId: string, principal: Prin
   const { rows } = await db.execute<{ kind: string }>(
     principal.type === 'user'
       ? sql`SELECT kind FROM workspace_members
-          WHERE workspace_id = ${workspaceId} AND user_id = ${principal.id}`
+          WHERE workspace_id = ${workspaceId} AND user_id = ${principal.id} AND removed_at IS NULL`
       : sql`SELECT 'role' AS kind FROM roles
           WHERE workspace_id = ${workspaceId} AND id = ${principal.id}`,
   );
