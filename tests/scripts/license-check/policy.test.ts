@@ -174,7 +174,7 @@ describe('license-policy.json', () => {
   const judge = (license: string, scope: 'shipped' | 'dev', name = 'some-package') =>
     evaluatePackage({ name, version: '1.0.0', license }, scope, real).ok;
 
-  it('follows docs/decisions/0001-license-policy.md', () => {
+  it('follows decisions 0001, 0009 and 0011', () => {
     for (const license of [
       'MIT',
       'Apache-2.0',
@@ -183,10 +183,16 @@ describe('license-policy.json', () => {
       'ISC',
       '0BSD',
       'BlueOak-1.0.0',
+      'PostgreSQL',
+      'Python-2.0',
+      'Zlib',
+      'Unicode-3.0',
+      'Unicode-DFS-2016',
+      'CC0-1.0',
     ]) {
       expect(judge(license, 'shipped')).toBe(true);
     }
-    for (const license of ['CC0-1.0', 'CC-BY-4.0']) {
+    for (const license of ['CC-BY-4.0', 'MIT-0', 'Unlicense']) {
       expect(judge(license, 'dev')).toBe(true);
       expect(judge(license, 'shipped')).toBe(false);
     }
@@ -203,8 +209,35 @@ describe('license-policy.json', () => {
     expect(judge('MPL-2.0', 'dev', 'axe-core')).toBe(true);
     expect(judge('MPL-2.0', 'shipped', 'axe-core')).toBe(false);
     expect(judge('MPL-2.0', 'dev', 'some-package')).toBe(false);
-    expect(judge('MIT', 'dev', '@tiptap-pro/extension-x')).toBe(false);
-    expect(judge('MIT', 'dev', 'minio')).toBe(false);
+    expect(judge('OFL-1.1', 'shipped', '@fontsource/inter')).toBe(true);
+    expect(judge('OFL-1.1', 'shipped', '@fontsource-variable/inter')).toBe(true);
+    expect(judge('OFL-1.1', 'dev', 'some-package')).toBe(false);
+  });
+
+  it('blocks paid kits by name', () => {
+    for (const name of [
+      'minio',
+      '@tiptap-pro/extension-x',
+      'highcharts',
+      '@highcharts/dashboards',
+      '@amcharts/amcharts5',
+      'froala-editor',
+      'ckeditor5-premium-features',
+      'gojs',
+      '@joint/plus',
+      'dhtmlx-gantt',
+      '@dhx/trial-suite',
+      '@infragistics/igniteui-angular',
+      'igniteui-react',
+      '@nutrient-sdk/viewer',
+      'pspdfkit',
+      '@pdftron/webviewer',
+      '@grapecity/wijmo',
+      'mapbox-gl',
+    ]) {
+      expect(judge('MIT', 'dev', name)).toBe(false);
+    }
+    expect(judge('BSD-3-Clause', 'shipped', 'maplibre-gl')).toBe(true);
   });
 
   it('has no exceptions without a reason', () => {

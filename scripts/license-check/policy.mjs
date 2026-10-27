@@ -1,5 +1,5 @@
 // @ts-check
-// The license policy, docs/decisions/0001-license-policy.md. Its lists live in license-policy.json.
+// The license policy, docs/decisions 0001, 0009 and 0011. Its lists live in license-policy.json.
 import fs from 'node:fs';
 import { SpdxSyntaxError, failingLicenses, formatSpdx, parseSpdx } from './spdx.mjs';
 

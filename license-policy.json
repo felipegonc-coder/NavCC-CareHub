@@ -1,5 +1,9 @@
 {
-  "decision": "docs/decisions/0001-license-policy.md",
+  "decisions": [
+    "docs/decisions/0001-license-policy.md",
+    "docs/decisions/0009-blueoak-for-shipped-code.md",
+    "docs/decisions/0011-licenses-and-ci-hardening.md"
+  ],
   "note": "Lists for scripts/license-check.mjs. Changing a list or adding an exception needs a new decision record. Exceptions: { name, version (optional, exact), license (SPDX, checked by hand), reason }.",
   "allowed": {
     "shipped": [
@@ -10,9 +14,14 @@
       "ISC",
       "0BSD",
       "BlueOak-1.0.0",
-      "PostgreSQL"
+      "PostgreSQL",
+      "Python-2.0",
+      "Zlib",
+      "Unicode-3.0",
+      "Unicode-DFS-2016",
+      "CC0-1.0"
     ],
-    "devOnly": ["CC0-1.0", "CC-BY-4.0", "MIT-0", "Unlicense", "Python-2.0"]
+    "devOnly": ["CC-BY-4.0", "MIT-0", "Unlicense"]
   },
   "allowedForPackages": [
     {
@@ -20,41 +29,201 @@
       "packages": ["axe-core", "@axe-core/*"],
       "devOnly": true,
       "reason": "Unmodified test tools only (decision 0001, point 2)."
+    },
+    {
+      "license": "OFL-1.1",
+      "packages": ["@fontsource/*", "@fontsource-variable/*"],
+      "devOnly": false,
+      "reason": "Font files only (decision 0011, point 1)."
     }
   ],
   "blockedLicenses": [
-    { "pattern": "^GPL", "label": "GPL" },
-    { "pattern": "^LGPL", "label": "LGPL" },
-    { "pattern": "^AGPL", "label": "AGPL" },
-    { "pattern": "^SSPL", "label": "SSPL" },
-    { "pattern": "^BUSL", "label": "Business Source License" },
-    { "pattern": "^Elastic", "label": "Elastic License" },
-    { "pattern": "Commons-?Clause", "label": "Commons Clause" }
+    {
+      "pattern": "^GPL",
+      "label": "GPL"
+    },
+    {
+      "pattern": "^LGPL",
+      "label": "LGPL"
+    },
+    {
+      "pattern": "^AGPL",
+      "label": "AGPL"
+    },
+    {
+      "pattern": "^SSPL",
+      "label": "SSPL"
+    },
+    {
+      "pattern": "^BUSL",
+      "label": "Business Source License"
+    },
+    {
+      "pattern": "^Elastic",
+      "label": "Elastic License"
+    },
+    {
+      "pattern": "Commons-?Clause",
+      "label": "Commons Clause"
+    }
   ],
   "blockedPackages": [
-    { "name": "minio", "reason": "MinIO is blocked by name." },
-    { "name": "@tiptap-pro/*", "reason": "Tiptap Pro extensions are paid." },
-    { "name": "@fullcalendar/premium-common", "reason": "FullCalendar Premium is paid." },
-    { "name": "@fullcalendar/adaptive", "reason": "FullCalendar Premium is paid." },
-    { "name": "@fullcalendar/scrollgrid", "reason": "FullCalendar Premium is paid." },
-    { "name": "@fullcalendar/timeline", "reason": "FullCalendar Premium is paid." },
-    { "name": "@fullcalendar/resource*", "reason": "FullCalendar Premium is paid." },
-    { "name": "fullcalendar-scheduler", "reason": "FullCalendar Premium is paid." },
-    { "name": "@mui/x-*-pro", "reason": "Paid UI kit (MUI X Pro)." },
-    { "name": "@mui/x-*-premium", "reason": "Paid UI kit (MUI X Premium)." },
-    { "name": "ag-grid-enterprise", "reason": "Paid UI kit (AG Grid Enterprise)." },
-    { "name": "@ag-grid-enterprise/*", "reason": "Paid UI kit (AG Grid Enterprise)." },
-    { "name": "@syncfusion/*", "reason": "Paid UI kit (Syncfusion)." },
-    { "name": "@progress/kendo-*", "reason": "Paid UI kit (Kendo UI)." },
-    { "name": "devextreme*", "reason": "Paid UI kit (DevExtreme)." },
-    { "name": "@devexpress/*", "reason": "Paid UI kit (DevExpress)." },
-    { "name": "@mescius/*", "reason": "Paid UI kit (MESCIUS)." },
-    { "name": "@bryntum/*", "reason": "Paid UI kit (Bryntum)." },
-    { "name": "handsontable", "reason": "Paid UI kit (Handsontable)." },
-    { "name": "@handsontable/*", "reason": "Paid UI kit (Handsontable)." },
-    { "name": "@fortawesome/fontawesome-pro", "reason": "Paid icon kit (Font Awesome Pro)." },
-    { "name": "@fortawesome/pro-*", "reason": "Paid icon kit (Font Awesome Pro)." },
-    { "name": "@tailwindplus/*", "reason": "Paid UI kit (Tailwind Plus)." }
+    {
+      "name": "minio",
+      "reason": "MinIO is blocked by name."
+    },
+    {
+      "name": "@tiptap-pro/*",
+      "reason": "Tiptap Pro extensions are paid."
+    },
+    {
+      "name": "@fullcalendar/premium-common",
+      "reason": "FullCalendar Premium is paid."
+    },
+    {
+      "name": "@fullcalendar/adaptive",
+      "reason": "FullCalendar Premium is paid."
+    },
+    {
+      "name": "@fullcalendar/scrollgrid",
+      "reason": "FullCalendar Premium is paid."
+    },
+    {
+      "name": "@fullcalendar/timeline",
+      "reason": "FullCalendar Premium is paid."
+    },
+    {
+      "name": "@fullcalendar/resource*",
+      "reason": "FullCalendar Premium is paid."
+    },
+    {
+      "name": "fullcalendar-scheduler",
+      "reason": "FullCalendar Premium is paid."
+    },
+    {
+      "name": "@mui/x-*-pro",
+      "reason": "Paid UI kit (MUI X Pro)."
+    },
+    {
+      "name": "@mui/x-*-premium",
+      "reason": "Paid UI kit (MUI X Premium)."
+    },
+    {
+      "name": "ag-grid-enterprise",
+      "reason": "Paid UI kit (AG Grid Enterprise)."
+    },
+    {
+      "name": "@ag-grid-enterprise/*",
+      "reason": "Paid UI kit (AG Grid Enterprise)."
+    },
+    {
+      "name": "@syncfusion/*",
+      "reason": "Paid UI kit (Syncfusion)."
+    },
+    {
+      "name": "@progress/kendo-*",
+      "reason": "Paid UI kit (Kendo UI)."
+    },
+    {
+      "name": "devextreme*",
+      "reason": "Paid UI kit (DevExtreme)."
+    },
+    {
+      "name": "@devexpress/*",
+      "reason": "Paid UI kit (DevExpress)."
+    },
+    {
+      "name": "@mescius/*",
+      "reason": "Paid UI kit (MESCIUS)."
+    },
+    {
+      "name": "@bryntum/*",
+      "reason": "Paid UI kit (Bryntum)."
+    },
+    {
+      "name": "handsontable",
+      "reason": "Paid UI kit (Handsontable)."
+    },
+    {
+      "name": "@handsontable/*",
+      "reason": "Paid UI kit (Handsontable)."
+    },
+    {
+      "name": "@fortawesome/fontawesome-pro",
+      "reason": "Paid icon kit (Font Awesome Pro)."
+    },
+    {
+      "name": "@fortawesome/pro-*",
+      "reason": "Paid icon kit (Font Awesome Pro)."
+    },
+    {
+      "name": "@tailwindplus/*",
+      "reason": "Paid UI kit (Tailwind Plus)."
+    },
+    {
+      "name": "highcharts",
+      "reason": "Paid chart kit (Highcharts)."
+    },
+    {
+      "name": "@highcharts/*",
+      "reason": "Paid chart kit (Highcharts)."
+    },
+    {
+      "name": "@amcharts/*",
+      "reason": "Paid chart kit (amCharts)."
+    },
+    {
+      "name": "froala-editor",
+      "reason": "Paid editor (Froala)."
+    },
+    {
+      "name": "ckeditor5-premium-features",
+      "reason": "Paid editor features (CKEditor premium)."
+    },
+    {
+      "name": "gojs",
+      "reason": "Paid diagram kit (GoJS)."
+    },
+    {
+      "name": "@joint/plus",
+      "reason": "Paid diagram kit (JointJS+)."
+    },
+    {
+      "name": "dhtmlx-*",
+      "reason": "Paid UI kit (DHTMLX)."
+    },
+    {
+      "name": "@dhx/*",
+      "reason": "Paid UI kit (DHTMLX)."
+    },
+    {
+      "name": "@infragistics/*",
+      "reason": "Paid UI kit (Infragistics)."
+    },
+    {
+      "name": "igniteui-*",
+      "reason": "Paid UI kit (Ignite UI)."
+    },
+    {
+      "name": "@nutrient-sdk/*",
+      "reason": "Paid PDF kit (Nutrient)."
+    },
+    {
+      "name": "pspdfkit",
+      "reason": "Paid PDF kit (Nutrient, formerly PSPDFKit)."
+    },
+    {
+      "name": "@pdftron/*",
+      "reason": "Paid PDF kit (Apryse, formerly PDFTron)."
+    },
+    {
+      "name": "@grapecity/*",
+      "reason": "Paid UI kit (GrapeCity)."
+    },
+    {
+      "name": "mapbox-gl",
+      "reason": "mapbox-gl v2+ isn't open source; use maplibre-gl."
+    }
   ],
   "exceptions": []
 }

@@ -11,8 +11,8 @@ import { evaluatePackage, loadPolicy } from './policy.mjs';
 
 const HELP = `Usage: node scripts/license-check.mjs [--notices] [--root <dir>]
 
-Checks every installed package against docs/decisions/0001-license-policy.md (lists in
-license-policy.json) and exits with 1 on any problem. --notices also writes
+Checks every installed package against the license policy (docs/decisions 0001, 0009 and
+0011; lists in license-policy.json) and exits with 1 on any problem. --notices also writes
 THIRD_PARTY_NOTICES.md for the shipped packages. --root defaults to the repository root.
 `;
 
@@ -128,7 +128,7 @@ export function main({
 
   log(
     [
-      'License check (docs/decisions/0001-license-policy.md)',
+      'License check (docs/decisions 0001, 0009 and 0011)',
       `Third-party packages: ${count(checked)} (${count(shipped)} shipped, ${count(dev)} dev-only)`,
       `Shipped:  ${summary(shipped)}`,
       `Dev-only: ${summary(dev)}`,
