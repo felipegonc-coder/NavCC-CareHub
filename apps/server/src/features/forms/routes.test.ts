@@ -1,6 +1,6 @@
 // Form routes on a real database (decision 0200, Forms spec v2): the fill screen by link code for
 // members with and without access to the database, guests and people outside the workspace; every
-// gate with its words; the first read keeping a code; mention titles; and Change link. Responses
+// gate with its words; codes that aren't live; mention titles; and Change link. Responses
 // are made directly here (the submit route comes in the next forms pull request). Fictional people only.
 import {
   defaultConfig,
@@ -33,10 +33,6 @@ const MEMBERS_ONLY = {
   message: 'This form is only for members of Blue Pine Plumbing.',
 };
 const NOT_ACCEPTING = { state: 'not_accepting', message: "This form isn't accepting responses." };
-const LINK_CHANGED = {
-  state: 'link_changed',
-  message: 'This form link has changed. Ask the person who sent it for the new one.',
-};
 const OPEN = { state: 'open', message: null };
 
 describe.skipIf(!hasDatabase)('form routes', () => {
@@ -89,15 +85,20 @@ describe.skipIf(!hasDatabase)('form routes', () => {
     ...extra,
   });
 
-  /** A new Form view (as a settings write makes it: its code isn't kept until first read). */
-  async function addForm(changes: Partial<FormDefinition> = {}) {
+  /** A new Form view, with its code kept in forms_links as the databases feature's routes do. */
+  async function addForm(changes: Partial<FormDefinition> = {}, keep = true) {
     const saved = await settings((current) => {
       const view = defaultView('form', current.properties, { databaseTitle: 'Service requests' });
       view.form = { ...view.form!, ...changes };
       return { views: [...current.views, view] };
     });
     const view = saved.views.at(-1)!;
-    return { viewId: view.id, code: view.form!.linkCode };
+    const code = view.form!.linkCode;
+    if (keep) {
+      await db.execute(sql`INSERT INTO forms_links (code, database_id, view_id)
+        VALUES (${code}, ${databaseId}, ${view.id}) ON CONFLICT DO NOTHING`);
+    }
+    return { viewId: view.id, code };
   }
 
   /** A response to the form, made directly: by `who` (null: anonymous), at `at`. */
@@ -216,17 +217,15 @@ describe.skipIf(!hasDatabase)('form routes', () => {
       'Details',
       'Photos',
     ]);
-    // The first read kept the code.
-    const kept = await db.execute<{ view_id: string; revoked_at: Date | null }>(
-      sql`SELECT view_id, revoked_at FROM forms_links WHERE code = ${code}`,
-    );
-    expect(kept.rows).toEqual([{ view_id: viewId, revoked_at: null }]);
     expect((await open(people.avery, code)).json().gate).toEqual(OPEN);
   });
 
-  it('answers 404 for a code no form has, and 401 when signed out', async () => {
+  it('answers 404 at once for a code that isn’t live, and 401 when signed out', async () => {
     expect((await open(people.avery, 'n0SuchCodeAnywhere00a')).json()).toEqual(NOT_FOUND);
     expect((await open(people.avery, 'bad')).statusCode).toBe(404);
+    // Only forms_links is read: a code missing there isn't searched for in the views.
+    const unkept = await addForm({}, false);
+    expect((await open(people.avery, unkept.code)).json()).toEqual(NOT_FOUND);
     const { code } = await addForm();
     expect((await app.inject({ method: 'GET', url: `/api/forms/${code}` })).statusCode).toBe(401);
   });
@@ -331,13 +330,12 @@ describe.skipIf(!hasDatabase)('form routes', () => {
       linkCode: changed.linkCode,
       linkChangedAt: changed.linkChangedAt,
     });
-    // The old code was never opened: it's kept as revoked, so it says the link changed.
-    expect(await gateOf(people.jordan, code)).toEqual(LINK_CHANGED);
-    expect((await open(people.jordan, code)).json().form).toBeNull();
+    // The old code stops working at once.
+    expect((await open(people.jordan, code)).json()).toEqual(NOT_FOUND);
     expect(await gateOf(people.jordan, changed.linkCode)).toEqual(OPEN);
 
     const again = (await changeLink(people.morgan, viewId)).json();
-    expect(await gateOf(people.jordan, changed.linkCode)).toEqual(LINK_CHANGED);
+    expect((await open(people.jordan, changed.linkCode)).statusCode).toBe(404);
     expect(await gateOf(people.jordan, again.linkCode)).toEqual(OPEN);
     const links = await db.execute<{ code: string; live: boolean }>(sql`
       SELECT code, revoked_at IS NULL AS live FROM forms_links

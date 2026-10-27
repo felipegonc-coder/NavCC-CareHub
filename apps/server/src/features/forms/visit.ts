@@ -14,14 +14,17 @@ export type Visitor = 'member' | 'guest' | 'outsider' | 'signed_out';
 
 export interface Visit {
   record: DatabaseRecord;
-  /** The definition as the link sees it (definitionForLink). */
   form: FormDefinition;
   /** The code that was opened, or null in the database's Form view. */
   linkCode: string | null;
   visitor: Visitor;
   /** Their level on the database. */
   level: AccessLevel;
-  /** The form's responses, without those in Trash. */
+  /**
+   * The form's responses towards maxResponses. Rows in Trash don't count, and deleted ones are
+   * gone, so deleting a response frees a place. Restoring one may go over the maximum, which only
+   * stops new answers.
+   */
   responseCount: number;
   /** When this person last responded (ISO), for forms that record who responds. */
   respondedAt: string | null;

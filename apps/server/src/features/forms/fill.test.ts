@@ -20,7 +20,7 @@ import {
   formMentions,
   withoutFileUploads,
 } from './fill';
-import { definitionForLink, isLinkCode, newLinkCode, type FormView } from './links';
+import { isLinkCode, newLinkCode, type FormView } from './links';
 import { gateOf, type Visit } from './visit';
 
 const leak = newId();
@@ -209,14 +209,6 @@ describe('link codes', () => {
     ]) {
       expect(isLinkCode(bad)).toBe(false);
     }
-  });
-
-  it('never opens a form with a revoked code', () => {
-    const form = formView().form;
-    const link = { code: form.linkCode, databaseId: newId(), viewId: newId(), revoked: false };
-    expect(definitionForLink(form, link)).toBe(form);
-    expect(definitionForLink(form, { ...link, revoked: true }).linkCode).toBe('');
-    expect(definitionForLink(form, { ...link, code: newLinkCode(), revoked: true })).toBe(form);
   });
 });
 

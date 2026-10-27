@@ -12,7 +12,7 @@ import { loadDatabase, lockDatabase } from '../databases/store';
 import { publishTopic } from '../live';
 import { getAccessForPages, pageAccessOf } from '../pages';
 import { fillForm, formMentions, type FillForm } from './fill';
-import { changeLink, definitionForLink, findLink, formViewOf, lockForm } from './links';
+import { changeLink, findLink, formViewOf, lockForm } from './links';
 import { gateOf, visitFor } from './visit';
 
 function signedIn(request: FastifyRequest) {
@@ -32,16 +32,16 @@ const changeLinkRequest = z.strictObject({}).optional();
 
 export default async function formRoutes(app: FastifyInstance) {
   // The fill screen for a signed-in member or guest: the gate, and the form when it's open.
+  // A code that isn't live (unknown, or revoked by Change link) answers 404 at once.
   app.get('/:code', quiet, async (request): Promise<{ gate: FormGate; form: FillForm | null }> => {
     const user = signedIn(request);
     const link = await findLink(app.db, param(request, 'code'));
     const record = link ? await loadDatabase(app.db, link.databaseId) : null;
     const view = link && record ? formViewOf(record, link.viewId) : null;
     if (!link || !record || !view) throw notFound();
-    const form = definitionForLink(view.form, link);
     const visit = await visitFor(app.db, {
       record,
-      form,
+      form: view.form,
       viewId: view.id,
       linkCode: link.code,
       user,
