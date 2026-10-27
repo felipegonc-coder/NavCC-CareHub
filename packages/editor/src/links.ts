@@ -31,3 +31,6 @@ export function normalizeLinkInput(raw: string): string | null {
 /** Link attributes for `href`: links inside Care Hub (no scheme) open in the same tab. */
 export const linkAttributes = (href: string) =>
   /^[a-z][a-z\d+.-]*:/i.test(href) ? { href } : { href, target: null };
+
+/** The address of a Care Hub page, `/p/<pageId>` (like `pageUrl` in @carehub/shared). */
+export const pageHref = (pageId: string) => `/p/${encodeURIComponent(pageId)}`;

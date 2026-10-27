@@ -386,3 +386,27 @@ span.ch-lane-block {
   color: rgb(var(--ch-danger));
   font-size: 0.75rem;
 }
+
+/* RichTextField: a small rich text input that looks like a text field. */
+.ch-richtext {
+  box-sizing: border-box;
+  min-height: 2.5rem;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: 0.5rem;
+  background: rgb(var(--ch-bg));
+}
+
+.ch-richtext:focus-within {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: 1px;
+}
+
+.ch-richtext[data-readonly] {
+  background: rgb(var(--ch-fill));
+}
+
+.ch-richtext .ch-editor {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
