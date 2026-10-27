@@ -21,6 +21,7 @@ import { drainJobsForTest } from '../jobs/testing';
 import { bindMemoryNotices, type MemoryNoticeStore } from '../notices/testing';
 import type { MentionCreatedEvent } from './index';
 import { mentions } from './schema';
+import { PAGE_MENTION_LIMITS } from './service';
 
 const workspaceId = randomUUID();
 /** The stand-in page model: each test's own pages, with each person's level on them. */
@@ -187,6 +188,57 @@ describe.skipIf(!hasDatabase)('mentions on Postgres', () => {
     expect(
       (await call(avery, 'POST', '/api/mentions', { ...body, blockId: 'no spaces' })).statusCode,
     ).toBe(400);
+  });
+
+  it('stops notifying past 20 page-text mentions a minute or 30 of one person an hour', async () => {
+    // Someone new, so the other tests' mentions don't count (#224).
+    const jordan = await createUser(test.db, {
+      name: 'Jordan Park',
+      email: 'jordan.park@example.test',
+    });
+    const pageId = teamPage();
+    pages.get(pageId)?.set(jordan.id, 'edit');
+    /** Mentions by Jordan `minutesAgo` that notified `person`, each in its own block. */
+    const earlier = (count: number, person: TestUser, minutesAgo: number) => {
+      const at = new Date(Date.now() - minutesAgo * 60_000);
+      const row = { workspaceId, pageId, userId: person.id, mentionedBy: jordan.id };
+      return test.db.insert(mentions).values(
+        Array.from({ length: count }, () => ({
+          ...row,
+          blockId: randomUUID(),
+          status: 'sent' as const,
+          sentAt: at,
+          createdAt: at,
+        })),
+      );
+    };
+    const statusOfNew = async (blockId: string, person: TestUser) =>
+      (await mention(jordan, { pageId, blockId, userId: person.id })).status;
+    const { perMinute, perPersonPerHour } = PAGE_MENTION_LIMITS;
+
+    await earlier(perMinute - 1, kai, 0);
+    expect(await statusOfNew('m1', sam)).toBe('waiting');
+    expect(await mention(jordan, { pageId, blockId: 'm2', userId: sam.id })).toMatchObject({
+      status: 'quiet',
+      sendAt: null,
+    });
+
+    // Two minutes later, Sam has had 1 notice from Jordan this hour, and gets 28 more.
+    const later = (interval: string) =>
+      test.db.execute(sql`UPDATE mentions SET created_at = created_at - ${interval}::interval
+        WHERE mentioned_by = ${jordan.id}`);
+    await later('2 minutes');
+    await earlier(perPersonPerHour - 2, sam, 30);
+    expect(await statusOfNew('m3', sam)).toBe('waiting');
+    expect(await statusOfNew('m4', sam)).toBe('quiet');
+    expect(await statusOfNew('m5', kai)).toBe('waiting');
+    // An hour later Sam can be notified again.
+    await later('1 hour');
+    expect(await statusOfNew('m6', sam)).toBe('waiting');
+
+    await drainJobsForTest({ now: inSeconds(11) });
+    expect(noticesOn(sam, pageId)).toHaveLength(3);
+    expect(noticesOn(kai, pageId)).toHaveLength(1);
   });
 
   it('notifies the people a comment mentions, once each, but not its author (CM-08)', async () => {

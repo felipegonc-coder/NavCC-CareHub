@@ -1,14 +1,16 @@
-// Stub screens from the Learning base PR. B3 replaces them; the routes in ../../routes.tsx stay as they are.
+import { StudioRoot } from '../context';
+import { PathList } from './PathList';
 
 /** `/learning/studio/paths`: the learning paths people build. */
 export function PathsStudioScreen() {
   return (
-    <main className="mx-auto max-w-page px-6 py-16">
-      <title>Care Hub · Learning paths</title>
-      <h1 className="text-title text-fg">Learning paths</h1>
-    </main>
+    <StudioRoot>
+      <PathList />
+    </StudioRoot>
   );
 }
+
+// The path builder is still the base PR's stub; the next PR replaces it.
 
 /** `/learning/studio/paths/:pathId`: the path builder. */
 export function PathEditorScreen() {
