@@ -1,4 +1,9 @@
-import { courseOutline, type Course, type LearnerCourseState } from '@carehub/learning';
+import {
+  courseOutline,
+  type Course,
+  type LearnerCourseState,
+  type NewProgressEvent,
+} from '@carehub/learning';
 import { buttonClasses, cn } from '@carehub/ui';
 import { ArrowLeft } from 'lucide-react';
 import { useId } from 'react';
@@ -8,22 +13,28 @@ import { TopicList } from '../catalog/CourseCard';
 import { Outline } from '../player/Outline';
 import { outlinePercent, ProgressBar } from '../player/ProgressBar';
 import { useFollowLink } from '../player/useFollowLink';
-import { courseFacts, hasStarted, startAction, statusLine, timeLeftLine } from './start';
+import { SignOffSection } from './SignOff';
+import { almostDoneLine, courseFacts, hasStarted, signOff, startAction, statusLine } from './start';
 
-type CourseStartProps = { course: Course; state: LearnerCourseState };
+type CourseStartProps = {
+  course: Course;
+  state: LearnerCourseState;
+  emit(event: NewProgressEvent): void;
+};
 
 /**
  * A course's start page: what the course is, how far the learner is, the button to start, carry on
- * or look back through it, and its lessons.
+ * or look back through it, the sign-off when the course asks for one, and its lessons.
  */
-export function CourseStart({ course, state }: CourseStartProps) {
+export function CourseStart({ course, state, emit }: CourseStartProps) {
   const go = useFollowLink(course);
   const progressId = useId();
   const lessonsId = useId();
   const outline = courseOutline(course, state);
   const percent = outlinePercent(outline);
   const action = startAction(course, state, outline);
-  const timeLeft = timeLeftLine(course, state);
+  const sign = signOff(course, state);
+  const almostDone = almostDoneLine(course, state, outline, sign);
   return (
     <main
       className={cn(
@@ -58,7 +69,7 @@ export function CourseStart({ course, state }: CourseStartProps) {
           {statusLine(state, percent, hasStarted(state, outline))}
         </p>
         <ProgressBar percent={percent} label="Course progress" />
-        {timeLeft && <p className="text-small text-muted">{timeLeft}</p>}
+        {almostDone && <p className="text-small text-muted">{almostDone}</p>}
         {action ? (
           <Link to={action.href} className={buttonClasses({ className: 'self-start' })}>
             {action.label}
@@ -67,6 +78,7 @@ export function CourseStart({ course, state }: CourseStartProps) {
           <p className="text-small text-muted">This course has no lessons yet.</p>
         )}
       </section>
+      {sign && <SignOffSection signOff={sign} emit={emit} />}
       <RichTextView value={course.description} course={course} go={go} className="text-body" />
       <section aria-labelledby={lessonsId} className="flex flex-col gap-2">
         <h2 id={lessonsId} className="text-h2">

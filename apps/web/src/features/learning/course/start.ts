@@ -1,8 +1,10 @@
 import {
+  DEFAULT_ACKNOWLEDGEMENT,
   lessonHref,
   playerLabels,
   type Course,
   type CourseOutline,
+  type IsoDateTime,
   type LearnerCourseState,
 } from '@carehub/learning';
 
@@ -28,8 +30,9 @@ export function hasStarted(state: LearnerCourseState, outline: CourseOutline): b
 /**
  * The start page's button. Before the course: the course's "start" label, to the first lesson. Part
  * way: its "continue" label, to where the learner stopped (the resume point, else the first lesson
- * not done yet). Once finished: back to the first lesson, to look through it again. Null for a
- * course without lessons.
+ * not done yet). Once finished, or once every lesson is done and only the sign-off or the course's
+ * minimum time is left: back to the first lesson, to look through it again. Null for a course
+ * without lessons.
  */
 export function startAction(
   course: Pick<Course, 'id' | 'lessons' | 'settings'>,
@@ -39,7 +42,8 @@ export function startAction(
   const first = outline.rows[0];
   if (!first) return null;
   const labels = playerLabels(course);
-  if (FINISHED.has(state.status)) return { label: 'Review the course', href: first.href };
+  if (FINISHED.has(state.status) || outline.rows.every((row) => row.status === 'completed'))
+    return { label: 'Review the course', href: first.href };
   if (!hasStarted(state, outline)) return { label: labels.start, href: first.href };
   const resume = state.resume;
   if (resume && course.lessons.some((lesson) => lesson.id === resume.lessonId)) {
@@ -66,16 +70,51 @@ export function statusLine(state: LearnerCourseState, percent: number, started: 
   }
 }
 
-/** When everything else is done but the course's minimum time isn't spent yet: how much is left. */
-export function timeLeftLine(
+/** A course's "I have read and understood" sign-off, as the learner sees it. */
+export type SignOff = {
+  statement: string;
+  /** Every content lesson is completed, so the learner can sign (quiz lessons don't count). */
+  ready: boolean;
+  signedAt: IsoDateTime | null;
+};
+
+/** The course's sign-off, or null when it doesn't ask for one. */
+export function signOff(
+  course: Pick<Course, 'lessons' | 'settings'>,
+  state: Pick<LearnerCourseState, 'lessons' | 'acknowledgedAt'>,
+): SignOff | null {
+  const { completion, acknowledgement } = course.settings;
+  if (!completion.requireAcknowledgement) return null;
+  const completed = new Set(
+    state.lessons.filter((entry) => entry.status === 'completed').map((entry) => entry.lessonId),
+  );
+  return {
+    statement: acknowledgement?.statement ?? DEFAULT_ACKNOWLEDGEMENT,
+    ready: course.lessons.every((lesson) => lesson.kind !== 'content' || completed.has(lesson.id)),
+    signedAt: state.acknowledgedAt,
+  };
+}
+
+/**
+ * When every lesson is done but the course isn't finished: what is left, either the course's
+ * minimum time (how much of it) or the sign-off. Null otherwise.
+ */
+export function almostDoneLine(
   course: Pick<Course, 'settings'>,
-  state: Pick<LearnerCourseState, 'blockedBy' | 'activeSeconds'>,
+  state: Pick<LearnerCourseState, 'status' | 'blockedBy' | 'activeSeconds'>,
+  outline: Pick<CourseOutline, 'completed' | 'total'>,
+  sign: SignOff | null,
 ): string | null {
-  if (state.blockedBy !== 'minimum_course_time') return null;
-  const seconds = (course.settings.minimumCourseSeconds ?? 0) - state.activeSeconds;
-  const minutes = Math.max(1, Math.ceil(seconds / 60));
-  const left = minutes === 1 ? '1 more minute' : `${minutes} more minutes`;
-  return `Almost done: spend ${left} in the lessons to finish the course.`;
+  if (state.blockedBy === 'minimum_course_time') {
+    const seconds = (course.settings.minimumCourseSeconds ?? 0) - state.activeSeconds;
+    const minutes = Math.max(1, Math.ceil(seconds / 60));
+    const left = minutes === 1 ? '1 more minute' : `${minutes} more minutes`;
+    return `Almost done: spend ${left} in the lessons to finish the course.`;
+  }
+  const allDone = outline.total > 0 && outline.completed === outline.total;
+  if (sign && !sign.signedAt && allDone && !FINISHED.has(state.status))
+    return 'Almost done: sign below to finish the course.';
+  return null;
 }
 
 /** A course's size in a few words: "4 lessons · About 20 minutes". */
