@@ -123,7 +123,7 @@ export function itemReader(prop: Property, ctx: EvalContext): (v: ReadValue) => 
     case 'button':
       return () => [];
     case 'verification':
-      return (v) => textItem(VERIFICATION_LABELS[verificationState(v)]);
+      return (v) => textItem(VERIFICATION_LABELS[verificationState(v, ctx.viewer)]);
   }
 }
 

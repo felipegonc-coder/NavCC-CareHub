@@ -323,8 +323,8 @@ export function readProperty(row: Row, ctx: FormulaContext, prop: Property): Com
     case 'button':
       return EMPTY;
     case 'verification':
-      // "Verified", "Expired" or "Not verified", like the badge.
-      return txt(VERIFICATION_LABELS[verificationState(raw)]);
+      // "Verified", "Expired" or "Not verified" at the viewer's moment, like the badge.
+      return txt(VERIFICATION_LABELS[verificationState(raw, ctx.viewer)]);
   }
 }
 

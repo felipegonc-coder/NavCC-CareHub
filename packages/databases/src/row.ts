@@ -45,7 +45,7 @@ export interface ReadValueMap {
   /** The number part as an exact decimal; the prefix is in the property config. */
   unique_id: string | null;
   button: null;
-  /** null: Not verified. */
+  /** null: Not verified. Verified or Expired depends on the moment (verificationState). */
   verification: VerificationValue | null;
 }
 export type ReadValue = ReadValueMap[PropertyType];

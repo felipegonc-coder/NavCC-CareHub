@@ -14,7 +14,7 @@ import { toScaled } from './decimal';
 import { plainText } from './richtext';
 import { findProperty, readValue, type ReadValue } from './row';
 import { compareText } from './text';
-import { isVerificationValue, verificationState } from './verification';
+import { isVerificationValue, verificationState, type VerificationClock } from './verification';
 import {
   LIMITS,
   type ChecklistItem,
@@ -156,10 +156,10 @@ const VERIFICATION_RANK: Record<VerificationState, number> = {
  * Spec 3.4, "Status, then date": Verified, Expired, Not verified (a state, never empty); within
  * each, by the until date, with no end date after every date.
  */
-function verificationKey(v: ReadValue): SortKey {
+function verificationKey(v: ReadValue, clock: VerificationClock): SortKey {
   const day =
     isVerificationValue(v) && v.until !== null ? Number(v.until.replaceAll('-', '')) : Infinity;
-  return { rank: VERIFICATION_RANK[verificationState(v)], value: day };
+  return { rank: VERIFICATION_RANK[verificationState(v, clock)], value: day };
 }
 
 /** The key a value sorts by for its property; null when it is empty (or can't be sorted). */
@@ -207,7 +207,7 @@ function keyOf(prop: Property, v: ReadValue, ctx: EvalContext, memo: Memo): Sort
     case 'rollup':
       return isComputed(v) ? computedKey(v, ctx, memo) : null;
     case 'verification':
-      return verificationKey(v);
+      return verificationKey(v, ctx.viewer);
     case 'files':
     case 'relation':
     case 'button':
