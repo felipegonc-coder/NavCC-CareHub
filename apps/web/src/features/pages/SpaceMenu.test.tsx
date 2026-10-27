@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CreateSpaceButton, SpaceMenu } from './SpaceMenu';
 import type { Space } from './types';
@@ -46,7 +47,17 @@ const leaders: Space = { id: 'leaders', kind: 'private', name: 'Team leads', ico
 
 function show(children: ReactNode) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>);
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        {children}
+        <Routes>
+          <Route path="/spaces/:spaceId/settings" element={<p>Settings opened</p>} />
+          <Route path="*" element={null} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 /** Opens the space's "…", as the keyboard does. */
@@ -87,12 +98,21 @@ describe('SpaceMenu', () => {
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
     expect(itemsOf(await openMenu('Billing'))).toEqual([
+      'Space settings',
       'Leave space',
       'Archive space',
       'Delete space',
     ]);
     // Members can't leave a Private space; with nothing to offer, it has no "…".
     expect(screen.queryByRole('button', { name: 'Team leads options' })).not.toBeInTheDocument();
+  });
+
+  it("opens the space's settings for owners", async () => {
+    show(<SpaceMenu space={{ ...billing, canManage: true }} />);
+    fireEvent.click(
+      within(await openMenu('Billing')).getByRole('menuitem', { name: 'Space settings' }),
+    );
+    expect(await screen.findByText('Settings opened')).toBeInTheDocument();
   });
 
   it("moves the space up or down in the person's order, where it can go", async () => {
