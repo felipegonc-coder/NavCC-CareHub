@@ -204,6 +204,15 @@ describe('A certificate', () => {
     );
   });
 
+  it('says a bad link is not a certificate, without asking the server', async () => {
+    const paths = serve({});
+    showCertificate('not a certificate');
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Certificate not found' }),
+    ).toBeVisible();
+    expect(paths).toEqual([]);
+  });
+
   it('tries again after a failed load', async () => {
     let calls = 0;
     serve({

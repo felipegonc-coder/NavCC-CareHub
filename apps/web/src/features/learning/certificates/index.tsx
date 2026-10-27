@@ -1,3 +1,4 @@
+import { IdSchema, type Id } from '@carehub/learning';
 import { Button, buttonClasses } from '@carehub/ui';
 import { Link, useParams } from 'react-router';
 import { LearningApiError } from '../data';
@@ -24,12 +25,12 @@ export function CertificatesScreen() {
 
 /** `/learning/certificates/:certificateId`: one certificate, ready to print or save as a PDF. */
 export function CertificateScreen() {
-  const { certificateId } = useParams();
-  if (!certificateId) return <CertificateNotFound />;
-  return <CertificateLoader certificateId={certificateId} />;
+  const certificateId = IdSchema.safeParse(useParams().certificateId);
+  if (!certificateId.success) return <CertificateNotFound />;
+  return <CertificateLoader certificateId={certificateId.data} />;
 }
 
-function CertificateLoader({ certificateId }: { certificateId: string }) {
+function CertificateLoader({ certificateId }: { certificateId: Id }) {
   const certificate = useCertificate(certificateId);
   if (!certificate.data) {
     if (!certificate.error) return <ScreenLoading label="Loading the certificate" />;

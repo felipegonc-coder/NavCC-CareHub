@@ -9,7 +9,7 @@ import {
   type IsoDate,
 } from '@carehub/learning';
 import { useQuery } from '@tanstack/react-query';
-import { api, withQuery } from '../data';
+import { api, apiPath, withQuery } from '../data';
 import { retryOnce } from '../player/data';
 
 // GET /certificates and GET /certificates/:id (docs/learning/api.md): the person's certificates,
@@ -46,9 +46,7 @@ export function useCertificate(certificateId: Id) {
   return useQuery({
     queryKey: [...certificatesKey, 'one', certificateId],
     queryFn: ({ signal }) =>
-      api('GET', `/certificates/${encodeURIComponent(certificateId)}`, CertificateSchema, {
-        signal,
-      }),
+      api('GET', apiPath('certificates', certificateId), CertificateSchema, { signal }),
     retry: retryOnce,
   });
 }
