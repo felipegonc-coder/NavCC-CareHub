@@ -4,12 +4,15 @@
 // Team tools calendar's database layers. Fictional people only.
 import {
   defaultConfig,
+  defaultForm,
   defaultView,
   newId,
   newProperty,
   relationConfig,
   type FilterGroup,
+  type FormQuestion,
   type Property,
+  type RowTemplate,
 } from '@carehub/databases';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -61,9 +64,10 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
   let nameId: string;
   let clientNameId: string;
   let formViewId: string;
+  let quickFormId: string;
   let imported: string[] = [];
   const people = {} as Record<'admin' | 'avery' | 'jordan' | 'casey', TestUser>;
-  const ids = {} as Record<'leak' | 'heater' | 'tap' | 'frozen' | 'harbor', string>;
+  const ids = {} as Record<'leak' | 'heater' | 'tap' | 'quick' | 'harbor', string>;
   const events: DatabaseEvent[] = [];
   const committed: boolean[] = [];
 
@@ -191,12 +195,35 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
     };
     client = newProperty('Client', relationConfig(clientsId));
     const visits = await settings(visitsId, (current) => {
-      const properties = [...current.properties, visit, followUp, hours, gate, rate, assignee];
-      const form = defaultView('form', properties, { name: 'Call-out request' });
-      return { properties: [...properties, ticket, client], views: [...current.views, form] };
+      const properties = [
+        ...current.properties,
+        ...[visit, followUp, hours, gate, rate, assignee, ticket, client],
+      ];
+      // Two forms: one asks for the Name and four more, the other only for Hours.
+      const ask = (prop: Property): FormQuestion => ({
+        propertyId: prop.id,
+        text: prop.name,
+        description: [],
+        required: false,
+        display: 'default',
+        logic: null,
+      });
+      const form = (name: string, asked: Property[], withName: boolean) => {
+        const view = defaultView('form', properties, { name });
+        const base = defaultForm(name, properties);
+        const questions = [...(withName ? base.questions : []), ...asked.map(ask)];
+        return { ...view, form: { ...base, questions } };
+      };
+      const views = [
+        ...current.views,
+        form('Call-out request', [hours, gate, rate, client], true),
+        form('Quick report', [hours], false),
+      ];
+      return { properties, views };
     });
     nameId = visits.properties.find((p) => p.config.type === 'title')!.id;
-    formViewId = visits.views.find((v) => v.layout === 'form')!.id;
+    formViewId = visits.views.find((v) => v.name === 'Call-out request')!.id;
+    quickFormId = visits.views.find((v) => v.name === 'Quick report')!.id;
     const clients = await loadDatabase(db, clientsId);
     clientNameId = clients!.properties.find((p) => p.config.type === 'title')!.id;
   });
@@ -322,6 +349,15 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
         source: 'user',
       }),
     ));
+    // A default template, which form answers never start from.
+    const template: RowTemplate = {
+      id: newId(),
+      name: 'Call-out',
+      icon: null,
+      values: { [hours.id]: '5' },
+    };
+    await settings(visitsId, () => ({ templates: [template], defaultTemplateId: template.id }));
+
     const before = events.length;
     // An anonymous answer. It links a row (the forms server checked the respondent can open it),
     // and writes properties whose access lists leave the respondent out: the form decides.
@@ -343,34 +379,43 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
       }),
     );
     ids.tap = rowId;
-    // Casey can't open Visits, but the form let her answer.
+    // Casey can't open Visits, but the form let her answer. It doesn't ask for the Name, so the
+    // title comes from who answered; Hours is left blank, and the template isn't used.
     const responseId = newId();
-    ({ rowId: ids.frozen } = await write((tx) =>
+    ({ rowId: ids.quick } = await write((tx) =>
       createRow(tx, {
         databaseId: visitsId,
-        templateId: null,
-        values: { [nameId]: 'Frozen pipe' },
+        values: { [nameId]: 'Response from Casey Brooks' },
         actorUserId: people.casey.id,
         source: 'form',
-        formId: formViewId,
+        formId: quickFormId,
         responseId,
       }),
     ));
-    const answer = { workspaceId, databaseId: visitsId, source: 'form', formId: formViewId };
+    const answer = { workspaceId, databaseId: visitsId, source: 'form' };
     expect(await eventsSince(before)).toEqual([
-      { name: 'databases.row.created', payload: { ...answer, rowId, actorId: null } },
       {
         name: 'databases.row.created',
-        payload: { ...answer, rowId: ids.frozen, actorId: people.casey.id, responseId },
+        payload: { ...answer, formId: formViewId, rowId, actorId: null },
+      },
+      {
+        name: 'databases.row.created',
+        payload: {
+          ...answer,
+          formId: quickFormId,
+          rowId: ids.quick,
+          actorId: people.casey.id,
+          responseId,
+        },
       },
     ]);
     const { rows } = await db.execute<{ form_view_id: string | null; created_by: string | null }>(
-      sql`SELECT form_view_id, created_by FROM db_rows WHERE page_id IN (${rowId}, ${ids.frozen})
+      sql`SELECT form_view_id, created_by FROM db_rows WHERE page_id IN (${rowId}, ${ids.quick})
         ORDER BY unique_number`,
     );
     expect(rows).toEqual([
       { form_view_id: formViewId, created_by: null },
-      { form_view_id: formViewId, created_by: people.casey.id },
+      { form_view_id: quickFormId, created_by: people.casey.id },
     ]);
     expect((await stored(rowId))?.values).toMatchObject({
       [hours.id]: '1',
@@ -378,23 +423,26 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
       [rate.id]: '95',
       [client.id]: [ids.harbor],
     });
+    const quick = await stored(ids.quick);
+    expect(quick?.title).toBe('Response from Casey Brooks');
+    expect(Object.keys(quick?.values ?? {})).not.toContain(hours.id);
 
-    // A form answer names one of the database's form views; only form answers are anonymous;
-    // only people write; links are to rows that are there; anyone else goes by the access lists.
+    // A form answer names one of the database's form views, uses no template and answers only
+    // the form's questions; only form answers are anonymous; only people write; links are to
+    // rows that are there; anyone else goes by the access lists.
     const tableViewId = (await loadDatabase(db, visitsId))!.views[0]!.id;
+    const asForm = { actorUserId: null, source: 'form' as const, formId: formViewId };
     const refusals: [Partial<Parameters<typeof createRow>[1]>, number][] = [
-      [{ actorUserId: null, source: 'form' }, 400],
-      [{ actorUserId: null, source: 'form', formId: tableViewId }, 400],
-      [{ actorUserId: people.casey.id, source: 'form', formId: newId() }, 400],
+      [{ ...asForm, formId: undefined }, 400],
+      [{ ...asForm, formId: tableViewId }, 400],
+      [{ ...asForm, actorUserId: people.casey.id, formId: newId() }, 400],
+      [{ ...asForm, templateId: template.id }, 400],
       [
-        {
-          actorUserId: null,
-          source: 'form',
-          formId: formViewId,
-          values: { [client.id]: [newId()] },
-        },
+        { ...asForm, values: { [visit.id]: { start: '2026-10-27', end: null, hasTime: false } } },
         400,
       ],
+      [{ ...asForm, formId: quickFormId, values: { [gate.id]: '7310' } }, 400],
+      [{ ...asForm, values: { [client.id]: [newId()] } }, 400],
       [{ actorUserId: null, source: 'user' }, 403],
       [{ actorUserId: people.casey.id, source: 'user' }, 403],
       [{ actorUserId: people.admin.id, source: 'user', values: { [rate.id]: '95' } }, 403],
@@ -417,6 +465,7 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
         }),
       ),
     ).rejects.toMatchObject({ statusCode: 400 });
+    await settings(visitsId, () => ({ templates: [], defaultTemplateId: null }));
   });
 
   it('imports rows in order with consecutive ID numbers, marked with the import', async () => {
@@ -648,7 +697,7 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
       { rowId: ids.leak, access: 'view' },
       { rowId: ids.heater, access: 'view' },
       { rowId: ids.tap, access: 'view' },
-      { rowId: ids.frozen, access: 'view' },
+      { rowId: ids.quick, access: 'view' },
     ]);
     expect(await find(people.jordan, null, 1)).toEqual([{ rowId: ids.leak, access: 'view' }]);
     await expect(find(people.casey, null)).rejects.toMatchObject({ statusCode: 403 });
@@ -661,7 +710,7 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
     // A layer can use a view's filter: not a form's.
     const record = await loadDatabase(db, visitsId);
     const views = record!.views
-      .filter((v) => v.id !== formViewId)
+      .filter((v) => v.layout !== 'form')
       .map((v) => ({ viewId: v.id, name: v.name }));
     expect(views).toHaveLength(1);
     expect(await listDateSources(db, viewerOf(people.jordan))).toEqual([
