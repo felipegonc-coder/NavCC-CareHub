@@ -13,6 +13,7 @@ access-checked APIs.
 | `publishTopic(topic, event)`                                        | Sends `event` to every tab subscribed to `topic` (`<prefix>:<id>`, such as `chat:<conversationId>`).                                                                                |
 | `registerTopic(prefix, canSubscribe)`                               | Makes `prefix` yours. `canSubscribe({ userId, topic })` is checked on subscribe, on reconnect and every 10 minutes; errors and answers slower than 5 s count as no.                 |
 | `recheckSubscriptions(userId?)`                                     | Checks that user's topics again now (everyone's when omitted), for example after an access change. Lost topics end with `unsubscribed`; answers from before the change never count. |
+| `hasOpenTabs(userId)`                                               | True while that user has at least one tab connected to this server, so push can skip people who have Care Hub open.                                                                 |
 | `type CanSubscribe`                                                 | The type of `canSubscribe`.                                                                                                                                                         |
 | `liveHub`                                                           | The app-wide hub, for tests and `routes.ts`.                                                                                                                                        |
 
