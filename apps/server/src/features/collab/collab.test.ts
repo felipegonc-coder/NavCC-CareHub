@@ -7,7 +7,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import * as Y from 'yjs';
 import { createTestApp, createUser, hasDatabase } from '../../testing';
-import { SESSION_COOKIE } from '../auth';
 import { getPageText } from './index';
 import { MessageType, SyncStep } from './protocol';
 import { CloseCode } from './server';
@@ -74,7 +73,7 @@ function concat(...parts: Uint8Array[]): Uint8Array {
 function openSocket(token: string | null, options: { build?: string; origin?: string } = {}) {
   const build = encodeURIComponent(options.build ?? BUILD);
   const headers: Record<string, string> = { Origin: options.origin ?? `http://127.0.0.1:${port}` };
-  if (token) headers.Cookie = `${SESSION_COOKIE}=${token}`;
+  if (token) headers.Cookie = `${test.app.sessionCookies.names.session}=${token}`;
   return new WebSocket(`ws://127.0.0.1:${port}/api/collab?build=${build}`, { headers });
 }
 
