@@ -24,10 +24,10 @@ import {
   type PatternResult,
 } from './registry';
 
-/** Longest pattern, in characters. */
-export const MAX_PATTERN_LENGTH = 200;
-/** Characters of a text that patterns read; replace keeps the rest as it is. */
-export const PATTERN_TEXT_LENGTH = 10_000;
+/** Longest pattern, in characters (LIMITS.formulaPatternLength). */
+export const MAX_PATTERN_LENGTH: number = LIMITS.formulaPatternLength;
+/** Characters of a text that patterns read; replace keeps the rest (LIMITS.formulaPatternInput). */
+export const PATTERN_TEXT_LENGTH: number = LIMITS.formulaPatternInput;
 /** Copies that counted repeats nested inside each other may make: (a{10}){100} makes 1,000. */
 export const MAX_PATTERN_COPIES = 1_000;
 /** Instructions a compiled pattern may have. */

@@ -21,7 +21,7 @@ import type {
   RichText,
   Row,
 } from '../types';
-import { LENGTH_MESSAGE, checkFormula, type Expr } from './check';
+import { LENGTH_MESSAGE, checkFormula, type CheckMode, type Expr } from './check';
 import { resultKindOf } from './kinds';
 import { parseFormula } from './parser';
 import {
@@ -448,15 +448,22 @@ function read(f: Frame, row: Row, ctx: FormulaContext, saved: Property): Compute
   return v;
 }
 
-/** Parses, checks and prepares a stored formula (property references by id). */
-export function compileFormula(expression: string, schema: FormulaSchema): CompileResult {
-  if (expression.length > LIMITS.formulaLength) {
+/**
+ * Parses, checks and prepares a stored formula (property references by id). The editor's preview
+ * uses mode "name" to run the formula as typed, so problems point into the text on screen.
+ */
+export function compileFormula(
+  expression: string,
+  schema: FormulaSchema,
+  mode: CheckMode = 'id',
+): CompileResult {
+  if (expression.length > LIMITS.formulaLength * (mode === 'id' ? 1 : 4)) {
     const error = { message: LENGTH_MESSAGE, start: LIMITS.formulaLength, end: expression.length };
     return { ok: false, error };
   }
   const parsed = parseFormula(expression);
   if (!parsed.ok) return parsed;
-  const checked = checkFormula(parsed.ast, schema, 'id');
+  const checked = checkFormula(parsed.ast, schema, mode);
   if (!checked.ok) return checked;
   const run: Run = checked.expr ? compile(checked.expr) : () => EMPTY;
   const slotCount = checked.slots;
