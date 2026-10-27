@@ -1,6 +1,6 @@
 # Databases and Forms: status
 
-Updated Oct 27, 2026, 09:40 UTC. Plan: [PLAN.md](PLAN.md). Storage and API: [decision 0200](../decisions/0200-databases-storage-and-api.md). The v2 specs win; lane details in [additions.md](additions.md).
+Updated Oct 27, 2026, 09:35 UTC. Plan: [PLAN.md](PLAN.md). Storage and API: [decision 0200](../decisions/0200-databases-storage-and-api.md). The v2 specs win; lane details in [additions.md](additions.md).
 
 ## Done
 
