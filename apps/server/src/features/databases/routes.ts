@@ -1,5 +1,6 @@
 // Database routes at /api/databases (decision 0200): create a database, read it as the person may
-// see it, and change its settings; the property routes (property-routes.ts) register here too.
+// see it, and change its settings; the property and view routes (property-routes.ts,
+// view-routes.ts) register here too.
 // Settings writes send `version`, lock the database's row, and answer like GET /:id with the new
 // version.
 import {
@@ -28,6 +29,7 @@ import {
   type DatabaseSettingsRequest,
 } from './requests';
 import { changeDatabase, insertDatabase, loadDatabase } from './store';
+import { registerViewRoutes } from './view-routes';
 
 /** A two-way relation pair inside one database, named as given (or "Name 2" when taken). */
 function relationPair(
@@ -194,4 +196,5 @@ export default async function databaseRoutes(app: FastifyInstance) {
   });
 
   registerPropertyRoutes(app);
+  registerViewRoutes(app);
 }
