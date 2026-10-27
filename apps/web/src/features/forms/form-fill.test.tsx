@@ -98,9 +98,8 @@ describe('FormFill', () => {
     expect(status).toHaveTextContent('Thanks! Your response was sent.');
     expect(client.submitResponse).toHaveBeenCalledTimes(1);
     expect(client.submitResponse).toHaveBeenCalledWith('code-123', {
-      [IDS.name]: 'Avery Lin',
-      [IDS.category]: 'opt-billing',
-      [IDS.amount]: '12.5',
+      answers: { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing', [IDS.amount]: '12.5' },
+      anonymous: false,
     });
     fireEvent.click(screen.getByRole('button', { name: 'Submit another response' }));
     expect(textbox('Your name')).toHaveValue('');
@@ -178,9 +177,16 @@ describe('FormFill', () => {
     expect(screen.queryByRole('form')).toBeNull();
   });
 
-  it('says names are not recorded on an anonymous form', () => {
-    renderFill({ anonymous: true });
+  it('says names are not recorded on an anonymous form, and sends that it said so', async () => {
+    const { client } = renderFill({ anonymous: true });
     expect(screen.getByText("Your name isn't recorded with this form.")).toBeInTheDocument();
+    answerRequired();
+    fireEvent.click(submitButton());
+    await screen.findByRole('status');
+    expect(client.submitResponse).toHaveBeenCalledWith('code-123', {
+      answers: { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing' },
+      anonymous: true,
+    });
   });
 
   it('asks for a tick on a required checkbox', () => {
@@ -200,7 +206,7 @@ describe('FormFill', () => {
     expect(screen.getByLabelText('End')).toHaveValue('2026-10-27');
     fireEvent.click(submitButton());
     await waitFor(() => expect(client.submitResponse).toHaveBeenCalled());
-    expect(client.submitResponse.mock.calls[0]?.[1]).toEqual({
+    expect(client.submitResponse.mock.calls[0]?.[1].answers).toEqual({
       [IDS.visit]: {
         start: '2026-10-27T15:00:00.000Z',
         end: '2026-10-27T15:00:00.000Z',
@@ -226,8 +232,8 @@ describe('FormFill', () => {
     fireEvent.click(submitButton());
     await waitFor(() =>
       expect(client.submitResponse).toHaveBeenCalledWith('code-123', {
-        [IDS.assignee]: ['user-avery'],
-        [IDS.job]: ['row-leak'],
+        answers: { [IDS.assignee]: ['user-avery'], [IDS.job]: ['row-leak'] },
+        anonymous: false,
       }),
     );
   });
@@ -241,8 +247,8 @@ describe('FormFill', () => {
     fireEvent.click(submitButton());
     expect(await screen.findByRole('status')).toHaveTextContent('Thanks! Your response was sent.');
     expect(client.submitPublicResponse).toHaveBeenCalledWith('code-123', {
-      [IDS.name]: 'Avery Lin',
-      [IDS.category]: 'opt-billing',
+      answers: { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing' },
+      anonymous: true,
     });
     expect(client.submitResponse).not.toHaveBeenCalled();
   });

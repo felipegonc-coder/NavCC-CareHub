@@ -29,15 +29,18 @@ describe('createFormsClient', () => {
     expect(calls.map((c) => [c.method, c.path])).toEqual([['GET', '/api/forms/ab%2Fc']]);
   });
 
-  it('sends the answers as { answers }', async () => {
+  it('sends the answers as { answers, anonymous }', async () => {
     const { request, calls } = fakeRequest({ ok: true });
     const client = createFormsClient(request);
-    await client.submitResponse('code-123', { 'prop-name': 'Avery Lin' });
+    await client.submitResponse('code-123', {
+      answers: { 'prop-name': 'Avery Lin' },
+      anonymous: false,
+    });
     expect(calls).toEqual([
       {
         method: 'POST',
         path: '/api/forms/code-123/responses',
-        body: { answers: { 'prop-name': 'Avery Lin' } },
+        body: { answers: { 'prop-name': 'Avery Lin' }, anonymous: false },
       },
     ]);
   });
@@ -47,13 +50,16 @@ describe('createFormsClient', () => {
     const client = createFormsClient(request);
     const data = await client.getPublicForm('ab/c');
     expect(data.form.audience).toBe('anyone');
-    await client.submitPublicResponse('code-123', { 'prop-name': 'Avery Lin' });
+    await client.submitPublicResponse('code-123', {
+      answers: { 'prop-name': 'Avery Lin' },
+      anonymous: true,
+    });
     expect(calls).toEqual([
       { method: 'GET', path: '/api/forms/public/ab%2Fc', body: undefined },
       {
         method: 'POST',
         path: '/api/forms/public/code-123/responses',
-        body: { answers: { 'prop-name': 'Avery Lin' } },
+        body: { answers: { 'prop-name': 'Avery Lin' }, anonymous: true },
       },
     ]);
     expect(publicCoverUrl('ab/c')).toBe('/api/forms/public/ab%2Fc/cover');
@@ -85,13 +91,14 @@ describe('the default client', () => {
       }),
     );
     vi.stubGlobal('fetch', fetchMock);
-    await expect(createFormsClient().submitResponse('code-123', {})).resolves.toEqual({
-      ok: true,
-    });
+    await expect(
+      createFormsClient().submitResponse('code-123', { answers: {}, anonymous: true }),
+    ).resolves.toEqual({ ok: true });
     const [path, init = {}] = fetchMock.mock.calls.at(-1) ?? [];
     expect(path).toBe('/api/forms/code-123/responses');
     expect(init.method).toBe('POST');
     expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('token-1');
+    expect(JSON.parse(String(init.body))).toEqual({ answers: {}, anonymous: true });
   });
 });
 

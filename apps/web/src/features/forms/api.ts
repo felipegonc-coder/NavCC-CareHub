@@ -56,13 +56,23 @@ export interface PersonPick {
   avatarUrl?: string | null;
 }
 
+/**
+ * What the fill screen sends: the answers, and `anonymous`, whether it told the person their name
+ * isn't recorded. When that was true and the form isn't anonymous any more, the server answers
+ * `form_changed` and saves nothing.
+ */
+export interface ResponseBody {
+  answers: FormAnswers;
+  anonymous: boolean;
+}
+
 export interface FormsClient {
   getForm(code: string): Promise<FillForm>;
-  /** `{ answers }` → `{ ok: true }`. The server checks everything again. */
-  submitResponse(code: string, answers: FormAnswers): Promise<Ok>;
+  /** `{ answers, anonymous }` → `{ ok: true }`. The server checks everything again. */
+  submitResponse(code: string, body: ResponseBody): Promise<Ok>;
   /** The same two for a form anyone can fill in, with nobody signed in. */
   getPublicForm(code: string): Promise<FillForm>;
-  submitPublicResponse(code: string, answers: FormAnswers): Promise<Ok>;
+  submitPublicResponse(code: string, body: ResponseBody): Promise<Ok>;
   searchPeople(q: string): Promise<PersonPick[]>;
   pickRows(databaseId: Id, q: string): Promise<RowPick[]>;
   uploadFile(file: File, options: UploadOptions): Promise<UploadedFile>;
@@ -192,12 +202,12 @@ export function createFormsClient(request: RequestJson = apiRequest): FormsClien
   return {
     getForm: async (code) =>
       parseFillForm(await request<unknown>('GET', `/api/forms/${seg(code)}`)),
-    submitResponse: (code, answers) =>
-      request<Ok>('POST', `/api/forms/${seg(code)}/responses`, { answers }),
+    submitResponse: (code, { answers, anonymous }) =>
+      request<Ok>('POST', `/api/forms/${seg(code)}/responses`, { answers, anonymous }),
     getPublicForm: async (code) =>
       parseFillForm(await request<unknown>('GET', `/api/forms/public/${seg(code)}`)),
-    submitPublicResponse: (code, answers) =>
-      request<Ok>('POST', `/api/forms/public/${seg(code)}/responses`, { answers }),
+    submitPublicResponse: (code, { answers, anonymous }) =>
+      request<Ok>('POST', `/api/forms/public/${seg(code)}/responses`, { answers, anonymous }),
     searchPeople: (q) => request<PersonPick[]>('GET', `/api/workspace/members?q=${seg(q)}`),
     pickRows: (databaseId, q) =>
       request<RowPick[]>('GET', `/api/databases/${seg(databaseId)}/rows/pick?q=${seg(q)}`),
