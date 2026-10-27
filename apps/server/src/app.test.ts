@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import { healthResponseSchema } from '@carehub/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildApp } from './app';
-import { loadConfig } from './config';
+import { createTestApp, hasDatabase, type TestApp } from './testing';
 
 const INDEX_HTML =
   '<!doctype html><html lang="en"><title>Care Hub</title><main><h1>Care Hub</h1></main></html>';
 
 const tempDirs: string[] = [];
+const testApps: TestApp[] = [];
 let app: FastifyInstance;
 let appWithoutWeb: FastifyInstance;
 
@@ -20,22 +20,28 @@ async function makeTempDir(): Promise<string> {
   return dir;
 }
 
+// The server needs Postgres (CI provides DATABASE_URL).
 beforeAll(async () => {
+  if (!hasDatabase) return;
   const webDistDir = await makeTempDir();
   await writeFile(join(webDistDir, 'index.html'), INDEX_HTML);
   await writeFile(join(webDistDir, 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
-  app = await buildApp({
-    config: loadConfig({ WEB_DIST_DIR: webDistDir, CAREHUB_VERSION: '1.2.3' }),
+  const withWeb = await createTestApp({
+    env: { WEB_DIST_DIR: webDistDir, CAREHUB_VERSION: '1.2.3' },
   });
-  appWithoutWeb = await buildApp({ config: loadConfig({ WEB_DIST_DIR: await makeTempDir() }) });
+  testApps.push(withWeb);
+  app = withWeb.app;
+  const withoutWeb = await createTestApp({ env: { WEB_DIST_DIR: await makeTempDir() } });
+  testApps.push(withoutWeb);
+  appWithoutWeb = withoutWeb.app;
 });
 
 afterAll(async () => {
-  await Promise.all([app?.close(), appWithoutWeb?.close()]);
+  await Promise.all(testApps.map((testApp) => testApp.close()));
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe('GET /api/health', () => {
+describe.skipIf(!hasDatabase)('GET /api/health', () => {
   it('reports ok and the version', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(200);
@@ -46,12 +52,14 @@ describe('GET /api/health', () => {
   });
 });
 
-describe('unknown API routes', () => {
+describe.skipIf(!hasDatabase)('unknown API routes', () => {
   async function expectJson404(method: 'GET' | 'POST', url: string): Promise<void> {
     const response = await app.inject({ method, url });
     expect(response.statusCode).toBe(404);
     expect(response.headers['content-type']).toMatch(/^application\/json/);
-    expect(response.json()).toMatchObject({ statusCode: 404, error: 'Not Found' });
+    expect(response.json()).toEqual({
+      error: { code: 'not_found', message: 'This was deleted, or the link is wrong.' },
+    });
   }
 
   it('return a JSON 404 instead of the web app', async () => {
@@ -62,7 +70,7 @@ describe('unknown API routes', () => {
   });
 });
 
-describe('web app', () => {
+describe.skipIf(!hasDatabase)('web app', () => {
   it('serves index.html at the root', async () => {
     const response = await app.inject({ method: 'GET', url: '/' });
     expect(response.statusCode).toBe(200);
