@@ -68,7 +68,7 @@ describe('memory Studio client', () => {
     const empty = await client.createCourse({ type: 'standard', title: 'Empty' });
     const refused = await failsWith(
       client.publish(empty.course.id, { notify: 'none' }),
-      'publish_problems',
+      'cannot_publish',
     );
     expect(isStudioError(refused) && refused.problems.length).toBeGreaterThan(0);
 

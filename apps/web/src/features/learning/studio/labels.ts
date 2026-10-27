@@ -1,4 +1,4 @@
-import { blockCatalog } from '@carehub/learning';
+import { blockCatalog, COURSE_TYPES } from '@carehub/learning';
 import type { Block, CourseType } from '@carehub/learning';
 import type { StudioCourseSummary } from './data/client';
 
@@ -25,6 +25,13 @@ export const COURSE_TYPE_INFO: Record<CourseType, { label: string; description: 
   },
 };
 
+/** The course types as choices, in the format's order. */
+export const COURSE_TYPE_CHOICES: readonly {
+  value: CourseType;
+  label: string;
+  description: string;
+}[] = COURSE_TYPES.map((value) => ({ value, ...COURSE_TYPE_INFO[value] }));
+
 /** "Draft", "Live, version 3" or "Live, version 3, with unpublished changes". */
 export function courseStateLabel(course: Pick<StudioCourseSummary, 'state' | 'version'>): string {
   if (course.state === 'draft' || course.version === null) return 'Draft';
@@ -35,6 +42,10 @@ export function courseStateLabel(course: Pick<StudioCourseSummary, 'state' | 've
 /** The course editor's address. */
 export const editorPath = (courseId: string): string =>
   `/learning/studio/courses/${encodeURIComponent(courseId)}`;
+
+/** The course editor's address with `lessonId` open. */
+export const lessonPath = (courseId: string, lessonId: string): string =>
+  `${editorPath(courseId)}?lesson=${encodeURIComponent(lessonId)}`;
 
 /** The course preview's address. */
 export const previewPath = (courseId: string): string => `${editorPath(courseId)}/preview`;

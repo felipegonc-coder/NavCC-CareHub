@@ -38,7 +38,7 @@ export type MemoryStudioOptions = {
 };
 
 const copy = <T>(value: T): T => structuredClone(value);
-const notFound = () => new StudioError('not_found', "This course doesn't exist or was deleted.");
+const notFound = () => new StudioError('not_found', 'This was deleted, or the link is wrong.');
 
 function load(storage: MemoryStudioOptions['storage'], key: string): Store {
   const store: Store = { courses: {}, templates: [] };
@@ -149,7 +149,11 @@ export function createMemoryStudioClient(options: MemoryStudioOptions = {}): Stu
       const e = entry(courseId);
       const problems = checkPublishable(e.draft);
       if (problems.length > 0)
-        throw new StudioError('publish_problems', 'Fix these before publishing.', problems);
+        throw new StudioError(
+          'cannot_publish',
+          "This can't be published yet. Fix the problems listed first.",
+          problems,
+        );
       return publishCopy(e, e.draft, note?.trim());
     },
     async listVersions(courseId) {

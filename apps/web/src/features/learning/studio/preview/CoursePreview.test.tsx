@@ -80,7 +80,7 @@ describe('course preview', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Lesson title' }), {
       target: { value: 'Why clean hands matter' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Preview' }));
 
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Why clean hands matter' }),
@@ -137,11 +137,9 @@ describe('course preview', () => {
       await screen.findByText('This course has no lessons yet. Add one in the editor.'),
     ).toBeInTheDocument();
     const widths = screen.getByRole('group', { name: 'Width' });
-    expect(within(widths).getByRole('button', { name: 'Computer' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    fireEvent.click(within(widths).getByRole('button', { name: 'Phone' }));
+    expect(within(widths).getByRole('radio', { name: 'Computer' })).toBeChecked();
+    fireEvent.click(within(widths).getByRole('radio', { name: 'Phone' }));
+    expect(within(widths).getByRole('radio', { name: 'Phone' })).toBeChecked();
     expect(frame()).toHaveAccessibleName('Preview at phone width');
 
     fireEvent.click(screen.getByRole('link', { name: 'Back to the editor' }));
@@ -156,7 +154,7 @@ describe('course preview', () => {
   it('says so when the course is gone', async () => {
     renderStudio('/learning/studio/courses/missing/preview');
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This course was deleted, or the link is wrong.',
+      'This was deleted, or the link is wrong.',
     );
   });
 });

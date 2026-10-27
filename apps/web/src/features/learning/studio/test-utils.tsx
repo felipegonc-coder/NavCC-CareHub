@@ -22,7 +22,8 @@ export function testStudioClient(options: MemoryStudioOptions = {}): StudioClien
 }
 
 function Location() {
-  return <p data-testid="location">{useLocation().pathname}</p>;
+  const { pathname, search } = useLocation();
+  return <p data-testid="location">{pathname + search}</p>;
 }
 
 /** Renders the Studio routes at `path`, with a fresh query client that doesn't retry. */

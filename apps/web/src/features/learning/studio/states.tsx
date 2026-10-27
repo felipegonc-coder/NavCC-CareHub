@@ -22,7 +22,7 @@ export function LoadingState({ label }: { label: string }) {
 /** Says what went wrong in plain words, with Retry when trying again can help. */
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const message = isStudioError(error, 'not_found')
-    ? 'This course was deleted, or the link is wrong.'
+    ? 'This was deleted, or the link is wrong.'
     : isStudioError(error, 'forbidden')
       ? "You don't have access to this course."
       : isStudioError(error, 'offline')

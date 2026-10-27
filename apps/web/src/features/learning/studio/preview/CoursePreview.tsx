@@ -3,8 +3,8 @@ import { Button, buttonClasses, cn } from '@carehub/ui';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { Link } from 'react-router';
+import { RadioChoices } from '../choices';
 import { usePreviewDraft } from '../data/queries';
-import { ChoiceButtons } from '../fields';
 import { editorPath } from '../labels';
 import { ErrorState, LoadingState } from '../states';
 import { LessonPreview } from './BlockPreview';
@@ -67,8 +67,9 @@ export function CoursePreview({ courseId }: { courseId: Id }): JSX.Element {
           <h1 className="text-h1 text-fg">{course.title}</h1>
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          <ChoiceButtons<PreviewWidth>
-            label="Width"
+          <RadioChoices<PreviewWidth>
+            legend="Width"
+            compact
             value={width}
             options={WIDTHS}
             onChange={setWidth}

@@ -1,4 +1,11 @@
-import type { Block, Course, CourseType, Id, PublishProblem } from '@carehub/learning';
+import type {
+  Block,
+  Course,
+  CourseType,
+  Id,
+  PublishNotify,
+  PublishProblem,
+} from '@carehub/learning';
 
 // The Studio talks to drafts through this interface (api.md, "Studio course API"). The local implementation
 // keeps drafts in the browser until the server version lands; both behave the same way, including the
@@ -24,12 +31,6 @@ export type StudioCourseSummary = {
 /** A draft with the revision to send back when saving it. */
 export type StudioDraft = { course: Course; revision: number; liveVersion: number | null };
 
-/**
- * What a new version means for people who already started (0311): nobody moves (`none`), runs in progress move
- * and those people are told (`tell`), or everyone who started begins again (`retake`).
- */
-export type PublishNotify = 'none' | 'tell' | 'retake';
-
 /** A published version, newest first in lists. */
 export type StudioCourseVersion = {
   version: number;
@@ -45,12 +46,12 @@ export type StudioExample = { id: Id; title: string; type: CourseType; summary: 
 export type BlockTemplate = { id: Id; name: string; blocks: Block[] };
 
 /**
- * Why a Studio call failed, following the API's error codes: `invalid` (400), `forbidden` (403), `not_found`
- * (404), `conflict` (409, someone saved a newer revision), `publish_problems` (422), `offline` (no answer from
- * the server) and `failed` (anything else).
+ * Why a Studio call failed, following the API's error codes (api/errors.ts): `invalid` (400), `forbidden` (403),
+ * `not_found` (404), `conflict` (409, someone saved a newer revision), `cannot_publish` (422, with the problems),
+ * `offline` (no answer from the server) and `failed` (anything else).
  */
 export type StudioErrorCode =
-  'invalid' | 'forbidden' | 'not_found' | 'conflict' | 'publish_problems' | 'offline' | 'failed';
+  'invalid' | 'forbidden' | 'not_found' | 'conflict' | 'cannot_publish' | 'offline' | 'failed';
 
 /** A failed Studio call. `problems` lists what to fix when publishing was refused. */
 export class StudioError extends Error {
@@ -78,7 +79,8 @@ export interface StudioClient {
   getCourse(courseId: Id): Promise<StudioDraft>;
   /** Saves the draft. Fails with `conflict` when someone saved a newer revision first. */
   saveCourse(courseId: Id, course: Course, revision: number): Promise<{ revision: number }>;
-  /** Publishes the saved draft as a new version. Fails with `publish_problems` when it isn't ready. */
+  /** Publishes the saved draft as a new version. Fails with `cannot_publish` when it isn't ready. */
+  /** `notify`: what happens to people who already started (0311): nobody moves, move and tell, or retake. */
   publish(
     courseId: Id,
     input: { notify: PublishNotify; note?: string },
