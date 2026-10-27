@@ -7,7 +7,7 @@ import { createTestApp, createUser, hasDatabase, type TestApp, type TestUser } f
 import { bindHistoryContent } from './content';
 import { saveVersionNow } from './index';
 import { bindHistoryPages, type HistoryPage } from './pages';
-import { historyEdits, historyVersions } from './schema';
+import { historyEdits, historyUpdates, historyVersions } from './schema';
 import { pageIdsOf } from './tracker';
 import { isDue, recordEdit, recordSavedEdits, saveDueVersions, settleEdits } from './versions';
 
@@ -124,7 +124,7 @@ describe.skipIf(!hasDatabase)('versions on Postgres', () => {
   }
 
   it('mirrors its migration', async () => {
-    for (const table of [historyVersions, historyEdits]) {
+    for (const table of [historyVersions, historyEdits, historyUpdates]) {
       const { inDatabase, inDrizzle } = await columnsOf(table);
       expect(inDrizzle).toEqual(inDatabase);
     }
