@@ -13,6 +13,8 @@ const filesSettingsSchema = z.object({
   FILES_MAX_MB: z.coerce.number().int().min(1).max(1000).default(100),
   /** Uploads pause while less than this is free on the files' disk, in MB (Data settings DS-08). 0: never. */
   FILES_MIN_FREE_MB: z.coerce.number().int().min(0).max(1_048_576).default(2048),
+  /** What each anonymous scope (a form anyone can fill in) may take in a day, in MB (decision 0010). */
+  FILES_ANONYMOUS_DAILY_MB: z.coerce.number().int().min(1).max(1_048_576).default(500),
 });
 
 export type FilesSettings = z.output<typeof filesSettingsSchema>;

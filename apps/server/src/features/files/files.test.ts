@@ -4,6 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { CSRF_HEADER } from '@carehub/shared';
 import { eq, sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -15,12 +16,13 @@ import {
   type TestApp,
   type TestUser,
 } from '../../testing';
-import { deleteFiles, getFiles, registerFileScope, removeDeletedFiles } from './index';
-import { DETAIL, sampleJpeg } from './pictures/testing';
+import { claimFiles, deleteFiles, getFiles, registerFileScope, removeDeletedFiles } from './index';
+import { DETAIL, sampleJpeg, samplePhoto } from './pictures/testing';
 import type { RemoteOptions } from './remote';
 import { files } from './schema';
 import { FILE_CSP } from './serve';
 import { cleanUpFiles } from './service';
+import { office } from './testing';
 
 // Copies from other websites reach only public addresses; here they may also reach the test's own
 // website on 127.0.0.1 (remote.test.ts checks the guard itself).
@@ -528,7 +530,10 @@ describe.skipIf(!hasDatabase)('files', () => {
     const yesterday = new Date(Date.now() - 25 * HOUR);
     await testApp.db.update(files).set({ deletedAt: yesterday }).where(eq(files.id, old.id));
 
-    expect(await cleanUpFiles(testApp.db, { root: filesDir })).toEqual({ removed: 1 });
+    expect(await cleanUpFiles(testApp.db, { root: filesDir })).toEqual({
+      unclaimed: 0,
+      removed: 1,
+    });
     expect(await exists(oldPath)).toBe(false);
     expect(await exists(recentPath)).toBe(true);
     const left = await testApp.db
@@ -536,6 +541,170 @@ describe.skipIf(!hasDatabase)('files', () => {
       .from(files)
       .where(eq(files.id, recent.id));
     expect(left).toHaveLength(1);
+  });
+
+  describe('anonymous scopes, for forms anyone can fill in (decision 0010)', () => {
+    const csrf = randomBytes(32).toString('base64url');
+
+    beforeAll(() => {
+      // A made-up form feature: places starting "open" take uploads from anyone; members open them.
+      registerFileScope('anon-test', {
+        allowAnonymous: true,
+        canRead: ({ member }) => member?.kind === 'member',
+        canWrite: ({ scopeId }) => scopeId.startsWith('open'),
+      });
+    });
+
+    /** An upload from someone who isn't signed in, with the CSRF cookie and header (or without). */
+    const anonymously = (
+      data: Buffer | string,
+      filename: string,
+      { scope = 'anon-test:open', token = csrf }: { scope?: string; token?: string | null } = {},
+    ) => {
+      const body = form([{ name: 'file', filename, data }]);
+      const names = testApp.app.sessionCookies.names;
+      return testApp.app.inject({
+        method: 'POST',
+        url: `/api/files/anonymous?scope=${encodeURIComponent(scope)}`,
+        payload: body.payload,
+        headers: {
+          ...body.headers,
+          ...(token ? { cookie: `${names.csrf}=${token}`, [CSRF_HEADER]: token } : {}),
+        },
+      });
+    };
+    const rowOf = async (id: string) => {
+      const [row] = await testApp.db.select().from(files).where(eq(files.id, id));
+      return row;
+    };
+
+    it('takes uploads from people who are not signed in, and never keeps who uploaded', async () => {
+      const sent = await anonymously('Fictional notes.', 'notes.txt');
+      expect(sent.statusCode).toBe(201);
+      const body = sent.json();
+      const row = await rowOf(body.id);
+      expect(row).toMatchObject({ uploadedBy: null, workspaceId: editor.workspaceId });
+      const wait = (row?.claimDeadline?.getTime() ?? 0) - Date.now();
+      expect(Math.abs(wait - HOUR)).toBeLessThan(5 * 60 * 1000);
+
+      // Not even from someone signed in, on either route.
+      const signedIn = (
+        await upload(editor, 'Fictional notes.', 'notes.txt', 'anon-test:open')
+      ).json();
+      expect((await rowOf(signedIn.id))?.uploadedBy).toBeNull();
+      const ignored = await injectAs(testApp.app, editor, {
+        method: 'POST',
+        url: '/api/files/anonymous?scope=anon-test%3Aopen',
+        ...form([{ name: 'file', filename: 'notes.txt', data: 'Fictional notes.' }]),
+      });
+      expect(ignored.statusCode).toBe(201);
+      expect((await rowOf(ignored.json().id))?.uploadedBy).toBeNull();
+
+      // Members open them, always as downloads; no one who isn't signed in can.
+      expect((await get(editor, body.url)).headers['content-disposition']).toMatch(/^attachment;/);
+      expect((await testApp.app.inject({ method: 'GET', url: body.url })).statusCode).toBe(401);
+    });
+
+    it('takes them only where the scope allows, and with the CSRF token', async () => {
+      const elsewhere = await anonymously('Fictional notes.', 'notes.txt', { scope: 'test:open' });
+      expect(elsewhere.statusCode).toBe(400);
+      expect(elsewhere.json().error.message).toBe("Files can't be added there.");
+      const closed = await anonymously('Fictional notes.', 'notes.txt', {
+        scope: 'anon-test:shut',
+      });
+      expect(closed.statusCode).toBe(403);
+      expect((await anonymously('Fictional notes.', 'notes.txt', { token: null })).statusCode).toBe(
+        403,
+      );
+    });
+
+    it('takes only some types, named as their contents are, and Office files without macros', async () => {
+      const wave = await anonymously('GIF89a fictional', 'wave.gif');
+      expect(wave.statusCode).toBe(400);
+      expect(wave.json().error.message).toMatch(/^Only JPEG and PNG pictures, PDFs, Word, Excel/);
+      const macros = await anonymously(office('word', ['word/vbaProject.bin']), 'letter.docm');
+      expect(macros.json().error.message).toMatch(/^Files with macros or ActiveX controls/);
+      const renamed = await anonymously('%PDF-1.7 fictional', 'letter.html');
+      expect(renamed.json().error.message).toMatch(/Rename it to end in \.pdf /);
+      const letter = await anonymously(office('word'), 'Fictional letter.docx');
+      expect(letter.statusCode).toBe(201);
+      const pdf = (await anonymously('%PDF-1.7 fictional', 'letter.pdf')).json();
+      expect((await get(editor, pdf.url)).headers['content-disposition']).toMatch(/^attachment;/);
+    });
+
+    it('draws pictures again, upright and without their details', async () => {
+      const sent = await anonymously(samplePhoto(), 'Harbour.png');
+      expect(sent.statusCode).toBe(201);
+      const body = sent.json();
+      expect(body).toMatchObject({ name: 'Harbour.png.jpg', mimeType: 'image/jpeg' });
+      expect(body).toMatchObject({ width: 8, height: 16 });
+      const stored = await readFile(await storedPath(body.id));
+      expect(stored.subarray(0, 2).toString('hex')).toBe('ffd8');
+      expect(stored.includes(DETAIL)).toBe(false);
+      expect(stored.includes('Exif')).toBe(false);
+      const shown = await get(editor, body.url);
+      expect(shown.headers['content-disposition']).toMatch(/^attachment;/);
+      expect(await readdir(path.join(filesDir, 'tmp'))).toEqual([]);
+
+      const huge = Buffer.from(PNG);
+      huge.writeUInt32BE(6000, 16); // 6,000 × 5,000: 30 megapixels
+      huge.writeUInt32BE(5000, 20);
+      const tooLarge = await anonymously(huge, 'huge.png');
+      expect(tooLarge.statusCode).toBe(413);
+      expect(tooLarge.json().error.message).toBe(
+        'This picture is too large to add here: the limit is 25 megapixels and 64 MB.',
+      );
+    });
+
+    it('claims each upload once, in its own scope, and deletes unclaimed ones after an hour', async () => {
+      const one = (await anonymously('Fictional one.', 'one.txt')).json();
+      const two = (await anonymously('Fictional two.', 'two.txt')).json();
+      const other = (
+        await anonymously('Fictional three.', 'three.txt', { scope: 'anon-test:open-2' })
+      ).json();
+      const claimed = await testApp.db.transaction((tx) =>
+        claimFiles(tx, [one.id, other.id, randomUUID(), 'not-a-file'], { scope: 'anon-test:open' }),
+      );
+      expect([...claimed.keys()]).toEqual([one.id]);
+      expect(claimed.get(one.id)).toMatchObject({ scope: 'anon-test:open', uploadedBy: null });
+      expect((await claimFiles(testApp.db, [one.id], { scope: 'anon-test:open' })).size).toBe(0);
+
+      const later = new Date(Date.now() + 2 * HOUR);
+      const { unclaimed } = await cleanUpFiles(testApp.db, { now: later, root: filesDir });
+      expect(unclaimed).toBeGreaterThanOrEqual(2);
+      const left = await getFiles(testApp.db, [one.id, two.id, other.id]);
+      expect([...left.keys()]).toEqual([one.id]);
+      expect((await claimFiles(testApp.db, [two.id], { scope: 'anon-test:open' })).size).toBe(0);
+    });
+
+    it('keeps to the daily quota of each scope', async () => {
+      process.env.FILES_ANONYMOUS_DAILY_MB = '1';
+      try {
+        const notes = Buffer.alloc(600 * 1024, 'Fictional. ');
+        const scope = 'anon-test:open-quota';
+        expect((await anonymously(notes, 'first.txt', { scope })).statusCode).toBe(201);
+        const over = await anonymously(notes, 'second.txt', { scope });
+        expect(over.statusCode).toBe(429);
+        expect(over.json().error).toEqual({
+          code: 'rate_limited',
+          message: 'No more files can be added here today. Try again tomorrow.',
+        });
+        const elsewhere = await anonymously(notes, 'third.txt', { scope: 'anon-test:open-other' });
+        expect(elsewhere.statusCode).toBe(201);
+      } finally {
+        delete process.env.FILES_ANONYMOUS_DAILY_MB;
+      }
+    });
+
+    it('copies no pictures from other websites there', async () => {
+      const copy = await injectAs(testApp.app, editor, {
+        method: 'POST',
+        url: '/api/files/from-url',
+        payload: { url: 'https://example.com/photo.png', scope: 'anon-test:open' },
+      });
+      expect(copy.statusCode).toBe(400);
+      expect(copy.json().error.message).toBe("Pictures from other websites can't be added here.");
+    });
   });
 
   it('creates the files table exactly as the Drizzle definition describes it', async () => {
