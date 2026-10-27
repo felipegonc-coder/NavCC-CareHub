@@ -169,7 +169,7 @@ function LessonEnd({ course, lesson, state, locked, emit, time }: LessonEndProps
   const next = locked ? null : nextLesson(course, after, lesson.id);
   const hint =
     check && !check.ok && check.reason === 'minimum_time'
-      ? `Stay with this lesson a little longer to finish it (${minutes(check.secondsLeft)} left).`
+      ? `Stay with this lesson a little longer to finish it (${timeLeft(check.secondsLeft)} left).`
       : null;
 
   const action = () => {
@@ -217,7 +217,15 @@ function LessonEnd({ course, lesson, state, locked, emit, time }: LessonEndProps
   );
 }
 
-const minutes = (seconds = 0) => {
-  const count = Math.max(1, Math.ceil(seconds / 60));
+/**
+ * A lesson's time left: whole minutes, rounded up, then seconds in the last minute, so the hint
+ * counts down as the active time is counted (every few seconds).
+ */
+function timeLeft(seconds = 0): string {
+  if (seconds < 60) {
+    const count = Math.max(1, Math.ceil(seconds));
+    return count === 1 ? '1 second' : `${count} seconds`;
+  }
+  const count = Math.ceil(seconds / 60);
   return count === 1 ? '1 minute' : `${count} minutes`;
-};
+}

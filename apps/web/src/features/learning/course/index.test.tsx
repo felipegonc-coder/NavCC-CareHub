@@ -1,8 +1,14 @@
-import { lessonHref, type Course, type LearnerCourseState } from '@carehub/learning';
-import { fireEvent, screen, within } from '@testing-library/react';
+import {
+  lessonHref,
+  sampleRequiredReadCourse,
+  type Course,
+  type LearnerCourseState,
+} from '@carehub/learning';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { inOrder, learner, renderRoute, serveCourse } from '../player/test-utils';
 import { CourseStartScreen } from './index';
+import { formatSignedAt } from './SignOff';
 
 const TITLE = 'Handling calls with care';
 const locked = { status: 'locked' } as const;
@@ -179,5 +185,50 @@ describe('CourseStartScreen', () => {
     server.course = 200;
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('heading', { level: 1, name: TITLE })).toBeInTheDocument();
+  });
+});
+
+describe('the sign-off', () => {
+  const course = sampleRequiredReadCourse;
+  const statement = 'I have read the privacy basics and will follow them.';
+  const read = learner(course, {
+    'privacy-rules': { status: 'completed' },
+    'privacy-quiz': { status: 'completed' },
+  });
+
+  it('shows the statement and asks the learner to read every lesson first', async () => {
+    show(course, learner(course, { 'privacy-quiz': locked }));
+    const section = await screen.findByRole('region', { name: 'Sign-off' });
+    expect(within(section).getByText(statement)).toBeInTheDocument();
+    expect(within(section).getByText('Read every lesson first, then sign here.')).toBeVisible();
+    expect(within(section).queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('signs once the box is ticked, and says when', async () => {
+    const { sent } = show(course, read);
+    const almostDone = 'Almost done: sign below to finish the course.';
+    expect(await screen.findByText(almostDone)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review the course' })).toHaveAttribute(
+      'href',
+      lessonHref(course.id, 'privacy-rules'),
+    );
+    const sign = screen.getByRole('button', { name: 'Sign' });
+    expect(sign).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: statement }));
+    expect(sign).toBeEnabled();
+    fireEvent.click(sign);
+    expect(await screen.findByText(/^Signed on /)).toHaveFocus();
+    await waitFor(() =>
+      expect(sent()).toEqual([expect.objectContaining({ type: 'acknowledged', statement })]),
+    );
+    expect(screen.queryByText(almostDone)).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('says when a signed course was signed', async () => {
+    const at = '2026-10-20T14:30:00.000Z';
+    show(course, { ...read, status: 'passed', acknowledgedAt: at });
+    expect(await screen.findByText(`Signed on ${formatSignedAt(at)}`)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign' })).not.toBeInTheDocument();
   });
 });

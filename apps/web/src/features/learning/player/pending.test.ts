@@ -1,4 +1,4 @@
-import type { ProgressEvent } from '@carehub/learning';
+import { sampleRequiredReadCourse, type ProgressEvent } from '@carehub/learning';
 import { describe, expect, it } from 'vitest';
 import { withPending } from './pending';
 import { inOrder, learner } from './test-utils';
@@ -73,5 +73,18 @@ describe('withPending', () => {
       event({ type: 'lesson_completed', lessonId: 'calls-after' }),
     ]);
     expect(lesson(next, 'calls-after')).toEqual(lesson(state, 'calls-after'));
+  });
+
+  it('signs the sign-off once every content lesson is completed, as the server does', () => {
+    const course = sampleRequiredReadCourse;
+    const statement = course.settings.acknowledgement?.statement;
+    const sign = event({ type: 'acknowledged', statement });
+    const read = learner(course, { 'privacy-rules': { status: 'completed' } });
+    expect(withPending(course, read, [sign]).acknowledgedAt).toBe(at);
+    expect(withPending(course, learner(course), [sign]).acknowledgedAt).toBeNull();
+    const wrong = event({ type: 'acknowledged', statement: 'Something else.' });
+    expect(withPending(course, read, [wrong]).acknowledgedAt).toBeNull();
+    const notAsked = learner(inOrder, { 'calls-before': { status: 'completed' } });
+    expect(withPending(inOrder, notAsked, [sign]).acknowledgedAt).toBeNull();
   });
 });

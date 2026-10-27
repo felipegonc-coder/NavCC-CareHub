@@ -94,6 +94,21 @@ describe('Player', () => {
     expect(emit).not.toHaveBeenCalledWith({ type: 'lesson_completed', lessonId: 'calls-before' });
   });
 
+  it('counts the last minute down in seconds', () => {
+    const almost = learner(inOrder, {
+      'calls-before': {
+        status: 'in_progress',
+        completedBlockIds: ['calls-before-continue'],
+        activeSeconds: 45,
+      },
+      'calls-during': locked,
+    });
+    renderPlayer(inOrder, almost, 'calls-before');
+    expect(
+      screen.getByText('Stay with this lesson a little longer to finish it (15 seconds left).'),
+    ).toBeInTheDocument();
+  });
+
   it('says what to finish first in a locked lesson, and records nothing', () => {
     const { emit } = renderPlayer(inOrder, start, 'calls-after');
     expect(screen.getByRole('heading', { level: 1, name: 'After the call' })).toBeInTheDocument();
