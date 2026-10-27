@@ -16,8 +16,8 @@ PR 3 of W1-E (Connect calendars: Google, read-only, and private links).
 
 **Size:** 593 non-test lines (migration 82, schema 110, store 196, layers 205). Test support: testing.ts 79.
 
-**Tests:** store 6 and layers 5, mostly against Postgres: the owner-only rule, admins included; the limit with two adds at once; colours and places; Remove taking the copies with it; and range reads. My sandbox has no Postgres or drizzle, so CI runs these. tsc is clean locally.
+**Tests:** store 6 and layers 5, mostly against Postgres: the owner-only rule, admins included; the limit with two adds at once; colours and places; Remove taking the copies with it; and range reads. My sandbox has no Postgres or drizzle-orm, so CI runs these. Locally, tsc finds nothing in these files beyond the missing drizzle-orm module.
 
-**Next:** secrets, event bounds and sync storage (PR 4), sync engine (PR 5), Google routes (PR 6), links and Settings API (PR 7), Connected calendars screen (PR 8).
+**Next:** secrets, event bounds and sync storage (PR 4), the sync engine (PR 5), Google routes (PR 6), the Connected calendars screen (PR 7), and private links end to end (PR 8).
 
 Written from the spec. No code copied from AppFlowy or the old Care Hub.

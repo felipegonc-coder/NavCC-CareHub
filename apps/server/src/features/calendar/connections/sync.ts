@@ -337,8 +337,10 @@ export function createCalendarSync(deps: CalendarSyncDeps) {
     const base = failure.kind === 'broken' ? LINK_EVERY_MS : 60_000;
     const backoff = Math.min(MAX_WAIT_MS, base * 2 ** Math.min(failures - 1, 12));
     const wait = Math.max(failure.retryAfterMs ?? 0, backoff);
-    const status =
-      failure.kind === 'broken' || failures >= FAILURES_SHOWN ? 'error' : connection.status;
+    // A link that was never read shows its problem at once: the link may just be wrong (CA-10).
+    const firstLook = connection.kind === 'link' && !connection.lastSyncedAt;
+    const shown = failure.kind === 'broken' || failures >= FAILURES_SHOWN || firstLook;
+    const status = shown ? 'error' : connection.status;
     return {
       status,
       lastError: status === 'ok' ? null : plain(failure.message),

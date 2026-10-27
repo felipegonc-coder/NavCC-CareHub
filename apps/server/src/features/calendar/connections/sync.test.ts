@@ -429,6 +429,23 @@ describe('private link sync', () => {
     expect(t.memory.connection(id)?.lastError).toBe('This calendar link was turned off.');
   });
 
+  it("shows the problem at once when a new link can't be read, and keeps trying", async () => {
+    const t = setup();
+    const id = t.addLink();
+    t.link.answer = async () => {
+      throw readerError("Care Hub couldn't reach this calendar.", true);
+    };
+
+    expect(await t.sync.runDue()).toBe(1);
+    expect(t.memory.connection(id)).toMatchObject({ status: 'error', failures: 1 });
+    expect(t.memory.connection(id)?.nextSyncAt.getTime()).toBe(t.google.now().getTime() + 60_000);
+
+    t.link.answer = async () => readLink([lesson], '"v1"');
+    t.google.advance(60_000);
+    await t.sync.runDue();
+    expect(t.memory.connection(id)).toMatchObject({ status: 'ok', lastError: null, failures: 0 });
+  });
+
   it('gives each changed occurrence its own id', () => {
     expect(linkEventId(lesson)).toBe('lesson-1@school.example.org');
     const recurrenceId = { kind: 'utc', instant: '2026-11-02T15:00:00Z' } as const;

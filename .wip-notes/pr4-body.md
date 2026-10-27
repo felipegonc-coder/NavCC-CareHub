@@ -12,8 +12,8 @@ PR 4 of W1-E (Connect calendars: Google, read-only, and private links).
 
 **Size:** 564 non-test lines (secrets 91, bounds 64, sync-store 409). No new test support.
 
-**Tests:** secrets 4 and bounds 5 pass locally. The sync-store tests (9) need Postgres, so CI runs them. tsc is clean locally.
+**Tests:** secrets 4 and bounds 5 pass locally. The sync-store tests (9) need Postgres, so CI runs them. Locally, tsc finds nothing in these files beyond the missing drizzle-orm module.
 
-**Next:** sync engine (PR 5), Google routes (PR 6), links and Settings API (PR 7), Connected calendars screen (PR 8).
+**Next:** the sync engine (PR 5), Google routes (PR 6), the Connected calendars screen (PR 7), and private links end to end (PR 8).
 
 Written from the spec. No code copied from AppFlowy or the old Care Hub.
