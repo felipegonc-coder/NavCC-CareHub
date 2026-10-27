@@ -24,7 +24,7 @@ server sends `notices-changed` and after the live connection comes back.
 
 ### Notice settings (Settings → Notifications, spec 3.3)
 
-For the switches in Settings (W1-C). Settings are per person and workspace, and every kind is on
+For the switches in Settings. Settings are per person and workspace, and every kind is on
 until the person changes it.
 
 - `NOTICE_SETTINGS`: `{ key, label, hint? }` for each switch, in order: Comments on pages I follow
