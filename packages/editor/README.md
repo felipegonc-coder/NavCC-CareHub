@@ -10,7 +10,8 @@ import { BlockEditor } from '@carehub/editor';
 
 - Works on a local `Y.Doc` alone. Give the collab provider of the same doc (Hocuspocus or
   y-websocket; anything with `awareness`) and the `user` to show carets and selections with names.
-- `BlockEditor` imports its own content styles, built on the `@carehub/ui` color tokens.
+- `BlockEditor` imports its own content styles, built on the `@carehub/ui` tokens for colors,
+  sizes and type (`--ch-*`).
 - `@carehub/editor/schema` has the page schema with no UI (no DOM, no React) for the server.
 
 ## Props
