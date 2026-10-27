@@ -38,6 +38,11 @@ jobs:
       - name: Update package-lock.json
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
+      # Nothing is pushed when a @carehub/* package would come from the npm registry instead of a
+      # workspace (#75).
+      - name: Check workspace packages
+        run: node scripts/check-workspaces.mjs
+
       # --- THIRD_PARTY_NOTICES.md: owned by the CI-gates builder ---
       # Generate THIRD_PARTY_NOTICES.md here; the commit step below picks it up.
       # The notices need the installed packages: install exactly what the new lockfile says,
