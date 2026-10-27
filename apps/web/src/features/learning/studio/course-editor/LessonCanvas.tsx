@@ -14,6 +14,7 @@ import { Button, cn, IconButton } from '@carehub/ui';
 import { ArrowDown, ArrowUp, BookmarkPlus, Copy, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { BlockEditorFor } from '../editors/registry';
+import { studioHelp } from '../help-slots';
 import { blockLabel } from '../labels';
 import { BlockPicker } from './BlockPicker';
 import { NumberField, TitleField } from './parts';
@@ -148,6 +149,8 @@ export function LessonCanvas(
     course: Course;
     lesson: Lesson | undefined;
     blockId: string | null;
+    /** Saves any change still waiting; true once saved (for Learning help). */
+    flush(): Promise<boolean>;
   },
 ) {
   const { course, lesson, blockId, edit } = props;
@@ -173,7 +176,9 @@ export function LessonCanvas(
     const after = next.lessons.find((l) => l.id === lesson.id);
     const first =
       after?.kind === 'content' ? after.blocks[Math.min(index, blocks.length)] : undefined;
-    edit(() => next, { select: { blockId: first?.id ?? null } });
+    edit((c) => (c === course ? next : addBlocks(c, lesson.id, added, index)), {
+      select: { blockId: first?.id ?? null },
+    });
     setAdding(null);
   };
   const template = (id: string) => (open: boolean, message?: string) => {
@@ -182,6 +187,7 @@ export function LessonCanvas(
   };
   const picker = (index: number) =>
     adding === index && <BlockPicker onAdd={add(index)} onClose={() => setAdding(null)} />;
+  const LessonHelp = studioHelp.lesson;
   const ids = blocks.map((block) => block.id);
   const name = (id: string) => `block ${ids.indexOf(id) + 1}`;
   return (
@@ -214,6 +220,9 @@ export function LessonCanvas(
           />
         )}
       </div>
+      {LessonHelp && (
+        <LessonHelp course={course} lessonId={lesson.id} edit={edit} flush={props.flush} />
+      )}
       {lesson.kind === 'quiz' ? (
         <p className="rounded border border-border p-4 text-small text-muted">
           Quiz questions and settings are edited here once the quiz editor is ready.

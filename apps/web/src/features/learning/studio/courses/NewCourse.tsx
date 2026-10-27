@@ -17,20 +17,23 @@ import { Plus } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { RadioChoices } from '../choices';
-import { useCreateCourse, useStudioExamples } from '../data/queries';
+import { useCreateCourse, useCreateCourseFromDraft, useStudioExamples } from '../data/queries';
 import type { NewCourseInput } from '../data/queries';
+import { studioHelp } from '../help-slots';
 import { COURSE_TYPE_CHOICES, editorPath } from '../labels';
 
 function NewCourseForm() {
   const id = useId();
   const navigate = useNavigate();
   const create = useCreateCourse();
+  const fromDraft = useCreateCourseFromDraft();
   const examples = useStudioExamples();
   const [type, setType] = useState<CourseType>('standard');
   const [title, setTitle] = useState('');
   const start = (input: NewCourseInput) =>
     create.mutate(input, { onSuccess: (draft) => void navigate(editorPath(draft.course.id)) });
   const typed = title.trim();
+  const NewCourseHelp = studioHelp.newCourse;
 
   return (
     <>
@@ -94,6 +97,24 @@ function NewCourseForm() {
             ))}
           </ul>
         </section>
+      )}
+      {NewCourseHelp && (
+        <NewCourseHelp
+          onDraft={(course) =>
+            fromDraft.mutateAsync(course).then(
+              (draft) => {
+                void navigate(editorPath(draft.course.id));
+                return true;
+              },
+              () => false,
+            )
+          }
+        />
+      )}
+      {fromDraft.isError && (
+        <p role="alert" className="text-small text-danger">
+          The drafted course couldn't be saved. Try again.
+        </p>
       )}
     </>
   );
