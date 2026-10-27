@@ -1,5 +1,15 @@
 import type { Page } from '@playwright/test';
-import { expect, needs, onlyIn, people, signInAs, test, uniqueName } from '../_support/index.js';
+import {
+  expect,
+  needs,
+  onlyIn,
+  people,
+  sendAgainAs,
+  signInAs,
+  test,
+  uniqueName,
+  userIdOf,
+} from '../_support/index.js';
 import { CareHubChat } from '../comments/care-hub-chat.js';
 import {
   addProperty,
@@ -10,14 +20,7 @@ import {
   updateRow,
 } from '../databases/database-api.js';
 import { DatabaseScreen, signedInPage } from '../databases/database-page.js';
-import {
-  FORBIDDEN,
-  importRows,
-  sendAgainAs,
-  SETTLE_MS,
-  TRIGGERED_MS,
-  userIdOf,
-} from './automation-data.js';
+import { FORBIDDEN, importRows, SETTLE_MS, TRIGGERED_MS } from './automation-data.js';
 import { AutomationEditor } from './automation-editor.js';
 
 // Automations that database changes start (Automations spec section 3, Triggers), made by Avery

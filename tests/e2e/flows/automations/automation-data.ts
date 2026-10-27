@@ -1,5 +1,5 @@
-import type { APIResponse, Page, Request } from '@playwright/test';
-import { apiFor, DEFAULT_TIME_ZONE, expect } from '../_support/index.js';
+import type { Page, Request } from '@playwright/test';
+import { DEFAULT_TIME_ZONE, expect } from '../_support/index.js';
 import type { DatabaseScreen } from '../databases/database-page.js';
 import type { AutomationEditor } from './automation-editor.js';
 import { AutomationList } from './automation-list.js';
@@ -34,30 +34,6 @@ export async function weekdayNudge(page: Page, name: string, note: string) {
   await editor.message().fill(note);
   const saved: Request = await editor.save();
   return { editor, saved };
-}
-
-/** The id of the person signed in on `page`. */
-export async function userIdOf(page: Page): Promise<string> {
-  const me = await (await apiFor(page)).get<{ user?: { id?: string } }>('/api/auth/me');
-  if (!me.user?.id) throw new Error('GET /api/auth/me answered without a user id.');
-  return me.user.id;
-}
-
-/**
- * Sends a request the screens made, such as Avery's Save, again as the person signed in on
- * `page`, with that person's cookies and CSRF token: a direct request the screens never offer.
- */
-export async function sendAgainAs(page: Page, request: Request): Promise<APIResponse> {
-  const cookies = await page.context().cookies();
-  const csrf = cookies.find((cookie) => cookie.name.endsWith('carehub_csrf'))?.value ?? '';
-  const headers: Record<string, string> = {
-    'X-CSRF-Token': csrf,
-    Origin: new URL(request.url()).origin,
-  };
-  const type = request.headers()['content-type'];
-  if (type) headers['Content-Type'] = type;
-  const data = request.postDataBuffer() ?? undefined;
-  return page.request.fetch(request.url(), { method: request.method(), headers, data });
 }
 
 /** A day, in milliseconds. */
