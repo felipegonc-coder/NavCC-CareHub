@@ -13,7 +13,7 @@ export const onMain = {
   overlays: true,
 
   /** The app shell: sidebar from the slots, phone menu, top bar and Not found (#34). */
-  appShell: false,
+  appShell: true,
 
   /** The sign-in screens, the seeded people and signInAs in tests/e2e/helpers/auth.ts. */
   signIn: false,
