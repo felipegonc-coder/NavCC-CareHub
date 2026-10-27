@@ -15,6 +15,7 @@ Goal: Felipe's bar for Friday, Oct 30 is everything: Notion parity, but better. 
 | #37 | Notices: the `sendNotice` contract, checks, grouping and table |
 | #38 | Status page logic and tables |
 | #63 | `@carehub/team-time` part 2: dates and times in the specs' wording, second time zone labels |
+| #65 | Calendar time zones: VTIMEZONE reading and writing, Windows zone names, attendee `self` and RDATE fields |
 
 ## Building now
 
@@ -23,7 +24,7 @@ Goal: Felipe's bar for Friday, Oct 30 is everything: Notion parity, but better. 
 | W1-A | Reminders: Remind me on pages and events, delivery, Snooze and Done | Home's Reminders section data, web push for reminders |
 | W1-B | `@carehub/team-repeat`: repeating events (3 PRs) | Calendar events on the server and the date-range API |
 | W1-C | Web push in the browser: service worker and manifest | Push subscriptions, notification settings and delivery; then Claude features (built off) |
-| W1-D | iCalendar time zones, reader, writer and safe link fetcher | Meetings: notes, recording notice, private transcription; then iCloud |
+| W1-D | iCalendar reader, writer and safe link fetcher (parts 3 and 4) | Meetings: notes, recording notice, private transcription; then iCloud |
 | W1-E | Google Calendar sign-in (read-only), client and mapping | Connect calendars: Google and links, sync engine |
 | W1-F | Live updates in the browser; background jobs | Automations |
 | W1-G | Calendar layout maths and editing | Calendar screens: day, week, month, side panel, drag, layers, Upcoming |
