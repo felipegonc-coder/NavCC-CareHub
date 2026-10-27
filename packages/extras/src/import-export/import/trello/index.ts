@@ -1,7 +1,8 @@
 // The Trello importer (Import and export spec, section 3.2; IE-07): a board's JSON export becomes
-// one database, a row per card. Its list is the card's Status (options in the board's order), its
-// labels a multi-select, then its members, start and due dates, and the card's description,
-// checklists and attachment links as the row's page.
+// one database with a Board view grouped by list, a row per card. Its list is the card's Status
+// (options in the board's order), its labels a multi-select, its members people (matched to Care
+// Hub's on the server), then its start and due dates, and the card's description, checklists and
+// attachment links as the row's page.
 import {
   IMPORT_LIMITS,
   ImportFileError,
@@ -20,7 +21,7 @@ const TOO_MANY_CARDS = 'databases can have up to 20,000 rows';
 const OPTION_CHARS = 100;
 
 export interface TrelloOptions {
-  /** Spec 3.2: archived cards come in only with "Include archived". */
+  /** Spec 3.2: archived cards come in only with "Include archived" (option `includeArchived`). */
   includeArchived?: boolean;
 }
 
@@ -77,7 +78,10 @@ export function trelloPlan(
       return [label.id, option(name, `Label "${shortName(name)}"`)];
     }),
   );
-  const memberNames = new Map(board.members.map((member) => [member.id, member.name]));
+  // A person cell lists its people with commas between them.
+  const memberNames = new Map(
+    board.members.map((member) => [member.id, member.name.replace(/\s*,\s*/g, ' ').trim()]),
+  );
   const names = (ids: readonly string[], from: ReadonlyMap<string, string>) =>
     ids.flatMap((id) => from.get(id) ?? []).join(', ');
 
@@ -92,7 +96,7 @@ export function trelloPlan(
       cell: (card) => names(card.labelIds, labelNames),
     },
     {
-      column: { name: 'Members', type: 'text' },
+      column: { name: 'Members', type: 'person' },
       cell: (card) => names(card.memberIds, memberNames),
     },
     { column: { name: 'Start', type: 'date' }, cell: (card) => card.start ?? '' },
@@ -132,6 +136,7 @@ export function trelloPlan(
     columns: used.map(({ column }) => column),
     rows,
     source: fileName,
+    view: { layout: 'board', groupBy: 'Status' },
   });
   return out.done();
 }
@@ -147,6 +152,8 @@ export const trelloImporter: Importer = {
     }
     const board = readTrelloBoard(json);
     if (!board) throw new ImportFileError(NOT_TRELLO);
-    return trelloPlan(board, input.fileName);
+    return trelloPlan(board, input.fileName, {
+      includeArchived: input.options.includeArchived === true,
+    });
   },
 };
