@@ -716,7 +716,7 @@ export interface ColorRule {
   id: Id;
   filter: FilterGroup;
   target: { kind: 'row' } | { kind: 'property'; propertyId: Id };
-  color: Exclude<OptionColor, 'default'>;
+  color: OptionColor;
 }
 
 export interface View {

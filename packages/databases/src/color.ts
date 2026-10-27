@@ -6,7 +6,11 @@
  * matching cell rule colors that cell, which beats the row color there. Conditions work as in view
  * filters (formula and rollup results included), but a rule with no condition that tests rows yet
  * (no value chosen) colors nothing. Rules that use a deleted property, or one the viewer can't see,
- * are skipped, so colors never give hidden values away. The swatches are in ./palette.
+ * are skipped, so colors never give hidden values away.
+ *
+ * Colors are option color names, all 10 of them, Default included. This file only says which color
+ * goes where (a row, a cell, a board column); the screens draw it with the design kit's classes for
+ * that name.
  */
 import { filterOpsFor, filterPredicate, filterValueKind, validateFilter } from './filter';
 import { findProperty } from './row';
@@ -25,13 +29,8 @@ import {
   type ViewLayout,
 } from './types';
 
-/** The color a rule gives: any option color but Default. */
-export type RuleColor = ColorRule['color'];
-
-/** The colors a rule can give, in menu order. */
-export const RULE_COLORS: readonly RuleColor[] = OPTION_COLORS.filter(
-  (c): c is RuleColor => c !== 'default',
-);
+/** The colors a rule can give: all 10 option colors, in menu order. */
+export const RULE_COLORS: readonly OptionColor[] = OPTION_COLORS;
 
 /** Layouts that show conditional color. Charts, forms, feeds and dashboards don't. */
 export const COLOR_LAYOUTS: readonly ViewLayout[] = [
@@ -62,14 +61,14 @@ export interface ColorContext extends EvalContext {
 /** A row's colors. */
 export interface RowColor {
   /** From the first row rule that matches; null when none does. */
-  row: RuleColor | null;
+  row: OptionColor | null;
   /** Property id → the first matching cell rule's color. Cells not listed take the row color. */
-  cells: Partial<Record<Id, RuleColor>>;
+  cells: Partial<Record<Id, OptionColor>>;
 }
 
 interface ReadyRule {
   target: ColorRule['target'];
-  color: RuleColor;
+  color: OptionColor;
   test: (row: Row) => boolean;
 }
 
@@ -146,7 +145,7 @@ export function colorRows(rows: readonly Row[], view: View, ctx: ColorContext): 
 }
 
 /** The color a cell shows: its own rule's color, otherwise the row's; null for none. */
-export function cellColor(colors: RowColor, propertyId: Id): RuleColor | null {
+export function cellColor(colors: RowColor, propertyId: Id): OptionColor | null {
   return colors.cells[propertyId] ?? colors.row;
 }
 
@@ -155,8 +154,8 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 const RULE_COLOR_SET: ReadonlySet<unknown> = new Set(RULE_COLORS);
 
 /**
- * Checks a view's color rules before they're saved: up to 10, each with its own id, a color other
- * than Default, the row or an existing property as its target, and a filter validateFilter
+ * Checks a view's color rules before they're saved: up to 10, each with its own id, one of the 10
+ * option colors, the row or an existing property as its target, and a filter validateFilter
  * accepts. Conditions with no value yet are fine. Returns the first problem, or null.
  */
 export function validateColorRules(

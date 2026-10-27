@@ -215,6 +215,19 @@ describe('colorRows', () => {
     expect(c1).toEqual({ row: 'orange', cells: { 'p-name': 'purple' } });
   });
 
+  it('treats Default like any other color, in rows and cells', () => {
+    const [c1, c2, c3] = colorsOf([
+      rowRule('a', 'default', isDone),
+      rowRule('b', 'red', isUrgent),
+      cellRule('c', 'p-score', 'default', lowScore),
+    ]);
+    expect(c1).toEqual({ row: 'default', cells: {} });
+    expect(cellColor(c1 as RowColor, 'p-name')).toBe('default');
+    expect(c2).toEqual({ row: null, cells: { 'p-score': 'default' } });
+    expect(c3).toEqual({ row: 'red', cells: { 'p-score': 'default' } });
+    expect(cellColor(c3 as RowColor, 'p-score')).toBe('default');
+  });
+
   it('matches like view filters: Any of, nested groups and text', () => {
     const rule = rowRule(
       'a',
@@ -391,13 +404,18 @@ describe('validateColorRules', () => {
     expect(validateColorRules(rules, properties)).toBeNull();
   });
 
+  it('accepts every option color, Default included', () => {
+    const rules = RULE_COLORS.map((color, i) => rowRule(`r-${i}`, color, isDone));
+    expect(rules).toHaveLength(10);
+    expect(validateColorRules(rules, properties)).toBeNull();
+  });
+
   const good = rowRule('a', 'green', isDone);
   it.each([
     ['a list that is not one', { not: 'a list' }],
     ['a rule that is not an object', ['rule']],
     ['a rule without an id', [{ ...good, id: 7 }]],
     ['the same id twice', [good, { ...good }]],
-    ['Default as the color', [{ ...good, color: 'default' }]],
     ['a color that is not an option color', [{ ...good, color: 'teal' }]],
     ['no target', [{ ...good, target: null }]],
     ['a target that is neither a row nor a property', [{ ...good, target: { kind: 'column' } }]],
@@ -435,8 +453,9 @@ describe('validateColorRules', () => {
     ).toBe('A filter uses a property that was deleted.');
   });
 
-  it('offers the 9 colors other than Default, in menu order', () => {
+  it('offers all 10 option colors, in menu order', () => {
     expect(RULE_COLORS).toEqual([
+      'default',
       'gray',
       'brown',
       'orange',
