@@ -31,6 +31,14 @@ export const fetchRecent = () => getList<PageLink>('/api/recent', 'pages');
 export const fetchPrefs = async () =>
   ((await api.get('/api/me/prefs')) ?? {}) as Record<string, unknown>;
 
+/** Where a new page goes: the top of a space, or inside a page. */
+export type NewPagePlace = { spaceId: string } | { parentId: string };
+export const createPage = async (place: NewPagePlace) =>
+  (await api.post('/api/pages', { kind: 'page', title: '', ...place })) as { id: string };
+export const renamePage = (id: string, title: string) => api.patch(`/api/pages/${id}`, { title });
+export const trashPage = (id: string) => api.delete(`/api/pages/${id}`);
+export const addFavorite = (pageId: string) => api.put('/api/favorites', { pageId });
+export const removeFavorite = (pageId: string) => api.delete('/api/favorites', { pageId });
 export const clearRecent = () => api.delete('/api/recent');
 export const savePref = (key: string, value: unknown) =>
   api.put(`/api/me/prefs/${encodeURIComponent(key)}`, { value });

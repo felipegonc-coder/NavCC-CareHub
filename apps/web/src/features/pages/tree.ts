@@ -251,3 +251,17 @@ export function pathTo<T extends TreeEntry>(
   }
   return path;
 }
+
+/** The entry and everything under it. */
+export function subtreeIds<T extends TreeEntry>(nodes: readonly T[], id: string): Set<string> {
+  const byParent = groupChildren(nodes);
+  const out = new Set<string>();
+  const stack = [id];
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    if (out.has(current)) continue;
+    out.add(current);
+    for (const child of byParent.get(current) ?? []) stack.push(child.id);
+  }
+  return out;
+}

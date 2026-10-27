@@ -11,11 +11,12 @@ import {
   VisuallyHidden,
 } from '@carehub/ui';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, Plus } from 'lucide-react';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import { slots } from '../../slots';
 import { pageUrl } from './access';
+import { useEntryActions, type EntryActions } from './actions';
 import {
   clearRecent,
   fetchFavorites,
@@ -33,7 +34,7 @@ import type { PageLink, Space, TreeNode } from './types';
 const DatabaseViews = slots.treeItemChildren?.database;
 const renderViews = DatabaseViews ? (page: TreeNode) => <DatabaseViews page={page} /> : undefined;
 
-/** What every section needs: the person's sidebar settings. */
+/** What every section needs: the person's sidebar settings and the entry actions. */
 interface Ctx {
   expanded: ReadonlySet<string>;
   onExpand(keys: readonly string[], open: boolean): void;
@@ -41,6 +42,7 @@ interface Ctx {
   onCollapse(keys: readonly string[], collapsed: boolean): void;
   showRecent: boolean;
   onShowRecent(on: boolean): void;
+  actions: EntryActions;
 }
 
 /** Favorites, Spaces, Shared, Private and Recent (Sidebar spec, section 2). */
@@ -49,7 +51,8 @@ export default function PagesSidebar() {
   const [expanded, onExpand] = useSetPref('sidebar.expanded');
   const [collapsed, onCollapse] = useSetPref('sidebar.collapsed');
   const [showRecent, onShowRecent] = useFlagPref('sidebar.recent', false);
-  const ctx: Ctx = { expanded, onExpand, collapsed, onCollapse, showRecent, onShowRecent };
+  const actions = useEntryActions();
+  const ctx: Ctx = { expanded, onExpand, collapsed, onCollapse, showRecent, onShowRecent, actions };
 
   if (spaces.isError) return <Retry onRetry={() => void spaces.refetch()} />;
   if (!spaces.data) return <Loading />;
@@ -76,13 +79,15 @@ interface SectionProps {
   id: string;
   title: string;
   ctx: Ctx;
+  /** A "+" next to the "…". */
+  add?: ReactNode;
   /** Items for the heading's menu, above "Show Recent". */
   menu?: ReactNode;
   children: ReactNode;
 }
 
 /** A titled block that opens and closes from its heading; right-click the heading for options. */
-function Section({ id, title, ctx, menu, children }: SectionProps) {
+function Section({ id, title, ctx, add, menu, children }: SectionProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const headingId = useId();
   const open = !ctx.collapsed.has(id);
@@ -120,10 +125,19 @@ function Section({ id, title, ctx, menu, children }: SectionProps) {
               </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {add}
         </span>
       </div>
       {open && children}
     </div>
+  );
+}
+
+function AddButton({ label, onClick }: { label: string; onClick(): void }) {
+  return (
+    <IconButton label={label} size="sm" className="size-6" onClick={onClick}>
+      <Plus aria-hidden />
+    </IconButton>
   );
 }
 
@@ -132,14 +146,16 @@ interface TreeBodyProps {
   label: string;
   scope: string;
   ctx: Ctx;
+  /** Shown instead of "No pages inside" when there are no pages. */
+  empty?: ReactNode;
 }
 
-function TreeBody({ query, label, scope, ctx }: TreeBodyProps) {
+function TreeBody({ query, label, scope, ctx, empty }: TreeBodyProps) {
   const byParent = useMemo(() => groupChildren(query.data ?? []), [query.data]);
   if (query.isError) return <Retry onRetry={() => void query.refetch()} />;
   if (!query.data) return <Loading />;
   if (query.data.length === 0) {
-    return <p className="py-1 pl-8 text-small text-faint">No pages inside</p>;
+    return empty ?? <p className="py-1 pl-8 text-small text-faint">No pages inside</p>;
   }
   return (
     <PageTree
@@ -148,12 +164,13 @@ function TreeBody({ query, label, scope, ctx }: TreeBodyProps) {
       scope={scope}
       expanded={ctx.expanded}
       onExpand={ctx.onExpand}
+      actions={ctx.actions}
       renderExtra={renderViews}
     />
   );
 }
 
-/** A space: its name opens and closes its tree. */
+/** A space: its name opens and closes its tree; "+" adds a page at its top level. */
 function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
   const key = `space:${space.id}`;
   const open = !ctx.collapsed.has(key);
@@ -162,6 +179,7 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
     queryFn: () => fetchTree(space.id),
     enabled: open,
   });
+  const canAdd = (space.canAddPages ?? true) && ctx.actions.canCreate;
   return (
     <div className="flex flex-col">
       <div className={cn(sidebarRowClasses(), 'group gap-1 pr-1')}>
@@ -174,18 +192,52 @@ function SpaceTree({ space, ctx }: { space: Space; ctx: Ctx }) {
           <EntryIcon icon={space.icon} kind="space" />
           <span className="truncate">{space.name}</span>
         </button>
+        {canAdd && (
+          <span className="md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
+            <AddButton
+              label={`Add a page to ${space.name}`}
+              onClick={() => {
+                if (!open) ctx.onCollapse([key], false);
+                ctx.actions.create({ spaceId: space.id });
+              }}
+            />
+          </span>
+        )}
       </div>
       {open && <TreeBody query={tree} label={space.name} scope={key} ctx={ctx} />}
     </div>
   );
 }
 
-/** The person's own pages. It shows even when empty. */
+/** The person's own pages. Empty, it offers "Add a page". */
 function Private({ space, ctx }: { space: Space; ctx: Ctx }) {
   const tree = useQuery({ queryKey: pagesKeys.tree(space.id), queryFn: () => fetchTree(space.id) });
+  const canAdd = ctx.actions.canCreate;
+  const add = () => {
+    if (ctx.collapsed.has('private')) ctx.onCollapse(['private'], false);
+    ctx.actions.create({ spaceId: space.id });
+  };
   return (
-    <Section id="private" title="Private" ctx={ctx}>
-      <TreeBody query={tree} label="Private" scope="private" ctx={ctx} />
+    <Section
+      id="private"
+      title="Private"
+      ctx={ctx}
+      add={canAdd && <AddButton label="Add a private page" onClick={add} />}
+    >
+      <TreeBody
+        query={tree}
+        label="Private"
+        scope="private"
+        ctx={ctx}
+        empty={
+          canAdd ? (
+            <button type="button" onClick={add} className={cn(sidebarRowClasses(), 'w-full')}>
+              <Plus aria-hidden />
+              Add a page
+            </button>
+          ) : undefined
+        }
+      />
     </Section>
   );
 }
@@ -260,6 +312,7 @@ function Favorites({ ctx, spaces }: { ctx: Ctx; spaces: readonly Space[] }) {
           scope="fav"
           expanded={ctx.expanded}
           onExpand={ctx.onExpand}
+          actions={ctx.actions}
           renderExtra={renderViews}
         />
       )}
