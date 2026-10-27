@@ -34,7 +34,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: pages
 
-  // feature: collab
+  await app.register(import('./features/collab/routes'), { prefix: '/api/collab' });
 
   // feature: comments
 
