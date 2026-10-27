@@ -46,6 +46,8 @@ export function useDraft(saved: string, apply: (text: string) => string | null):
       const problem = apply(text);
       setError(problem);
       if (problem) return false;
+      // Saved: if the field goes away before the next render, there's nothing left to save.
+      latest.current = { ...latest.current, text: null };
       setText(null);
       return true;
     },

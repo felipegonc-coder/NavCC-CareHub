@@ -96,7 +96,7 @@ export function PropertySettings({
 }
 
 export interface PropertySettingsPopoverProps extends Omit<PropertySettingsProps, 'titleId'> {
-  /** Where focus goes back when the panel closes (the property's header button). */
+  /** Where focus goes back when the panel closes and nothing else has it (the header button). */
   returnFocus: RefObject<HTMLElement | null>;
 }
 
@@ -120,7 +120,9 @@ export function PropertySettingsPopover({ returnFocus, ...props }: PropertySetti
       }}
       onCloseAutoFocus={(event) => {
         event.preventDefault();
-        returnFocus.current?.focus();
+        // A press outside may have put focus in another field (a cell, search): it stays there.
+        const active = document.activeElement;
+        if (active === null || active === document.body) returnFocus.current?.focus();
       }}
     >
       <DiscardDrafts value={discard}>

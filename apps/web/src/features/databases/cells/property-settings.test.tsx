@@ -1,5 +1,6 @@
 import type { Id, Property } from '@carehub/databases';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { jobsDatabase, PROPS } from '../fixtures';
 import { PROPERTY_TEXT, SETTINGS_TEXT } from './messages';
@@ -129,12 +130,15 @@ describe('PropertySettings: what every property has', () => {
 });
 
 describe('PropertySettings from the property menu', () => {
-  async function openSettings() {
+  async function openSettings(outside?: ReactNode) {
     const actions = fakeActions();
     render(
-      <PropertyMenu meta={db} property={property(PROPS.cost)} actions={actions} ctx={cellCtx()}>
-        <button type="button">Cost</button>
-      </PropertyMenu>,
+      <>
+        <PropertyMenu meta={db} property={property(PROPS.cost)} actions={actions} ctx={cellCtx()}>
+          <button type="button">Cost</button>
+        </PropertyMenu>
+        {outside}
+      </>,
     );
     const trigger = screen.getByRole('button', { name: 'Cost' });
     fireEvent.keyDown(trigger, { key: 'Enter' });
@@ -154,8 +158,21 @@ describe('PropertySettings from the property menu', () => {
     pressOutside();
     await settle();
     expect(screen.queryByRole('dialog', { name: SETTINGS_TEXT.title })).toBeNull();
+    expect(actions.update).toHaveBeenCalledTimes(1);
     expect(actions.update).toHaveBeenCalledWith(PROPS.cost, { name: 'Price' });
     expect(trigger).toHaveFocus();
+  });
+
+  it('leaves focus in a field outside that took it, and saves the name once', async () => {
+    const { actions } = await openSettings(<input aria-label="Search" />);
+    fireEvent.change(field(PROPERTY_TEXT.propertyName), { target: { value: 'Price' } });
+    const search = field('Search');
+    act(() => search.focus());
+    await settle();
+    expect(screen.queryByRole('dialog', { name: SETTINGS_TEXT.title })).toBeNull();
+    expect(search).toHaveFocus();
+    expect(actions.update).toHaveBeenCalledTimes(1);
+    expect(actions.update).toHaveBeenCalledWith(PROPS.cost, { name: 'Price' });
   });
 
   it('drops what was typed when it closes with Escape', async () => {
