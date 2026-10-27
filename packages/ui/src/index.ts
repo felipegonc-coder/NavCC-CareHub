@@ -1,5 +1,7 @@
 export { cssVariables, darkTokens, hexToChannels, lightTokens, tokenNames } from './tokens';
 export type { TokenName, TokenSet } from './tokens';
+export * from './palette';
+export * from './scale';
 export { cn } from './lib/cn';
 export { useMediaQuery } from './lib/use-media-query';
 
@@ -26,8 +28,6 @@ export * from './components/logo';
 export * from './components/misc';
 export * from './components/popover';
 export * from './components/select';
-export * from './components/sheet';
-export * from './components/sidebar';
 export * from './components/spinner';
 export * from './components/switch';
 export * from './components/tabs';

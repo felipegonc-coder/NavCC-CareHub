@@ -49,6 +49,7 @@ import {
 } from '@carehub/ui';
 import { Plus, Settings, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { PaletteSwatches } from './palette-swatches';
 
 const variants: ButtonVariant[] = ['primary', 'secondary', 'ghost', 'danger'];
 const people = ['Sam Rivers', 'Alex Morgan', 'Priya Nandakumar', 'Jo Lee'];
@@ -94,8 +95,15 @@ export function DesignScreen() {
         </ul>
       </Section>
 
+      <Section title="Picked colours and covers">
+        <PaletteSwatches />
+      </Section>
+
       <Section title="Type">
         <p className="text-title">Title, 36 bold</p>
+        <p className="text-h1">Heading 1, 30 semibold</p>
+        <p className="text-h2">Heading 2, 24 semibold</p>
+        <p className="text-h3">Heading 3, 20 semibold</p>
         <p className="text-body">Body, 16. Customer asked about a delivery date for order 1042.</p>
         <p className="text-small text-muted">Small, 14, secondary text.</p>
         <p className="text-label text-muted">Label, 12</p>

@@ -16,21 +16,23 @@ export function DialogContent({
 }: ComponentProps<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-black/50" />
-      <DialogPrimitive.Content
-        className={cn(
-          'fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded border border-border bg-bg p-6 text-fg shadow-dialog animate-pop-in focus:outline-none',
-          className,
-        )}
-        {...props}
-      >
-        {children}
-        <DialogPrimitive.Close asChild>
-          <IconButton label="Close" size="sm" className="absolute right-3 top-3">
-            <X aria-hidden />
-          </IconButton>
-        </DialogPrimitive.Close>
-      </DialogPrimitive.Content>
+      {/* The backdrop holds the dialog, so a dialog taller than the window scrolls with it. */}
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 grid animate-fade-in overflow-y-auto bg-overlay/50 p-4">
+        <DialogPrimitive.Content
+          className={cn(
+            'relative m-auto grid w-full max-w-dialog gap-4 rounded border border-border bg-bg p-6 text-fg shadow-dialog animate-pop-in focus:outline-none',
+            className,
+          )}
+          {...props}
+        >
+          {children}
+          <DialogPrimitive.Close asChild>
+            <IconButton label="Close" size="sm" className="absolute right-3 top-3">
+              <X aria-hidden />
+            </IconButton>
+          </DialogPrimitive.Close>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Overlay>
     </DialogPrimitive.Portal>
   );
 }

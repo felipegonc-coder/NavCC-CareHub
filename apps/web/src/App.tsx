@@ -1,8 +1,9 @@
 import { ThemeProvider, ToastProvider } from '@carehub/ui';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
-import { createBrowserRouter } from 'react-router';
-import { RouterProvider } from 'react-router/dom';
+// RouterProvider from 'react-router', not 'react-router/dom': under Vitest that one loads a second
+// copy of React Router, and nothing renders below an <Outlet />. Only navigate's flushSync is lost.
+import { createBrowserRouter, RouterProvider } from 'react-router';
 import { createQueryClient } from './api/queryClient';
 import { routes } from './routes';
 
