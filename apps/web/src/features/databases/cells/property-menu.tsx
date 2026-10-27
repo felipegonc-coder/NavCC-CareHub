@@ -54,7 +54,7 @@ import {
   checkPropertyName,
   clearedByChange,
   hideInView,
-  NEW_PROPERTY_TYPES,
+  newPropertyTypes,
   placeInView,
   rowsWithValues,
   typeChoices,
@@ -79,7 +79,7 @@ export type PropertyMenuEvent =
   | { kind: 'deleted'; property: Property };
 
 export interface PropertyMenuProps {
-  meta: Pick<DatabaseMeta, 'viewerAccess' | 'locked' | 'properties'>;
+  meta: Pick<DatabaseMeta, 'viewerAccess' | 'locked' | 'properties' | 'wiki'>;
   property: Property;
   actions: PropertyActions;
   /** The view whose header it is: Hide in this view and Insert left or right change its columns. */
@@ -520,7 +520,7 @@ export function PropertyMenu({
       </div>,
       <>
         <DropdownMenuLabel>{PROPERTY_TEXT.type}</DropdownMenuLabel>
-        {NEW_PROPERTY_TYPES.map((kind) => (
+        {newPropertyTypes(meta).map((kind) => (
           <DropdownMenuItem
             key={kind}
             onSelect={(event) => {
