@@ -1,4 +1,8 @@
-import type { ImportView } from '@carehub/extras/import-export/import/index';
+import {
+  IMPORT_SOURCES,
+  type ImportSource,
+  type ImportView,
+} from '@carehub/extras/import-export/import/index';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError } from '../../../lib/api';
 import { createTracker, isGoing, type ImportTracker } from './tracker';
@@ -88,14 +92,18 @@ describe('following imports', () => {
 
   it('keeps the newest first, and takes finished ones out', () => {
     const { tracker } = tracked(60_000);
-    tracker.follow(view(A, 'waiting'));
+    const request = { source: IMPORT_SOURCES[0] as ImportSource, file: new File(['#'], 'Trip.md') };
+    tracker.follow(view(A, 'waiting'), { ...request, pageId: null });
     tracker.follow(view(B, 'waiting'));
     expect(tracker.snapshot().imports.map((item) => item.id)).toEqual([B, A]);
+    expect(tracker.request(A)).toEqual({ ...request, pageId: null });
+    expect(tracker.request(B)).toBe(undefined);
     tracker.update(view(A, 'cancelled'));
     expect(tracker.snapshot().imports.map((item) => item.status)).toEqual(['waiting', 'cancelled']);
     tracker.dismiss(A);
     tracker.dismiss(B);
     expect(tracker.snapshot()).toEqual({ imports: [], open: false });
+    expect(tracker.request(A)).toBe(undefined);
     // Only followed imports are updated.
     tracker.update(view(A, 'done'));
     expect(tracker.snapshot().imports).toEqual([]);

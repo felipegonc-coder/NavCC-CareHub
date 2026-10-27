@@ -181,6 +181,7 @@ describe('the Import screen', () => {
     expect(calls).toEqual(['GET ', 'POST ', `PUT /${ID}/file`]);
     expect(JSON.parse(String(bodies[1]))).toMatchObject({ source: 'markdown', pageId: null });
     expect(tracker.snapshot()).toEqual({ imports: [view('waiting')], open: true });
+    expect(tracker.request(ID)?.file.name).toBe('Trip.md');
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
     expect(screen.getByText('Drop the file here')).toBeInTheDocument();
   });
