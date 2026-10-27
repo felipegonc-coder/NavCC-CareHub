@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page
 // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)
 // makes the changes; Eli (an Editor) is the member who loses the action.
 
-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';
-
 // In order, one after another, and a failed check doesn't skip the ones after it.
 test.describe.configure({ mode: 'default' });
 
@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat
 test.describe('Settings: changes for the whole workspace', () => {
   onlyIn('desktop-light');
   needs('signIn', 'settings');
-  test.fixme(true, inWorkspaceProject);
 
   test.afterAll(async ({ browser }) => {
     const page = await windowFor(browser, 'admin');
