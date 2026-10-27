@@ -1,6 +1,6 @@
 # Databases and Forms: status
 
-Updated Oct 27, 2026, 03:20 UTC. Plan: [PLAN.md](PLAN.md). Storage and API: [decision 0200](../decisions/0200-databases-storage-and-api.md). The v2 specs win; lane details in [additions.md](additions.md).
+Updated Oct 27, 2026, 09:35 UTC. Plan: [PLAN.md](PLAN.md). Storage and API: [decision 0200](../decisions/0200-databases-storage-and-api.md). The v2 specs win; lane details in [additions.md](additions.md).
 
 ## Done
 
@@ -12,17 +12,22 @@ Updated Oct 27, 2026, 03:20 UTC. Plan: [PLAN.md](PLAN.md). Storage and API: [dec
   - CSV import and export (#18); form logic: questions, show-if, checks, the gate (#20).
   - Access levels, row and property access, relations, templates and unique IDs (#54).
   - Request schemas for every request shape (#64); type changes into Formula, Rollup, ID and Button (#68); forms anyone can fill in can't limit responses per person (#80).
+  - Formula engine with its limits for security #13 (#33); sub-items and dependencies (#103); button runs, Undo and repeating templates (#107); Excel import (#109); chart data in the design kit's colour names (#89).
+  - View engine (#112): filters, search, sorts, groups, paging and totals for each viewer, with property access checked on every query and along formula and rollup chains (closes security #46).
+  - Conditional colour in the design kit's colour names, Default included (#90); Excel import skips empty rows above the header (#152).
+- Screens: web shell part 1, the API client, layout contract, data hooks and test fixtures (#114); the view shell with tabs, loading, empty and error states, toasts and row actions (#208); cells to show and edit every property type (#173); the table layout with columns, groups, editing, keyboard moves and totals (#195); the form fill screen, signed in (#162).
 - Security reviewer OK (Oct 27): forms anyone on the network can fill in, and anonymous uploads, both off by default per form, with the conditions in decision 0200.
 
 ## In progress
 
-- Formula engine (#33): final limits for security #13, then merge.
-- Logic: chart data (#89) and conditional colour (#90), both moving their colours to the design kit's names; sub-items and dependencies; view engine (security #46); buttons and repeating templates; Excel import and export.
-- Server (wave 2): schema, databases, properties, views and templates (first builder started; branches from main, borrowing from #49 until it merges).
-- Screens (wave 3): the database shell and shared web pieces, cells and property menus, and forms (fill screen, then the builder), all on the design kit with the API mocked until the server lands.
+- Security #212 (High) and #217 (Low): the Excel reader gets caps on repeated text and on skipped rows, and refuses damaged ZIP files, before any route uses it; the import job will also run it in a worker with memory and time limits.
+- Formula library with safe text patterns (#193; security #13 part 2), waiting on the security reviewer's OK for its one new package.
+- Package follow-ups: row colours in the view engine; buttons messaging groups, roles and Everyone and repeats that end after a number of times (#191); type changes match the spec (nothing turns into Formula, Rollup, ID, Button or Verification); the Verification property and wiki flag for the Knowledge base lane.
+- Server (wave 2), waiting on pages #49: schema, settings, properties with Undo for type changes, and views (#170, #181, #219); rows, events, live updates and the functions other lanes call (calendar layers, automations, search, templates, imports); the query behind every view, with computed values, people's names, relation pickers and chart data.
+- Screens (wave 3): database pages and the "/database" block in the app, the toolbar and panels, the table's next part (real cells, the header menu, selection, the Calculate menu), the property menu and settings, and the form builder, then the signed-out fill for public forms.
 
 ## Next
 
-- Formula library with safe patterns (security #13), after #33.
-- Server: rows, query, jobs and forms; screens: table, board, list and gallery, calendar and timeline, chart, row page, filters, formula editor and import dialogs.
-- Wave 2 (server, decision 0200) as pages, sharing, auth and test helpers land on main; wave 3 (screens, design kit tokens only) after the web skeleton and slots. Breadth first: a working basic version of every feature before polish.
+- Server: jobs (CSV and Excel import and export, buttons, repeating templates, reminders) and forms (including public forms and anonymous uploads with the security conditions in decision 0200).
+- Screens: board, list and gallery; calendar and timeline; chart and dashboard; row page; filters; formula editor and import dialogs.
+- Breadth first: a working basic version of every feature on main before any polish, with colours, fonts and spacing from the design kit only.

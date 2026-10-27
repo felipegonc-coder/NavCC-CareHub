@@ -1,0 +1,278 @@
+import { LINK_OPTIONS, PAGE_FIELD, createPageSchema } from '@carehub/editor/schema';
+import * as Y from 'yjs';
+import { MAX_DEPTH, countBlocks, isRecord, markName } from './ydoc';
+
+/** Pages longer than this are refused (Pages and blocks, limits). */
+export const MAX_BLOCKS = 20_000;
+
+/** What the page schema allows, read once from `createPageSchema()` (every lane's blocks). */
+export interface SchemaInfo {
+  nodes: ReadonlySet<string>;
+  marks: ReadonlySet<string>;
+  inline: ReadonlySet<string>;
+  isSafeUrl: (url: string) => boolean;
+}
+
+let cached: SchemaInfo | undefined;
+
+export function pageSchemaInfo(): SchemaInfo {
+  if (cached) return cached;
+  const schema = createPageSchema();
+  const nodes = Object.values(schema.nodes);
+  cached = {
+    nodes: new Set(nodes.map((type) => type.name)),
+    inline: new Set(nodes.filter((type) => type.isInline).map((type) => type.name)),
+    marks: new Set(Object.values(schema.marks).map((type) => type.name)),
+    isSafeUrl: (url) => LINK_OPTIONS.isAllowedUri(url),
+  };
+  return cached;
+}
+
+/** Attribute names whose values a browser may open or load. */
+const URL_KEYS = new Set(['href', 'src', 'url']);
+/** Node names that can't appear as blocks. */
+const NOT_BLOCKS = new Set(['doc', 'text']);
+
+export type UpdateCheck =
+  { ok: true; blockCount: number } | { ok: false; reason: string; tooLong?: true };
+
+type Where =
+  | { kind: 'root'; key: string }
+  | { kind: 'element' }
+  | { kind: 'text' }
+  | { kind: 'gone' }
+  | { kind: 'other' };
+
+interface Position {
+  where: Where;
+  /** The attribute (map key) the item sets, or null for list content. */
+  sub: string | null;
+  /** How many elements hold the item: 0 at the top of the page. */
+  depth: number;
+}
+
+const GONE: Position = { where: { kind: 'gone' }, sub: null, depth: 0 };
+const OTHER: Position = { where: { kind: 'other' }, sub: null, depth: 0 };
+/** Where a chain of new elements too long to follow ends: anything below it is too deep. */
+const TOO_DEEP: Position = { where: { kind: 'element' }, sub: null, depth: MAX_DEPTH };
+
+/**
+ * Checks a Yjs update before the server applies or relays it (issue #14): only the page's
+ * blocks, only node and mark types the schema knows, no embeds or binary content, only safe
+ * addresses in links and `href`/`src`/`url` attributes, at most MAX_DEPTH levels of blocks and
+ * at most MAX_BLOCKS blocks. `blockCount` is the page's count before the update, if the caller
+ * keeps one. The result's count is an upper bound (deletes aren't subtracted), so the page is
+ * counted again before an update is refused as too long.
+ */
+export function checkUpdate(
+  update: Uint8Array,
+  doc: Y.Doc,
+  info: SchemaInfo,
+  blockCount = countBlocks(doc, info.inline),
+): UpdateCheck {
+  let structs: ReturnType<typeof Y.decodeUpdate>['structs'];
+  try {
+    structs = Y.decodeUpdate(update).structs;
+  } catch {
+    return { ok: false, reason: 'unreadable update' };
+  }
+  const incoming = new Map<number, Y.Item[]>();
+  for (const struct of structs) {
+    if (!(struct instanceof Y.Item)) continue;
+    const list = incoming.get(struct.id.client);
+    if (list) list.push(struct);
+    else incoming.set(struct.id.client, [struct]);
+  }
+  const locate = locator(doc, incoming);
+  let added = 0;
+  for (const struct of structs) {
+    if (!(struct instanceof Y.Item) || struct.content instanceof Y.ContentDeleted) continue;
+    const position = locate(struct);
+    if (!position) return { ok: false, reason: 'unknown position' };
+    const problem = contentProblem(struct.content, position, info);
+    if (problem) return { ok: false, reason: problem };
+    const type = struct.content instanceof Y.ContentType ? struct.content.type : null;
+    if (!(type instanceof Y.XmlElement) || position.where.kind === 'gone') continue;
+    if (position.depth >= MAX_DEPTH) return { ok: false, reason: 'nested too deeply' };
+    if (!info.inline.has(type.nodeName)) added += 1;
+  }
+  let after = blockCount + added;
+  if (added > 0 && after > MAX_BLOCKS) {
+    after = blocksAfter(update, doc, info);
+    if (after > MAX_BLOCKS) return { ok: false, reason: 'too many blocks', tooLong: true };
+  }
+  return { ok: true, blockCount: after };
+}
+
+/** The page's block count once `update` is applied, counted on a copy. */
+function blocksAfter(update: Uint8Array, doc: Y.Doc, info: SchemaInfo): number {
+  const copy = new Y.Doc();
+  try {
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    Y.applyUpdate(copy, update);
+    return countBlocks(copy, info.inline);
+  } finally {
+    copy.destroy();
+  }
+}
+
+function contentProblem(content: Y.Item['content'], at: Position, info: SchemaInfo): string | null {
+  const { where, sub } = at;
+  if (where.kind === 'gone') return null; // inside content Yjs already dropped
+  if (where.kind === 'root' && where.key !== PAGE_FIELD) return 'unknown field';
+  if (sub !== null) {
+    if (where.kind !== 'element' || !(content instanceof Y.ContentAny))
+      return 'unexpected attribute';
+    return content.arr.every((value) => isSafeValue(sub, value, info, 0))
+      ? null
+      : 'unsafe attribute';
+  }
+  if (where.kind === 'text') {
+    if (content instanceof Y.ContentString) return null;
+    if (content instanceof Y.ContentFormat) {
+      return isSafeMark(content.key, content.value, info) ? null : 'unsafe mark';
+    }
+    return 'unexpected inline content';
+  }
+  if (where.kind !== 'root' && where.kind !== 'element') return 'unexpected position';
+  if (!(content instanceof Y.ContentType)) return 'unexpected content';
+  const type = content.type;
+  if (type instanceof Y.XmlText) return where.kind === 'element' ? null : 'unexpected text';
+  if (type instanceof Y.XmlElement && info.nodes.has(type.nodeName)) {
+    return NOT_BLOCKS.has(type.nodeName) ? 'unknown block' : null;
+  }
+  return 'unknown block';
+}
+
+function isSafeMark(key: string, value: unknown, info: SchemaInfo): boolean {
+  if (!info.marks.has(markName(key))) return false;
+  if (value === null) return true;
+  return isRecord(value) && Object.entries(value).every(([k, v]) => isSafeValue(k, v, info, 1));
+}
+
+/** An attribute value: plain JSON, with only safe addresses under `href`, `src` and `url`. */
+export function isSafeValue(key: string, value: unknown, info: SchemaInfo, depth: number): boolean {
+  if (typeof value === 'string') return !URL_KEYS.has(key) || info.isSafeUrl(value);
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  if (depth >= 8) return false;
+  if (Array.isArray(value)) return value.every((item) => isSafeValue(key, item, info, depth + 1));
+  if (isRecord(value)) {
+    return Object.entries(value).every(([k, v]) => isSafeValue(k, v, info, depth + 1));
+  }
+  return false;
+}
+
+/**
+ * Finds where each incoming item goes. An item with a left or right neighbour doesn't carry its
+ * parent; it shares the neighbour's, which may be in the document or earlier in the update.
+ */
+function locator(doc: Y.Doc, incoming: Map<number, Y.Item[]>): (item: Y.Item) => Position | null {
+  const memo = new Map<Y.Item, Position | null>();
+  const find = (id: Y.ID) =>
+    findStruct(doc.store.clients.get(id.client), id.clock) ??
+    findStruct(incoming.get(id.client), id.clock);
+
+  /** Where content goes whose parent is `owner`, the item named by its parent ID. */
+  const inside = (
+    owner: Y.Item | Y.GC | null,
+    sub: string | null,
+    level: number,
+  ): Position | null => {
+    // A deleted block: the server keeps its item as ContentDeleted and its children as GC. What
+    // someone added to it at the same time (typing into a paragraph another person deleted) is
+    // dropped by Yjs, so it's no reason to refuse the update.
+    if (owner instanceof Y.GC || owner?.content instanceof Y.ContentDeleted) return GONE;
+    if (!owner) return null;
+    if (!(owner.content instanceof Y.ContentType)) return OTHER;
+    const type = owner.content.type;
+    if (type._item === owner) return { where: describe(type, doc), sub, depth: typeDepth(type) };
+    // A type that's new in this update is one level below wherever its own item goes.
+    const at = level > MAX_DEPTH ? TOO_DEEP : locate(owner, level + 1);
+    if (!at || at.where.kind === 'gone') return at;
+    const depth = at.depth + (type instanceof Y.XmlElement ? 1 : 0);
+    return { where: describe(type, doc), sub, depth };
+  };
+
+  const locate = (item: Y.Item, level: number): Position | null => {
+    const chain = new Set<Y.Item>();
+    let current = item;
+    let result: Position | null = null;
+    for (;;) {
+      const known = memo.get(current);
+      if (known !== undefined) {
+        result = known;
+        break;
+      }
+      const parent: unknown = current.parent;
+      if (typeof parent === 'string') {
+        result = { where: { kind: 'root', key: parent }, sub: current.parentSub, depth: 0 };
+        break;
+      }
+      if (parent instanceof Y.AbstractType) {
+        const depth = typeDepth(parent);
+        result = { where: describe(parent, doc), sub: current.parentSub, depth };
+        break;
+      }
+      if (parent instanceof Y.ID) {
+        result = inside(find(parent), current.parentSub, level);
+        break;
+      }
+      const near = current.origin ?? current.rightOrigin;
+      const neighbour = near ? find(near) : null;
+      if (neighbour instanceof Y.GC) {
+        result = GONE;
+        break;
+      }
+      if (!neighbour || neighbour === current || chain.has(neighbour)) break;
+      chain.add(current);
+      current = neighbour;
+    }
+    memo.set(current, result);
+    for (const link of chain) memo.set(link, result);
+    return result;
+  };
+
+  return (item) => locate(item, 0);
+}
+
+/** How many elements hold the content of `type`, counting `type` itself if it's one. */
+function typeDepth(type: Y.AbstractType<unknown>): number {
+  let depth = 0;
+  let item = type._item;
+  while (item && depth <= MAX_DEPTH) {
+    if (item.content instanceof Y.ContentType && item.content.type instanceof Y.XmlElement) {
+      depth += 1;
+    }
+    const parent: unknown = item.parent;
+    item = parent instanceof Y.AbstractType ? parent._item : null;
+  }
+  return depth;
+}
+
+function describe(type: unknown, doc: Y.Doc): Where {
+  if (type instanceof Y.XmlText) return { kind: 'text' };
+  if (type instanceof Y.XmlElement) return { kind: 'element' };
+  if (type instanceof Y.AbstractType && type._item === null) {
+    for (const [key, shared] of doc.share) if (shared === type) return { kind: 'root', key };
+  }
+  return { kind: 'other' };
+}
+
+function findStruct<T extends { id: Y.ID; length: number }>(
+  list: readonly T[] | undefined,
+  clock: number,
+): T | null {
+  if (!list) return null;
+  let low = 0;
+  let high = list.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const struct = list[middle];
+    if (!struct) return null;
+    if (clock < struct.id.clock) high = middle - 1;
+    else if (clock >= struct.id.clock + struct.length) low = middle + 1;
+    else return struct;
+  }
+  return null;
+}

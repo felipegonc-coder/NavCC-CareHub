@@ -1,3 +1,4 @@
+export * from './api';
 export {
   expandAssignments,
   type CourseAssignment,

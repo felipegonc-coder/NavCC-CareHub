@@ -11,46 +11,31 @@ export type AttemptPlan = {
   /** Question ids in the order they are shown. */
   questionIds: Id[];
   /**
-   * Display order by question id: choice option ids and matching/drag-matching right-hand pair ids
-   * (only when `shuffleOptions`), and ordering item ids (always). Other questions have no entry.
+   * Display order by question id: choice option ids (only when `shuffleOptions`), and the
+   * matching/drag-matching right-hand list (as pair ids) and ordering item ids (always). Other
+   * questions have no entry.
    */
   optionOrder: Record<Id, Id[]>;
 };
 
 /**
- * Reshuffles allowed before falling back to a rotation; each try has at most a 1-in-2 chance of
- * failing.
- */
-const MAX_RESHUFFLES = 32;
-
-/**
  * Plans a quiz attempt. Draws `poolSize` of the lesson's own questions (all when unset), then
  * `count` more from each bank draw's published snapshot (drafts without a snapshot add none; a
  * question id is never planned twice). Without `shuffleQuestions` the order is the lesson's
- * questions, then each draw, in their listed order. Records option orders: choice options and the
- * right-hand list of matching and drag-matching questions when `shuffleOptions`, ordering items
- * always. Ordering items (and shuffled matching lists, which would otherwise line up with their
- * prompts) are never in the listed order when there are 2 or more. True/false, fill-in and hotspot
- * questions have no option order. Deterministic: the same quiz, seed and attempt id always give the
- * same plan.
+ * questions, then each draw, in their listed order. Records option orders: choice options when
+ * `shuffleOptions`; matching and drag-matching right-hand lists and ordering items always, because
+ * in their listed order they would give the answer away. Every order is a plain uniform shuffle
+ * (the listed order included), so the order a learner sees says nothing about the answer.
+ * True/false, fill-in and hotspot questions have no option order. Deterministic: the same quiz,
+ * seed and attempt id always give the same plan.
  */
 export function planAttempt(quiz: QuizLesson, seed: number, attemptId: Id): AttemptPlan {
   const { settings } = quiz;
   const random = mulberry32(seed);
-  const planned = new Set<Id>();
-  const take = (pool: readonly Question[], requested: number | undefined): Question[] => {
-    const eligible: Question[] = [];
-    for (const question of pool) {
-      if (!planned.has(question.id) && !eligible.some((q) => q.id === question.id))
-        eligible.push(question);
-    }
-    // All when unset; `sample` clamps the count to 0..eligible.length (NaN draws none).
-    const drawn = sample(eligible, requested ?? eligible.length, random, { keepOrder: true });
-    for (const question of drawn) planned.add(question.id);
-    return drawn;
-  };
-  const drawn = take(quiz.questions, settings.poolSize);
-  for (const draw of quiz.bankDraws ?? []) drawn.push(...take(draw.questions ?? [], draw.count));
+  // `sample` clamps the count to 0..eligible.length (NaN draws none).
+  const drawn = drawQuestions(quiz, (eligible, count) =>
+    sample(eligible, count, random, { keepOrder: true }),
+  );
   const shown = settings.shuffleQuestions ? shuffle(drawn, random) : drawn;
   const optionOrder: [Id, Id[]][] = [];
   for (const question of shown) {
@@ -64,6 +49,40 @@ export function planAttempt(quiz: QuizLesson, seed: number, attemptId: Id): Atte
     questionIds: shown.map((q) => q.id),
     optionOrder: Object.fromEntries(optionOrder),
   };
+}
+
+/**
+ * How many questions each attempt of `quiz` shows, as `planAttempt` draws them: `poolSize` of the
+ * lesson's own questions (all when unset) plus `count` from each bank draw's snapshot. The same for
+ * every seed, since question ids are unique within a quiz lesson.
+ */
+export function plannedQuestionCount(quiz: QuizLesson): number {
+  return drawQuestions(quiz, (eligible, count) => eligible.slice(0, Math.max(0, count))).length;
+}
+
+/**
+ * The questions of one attempt, before any shuffle: `pick` chooses `count` of the eligible
+ * questions of the lesson (`poolSize`, all when unset) and then of each bank draw's snapshot (its
+ * `count`). Drafts without a snapshot add none, and a question id is never drawn twice.
+ */
+function drawQuestions(
+  quiz: QuizLesson,
+  pick: (eligible: Question[], count: number) => Question[],
+): Question[] {
+  const planned = new Set<Id>();
+  const take = (pool: readonly Question[], requested: number | undefined): Question[] => {
+    const eligible: Question[] = [];
+    for (const question of pool) {
+      if (!planned.has(question.id) && !eligible.some((q) => q.id === question.id))
+        eligible.push(question);
+    }
+    const drawn = pick(eligible, requested ?? eligible.length);
+    for (const question of drawn) planned.add(question.id);
+    return drawn;
+  };
+  const drawn = take(quiz.questions, quiz.settings.poolSize);
+  for (const draw of quiz.bankDraws ?? []) drawn.push(...take(draw.questions ?? [], draw.count));
+  return drawn;
 }
 
 /**
@@ -99,14 +118,12 @@ function optionOrderFor(
         : undefined;
     case 'matching':
     case 'drag_matching':
-      return shuffleOptions
-        ? shuffleAwayFromListed(
-            question.pairs.map((p) => p.id),
-            random,
-          )
-        : undefined;
+      return shuffle(
+        question.pairs.map((p) => p.id),
+        random,
+      );
     case 'ordering':
-      return shuffleAwayFromListed(
+      return shuffle(
         question.items.map((i) => i.id),
         random,
       );
@@ -115,19 +132,6 @@ function optionOrderFor(
     case 'hotspot':
       return undefined;
   }
-}
-
-/**
- * A shuffle that never equals the listed order (for 2 or more distinct ids), uniform over the
- * others.
- */
-function shuffleAwayFromListed(ids: readonly Id[], random: Random): Id[] {
-  if (ids.length < 2) return [...ids];
-  for (let attempt = 0; attempt < MAX_RESHUFFLES; attempt++) {
-    const order = shuffle(ids, random);
-    if (!sameIds(order, ids)) return order;
-  }
-  return [...ids.slice(1), ...ids.slice(0, 1)];
 }
 
 function sameIds(a: readonly Id[], b: readonly Id[]): boolean {

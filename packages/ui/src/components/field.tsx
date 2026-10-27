@@ -47,7 +47,10 @@ export function Field({
   );
   const inline = layout === 'inline';
   const labelElement = (
-    <Label htmlFor={controlId}>
+    <Label
+      htmlFor={controlId}
+      className={cn(inline && 'max-md:flex max-md:min-h-11 max-md:items-center')}
+    >
       {label}
       {required && (
         <span aria-hidden className="text-danger">
@@ -61,9 +64,7 @@ export function Field({
     <FieldContext value={value}>
       <div
         className={cn(
-          inline
-            ? 'grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1'
-            : 'flex flex-col gap-1.5',
+          inline ? 'grid grid-cols-control items-center gap-x-2 gap-y-1' : 'flex flex-col gap-1.5',
           className,
         )}
       >
