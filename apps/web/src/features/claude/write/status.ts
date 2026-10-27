@@ -1,7 +1,8 @@
 // Whether writing help is offered to the person signed in: its switch is on (with the key and
-// Nav's OK) and they may Use Claude (Claude features spec, sections 3.1 and 5). Off until told
-// otherwise, so nothing shows while it's unknown (CL-01, CL-04). The Claude settings code keeps
-// it up to date (it learns of a switch change within 5 seconds) by calling `setWritingHelpOn`.
+// "Nav has given the OK" ticked) and they may Use Claude (Claude features spec, sections 3.1 and
+// 5). Off until told otherwise, so nothing shows while it's unknown (CL-01, CL-04). The Claude
+// settings code keeps it up to date (it learns of a switch change within 5 seconds) by calling
+// `setWritingHelpOn`.
 import { useSyncExternalStore } from 'react';
 
 let writingHelpOn = false;
