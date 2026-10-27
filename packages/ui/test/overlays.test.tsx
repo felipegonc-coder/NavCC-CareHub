@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
 import {
   Button,
   Dialog,
@@ -13,6 +14,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   IconButton,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Tooltip,
 } from '../src';
 
@@ -112,5 +121,79 @@ describe('Tooltip', () => {
     );
     await user.tab();
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Add a page');
+  });
+});
+
+describe('Bottom sheets on phones', () => {
+  // jsdom has no layout, so these check what the layout hangs on: `data-sheet` (styles.css frees
+  // Radix's placement with it) and the phone classes. The browser tests (DK-23) check the layout.
+  const popUps: [string, string, ReactElement][] = [
+    [
+      'a menu',
+      'menu',
+      <DropdownMenu open key="menu">
+        <DropdownMenuTrigger>Page actions</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Rename</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    ],
+    [
+      'a popover',
+      'dialog',
+      <Popover open key="popover">
+        <PopoverTrigger>Details</PopoverTrigger>
+        <PopoverContent>Last edited by Alex Morgan today.</PopoverContent>
+      </Popover>,
+    ],
+    [
+      'a select list',
+      'listbox',
+      <Select open key="select">
+        <SelectTrigger aria-label="Team">
+          <SelectValue placeholder="Choose a team" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="support">Support</SelectItem>
+        </SelectContent>
+      </Select>,
+    ],
+  ];
+
+  it.each(popUps)(
+    '%s opens as a bottom sheet',
+    (_name: string, role: string, popUp: ReactElement) => {
+      render(popUp);
+      const sheet = screen.getByRole(role);
+      expect(sheet).toHaveAttribute('data-sheet');
+      expect(sheet).toHaveClass('max-md:w-full', 'max-md:max-h-sheet', 'max-md:rounded-b-none');
+    },
+  );
+
+  it('keeps a select list placed over its field as it is', () => {
+    render(
+      <Select open>
+        <SelectTrigger aria-label="Team">
+          <SelectValue placeholder="Choose a team" />
+        </SelectTrigger>
+        <SelectContent position="item-aligned">
+          <SelectItem value="support">Support</SelectItem>
+        </SelectContent>
+      </Select>,
+    );
+    expect(screen.getByRole('listbox')).not.toHaveAttribute('data-sheet');
+  });
+
+  it('lays a dialog along the bottom edge, as wide as the screen', () => {
+    render(
+      <Dialog open>
+        <DialogContent aria-describedby={undefined}>
+          <DialogTitle>Share page</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Share page' });
+    expect(dialog).toHaveClass('max-md:mx-0', 'max-md:mb-0', 'max-md:max-w-none');
+    expect(dialog.parentElement).toHaveClass('max-md:px-0', 'max-md:pb-0');
   });
 });

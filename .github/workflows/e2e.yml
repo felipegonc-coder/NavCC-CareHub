@@ -34,7 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 15
+    # Up to 20 minutes of tests at night (E2E_GLOBAL_TIMEOUT_MINUTES below), plus install and build.
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash # bash -eo pipefail, so "| tee" keeps the exit code
@@ -144,11 +145,38 @@ jobs:
             echo 'apps/server/dist/cli.js does not exist yet, so there is nothing to seed.'
           fi
 
+      # A stand-in for Anthropic's API on 127.0.0.1 (docs/extras/testing.md#claude). The server
+      # sends every Claude request to it, and the tests read what it received. Its answers are
+      # canned and fictional, and it needs no key.
+      - name: Start the Claude stub
+        id: claude-stub
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          if [ ! -f tests/e2e/extras/claude-stub.ts ]; then
+            echo 'tests/e2e/extras/claude-stub.ts does not exist yet, so there is no Claude stub.'
+            exit 0
+          fi
+          CLAUDE_STUB_PORT=4599 nohup node tests/e2e/extras/claude-stub.ts > "$RUNNER_TEMP/claude-stub-output.log" 2>&1 &
+          pid=$!
+          echo "$pid" > "$RUNNER_TEMP/claude-stub.pid"
+          for _ in $(seq 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4599/__requests 2> /dev/null; then exit 0; fi
+            if ! kill -0 "$pid" 2> /dev/null; then break; fi
+            sleep 1
+          done
+          { echo 'The Claude stub did not answer http://127.0.0.1:4599/__requests:'; cat "$RUNNER_TEMP/claude-stub-output.log"; } \
+            | tee "$RUNNER_TEMP/ci-logs/claude-stub.log"
+          exit 1
+
+      # CAREHUB_TEST_HOOKS=1 turns on the test-only routes the browser tests use (such as Learning's
+      # due dates, #247); only browser-test runs set it. The Claude key is fictional, and every
+      # Claude request goes to the stub above.
       - name: Start the server
         id: server
         if: steps.gate.outputs.run == 'true'
         run: |
           NODE_ENV=production CAREHUB_PUBLIC_URL=$E2E_BASE_URL PORT=38080 HOST=127.0.0.1 \
+            CAREHUB_TEST_HOOKS=1 ANTHROPIC_API_KEY=test-key-not-real ANTHROPIC_BASE_URL=http://127.0.0.1:4599 \
             nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server-output.log" 2>&1 &
           pid=$!
           echo "$pid" > "$RUNNER_TEMP/server.pid"
@@ -186,6 +214,9 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         env:
           ONLY_CHANGED: ${{ steps.gate.outputs.only-changed }}
+          # How long all the tests may take (playwright.config.ts): 10 minutes on a pull request,
+          # 20 at night or by hand, when every check runs.
+          E2E_GLOBAL_TIMEOUT_MINUTES: ${{ github.event_name == 'pull_request' && '10' || '20' }}
         run: |
           # -w: npm run e2e at the root would take --only-changed as an npm setting.
           args=()
@@ -196,11 +227,12 @@ jobs:
           exit 1
 
       # Also after a failure or a cancel, so no process outlives the job.
-      - name: Stop the server and PostgreSQL
+      - name: Stop the server, the Claude stub and PostgreSQL
         id: stop
         if: always() && steps.gate.outputs.run == 'true'
         run: |
           if [ -f "$RUNNER_TEMP/server.pid" ]; then kill "$(cat "$RUNNER_TEMP/server.pid")" 2> /dev/null || true; fi
+          if [ -f "$RUNNER_TEMP/claude-stub.pid" ]; then kill "$(cat "$RUNNER_TEMP/claude-stub.pid")" 2> /dev/null || true; fi
           node tests/e2e/ci/postgres.mjs stop "$RUNNER_TEMP/postgres" || true
 
       - name: Upload the Playwright report
@@ -211,6 +243,7 @@ jobs:
           path: |
             tests/e2e/playwright-report/
             ${{ runner.temp }}/server-output.log
+            ${{ runner.temp }}/claude-stub-output.log
           retention-days: 7
           if-no-files-found: ignore
 

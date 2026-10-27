@@ -30,7 +30,7 @@ import { BlockEditor } from '@carehub/editor';
 | `nodeViews`   | `{}`               | React views of lane blocks by node name (read on creation).    |
 | `slashItems`  | `[]`               | More "/" menu entries (`SlashItem`); can change at any time.   |
 | `linkPickers` | `[]`               | More link targets in the link panel (`LinkPicker`).            |
-| `bubbleItems` | `[]`               | More selection toolbar buttons (`BubbleItem`).                 |
+| `bubbleItems` | `[]`               | More selection toolbar buttons (`BubbleItem`), see below.      |
 | `extensions`  | `[]`               | Shortcuts and plugins, not nodes or marks (read on creation).  |
 
 ## Block groups
@@ -76,11 +76,14 @@ right, like `#` or `---`.
 
 ## The selection toolbar
 
-Selecting text (outside code) shows a toolbar above it: Bold, Italic, Underline, Strikethrough,
-Inline code and Link, then any `bubbleItems`. It's a `toolbar` with arrow-key movement; Alt+F10
-moves focus into it and Escape goes back to the text. The link panel takes a web or email address
-(`example.com` becomes `https://example.com`, `robin@example.com` becomes `mailto:`), shows a
-message for anything else, and lists the `linkPickers`:
+Selecting text (outside code) shows a toolbar above it, in the spec's order: Link, Comment (the
+`bubbleItems` entry with the id `comment`), Bold, Italic, Underline, Strikethrough and Inline code,
+then the other `bubbleItems`. Turn into, Equation, Color and "…" come with their block groups. In a
+read-only editor, selecting text shows only the `bubbleItems` marked `readOnly` (like Comment for
+people who can comment), or no toolbar if there are none. It's a `toolbar` with arrow-key movement;
+Alt+F10 moves focus into it and Escape goes back to the text. The link panel takes a web or email
+address (`example.com` becomes `https://example.com`, `robin@example.com` becomes `mailto:`), shows
+a message for anything else, and lists the `linkPickers`:
 
 ```tsx
 const lessonPicker: LinkPicker = {

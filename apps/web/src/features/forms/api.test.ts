@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type HttpMethod, type RequestJson } from '../databases/api';
 import { createFormsClient, DEFAULT_CONFIRMATION, loadFillForm, parseFillForm } from './api';
 import { fillForm, mockFormsClient, NOT_FOUND } from './test-utils';
@@ -45,6 +45,30 @@ describe('createFormsClient', () => {
       '/api/workspace/members?q=Avery%20Lin',
       '/api/databases/db-jobs/rows/pick?q=leak',
     ]);
+  });
+});
+
+describe('the default client', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.cookie = 'carehub_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  });
+
+  it('sends a response through lib/api, with the CSRF header', async () => {
+    document.cookie = 'carehub_csrf=token-1; path=/';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(createFormsClient().submitResponse('code-123', {})).resolves.toEqual({
+      ok: true,
+    });
+    const [path, init = {}] = fetchMock.mock.calls.at(-1) ?? [];
+    expect(path).toBe('/api/forms/code-123/responses');
+    expect(init.method).toBe('POST');
+    expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('token-1');
   });
 });
 

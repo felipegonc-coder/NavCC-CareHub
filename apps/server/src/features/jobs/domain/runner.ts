@@ -15,7 +15,13 @@ export interface JobContext {
 }
 
 export type JobHandler<P> = (payload: P, ctx: JobContext) => Promise<JsonValue | void>;
-export type PeriodicTask = (ctx: JobContext) => Promise<void>;
+
+export interface PeriodicTaskContext extends JobContext {
+  /** The time the run counts as: when it started, or the time a test hook gave. */
+  now: Date;
+}
+
+export type PeriodicTask = (ctx: PeriodicTaskContext) => Promise<void>;
 
 /** Why a job failed for good: its last attempt failed, timed out or stopped responding. */
 export interface JobFailure {
@@ -89,6 +95,8 @@ const LOCK_GRACE_MS = MINUTE;
 const STOP_GRACE_MS = 5_000;
 const KEEP_FINISHED_MS = 7 * 24 * 60 * MINUTE;
 const FAILED = 'Something went wrong.';
+/** How long one run of a periodic task may take. */
+const PERIODIC_TIMEOUT_MS = 5 * MINUTE;
 
 interface Kind {
   handler: JobHandler<never>;
@@ -449,9 +457,9 @@ export function createJobRunner(options: JobRunnerOptions) {
   registerKind<{ task?: unknown }>(
     PERIODIC_KIND,
     async (payload, ctx) => {
-      await tasks.get(String(payload?.task))?.run(ctx);
+      await tasks.get(String(payload?.task))?.run({ ...ctx, now: new Date(now()) });
     },
-    { maxAttempts: 1, concurrency: 4 },
+    { maxAttempts: 1, concurrency: 4, timeoutMs: PERIODIC_TIMEOUT_MS },
   );
   registerPeriodicTask('jobs.cleanup', 60 * MINUTE, async ({ signal }) => {
     const cutoff = new Date(now() - KEEP_FINISHED_MS);
@@ -468,6 +476,25 @@ export function createJobRunner(options: JobRunnerOptions) {
 
     /** One run at a time across processes, on a grid of `everyMs`; a failed run waits for the next. */
     registerPeriodicTask,
+
+    /**
+     * Runs a periodic task once, here and at once, off its grid: for test hooks. `now` (default
+     * the current time) is the run's `ctx.now`; it gets the task's usual 5 minutes. False when
+     * there's no task with this name.
+     */
+    async runPeriodicTask(name: string, input: { now?: Date } = {}): Promise<boolean> {
+      const task = tasks.get(name);
+      if (!task) return false;
+      await task.run({
+        jobId: randomUUID(),
+        attempt: 1,
+        lateByMs: 0,
+        signal: AbortSignal.timeout(PERIODIC_TIMEOUT_MS),
+        setProgress: () => {},
+        now: input.now ?? new Date(now()),
+      });
+      return true;
+    },
 
     async schedule<P>(
       input: ScheduleJobInput<P>,
@@ -558,6 +585,11 @@ export function createJobRunner(options: JobRunnerOptions) {
     },
 
     tick,
+
+    /** True from the first `start` until the last `stop`. */
+    isRunning(): boolean {
+      return starts > 0;
+    },
 
     /** Before `start` only. */
     useStore(next: JobStore): void {

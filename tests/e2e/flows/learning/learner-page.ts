@@ -1,9 +1,15 @@
 import type { Locator, Page } from '@playwright/test';
-import { expect } from '../_support/index.js';
+import { expect, shownDate } from '../_support/index.js';
 
 /** What the screens say when a link is wrong or the person may not see something (api.md). */
 export const NOT_FOUND = 'This was deleted, or the link is wrong.';
 export const NO_ACCESS = /you don.t have access/i;
+
+/** A day the way Learning shows it: in the browser's time zone, for example "Oct 27, 2026". */
+export async function shownDayIn(page: Page, at: Date): Promise<string> {
+  const zone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  return shownDate(at, zone);
+}
 
 /**
  * The learner's screens: My learning (/learning), the Catalog, a course's start page and the
