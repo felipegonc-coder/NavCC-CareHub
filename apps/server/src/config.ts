@@ -23,16 +23,38 @@ const configSchema = z.object({
   CAREHUB_PUBLIC_URL: z.url({ protocol: /^https?$/ }).optional(),
   /** Secure cookies (only sent over HTTPS). Turn off only for local development over plain HTTP. */
   COOKIE_SECURE: z.stringbool().default(true),
+  /** "1" turns on the routes the browser tests use (decision 0007, section 2.5). Deploy never sets it. */
+  CAREHUB_TEST_HOOKS: z.string().optional(),
 });
 
 /** Server settings, read from environment variables. */
 export type Config = z.infer<typeof configSchema>;
 
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
+/** `HOST` values that listen on this computer only. */
+const LOOPBACK_LISTEN: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '::1']);
+
+/** Whether the test hooks are on: only when CAREHUB_TEST_HOOKS is exactly "1". */
+export function testHooksEnabled(config: Pick<Config, 'CAREHUB_TEST_HOOKS'>): boolean {
+  return config.CAREHUB_TEST_HOOKS === '1';
+}
 
 // In production a missing or wrong setting mustn't quietly drop the Origin check or Secure cookies.
 // Plain http is allowed only on this machine (localhost), for trying a production build.
 const checkedConfigSchema = configSchema.superRefine((config, ctx) => {
+  // Test hooks do what the app otherwise refuses, such as moving a due date into the past, so they
+  // work only where nobody else can reach the server.
+  if (testHooksEnabled(config)) {
+    const url = config.CAREHUB_PUBLIC_URL ? new URL(config.CAREHUB_PUBLIC_URL) : null;
+    if (!LOOPBACK_LISTEN.has(config.HOST) || !url || !LOOPBACK_HOSTS.has(url.hostname)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CAREHUB_TEST_HOOKS'],
+        message:
+          'The test hooks work only on this computer: set HOST to 127.0.0.1 and CAREHUB_PUBLIC_URL to an http://127.0.0.1 or http://localhost address.',
+      });
+    }
+  }
   if (config.NODE_ENV !== 'production') return;
   const url = config.CAREHUB_PUBLIC_URL ? new URL(config.CAREHUB_PUBLIC_URL) : null;
   const local = url?.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);

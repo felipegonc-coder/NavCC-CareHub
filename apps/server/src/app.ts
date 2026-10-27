@@ -3,9 +3,10 @@ import { join } from 'node:path';
 import type { HealthResponse } from '@carehub/shared';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
-import type { Config } from './config';
+import { testHooksEnabled, type Config } from './config';
 import { DEFAULT_ERROR_MESSAGES, errorBody, errorHandler } from './core/errors';
 import { registerEvents } from './core/events';
+import { registerTestHooks } from './core/test-hooks';
 import { databasePlugin } from './db';
 import { authPlugin } from './features/auth/plugin';
 
@@ -21,6 +22,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const { config } = options;
   const app = Fastify({ logger: options.logger ?? false });
   registerEvents(app);
+  // Routes under /api/<feature>/test/ only with CAREHUB_TEST_HOOKS=1 (decision 0007, section 2.5).
+  registerTestHooks(app, testHooksEnabled(config));
 
   // Errors are { error: { code, message } } (decision 0007, section 2.2).
   app.setErrorHandler(errorHandler);
