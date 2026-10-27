@@ -3,8 +3,8 @@ import { mediaSource, toEmbed } from './embed';
 
 /**
  * Publish problems for links the player won't show: embed blocks that aren't on the embed allow-list, and video
- * or audio links Care Hub can't play. Same shape and wording as `checkPublishable`, so the publish route and
- * Studio can list both together.
+ * or audio links Care Hub won't play (only video sites play; media files from other sites must be uploaded).
+ * Same shape and wording as `checkPublishable`, so the publish route and Studio can list both together.
  */
 export function embedIssues(course: Course): PublishProblem[] {
   const problems: PublishProblem[] = [];

@@ -366,34 +366,42 @@ export function toEmbed(input: string): EmbedCheck {
 /** How a video or audio block plays its media. */
 export type MediaSource =
   | { kind: 'file'; fileId: string } // uploaded to Care Hub
-  | { kind: 'link'; url: string } // a direct https link to a media file
   | { kind: 'embed'; embed: EmbedTarget } // a video site, in a frame
   | { kind: 'refused'; reason: string };
 
+const VIDEO_FILE = /\.(mp4|m4v|mov|webm|ogv)$/;
+
 /**
- * How to play a video or audio block's media. Links to video sites become embeds (allow-list); other links play
- * directly only when they point to a media file; anything else is refused with a plain reason.
+ * How to play a video or audio block's media. Uploads play from Care Hub and links to video sites become embeds
+ * (allow-list). Anything else is refused with a plain reason. Media files linked from other sites aren't played
+ * (the content security policy only lets media load from Care Hub), so their reason asks for an upload instead.
  */
 export function mediaSource(media: MediaRef, use: 'video' | 'audio'): MediaSource {
   if (media.kind === 'file') return { kind: 'file', fileId: media.fileId };
+  if (use === 'audio')
+    return {
+      kind: 'refused',
+      reason: "Care Hub can't play audio from other sites. Download the file, then upload it here.",
+    };
   const embed = checkEmbed(media.url);
-  if (use === 'video' && embed.ok && embed.embed.kind === 'video')
-    return { kind: 'embed', embed: embed.embed };
+  if (embed.ok && embed.embed.kind === 'video') return { kind: 'embed', embed: embed.embed };
+  if (!embed.ok && 'provider' in embed && embed.provider.kind === 'video')
+    return { kind: 'refused', reason: embed.reason };
   let path = '';
   try {
-    const url = new UrlParser(media.url);
-    if (url.protocol === 'https:') path = url.pathname.toLowerCase();
+    path = new UrlParser(media.url).pathname.toLowerCase();
   } catch {
     // not a link; refused below
   }
-  const files =
-    use === 'video' ? /\.(mp4|m4v|mov|webm)$/ : /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|webm)$/;
-  if (files.test(path)) return { kind: 'link', url: media.url };
-  if (use === 'video' && !embed.ok && 'provider' in embed && embed.provider.kind === 'video')
-    return { kind: 'refused', reason: embed.reason };
-  const reason =
-    use === 'video'
-      ? `This link isn't a video Care Hub can play. Use a link from ${names('video')}, a link to an MP4 or WebM file, or upload the video.`
-      : "This link isn't an audio file. Link to an MP3, M4A, WAV or OGG file, or upload it.";
-  return { kind: 'refused', reason };
+  if (VIDEO_FILE.test(path))
+    return {
+      kind: 'refused',
+      reason:
+        "Care Hub can't play video files from other sites. Download the video, then upload it here.",
+    };
+  const sites = names('video').replace(/, ([^,]+)$/, ' or $1'); // "YouTube, Vimeo, Loom or Wistia"
+  return {
+    kind: 'refused',
+    reason: `This link isn't a video Care Hub can play. Use a link from ${sites}, or upload the video.`,
+  };
 }
