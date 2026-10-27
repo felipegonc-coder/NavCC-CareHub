@@ -1,6 +1,6 @@
 import {
   LIMITS,
-  addBlock,
+  addBlocks,
   deleteBlock,
   duplicateBlock,
   moveBlock,
@@ -11,13 +11,14 @@ import {
 } from '@carehub/learning';
 import type { Block, Course, Lesson } from '@carehub/learning';
 import { Button, cn, IconButton } from '@carehub/ui';
-import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, BookmarkPlus, Copy, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { BlockEditorFor } from '../editors/registry';
 import { blockLabel } from '../labels';
 import { BlockPicker } from './BlockPicker';
 import { NumberField, TitleField } from './parts';
 import { SortableList, useSortableItem } from './sortable';
+import { SaveTemplateForm } from './templates';
 import type { EditorActions } from './types';
 
 type BlockCardProps = Pick<EditorActions, 'edit' | 'remove'> & {
@@ -29,6 +30,9 @@ type BlockCardProps = Pick<EditorActions, 'edit' | 'remove'> & {
   /** Just added: take focus. */
   focused: boolean;
   onAddBelow(): void;
+  /** "Save as a template" is open for this block. */
+  templating: boolean;
+  onTemplate(open: boolean, message?: string): void;
 };
 
 function BlockCard({
@@ -41,10 +45,13 @@ function BlockCard({
   edit,
   remove,
   onAddBelow,
+  templating,
+  onTemplate,
 }: BlockCardProps) {
   const name = `block ${index + 1}`;
   const item = useSortableItem(block.id, `Reorder ${name}`);
   const card = useRef<HTMLElement>(null);
+  const templateButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (focused) card.current?.focus();
   }, [focused]);
@@ -87,6 +94,15 @@ function BlockCard({
             <Copy aria-hidden />
           </IconButton>
           <IconButton
+            ref={templateButton}
+            size="sm"
+            label={`Save ${name} as a template`}
+            aria-expanded={templating}
+            onClick={() => onTemplate(!templating)}
+          >
+            <BookmarkPlus aria-hidden />
+          </IconButton>
+          <IconButton
             size="sm"
             label={`Delete ${name}`}
             onClick={() =>
@@ -99,6 +115,18 @@ function BlockCard({
             <Plus aria-hidden />
           </IconButton>
         </div>
+        {templating && (
+          <div className="px-3 pt-3">
+            <SaveTemplateForm
+              blocks={[block]}
+              name={blockLabel(block)}
+              onDone={(message) => {
+                onTemplate(false, message);
+                templateButton.current?.focus();
+              }}
+            />
+          </div>
+        )}
         <div className="p-3">
           <BlockEditorFor
             block={block}
@@ -122,8 +150,12 @@ export function LessonCanvas(
     blockId: string | null;
   },
 ) {
-  const { lesson, blockId, edit } = props;
+  const { course, lesson, blockId, edit } = props;
   const [adding, setAdding] = useState<number | null>(null);
+  // A block id, or 'lesson' for all its blocks; and what was last saved.
+  const [templating, setTemplating] = useState<string | null>(null);
+  const [saved, setSaved] = useState('');
+  const lessonTemplateButton = useRef<HTMLButtonElement>(null);
   if (!lesson) {
     return (
       <section aria-label="Lesson" className="min-w-0 flex-1 p-4 md:p-6">
@@ -134,9 +166,19 @@ export function LessonCanvas(
     );
   }
   const blocks = lesson.kind === 'content' ? lesson.blocks : [];
-  const add = (index: number) => (block: Block) => {
-    edit((c) => addBlock(c, lesson.id, block, index), { select: { blockId: block.id } });
+  // Templates can hold ids already in this course; addBlocks gives those copies fresh ids, so the first new block
+  // is read from the result.
+  const add = (index: number) => (added: readonly Block[]) => {
+    const next = addBlocks(course, lesson.id, added, index);
+    const after = next.lessons.find((l) => l.id === lesson.id);
+    const first =
+      after?.kind === 'content' ? after.blocks[Math.min(index, blocks.length)] : undefined;
+    edit(() => next, { select: { blockId: first?.id ?? null } });
     setAdding(null);
+  };
+  const template = (id: string) => (open: boolean, message?: string) => {
+    setTemplating(open ? id : null);
+    if (message !== undefined) setSaved(message);
   };
   const picker = (index: number) =>
     adding === index && <BlockPicker onAdd={add(index)} onClose={() => setAdding(null)} />;
@@ -198,6 +240,8 @@ export function LessonCanvas(
                     count={blocks.length}
                     focused={block.id === blockId}
                     onAddBelow={() => setAdding(index + 1)}
+                    templating={templating === block.id}
+                    onTemplate={template(block.id)}
                   />
                 ))
                 .flatMap((card, index) =>
@@ -208,15 +252,37 @@ export function LessonCanvas(
             </ol>
           </SortableList>
           {picker(blocks.length) || (
-            <Button
-              variant="secondary"
-              className="self-start"
-              onClick={() => setAdding(blocks.length)}
-            >
-              <Plus aria-hidden />
-              Add block
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => setAdding(blocks.length)}>
+                <Plus aria-hidden />
+                Add block
+              </Button>
+              {blocks.length > 0 && (
+                <Button
+                  ref={lessonTemplateButton}
+                  variant="ghost"
+                  aria-expanded={templating === 'lesson'}
+                  onClick={() => template('lesson')(templating !== 'lesson')}
+                >
+                  <BookmarkPlus aria-hidden />
+                  Save blocks as a template
+                </Button>
+              )}
+            </div>
           )}
+          {templating === 'lesson' && (
+            <SaveTemplateForm
+              blocks={blocks}
+              name={lesson.title}
+              onDone={(message) => {
+                template('lesson')(false, message);
+                lessonTemplateButton.current?.focus();
+              }}
+            />
+          )}
+          <p role="status" className="text-small text-fg empty:hidden">
+            {saved}
+          </p>
         </>
       )}
     </section>
