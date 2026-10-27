@@ -14,12 +14,13 @@ Goal: Felipe's bar for Friday, Oct 30 is everything: Notion parity, but better. 
 | #32 | Web push sender: encryption, VAPID, payloads and settings (`node:crypto` only) |
 | #37 | Notices: the `sendNotice` contract, checks, grouping and table |
 | #38 | Status page logic and tables |
+| #63 | `@carehub/team-time` part 2: dates and times in the specs' wording, second time zone labels |
 
 ## Building now
 
 | Part | Now | Next (basic slice first) |
 | --- | --- | --- |
-| W1-A | `@carehub/team-time` part 2: formats, schedules, reminder times | Reminders: Remind me, delivery, Snooze and Done |
+| W1-A | Reminders: Remind me on pages and events, delivery, Snooze and Done | Home's Reminders section data, web push for reminders |
 | W1-B | `@carehub/team-repeat`: repeating events (3 PRs) | Calendar events on the server and the date-range API |
 | W1-C | Web push in the browser: service worker and manifest | Push subscriptions, notification settings and delivery; then Claude features (built off) |
 | W1-D | iCalendar time zones, reader, writer and safe link fetcher | Meetings: notes, recording notice, private transcription; then iCloud |
@@ -48,9 +49,9 @@ See [settings.md](settings.md).
 
 ## Decided
 
-- Google and iCloud calendars are read-only in Care Hub. Their events show "Reply in Google Calendar" or "Reply in iCloud"; Care Hub events get replies in Care Hub.
+- Google and iCloud calendars are read-only in Care Hub (open decision CA-D3 in the Calendar spec; read-only is the default). Synced events can't be edited, moved, deleted or replied to; the server refuses with 403. Their panel links to Google Calendar or iCloud. New events are always Care Hub events.
 
 ## For Felipe
 
 - When he creates the Google sign-in client: type "Web application", the redirect URL from settings.md, and publishing status "In production" (in "Testing", sign-ins end after 7 days).
-- Only if he wants it later: two-way Google and iCloud calendars (editing and replying from Care Hub). That would need write access to Google.
+- CA-D3, only if he wants it: two-way Google and iCloud calendars (editing and replying from Care Hub). That would need write access to Google.
