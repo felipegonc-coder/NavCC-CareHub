@@ -270,4 +270,26 @@ describe('PagesSidebar', () => {
       }),
     );
   });
+
+  it('moves a page with "Move to", finding the place by name', async () => {
+    renderSidebar({
+      '/api/spaces': { spaces: [...spaces, { id: 'care', kind: 'closed', name: 'Care team' }] },
+      '/api/spaces/general/tree': { nodes: [node('a1', null, 'Onboarding', { access: 'full' })] },
+      '/api/spaces/care/tree': { nodes: [node('c1', null, 'Handbook')] },
+    });
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: 'Onboarding' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Move to' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move “Onboarding” to' });
+    fireEvent.change(within(dialog).getByRole('searchbox', { name: 'Find a page or space' }), {
+      target: { value: 'hand' },
+    });
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^Handbook/ }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenLastCalledWith('/api/pages/a1/move', {
+        spaceId: 'care',
+        parentId: 'c1',
+      }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });

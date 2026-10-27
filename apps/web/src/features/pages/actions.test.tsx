@@ -51,7 +51,10 @@ function Opened() {
   return <p>Opened {useParams().pageId}</p>;
 }
 
-const host = { confirmMove: vi.fn<MoveHost['confirmMove']>() };
+const host = {
+  chooseMove: vi.fn<MoveHost['chooseMove']>(),
+  confirmMove: vi.fn<MoveHost['confirmMove']>(),
+};
 
 function setup() {
   const queryClient = new QueryClient({
@@ -108,12 +111,21 @@ describe('useEntryActions', () => {
     });
   });
 
-  it('moves a page to Trash with everything under it', async () => {
+  it('moves a page to Trash with everything under it, with Undo for 8 seconds', async () => {
     const { result, titles } = setup();
     act(() => result.current.trash(onboarding));
-    await waitFor(() => expect(toast).toHaveBeenCalledWith({ title: 'Moved to Trash' }));
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith({
+        title: 'Moved to Trash',
+        duration: 8000,
+        action: { label: 'Undo', onClick: expect.any(Function) },
+      }),
+    );
     expect(api.delete).toHaveBeenCalledWith('/api/pages/a1');
     expect(titles()).toEqual(['Rota']);
+    const [moved] = toast.mock.lastCall as [{ action: { onClick(): void } }];
+    act(() => moved.action.onClick());
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/trash/a1/restore', {}));
   });
 
   it('stars a page and remembers that the person has starred one', async () => {

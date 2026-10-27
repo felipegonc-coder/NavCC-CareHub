@@ -48,6 +48,7 @@ const fakeActions = (): EntryActions => ({
   trash: vi.fn(),
   create: vi.fn(),
   move: vi.fn(),
+  chooseMove: vi.fn(),
 });
 
 function Opened() {
@@ -209,6 +210,7 @@ describe('PageTree', () => {
       'Add to Favorites',
       'Copy link',
       'RenameF2',
+      'Move to',
       'Open in new tab',
       'Move to Trash',
     ]);

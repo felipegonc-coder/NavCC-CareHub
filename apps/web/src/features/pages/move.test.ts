@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { applyMove, dropPlace, dropTarget, movedTrees, stepTarget, type MoveScope } from './move';
+import {
+  applyMove,
+  dropPlace,
+  dropTarget,
+  movedTrees,
+  movePlaces,
+  stepTarget,
+  type MoveScope,
+} from './move';
 import { groupChildren } from './tree';
-import type { TreeNode } from './types';
+import type { Space, TreeNode } from './types';
 
 const node = (id: string, parentId: string | null, more: Partial<TreeNode> = {}): TreeNode => ({
   id,
@@ -124,5 +132,22 @@ describe('movedTrees', () => {
       'week1<onboarding',
       'day1<week1',
     ]);
+  });
+});
+
+describe('movePlaces', () => {
+  const spaces: Space[] = [
+    { id: 'general', kind: 'open', name: 'General', icon: null },
+    { id: 'board', kind: 'closed', name: 'Board', icon: null, canAddPages: false },
+  ];
+
+  it('lists spaces and pages the person can edit, without the page and what is under it', () => {
+    const places = movePlaces(find('week1'), spaces, new Map([['general', general]]));
+    expect(places.map((place) => `${place.title} (${place.path})`)).toEqual([
+      'General ()',
+      'onboarding (General)',
+      'refunds (General)',
+    ]);
+    expect(places[1]?.to).toEqual({ spaceId: 'general', parentId: 'onboarding' });
   });
 });
