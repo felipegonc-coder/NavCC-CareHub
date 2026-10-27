@@ -2,8 +2,7 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import type { PanelName, PanelProps } from './contract';
 
 export type PanelComponent =
-  | ComponentType<PanelProps>
-  | LazyExoticComponent<ComponentType<PanelProps>>;
+  ComponentType<PanelProps> | LazyExoticComponent<ComponentType<PanelProps>>;
 
 /**
  * What each toolbar panel and dialog shows, loaded the first time it opens. Each panel's builder

@@ -250,6 +250,11 @@ export interface PanelProps {
   actions: ViewActions;
   /** Can edit, Lock structure off and online: changes to the view are saved for everyone. */
   canEditViews: boolean;
+  /**
+   * Filter, opened from a condition's chip under the toolbar (spec 3.2): the condition to show by
+   * itself. Absent: the whole filter.
+   */
+  conditionId?: Id;
   /** Closes the panel and gives focus back to its button. Esc and presses outside close it too. */
   close(): void;
 }
