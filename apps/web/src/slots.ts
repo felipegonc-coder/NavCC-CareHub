@@ -84,6 +84,16 @@ export interface TreeItemChildren {
   database?: ComponentType<{ page: SlotPage }>;
 }
 
+/**
+ * A notice above the page title, such as "This page is archived"; it renders nothing when it
+ * doesn't apply.
+ */
+export interface PageBanner {
+  id: string;
+  order: number;
+  Component: ComponentType<{ page: SlotPage }>;
+}
+
 /** Another source of links in the editor; `pick` returns a relative link, or null if cancelled. */
 export interface LinkPicker {
   label: string;
@@ -110,6 +120,7 @@ export interface Slots {
   pageKindViews: PageKindViews;
   pageHeaderExtras: PageHeaderExtras;
   treeItemChildren: TreeItemChildren;
+  pageBanners: PageBanner[];
   editor: EditorSlots;
 }
 
@@ -139,6 +150,7 @@ export function mergeSlots(parts: readonly FeatureSlots[]): MergedSlots {
     pageKindViews: Object.assign({}, ...parts.map((part) => part.pageKindViews)),
     pageHeaderExtras: Object.assign({}, ...parts.map((part) => part.pageHeaderExtras)),
     treeItemChildren: Object.assign({}, ...parts.map((part) => part.treeItemChildren)),
+    pageBanners: sorted(join((part) => part.pageBanners)),
     editor: {
       nodeViews: Object.assign({}, ...parts.map((part) => part.editor?.nodeViews)),
       slashItems: join((part) => part.editor?.slashItems),

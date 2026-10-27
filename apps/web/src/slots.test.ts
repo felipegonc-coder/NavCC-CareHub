@@ -24,6 +24,7 @@ describe('mergeSlots', () => {
       pageKindViews: {},
       pageHeaderExtras: {},
       treeItemChildren: {},
+      pageBanners: [],
       editor: { nodeViews: {}, slashItems: [], linkPickers: [], bubbleItems: [], extensions: [] },
     });
   });

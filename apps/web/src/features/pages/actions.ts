@@ -22,6 +22,7 @@ import {
 } from './api';
 import { usePermission } from './me';
 import { movedTrees, type MoveTo } from './move';
+import { patchCached } from './page';
 import { useFlagPref } from './prefs';
 import { subtreeIds } from './tree';
 import type { PageLink, TreeNode } from './types';
@@ -132,12 +133,7 @@ export function useEntryActions(host: MoveHost): EntryActions {
       },
 
       rename(id, title) {
-        const change: Change = (data) => {
-          if (Array.isArray(data)) {
-            return data.map((item) => (hasId(item) && item.id === id ? { ...item, title } : item));
-          }
-          return hasId(data) && data.id === id ? { ...data, title } : data;
-        };
+        const change: Change = (data) => patchCached(data, id, { title });
         void optimistic(queryClient, change, () => renamePage(id, title)).then((error) => {
           if (error) failed("Couldn't rename the page.", error);
         });

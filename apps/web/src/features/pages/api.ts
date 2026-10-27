@@ -1,5 +1,6 @@
 // The page model's HTTP API as the sidebar uses it (decision 0007, section 4.1). Every path and
 // response shape lives here, so a change on the server is a change in this file only.
+import type { AccessLevel } from '@carehub/shared';
 import { api, ApiError } from '../../lib/api';
 import type { MoveTo } from './move';
 import type { PageIcon, PageLink, Space, TreeNode } from './types';
@@ -14,6 +15,7 @@ export const pagesKeys = {
   recent: ['pages', 'recent'] as const,
   prefs: ['pages', 'prefs'] as const,
   trash: ['pages', 'trash'] as const,
+  page: (id: string) => ['pages', 'page', id] as const,
 };
 
 /** A list from a response that is either the list itself or `{ [field]: list }`. */
@@ -119,3 +121,91 @@ export function parentInTrash(error: unknown): { id: string; title: string } | n
   if (typeof parent?.id !== 'string') return null;
   return { id: parent.id, title: typeof parent.title === 'string' ? parent.title : '' };
 }
+
+/** A picture from Care Hub's cover gallery, or an uploaded one (decision 0007, section 4.1). */
+export type PageCover = { type: 'preset'; name: string } | { type: 'file'; fileId: string };
+
+/** Who did something to a page, and when. */
+export interface Stamp {
+  by: { id: string; name: string } | null;
+  at: string;
+}
+
+/** A step of the breadcrumbs: the space, then each page above this one. */
+export interface Crumb {
+  id: string;
+  kind: 'space' | 'page' | 'database' | 'row';
+  title: string;
+  icon: PageIcon | null;
+}
+
+/** A page as its screen shows it (Pages and blocks, sections 2 and 4). */
+export interface PageDetail {
+  id: string;
+  kind: 'page' | 'database' | 'row';
+  spaceId: string;
+  parentId: string | null;
+  title: string;
+  icon: PageIcon | null;
+  cover: PageCover | null;
+  /** Which part of the cover shows, from 0 (its top) to 100 (its bottom). */
+  coverPosition: number;
+  fullWidth: boolean;
+  access: AccessLevel;
+  /** Where it lives, space first; the page itself isn't in it. */
+  path: Crumb[];
+  created: Stamp | null;
+  edited: Stamp | null;
+  locked: Stamp | null;
+  archived: Stamp | null;
+  /** Set when the page is in Trash. */
+  deleted: Stamp | null;
+}
+
+/** What a page's screen may change, with PATCH /api/pages/:id. */
+export type PageChange = Partial<
+  Pick<PageDetail, 'title' | 'icon' | 'cover' | 'coverPosition' | 'fullWidth'> & {
+    locked: boolean;
+    archived: boolean;
+  }
+>;
+
+function stampOf(data: Record<string, unknown>, name: string): Stamp | null {
+  const at = data[`${name}At`];
+  if (typeof at !== 'string') return null;
+  const by = data[`${name}By`] as { id?: unknown; name?: unknown } | null | undefined;
+  return {
+    at,
+    by:
+      typeof by?.id === 'string'
+        ? { id: by.id, name: typeof by.name === 'string' ? by.name : '' }
+        : null,
+  };
+}
+
+/** The page from GET /api/pages/:id, which sends it alone or as `{ page }`. */
+export function toPageDetail(body: unknown): PageDetail {
+  const outer = (body ?? {}) as { page?: unknown };
+  const data = (outer.page ?? outer) as Record<string, unknown> & Partial<PageDetail>;
+  return {
+    id: String(data.id),
+    kind: data.kind ?? 'page',
+    spaceId: String(data.spaceId),
+    parentId: data.parentId ?? null,
+    title: typeof data.title === 'string' ? data.title : '',
+    icon: data.icon ?? null,
+    cover: data.cover ?? null,
+    coverPosition: typeof data.coverPosition === 'number' ? data.coverPosition : 50,
+    fullWidth: data.fullWidth === true,
+    access: data.access ?? 'view',
+    path: Array.isArray(data.path) ? data.path : [],
+    created: stampOf(data, 'created'),
+    edited: stampOf(data, 'updated'),
+    locked: stampOf(data, 'locked'),
+    archived: stampOf(data, 'archived'),
+    deleted: stampOf(data, 'deleted'),
+  };
+}
+
+export const fetchPage = async (id: string) => toPageDetail(await api.get(`/api/pages/${id}`));
+export const changePage = (id: string, change: PageChange) => api.patch(`/api/pages/${id}`, change);
