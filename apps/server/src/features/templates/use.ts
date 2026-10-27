@@ -7,7 +7,7 @@ import type {
   UseTemplateResponse,
 } from '@carehub/extras/templates/schemas';
 import { variableValues } from '@carehub/extras/templates/variables';
-import { atLeast } from '@carehub/shared';
+import { atLeast, type AccessLevel } from '@carehub/shared';
 import { eq, sql } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
@@ -18,7 +18,7 @@ import type { Starter } from './starters';
 
 type Target = { spaceId: string | null; parentId: string | null; applyTo: CorePage | null };
 
-/** "Add to:": Private, a new sub-page, or this page. Needs Can edit there. */
+/** "Add to:": Private, a new sub-page, or this page. Needs Can edit there, and not archived. */
 async function resolveTarget(db: Db, viewer: TemplatesViewer, target: UseTarget): Promise<Target> {
   if (target.type === 'private') return { spaceId: null, parentId: null, applyTo: null };
   const found = await core().page(db, viewer.userId, target.pageId);
@@ -26,6 +26,8 @@ async function resolveTarget(db: Db, viewer: TemplatesViewer, target: UseTarget)
   if (!atLeast(found.level, 'edit')) throw forbidden();
   const { page } = found;
   if (page.kind !== 'page') throw httpError(400, 'invalid', 'Pick a page to add the template to.');
+  // Archived pages are read-only, sub-pages included (page history and Trash, 3.5).
+  if (page.archived) throw httpError(409, 'conflict', 'Unarchive the page first.');
   if (target.type === 'page') return { spaceId: page.spaceId, parentId: page.id, applyTo: null };
   if (page.locked) throw httpError(409, 'conflict', 'Unlock the page first.');
   return { spaceId: page.spaceId, parentId: page.parentId, applyTo: page };
@@ -50,6 +52,13 @@ export async function useTemplate(
     const titles = new Map<number, string>();
     const notCopied: string[] = [];
     const spaceId = target.spaceId ?? (await core().privateSpaceId(tx, by));
+    // Databases are copied from their live databases, only for people who can see them.
+    const sources = template.pages.flatMap((page) =>
+      page.kind !== 'page' && page.sourcePageId ? [page.sourcePageId] : [],
+    );
+    const levels = sources.length
+      ? await core().levels(tx, by, sources)
+      : new Map<string, AccessLevel>();
     const make = (page: TemplatePage, parentId: string | null, title: string) =>
       core().createPage(tx, {
         workspaceId: viewer.workspaceId,
@@ -80,9 +89,14 @@ export async function useTemplate(
         ids.set(page.key, await make(page, parentId, title));
         continue;
       }
-      const copy = page.sourcePageId
+      const source = page.sourcePageId;
+      if (source && !atLeast(levels.get(source) ?? 'none', 'view')) {
+        notCopied.push(`${page.title || 'Untitled'} (No access)`);
+        continue;
+      }
+      const copy = source
         ? await core().duplicateDatabase(tx, {
-            databaseId: page.sourcePageId,
+            databaseId: source,
             parentId,
             includeRows: input.includeSampleRows,
             by,
