@@ -1,6 +1,7 @@
 // Writes the app icons into public/icons/, from the base64 text in icons/. `npm run dev` and
 // `npm run build` run it first. The icons are text because the tools that commit to this
 // repository can't add binary files; git ignores public/icons/.
+import { realpathSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,4 +22,7 @@ export async function writeIcons(to = join(WEB, 'public', 'icons')) {
   return written;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) await writeIcons();
+// Run as a script (`node scripts/write-icons.mjs [folder]`), not when its test imports it. Node
+// resolves symlinks in import.meta.url but not in argv, so compare real paths.
+const script = process.argv[1] ? realpathSync(process.argv[1]) : '';
+if (script === fileURLToPath(import.meta.url)) await writeIcons(process.argv[2]);

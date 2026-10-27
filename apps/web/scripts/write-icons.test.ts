@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +44,20 @@ describe('write-icons', () => {
       const { width, height, seeThrough } = png(await readFile(join(folder, name)));
       expect([name, width, height]).toEqual([name, size, size]);
       if (opaque) expect([name, seeThrough]).toEqual([name, false]);
+    }
+  });
+
+  // Windows lets only some accounts make symlinks.
+  it.skipIf(process.platform === 'win32')('runs as a script, also through a symlink', async () => {
+    folder = await mkdtemp(join(tmpdir(), 'carehub-icons-'));
+    const script = join(WEB, 'scripts', 'write-icons.mjs');
+    await symlink(script, join(folder, 'write-icons.mjs'));
+    for (const [run, to] of [
+      [script, 'direct'],
+      [join(folder, 'write-icons.mjs'), 'linked'],
+    ] as const) {
+      execFileSync(process.execPath, [run, join(folder, to)]);
+      expect((await readdir(join(folder, to))).sort()).toEqual(Object.keys(ICONS).sort());
     }
   });
 
