@@ -1,6 +1,6 @@
 # @carehub/team-time
 
-Time building blocks for the Team tools lane: wall-clock dates and times and time zones, with spec date and time formats, automation schedules and reminder times to follow. Pure TypeScript, `Intl` only: no runtime dependencies and no time zone libraries.
+Time building blocks for the Team tools lane: wall-clock dates and times, time zones, and dates and times in the specs' wording. Pure TypeScript, `Intl` only: no runtime dependencies and no time zone libraries.
 
 ## Conventions
 
@@ -39,6 +39,26 @@ Time building blocks for the Team tools lane: wall-clock dates and times and tim
 | `toCivil(instant, timeZone)`        | `Date` → wall clock (seconds dropped)                                                                                                              |
 | `timeZoneOffset(instant, timeZone)` | Minutes from UTC: `-360` for Denver in summer, `330` for Kolkata                                                                                   |
 | `todayIn(timeZone, now?)`           | Today's `CivilDate` in that zone                                                                                                                   |
+
+### Formats
+
+English wording from the specs, with normal spaces only (never the U+202F that `Intl` puts before AM and PM).
+
+| Export                                                | Does                                                                                                                             |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `formatDate(date, style?)`                            | `'Oct 26, 2026'`; `style` picks `weekday` (`'short'` or `'long'`), `month` (`'short'` or `'long'`) and `year` (`false` hides it) |
+| `formatTime(time, prefs)`                             | `'3:30 PM'`, or `'15:30'` with `use24h` (zero-padded: `'09:00'`); takes `'HH:mm'` or a date-time                                 |
+| `formatTimeRange(start, end, prefs)`                  | `'10:00 to 11:00 AM'`, `'11:30 AM to 12:30 PM'`                                                                                  |
+| `formatHourLabel(time, prefs)`                        | Calendar hour lines: `'9 AM'`, `'2:30 PM'`, `'09:00'`                                                                            |
+| `formatDateRange(start, end)`                         | `'Oct 25 – 31, 2026'`, `'Oct 26 – Nov 1, 2026'`, `'Dec 27, 2026 – Jan 2, 2027'`                                                  |
+| `formatPeriod(view, date, prefs)`                     | Calendar top bar: `'Monday, Oct 26, 2026'`, `'Oct 25 – 31, 2026'` (follows `weekStart`), `'October 2026'`                        |
+| `formatDayDivider(date, today)`                       | Chat dividers: `'Today'`, `'Yesterday'`, `'Mon, Oct 26'`, `'Fri, Dec 26, 2025'` in another year                                  |
+| `formatRelative(instant, now, prefs)`                 | `'just now'`, `'5 min ago'`, `'2 hours ago'`, `'yesterday'`, `'3 days ago'`, then the date; ahead: `'in 5 min'`, `'tomorrow'`    |
+| `timeOfDay(time)`, `formatGreeting(name, now, prefs)` | `'Good afternoon, Avery · Monday, October 26'`: morning 5:00–11:59, afternoon 12:00–16:59, evening the rest                      |
+| `secondZoneHourLabels(date, zone, prefs)`             | Calendar's second time zone: the 24 hour labels for that zone on `date`, worked out day by day across clock changes              |
+| `defaultZoneLabel(zone)`                              | `'Europe/Lisbon'` → `'Lisbon'`                                                                                                   |
+| `weekdayName(day, style?)`                            | `'Monday'` or `'Mon'`                                                                                                            |
+| `CalendarView`, `DateStyle`, `TimeOfDay`              | Types for the above                                                                                                              |
 
 ### Settings
 

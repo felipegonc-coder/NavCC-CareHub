@@ -16,6 +16,7 @@ export interface ExternalAttendee {
   name?: string;
   response: 'accepted' | 'declined' | 'tentative' | 'needs-action';
   organizer?: boolean;
+  self?: boolean; // this is the calendar's owner (Google's attendee.self); if unset, match their addresses
 }
 
 export interface ExternalEvent {
@@ -32,6 +33,7 @@ export interface ExternalEvent {
   end?: ExternalTime; // exclusive
   rrule?: string; // RRULE value without the "RRULE:" prefix
   exdates?: ExternalTime[];
+  rdates?: ExternalTime[]; // extra occurrences of a series (RDATE)
   sequence?: number;
   updatedAt?: string; // ISO instant
   busy: boolean;

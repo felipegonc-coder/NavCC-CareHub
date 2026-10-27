@@ -13,6 +13,13 @@ describe('videoLinkFromUrl', () => {
       ['https://teams.microsoft.com/l/meetup-join/19%3ameeting_example%40thread.v2/0', 'teams'],
       ['https://teams.microsoft.com/meet/5550100123?p=example', 'teams'],
       ['https://teams.live.com/meet/9876543210', 'teams'],
+      ['https://zoomgov.com/j/5550100123', 'zoom'],
+      ['https://example.zoomgov.com/j/5550100123?context=example', 'zoom'],
+      ['https://teams.cloud.microsoft/l/meetup-join/19%3ameeting_example%40thread.v2/0', 'teams'],
+      ['https://gov.teams.microsoft.us/l/meetup-join/19%3ameeting_example%40thread.v2/0', 'teams'],
+      ['https://example.webex.com/meet/riley.chen', 'webex'],
+      ['https://example.webex.com/example/j.php?MTID=m0123456789abcdef', 'webex'],
+      ['https://example.webex.com/wbxmjs/joinservice/sites/example/meeting/download/abc', 'webex'],
     ];
     for (const [url, provider] of cases) {
       expect(videoLinkFromUrl(url)).toEqual({ url, provider });
@@ -27,8 +34,11 @@ describe('videoLinkFromUrl', () => {
       'https://meet.google.com/new',
       'https://teams.microsoft.com/meetingOptions/?organizerId=example',
       'https://dialin.teams.microsoft.com/example',
-      'https://example.webex.com/meet/riley.chen',
-      'https://example.zoomgov.com/j/5550100123',
+      'https://www.webex.com/pricing',
+      'https://webex.com.example.net/meet/riley.chen',
+      'https://example.zoomgov.com/download',
+      'https://notzoomgov.com/j/5550100123',
+      'https://teams.cloud.microsoft.example.org/l/meetup-join/example',
       'https://zoom.us.example.net/j/5550100123',
       'https://example.com/zoom.us/j/5550100123',
       'https://avery@zoom.us/j/5550100123',
