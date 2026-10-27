@@ -15,10 +15,10 @@ import { completeProgress } from '../progress/service';
 import { bindMemoryCourseVersions, type MemoryCourseVersions } from '../progress/testing';
 import * as paths from './service';
 
-vi.mock('../assignments', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../assignments')>()),
-  syncPathAssignments: vi.fn(async () => {}),
-}));
+// Not built from the real module: that imports the courses server, which imports ./service
+// (through progress/on-publish), and an import made while a mock is being built gets the real
+// module, so ./service would call the real syncPathAssignments instead of this mock.
+vi.mock('../assignments', () => ({ syncPathAssignments: vi.fn(async () => {}) }));
 vi.mock('../courses/access', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../courses/access')>()),
   canSeeCourse: vi.fn(async () => true),
