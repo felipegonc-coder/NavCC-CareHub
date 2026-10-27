@@ -39,8 +39,17 @@ export const onMain = {
   /** Comments, replies and @ mentions of people, pages and dates. */
   comments: false,
 
+  /** Suggested edits: Suggesting mode, the marks by their author, Accept and Reject (all). */
+  suggestedEdits: false,
+
+  /** Following a page (a notice for each new comment) and muting a thread. */
+  following: false,
+
   /** The 🔔 Care Hub chat where notices arrive. */
   notices: false,
+
+  /** Reply in a comment notice: the answer goes into the thread without leaving the 🔔 chat. */
+  noticeReply: false,
 
   /** Search from the search box and Ctrl/Cmd + K. */
   search: false,
