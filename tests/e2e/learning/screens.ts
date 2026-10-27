@@ -81,4 +81,19 @@ export const screens: Screen[] = [
       await page.getByRole('dialog', { name: 'Publish this course' }).waitFor();
     },
   },
+  // Paste text in the add-block menu, on the first lesson of a copy of the first example course.
+  {
+    name: 'learning-studio-paste-text',
+    path: '/learning/studio',
+    setup: async (page) => {
+      await page.getByRole('button', { name: 'New course' }).click();
+      await page
+        .getByRole('button', { name: /^Copy / })
+        .first()
+        .click();
+      await page.getByRole('button', { name: 'Add block', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Paste text' }).click();
+      await page.getByRole('textbox', { name: 'Text to turn into blocks' }).waitFor();
+    },
+  },
 ];
