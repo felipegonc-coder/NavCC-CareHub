@@ -22,6 +22,15 @@ describe('event bounds', () => {
       startsAt: '2026-11-02T19:00:00.000Z',
       endsAt: '2026-11-04T00:00:00.000Z',
     });
+    const withSeconds: ExternalEvent = {
+      ...base,
+      start: { kind: 'floating', dateTime: '2026-11-03T09:00:30' },
+      end: { kind: 'floating', dateTime: '2026-11-03T10:00:30' },
+    };
+    expect(iso(eventBounds(withSeconds))).toEqual({
+      startsAt: '2026-11-02T19:00:30.000Z',
+      endsAt: '2026-11-04T00:00:30.000Z',
+    });
   });
 
   it('keeps instants exact, and an all-day event lasts its days', () => {

@@ -14,8 +14,11 @@ function rough(time: ExternalTime): { ms: number; exact: boolean } {
       return { ms: Date.parse(time.instant), exact: true };
     case 'date':
       return { ms: Date.parse(`${time.date}T00:00:00Z`), exact: false };
-    default:
-      return { ms: Date.parse(`${time.dateTime}:00Z`), exact: false };
+    default: {
+      // `YYYY-MM-DDTHH:mm`, or with seconds.
+      const wall = time.dateTime.length === 16 ? `${time.dateTime}:00` : time.dateTime;
+      return { ms: Date.parse(`${wall}Z`), exact: false };
+    }
   }
 }
 const earliest = (time: ExternalTime) => rough(time).ms - (rough(time).exact ? 0 : ZONE_SLACK_MS);
