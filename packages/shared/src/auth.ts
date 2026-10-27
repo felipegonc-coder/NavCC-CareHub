@@ -4,8 +4,27 @@ import { permissionKeySchema } from './permissions';
 // The shared index has one line for accounts, so the permission keys come along from here.
 export * from './permissions';
 
-/** Readable cookie with the CSRF token. Send its value in the X-CSRF-Token header on every POST, PUT, PATCH and DELETE to /api. */
+/**
+ * Readable cookie with the CSRF token: `__Host-carehub_csrf` over HTTPS, `carehub_csrf` on a plain-HTTP
+ * development server. Send `readCsrfToken(document.cookie)` in the X-CSRF-Token header on every POST, PUT,
+ * PATCH and DELETE to /api.
+ */
 export const CSRF_COOKIE = 'carehub_csrf';
+/** The server's cookie names start with this when cookies are Secure, so only this exact host can set them. */
+export const SECURE_COOKIE_PREFIX = '__Host-';
+
+/** The CSRF token in a Cookie header or `document.cookie`, or null. Prefers the `__Host-` cookie. */
+export function readCsrfToken(cookies: string): string | null {
+  const values = new Map<string, string>();
+  for (const part of cookies.split(';')) {
+    const at = part.indexOf('=');
+    if (at <= 0) continue;
+    const name = part.slice(0, at).trim();
+    if (!values.has(name)) values.set(name, part.slice(at + 1).trim());
+  }
+  return values.get(SECURE_COOKIE_PREFIX + CSRF_COOKIE) ?? values.get(CSRF_COOKIE) ?? null;
+}
+
 /** The X-CSRF-Token header, in lower case as Node reports it. */
 export const CSRF_HEADER = 'x-csrf-token';
 export const DEFAULT_TIME_ZONE = 'America/Denver';

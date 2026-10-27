@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { meResponseSchema } from './index';
+import { meResponseSchema, readCsrfToken } from './index';
+
+describe('readCsrfToken', () => {
+  it('reads the __Host- cookie first, then the plain one', () => {
+    expect(readCsrfToken('theme=dark; __Host-carehub_csrf=over-https; carehub_csrf=planted')).toBe(
+      'over-https',
+    );
+    expect(readCsrfToken('carehub_csrf=local; theme=dark')).toBe('local');
+    expect(readCsrfToken('theme=dark; carehub_csrf_old=x')).toBeNull();
+    expect(readCsrfToken('')).toBeNull();
+  });
+});
 
 describe('meResponseSchema', () => {
   const user = {

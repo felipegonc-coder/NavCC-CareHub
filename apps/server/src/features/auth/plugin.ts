@@ -1,18 +1,12 @@
 import cookie from '@fastify/cookie';
-import {
-  CSRF_COOKIE,
-  CSRF_HEADER,
-  hasPermission,
-  type CurrentUser,
-  type PermissionKey,
-} from '@carehub/shared';
+import { CSRF_HEADER, hasPermission, type CurrentUser, type PermissionKey } from '@carehub/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { httpError } from '../../core/errors';
 import { getCurrentMember, syncDefaultWorkspace, type CurrentMember } from '../workspaces';
 import { rememberSession, sessionCookies, sessionOf, type SessionCookies } from './cookies';
 import { checkCsrf } from './csrf';
-import { SESSION_COOKIE, findSession, sessionNeedsTouch, touchSession } from './sessions';
+import { findSession, sessionNeedsTouch, touchSession } from './sessions';
 
 /** A Fastify preHandler that answers 401 or 403 unless the request is allowed. */
 export type Guard = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -33,6 +27,7 @@ declare module 'fastify' {
     member: CurrentMember | null;
   }
   interface FastifyInstance {
+    /** The auth cookies: `names` (they depend on COOKIE_SECURE), `sessionToken(request)`, set and clear. */
     sessionCookies: SessionCookies;
     /** 401 unless signed in (for routes that are public otherwise). */
     requireUser: Guard;
@@ -54,6 +49,11 @@ export interface AuthPluginOptions {
 
 // Uses the matched route, not the raw URL, so a path spelled differently (/%61pi/…) can't skip the checks.
 const API_ROUTE = /^\/api(?:\/|$)/;
+/**
+ * The only routes allowed outside /api, where default-deny and the CSRF checks don't run: the web app's
+ * files. Anything new here (feeds, downloads, share links) needs a security review first.
+ */
+const REVIEWED_ROUTES_OUTSIDE_API: ReadonlySet<string> = new Set(['/*']);
 const CSRF_MESSAGES = {
   origin: 'This request came from another site, so it was blocked.',
   token: 'The security check failed. Reload the page and try again.',
@@ -73,10 +73,18 @@ export const authPlugin = fp<AuthPluginOptions>(
     app.decorateRequest('user', null);
     app.decorateRequest('member', null);
 
+    app.addHook('onRoute', (route) => {
+      if (API_ROUTE.test(route.url) || REVIEWED_ROUTES_OUTSIDE_API.has(route.url)) return;
+      throw new Error(
+        `${route.method} ${route.url} is outside /api, where sign-in and CSRF checks don't run. ` +
+          'Move it under /api, or have it reviewed and added in features/auth/plugin.ts.',
+      );
+    });
+
     app.addHook('onRequest', async (request, reply) => {
       const route = request.routeOptions.url;
       if (route === undefined || !API_ROUTE.test(route)) return;
-      const token = request.cookies[SESSION_COOKIE];
+      const token = cookies.sessionToken(request);
       if (token) {
         const session = await findSession(app.db, token);
         if (session) {
@@ -105,7 +113,7 @@ export const authPlugin = fp<AuthPluginOptions>(
         host: request.headers.host,
         publicOrigin,
         header: request.headers[CSRF_HEADER],
-        cookie: request.cookies[CSRF_COOKIE],
+        cookie: cookies.csrfToken(request),
         sessionToken: sessionOf(request)?.token,
       });
       if (failure) throw httpError(403, 'forbidden', CSRF_MESSAGES[failure]);

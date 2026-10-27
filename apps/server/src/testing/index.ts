@@ -1,7 +1,6 @@
 // Helpers for server tests in every lane (decision 0007, section 2.5). Fictional data only.
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  CSRF_COOKIE,
   CSRF_HEADER,
   BUILT_IN_ROLES,
   type BuiltInRoleKey,
@@ -17,7 +16,7 @@ import { loadConfig } from '../config';
 import type { Db, Tx } from '../db';
 import { csrfTokenForSession } from '../features/auth/csrf';
 import { users } from '../features/auth/schema';
-import { SESSION_COOKIE, createSession, currentUserColumns } from '../features/auth/sessions';
+import { createSession, currentUserColumns } from '../features/auth/sessions';
 import { createRole } from '../features/roles';
 import {
   addMember,
@@ -194,10 +193,11 @@ export async function createUser(db: Db | Tx, options: CreateUserOptions = {}): 
 export async function injectAs(app: FastifyInstance, user: { id: string }, options: InjectOptions) {
   const { token } = await createSession(app.db, user.id, { userAgent: 'test' });
   const csrf = csrfTokenForSession(token);
+  const names = app.sessionCookies.names;
   return app.inject({
     ...options,
     headers: {
-      cookie: `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`,
+      cookie: `${names.session}=${token}; ${names.csrf}=${csrf}`,
       [CSRF_HEADER]: csrf,
       ...options.headers,
     },
