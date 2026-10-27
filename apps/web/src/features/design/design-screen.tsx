@@ -6,11 +6,27 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Field,
   IconButton,
   Input,
   Kbd,
   Logo,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -26,7 +42,9 @@ import {
   TabsTrigger,
   Textarea,
   ThemeSwitch,
+  Tooltip,
   tokenNames,
+  useToast,
   type ButtonVariant,
 } from '@carehub/ui';
 import { Plus, Settings, Trash2 } from 'lucide-react';
@@ -47,6 +65,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 /** /design: every token and component from @carehub/ui, in the current theme. Fictional data only. */
 export function DesignScreen() {
+  const { toast } = useToast();
   return (
     <main className="mx-auto flex max-w-page flex-col gap-10 px-6 py-12">
       <title>Care Hub · Design kit</title>
@@ -82,6 +101,9 @@ export function DesignScreen() {
 
       <Section title="Type">
         <p className="text-title">Title, 36 bold</p>
+        <p className="text-h1">Heading 1, 30 semibold</p>
+        <p className="text-h2">Heading 2, 24 semibold</p>
+        <p className="text-h3">Heading 3, 20 semibold</p>
         <p className="text-body">Body, 16. Customer asked about a delivery date for order 1042.</p>
         <p className="text-small text-muted">Small, 14, secondary text.</p>
         <p className="text-label text-muted">Label, 12</p>
@@ -102,9 +124,11 @@ export function DesignScreen() {
           </Button>
           <Button loading>Saving</Button>
           <Button disabled>Disabled</Button>
-          <IconButton label="Settings">
-            <Settings aria-hidden />
-          </IconButton>
+          <Tooltip content="Settings">
+            <IconButton label="Settings">
+              <Settings aria-hidden />
+            </IconButton>
+          </Tooltip>
           <IconButton label="Move to Trash" variant="secondary">
             <Trash2 aria-hidden />
           </IconButton>
@@ -140,6 +164,55 @@ export function DesignScreen() {
           <Field label="Desktop notifications" layout="inline">
             <Switch />
           </Field>
+        </div>
+      </Section>
+
+      <Section title="Menus and dialogs">
+        <div className="flex flex-wrap items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary">Page actions</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem>Rename</DropdownMenuItem>
+              <DropdownMenuItem>Duplicate</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="danger">Move to Trash</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="secondary">Open dialog</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Share page</DialogTitle>
+                <DialogDescription>People in your workspace can open the link.</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="secondary">Cancel</Button>
+                </DialogClose>
+                <DialogClose asChild>
+                  <Button>Copy link</Button>
+                </DialogClose>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="secondary">Open popover</Button>
+            </PopoverTrigger>
+            <PopoverContent className="text-small">
+              Last edited by Alex Morgan today.
+            </PopoverContent>
+          </Popover>
+          <Button
+            variant="secondary"
+            onClick={() => toast({ title: 'Page saved', variant: 'success' })}
+          >
+            Show toast
+          </Button>
         </div>
       </Section>
 

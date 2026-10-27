@@ -20,6 +20,7 @@ Goal: databases and forms match Notion option for option by **Fri Oct 30** (last
 - Tests next to the code (`*.test.ts`, Vitest style: `import { describe, it, expect } from 'vitest'`). Cover every rule in your part and every message text. Run `/data/toolkit/bin/test.sh packages/databases/src/<your files>` and `/data/toolkit/bin/typecheck.sh` from anywhere; both must pass.
 - Size: aim for under ~600 lines of non-test code. If it won't fit, finish the core and list what's left.
 - Fictional data only (Avery Lin, Jordan Park, Blue Pine Plumbing). No secrets.
+- New packages: add them to `package.json` only (CI installs them; the repo bot updates the lockfile after merge). vitest ^3.2, zod ^4 and our own `@carehub/*` workspaces are pre-approved (0010); anything else needs the security reviewer's OK on the PR. Colours never live in our code: use the design kit's picked colours by name (`OptionColor`).
 - When tests and the type check pass, open your own PR from a `feat/db-*` branch off main (the brief says how), read the CI comment once, fix, and stop. The lead merges. End with: the PR number, files, exports, test count, anything left or unclear.
 - Exact user-facing text from the specs (and this page) must match word for word.
 
@@ -130,10 +131,10 @@ Next free slots, in order:
 Felipe's bar for Friday is "everything": a working basic version of every feature on main before any one is polished. Storage, routes and rights: [decision 0200](../decisions/0200-databases-storage-and-api.md).
 
 - **db-server-schema**: migrations and Drizzle tables, DatabaseMeta for the viewer (property access applied), databases, properties (type changes, deleted-property restore), views, templates, access rules, lock, version conflicts, live `schema-changed`, share-link guard, seed data.
-- **db-server-rows**: rows (create with prefill and templates, edit, bulk edit, trash, restore, duplicate), value checks, two-way relations, ID numbers, manual order, row history, Person notices, events, live `rows-changed`, `api.ts` for Team tools, the row access resolver, `pages.kindChanged`, search text.
+- **db-server-rows**: rows (create with prefill and templates, edit, bulk edit, trash, restore, duplicate), value checks, two-way relations, ID numbers, manual order, row history, Person notices, events, live `rows-changed`, `api.ts` for Team tools, the row access resolver, `page.kindChanged`, search text.
 - **db-server-query**: query and chart routes on the view engine, a row cache per database, formulas and rollups (with loop guards and time budgets, big queries off the main thread), relation titles and the relation picker.
 - **db-server-jobs**: CSV and Excel import and export jobs (with Undo import), buttons (press and Undo), applying templates, repeating templates, date reminders.
-- **forms-server**: the form by link, submit (only mapped, shown questions), the gate (closed, full, one response), anonymous with nothing stored about the sender, notices, Change link. The public route for forms anyone can fill in waits for the security reviewer.
+- **forms-server**: the form by link, submit (only mapped, shown questions), the gate (closed, full, one response), anonymous with nothing stored about the sender, notices, Change link. Forms anyone can fill in (public routes) and anonymous uploads, both off by default per form, under the security reviewer's conditions in decision 0200.
 
 Interfaces from other lanes (build against these; wire up when they're on main):
 
