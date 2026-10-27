@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import type { EntryActions } from './actions';
+import type { MoveScope } from './move';
 import { PageTree } from './PageTree';
 import { groupChildren } from './tree';
 import type { TreeNode } from './types';
@@ -36,6 +37,8 @@ globalThis.ResizeObserver ??= class {
   disconnect() {}
 };
 
+const general: MoveScope = { spaceId: 'general', canAddTop: true };
+
 const fakeActions = (): EntryActions => ({
   canCreate: true,
   isFavorite: () => false,
@@ -44,6 +47,8 @@ const fakeActions = (): EntryActions => ({
   rename: vi.fn(),
   trash: vi.fn(),
   create: vi.fn(),
+  move: vi.fn(),
+  chooseMove: vi.fn(),
 });
 
 function Opened() {
@@ -56,9 +61,10 @@ interface HarnessProps {
   at?: string;
   extra?: (page: TreeNode) => ReactNode;
   actions?: EntryActions;
+  moves?: MoveScope;
 }
 
-function Harness({ list = pages, open = [], at = '/', extra, actions }: HarnessProps) {
+function Harness({ list = pages, open = [], at = '/', extra, actions, moves }: HarnessProps) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set(open));
   const onExpand = (keys: readonly string[], on: boolean) =>
     setExpanded((before) => {
@@ -79,6 +85,7 @@ function Harness({ list = pages, open = [], at = '/', extra, actions }: HarnessP
         onExpand={onExpand}
         actions={actions ?? fakeActions()}
         renderExtra={extra}
+        moves={moves}
       />
       <Routes>
         <Route path="/p/:pageId" element={<Opened />} />
@@ -215,6 +222,7 @@ describe('PageTree', () => {
       'Add to Favorites',
       'Copy link',
       'RenameF2',
+      'Move to',
       'Open in new tab',
       'Move to Trash',
     ]);
@@ -248,5 +256,54 @@ describe('PageTree', () => {
       'true',
     );
     expect(screen.queryByRole('button', { name: 'Add a page inside Rota' })).toBeNull();
+  });
+
+  it('moves an entry among its siblings with Ctrl+Shift+↓ and ↑', () => {
+    const actions = fakeActions();
+    const list = pages.map((entry) => ({ ...entry, access: 'full' as const }));
+    render(<Harness actions={actions} list={list} moves={general} />);
+    const onboarding = screen.getByRole('treeitem', { name: 'Onboarding' });
+    fireEvent.keyDown(onboarding, { key: 'ArrowDown', ctrlKey: true, shiftKey: true });
+    expect(actions.move).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1' }), {
+      spaceId: 'general',
+      parentId: null,
+      index: 1,
+    });
+    fireEvent.keyDown(onboarding, { key: 'ArrowUp', ctrlKey: true, shiftKey: true });
+    expect(actions.move).toHaveBeenCalledTimes(1); // already first
+  });
+
+  it('moves an entry dropped onto a page inside it', () => {
+    const actions = fakeActions();
+    const list = pages.map((entry) => ({ ...entry, access: 'full' as const }));
+    render(<Harness actions={actions} list={list} moves={general} />);
+    const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    const untitled = screen.getByRole('treeitem', { name: 'Untitled' });
+    const onboarding = screen.getByRole('treeitem', { name: 'Onboarding' });
+    fireEvent.dragStart(untitled, { dataTransfer });
+    fireEvent.dragOver(onboarding, { dataTransfer });
+    expect(onboarding).toHaveClass('ring-2');
+    fireEvent.drop(onboarding, { dataTransfer });
+    expect(actions.move).toHaveBeenCalledWith(expect.objectContaining({ id: 'b1' }), {
+      spaceId: 'general',
+      parentId: 'a1',
+    });
+    expect(onboarding).toHaveAttribute('aria-expanded', 'true');
+    expect(onboarding).not.toHaveClass('ring-2');
+    fireEvent.dragEnd(untitled);
+  });
+
+  it("doesn't let entries be dragged without Full access, or dropped outside a space", () => {
+    const actions = fakeActions();
+    render(<Harness actions={actions} />);
+    expect(screen.getByRole('treeitem', { name: 'Onboarding' })).toHaveAttribute(
+      'draggable',
+      'false',
+    );
+    const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(screen.getByRole('treeitem', { name: 'Untitled' }), { dataTransfer });
+    fireEvent.drop(screen.getByRole('treeitem', { name: 'Onboarding' }), { dataTransfer });
+    expect(dataTransfer.setData).not.toHaveBeenCalled();
+    expect(actions.move).not.toHaveBeenCalled();
   });
 });
