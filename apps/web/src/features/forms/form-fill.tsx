@@ -144,6 +144,9 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   const [announcement, setAnnouncement] = useState('');
   const [focusTarget, setFocusTarget] = useState<{ propertyId: Id } | null>(null);
   const [brokenCover, setBrokenCover] = useState<string | null>(null);
+  // The fill token the screen opened with (decision 0010). Uploads made so far are tied to it, and
+  // the time of the fill counts from it, so a reload of the form doesn't swap it.
+  const [fill] = useState(data.fill);
   const sendingNow = useRef(false);
   const shownBefore = useRef<ReadonlySet<Id> | null>(null);
   const online = useOnline();
@@ -236,7 +239,7 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
     try {
       // anonymous: what this screen told the person. If the form stopped being anonymous since,
       // the server answers form_changed, and the reload shows the form as it is now.
-      const response = { answers: responseAnswers(inputs, shown), anonymous: anonymousForm };
+      const response = { answers: responseAnswers(inputs, shown), anonymous: anonymousForm, fill };
       await (signedOut
         ? client.submitPublicResponse(code, response)
         : client.submitResponse(code, response));
@@ -345,6 +348,7 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
               onUploads={onUploads}
               formId={formId}
               databaseId={databaseId}
+              fill={fill}
             />
           ))}
         <div aria-live="polite" className="sr-only">

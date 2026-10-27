@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import type { FormDefinition } from '@carehub/databases';
 import { draftKey } from '@carehub/databases/forms';
 import { ApiError } from '../databases/api';
-import type { FillForm } from './api';
+import { FormsClientProvider, type FillForm } from './api';
 import { FormFill, OFFLINE_TEXT } from './form-fill';
 import {
   fillForm,
@@ -281,6 +281,40 @@ describe('FormFill', () => {
     if (cover) fireEvent.error(cover);
     expect(document.querySelector('img')).toBeNull();
     expect(screen.getByRole('form', { name: 'QA dispute request' })).toBeInTheDocument();
+  });
+
+  it('sends the fill token with uploads and the response, and keeps it when the form reloads', async () => {
+    const client = mockFormsClient();
+    const data = (fill: string) =>
+      fillForm(
+        { audience: 'anyone', questions: [question(IDS.photos, 'Photos')] },
+        { respondent: null, fill },
+      );
+    const view = renderWithForms(
+      <FormFill data={data('fill-1')} code="code-123" signedOut />,
+      client,
+    );
+    const file = new File(['leak'], 'sink.heic', { type: 'image/heic' });
+    fireEvent.change(screen.getByLabelText('Photos'), { target: { files: [file] } });
+    expect(await screen.findByText('sink.heic')).toBeInTheDocument();
+    expect(client.uploadFile).toHaveBeenCalledWith(file, {
+      scope: 'forms:form-1',
+      fill: 'fill-1',
+    });
+    view.rerender(
+      <FormsClientProvider client={client}>
+        <FormFill data={data('fill-2')} code="code-123" signedOut />
+      </FormsClientProvider>,
+    );
+    fireEvent.click(submitButton());
+    await screen.findByRole('status');
+    expect(client.submitPublicResponse).toHaveBeenCalledWith('code-123', {
+      answers: {
+        [IDS.photos]: [{ id: 'file-sink.heic', name: 'sink.heic', size: 4, mime: 'image/heic' }],
+      },
+      anonymous: true,
+      fill: 'fill-1',
+    });
   });
 
   it('uploads files to the form, signed in', async () => {
