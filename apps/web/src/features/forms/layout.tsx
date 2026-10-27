@@ -20,7 +20,8 @@ import { FormSettings, FULL_ACCESS_HINT, ShareForm } from './settings';
 /**
  * The Form view (the database shell draws it for views with the form layout). People who can
  * build forms (Can edit on the database, Lock structure off) get the builder, with Preview, Share
- * form and Settings; everyone else gets the fill screen, as the form link shows it.
+ * form and Settings (a form block in a page opens on Preview, with Edit form); everyone else gets
+ * the fill screen, as the form link shows it.
  */
 export default function FormLayout(props: LayoutProps) {
   const { meta, view } = props;
@@ -43,7 +44,8 @@ export default function FormLayout(props: LayoutProps) {
 function FormEditor({ meta, view, viewer, actions }: LayoutProps) {
   const settingsId = useId();
   const def = useMemo(() => viewForm(view, meta), [view, meta]);
-  const [previewing, setPreviewing] = useState(false);
+  // A form block in a page shows the fill screen first; Edit form opens the builder (Forms spec).
+  const [previewing, setPreviewing] = useState(meta.inline);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const fullAccess = can('manage_form_access', meta.viewerAccess, { locked: meta.locked });

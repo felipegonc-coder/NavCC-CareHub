@@ -1,5 +1,5 @@
-import { useId, useRef, useState, type KeyboardEvent } from 'react';
-import { Ellipsis } from 'lucide-react';
+import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { Ellipsis, GripVertical } from 'lucide-react';
 import {
   Button,
   DropdownMenu,
@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   buttonClasses,
+  cn,
 } from '@carehub/ui';
 import {
   LIMITS,
@@ -42,12 +43,17 @@ export interface QuestionCardProps {
   onRemove(propertyId: Id): boolean;
   /** The card's menu closed after a choice that moves focus itself. */
   onMenuClosed(): void;
+  /** While a card is dragged: whether it's this one, and the edge that shows the drop line. */
+  dragging: boolean;
+  dropLine: 'top' | 'bottom' | null;
+  /** Starts dragging the card from its handle. */
+  onDragStart(event: PointerEvent<HTMLElement>): void;
 }
 
 /**
  * One question in the builder: its text, description, Required, how it shows, "Show if…" (never
  * on the first question) and a menu with Move up, Move down and Remove question. Alt+↑ and Alt+↓
- * move it while focus is in the card.
+ * move it while focus is in the card. On wider screens the handle drags it (phones use the menu).
  */
 export function QuestionCard({
   def,
@@ -59,6 +65,9 @@ export function QuestionCard({
   onMove,
   onRemove,
   onMenuClosed,
+  dragging,
+  dropLine,
+  onDragStart,
 }: QuestionCardProps) {
   const id = useId();
   const menuRef = useRef<HTMLButtonElement>(null);
@@ -80,14 +89,37 @@ export function QuestionCard({
   };
 
   return (
-    <li>
+    <li className="relative" data-question-index={index}>
+      {dropLine && (
+        <span
+          aria-hidden
+          className={cn(
+            'pointer-events-none absolute inset-x-0 h-0.5 rounded-full bg-ring',
+            dropLine === 'top' ? '-top-2' : '-bottom-2',
+          )}
+        />
+      )}
       <div
         role="group"
         aria-label={label}
         id={cardDomId(question.propertyId)}
-        className="flex flex-col gap-3 rounded border border-border bg-bg p-4"
+        className={cn(
+          'flex flex-col gap-3 rounded border border-border bg-bg p-4',
+          dragging && 'opacity-50',
+        )}
       >
         <div className="flex items-start gap-2">
+          <span
+            aria-hidden
+            data-testid="form-question-handle"
+            className={cn(
+              'hidden h-9 w-4 shrink-0 touch-none select-none items-center justify-center text-muted hover:text-fg md:flex',
+              dragging ? 'cursor-grabbing' : 'cursor-grab',
+            )}
+            onPointerDown={onDragStart}
+          >
+            <GripVertical className="size-4" />
+          </span>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <CommitInput
               aria-label="Question"
