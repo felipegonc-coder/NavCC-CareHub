@@ -5,3 +5,5 @@ export { PUBLISH_MINIMUMS } from './types';
 export * from './course';
 export * from './lessons';
 export * from './blocks';
+export * from './factories';
+export * from './questions';
