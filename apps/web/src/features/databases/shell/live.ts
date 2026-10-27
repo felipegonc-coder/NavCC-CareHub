@@ -7,8 +7,10 @@
  *   in every view and chart, and those rows' pages;
  * - `live-reconnected`: events may have been missed, so everything.
  * While this tab's own changes to the database are on their way, the refetch waits for them, so
- * what they show doesn't flicker back; their answers bring the rest.
+ * what they show doesn't flicker back; their answers bring the rest. The events that come in the
+ * meantime share one refetch.
  */
+import { useRef } from 'react';
 import { useQueryClient, type Query, type QueryClient } from '@tanstack/react-query';
 import type { Id } from '@carehub/databases';
 import { useLiveTopic, type LiveEvent } from '../../live';
@@ -52,14 +54,31 @@ export function whenWritesSettle(queryClient: QueryClient, databaseId: Id, run: 
   });
 }
 
+/** The events waiting for this tab's writes to the database, reloaded together. */
+interface Waiting {
+  databaseId: Id;
+  stale: ((query: Query) => boolean)[];
+}
+
 /** Keeps a database's screens up to date while they show. */
 export function useDatabaseLive(databaseId: Id): void {
   const queryClient = useQueryClient();
+  const waiting = useRef<Waiting | null>(null);
   useLiveTopic(liveTopic(databaseId), (event) => {
     const predicate = staleQueries(event);
     if (!predicate) return;
+    if (waiting.current?.databaseId === databaseId) {
+      waiting.current.stale.push(predicate);
+      return;
+    }
+    const batch: Waiting = { databaseId, stale: [predicate] };
+    waiting.current = batch;
     whenWritesSettle(queryClient, databaseId, () => {
-      void queryClient.invalidateQueries({ queryKey: databaseKeys.all(databaseId), predicate });
+      if (waiting.current === batch) waiting.current = null;
+      void queryClient.invalidateQueries({
+        queryKey: databaseKeys.all(databaseId),
+        predicate: (query) => batch.stale.some((stale) => stale(query)),
+      });
     });
   });
 }

@@ -1,16 +1,25 @@
 import { describe, expect, it } from 'vitest';
+import type { z } from 'zod';
 import type { LearningPath } from '../format/index';
 import {
   CreatePathRequestSchema,
   PathListResponseSchema,
   PathPageResponseSchema,
+  PathReportQuerySchema,
+  PathReportResponseSchema,
+  PathReportRowSchema,
   SavePathRequestSchema,
   pathPage,
   pathProblems,
   pathReport,
   pathReportCsv,
   type PathEnrollment,
+  type PathReportResponse,
+  type PathReportRow,
 } from './index';
+
+/** True only when each type is assignable to the other. */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 // Fictional path, courses and people only.
 const path: LearningPath = {
@@ -265,5 +274,31 @@ describe('pathReport', () => {
     );
     expect(pathReportCsv(report, { bom: true }).startsWith('\uFEFFName,')).toBe(true);
     expect(pathReportCsv(report)).toContain('Ada Example,Completed,4,4,100,,2026-10-25,2026-10-25');
+  });
+
+  it('goes over the wire as the path report response', () => {
+    const same: Same<z.infer<typeof PathReportRowSchema>, PathReportRow> = true;
+    expect(same).toBe(true);
+    const response: PathReportResponse = {
+      path: { id: path.id, title: path.title },
+      courses: titles,
+      ...pathReport(path, titles, rows, [{ id: 'u-cy', name: 'Cy Person' }]),
+    };
+    const body = JSON.parse(JSON.stringify(response));
+    expect(PathReportResponseSchema.parse(body)).toEqual(body);
+    expect(body.rows).toHaveLength(3);
+    const wrong = [
+      { ...body, completionPercent: 101 },
+      { ...body, rows: [{ ...body.rows[0], status: 'passed' }] },
+      { ...body, path: { ...body.path, courseIds: [] } },
+    ];
+    expect(wrong.map((value) => PathReportResponseSchema.safeParse(value).success)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(PathReportQuerySchema.parse({})).toEqual({});
+    expect(PathReportQuerySchema.parse({ format: 'csv' })).toEqual({ format: 'csv' });
+    expect(PathReportQuerySchema.safeParse({ format: 'pdf' }).success).toBe(false);
   });
 });

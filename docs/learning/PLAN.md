@@ -29,7 +29,7 @@ them all.
 | Module | Contents |
 |---|---|
 | `format/` | zod schemas (contract in `course-format.md`, incl. `QuestionResponse` and `CourseStatus`), migrations, publish checks, presets, ids, rich-text helpers |
-| `util/` | seeded random (`mulberry32`, `shuffle`, `sample`), calendar-day helpers (`addDays`, `addMonths`, `daysBetween` on `YYYY-MM-DD`) |
+| `util/` | seeded random (`mulberry32`, `shuffle`, `sample`), calendar-day helpers (`addDays`, `addMonths`, `daysBetween` on `YYYY-MM-DD`), the Learning day (`LEARNING_DAY_ZONE`, `learningToday`, `profileZone`; 0317) |
 | `fixtures/` | fictional sample courses + one learning path, all passing `parseCourse` and `checkPublishable` |
 | `questions/`, `quiz/`, `scenario/` | scoring for the 8 question types, quiz attempts, scenario branching |
 | `progress/`, `certificates/`, `paths/` | progress events, learner state, gating, completion, resume, certificates, learning paths |
