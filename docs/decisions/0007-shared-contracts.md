@@ -1,6 +1,6 @@
 # 0007: Shared contracts between lanes
 
-- **Status:** accepted (2026-10-26). Owner: the main lead. Binding for every lane.
+- **Status:** accepted (2026-10-26); section 5.3 amended 2026-10-27 (`appStart` gets `user`; the `beforeSignOut` and `signOut` slots). Owner: the main lead. Binding for every lane.
 - **Context:** Four lanes build in parallel: **Core** (main lead), **Learning**, **Databases and Forms**, and **Team tools**. They need fixed names for folders, branches, the user and session API, the page model, permission checks, and how a feature adds tables, routes and screens. Anything here that turns out wrong is changed by a new decision record from the main lead, never by a lane on its own.
 - **How to read it:** names in `code` are exact. "ETA" is when the piece is expected on `main`. Until a piece lands, code against the names here (behind a small stand-in if needed) and switch when it lands.
 
@@ -188,8 +188,12 @@ Each web feature may export `slots` (a partial `Slots` object) from `features/<f
 | `pageKindViews` | `{ database?: Component<{ page }> }` | the page view shows the Databases lane's `<DatabasePage>` for `kind = 'database'` |
 | `pageHeaderExtras` | `{ row?: Component<{ page }> }` | a row's properties above the editor |
 | `treeItemChildren` | `{ database?: Component<{ page }> }` | a database's views under it in the sidebar tree when expanded |
-| `appStart` | `{ id, run(ctx: { api, navigate }) }` | run once after sign-in, from `RequireAuth` (Team tools re-sends the push subscription, opens a chat from a notification); A's sign-in PR, ETA Oct 28 |
+| `appStart` | `{ id, run(ctx: { api, navigate, user }) }` | run once per person after sign-in (and again after a reload), from `RequireAuth`; items run side by side and nothing waits for them (Team tools re-sends the push subscription, opens a chat from a notification); A's sign-in PR (#352) |
+| `beforeSignOut` | `{ id, run(ctx: { api, user }) }` | run first when someone signs out, while the session still works, for anything that has to tell the server (Team tools removes this device's push subscription); best effort |
+| `signOut` | `{ id, run(ctx: { user }) }` | run after the server has ended the session and before the query cache is cleared, for local clean-up only (Learning's `clearQueuedEvents`) |
 | `editor` | `{ nodeViews?, slashItems?, linkPickers?, bubbleItems?, extensions? }` | React views for lane blocks by node name (`nodeViews`, e.g. `database`, meeting notes), "/database", writing help; `extensions` only for things that aren't nodes or marks |
+
+Sign-out (`useSignOut()` from `features/auth`) goes: the `beforeSignOut` items, `POST /api/auth/sign-out`, the `signOut` hooks, `queryClient.clear()`, then `/sign-in`. Each set of hooks runs side by side; sign-out waits at most 3 seconds for a set, and a hook that fails is logged and never stops sign-out. If the server can't be reached, sign-out stops after `beforeSignOut`: the person stays signed in with their offline work kept, so a `beforeSignOut` step should be one the next app start redoes. `user` is `null` if it was never loaded.
 
 ### 5.4 The editor (`@carehub/editor`)
 
