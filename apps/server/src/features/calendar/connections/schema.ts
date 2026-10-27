@@ -118,6 +118,8 @@ export const calendarOAuthStates = pgTable(
     ownerId: uuid('owner_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    /** Hash of the signed-in session that started it. */
+    sessionKey: text('session_key').notNull(),
     workspaceId: uuid('workspace_id'),
     /** Sealed. */
     codeVerifier: text('code_verifier').notNull(),

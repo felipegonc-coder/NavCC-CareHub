@@ -18,6 +18,7 @@ import {
 } from '../sync/google/oauth';
 import { type GoogleConnectDeps, finishGoogleConnect, startGoogleConnect } from './google-connect';
 import { UUID, connectedLayerId } from './layers';
+import { signInSessionKey } from './oauth-states';
 import {
   CONNECTIONS_OFF_MESSAGE,
   calendarSecretSettingsSchema,
@@ -51,6 +52,8 @@ export interface ConnectionRoutesOptions {
   fetch?: FetchLike;
   /** The iCalendar reader for private links. */
   readLink?: ReadCalendarLink;
+  /** Which signed-in session a request is in. Tests name theirs: injectAs starts a new one each time. */
+  sessionKey?: (request: FastifyRequest) => string | undefined;
 }
 
 const publicUrlSchema = z.object({
@@ -151,11 +154,15 @@ const connectionRoutes: FastifyPluginAsync<ConnectionRoutesOptions> = async (app
 
   app.get('/connections', async (request) => answer(viewerOf(request).ownerId));
 
+  const sessionKeyOf = options.sessionKey ?? signInSessionKey;
+
   app.post('/connections/google', async (request) => {
     const viewer = viewerOf(request);
+    const sessionKey = sessionKeyOf(request);
+    if (!sessionKey) throw httpError(401, 'signed_out');
     const { connectionId } = startBody.parse(request.body ?? {});
     if (!connect) throw httpError(409, 'conflict', googleOff);
-    return startGoogleConnect(connect, { ...viewer, connectionId });
+    return startGoogleConnect(connect, { ...viewer, sessionKey, connectionId });
   });
 
   // Google sends the person here after its sign-in screen, as a page load.
@@ -163,11 +170,16 @@ const connectionRoutes: FastifyPluginAsync<ConnectionRoutesOptions> = async (app
     const back = (query: Record<string, string>) =>
       reply.redirect(`${CONNECTIONS_SCREEN}?${new URLSearchParams(query).toString()}`);
     const { user } = request;
-    if (!user) return back({ problem: 'signed-out' });
+    const sessionKey = sessionKeyOf(request);
+    if (!user || !sessionKey) return back({ problem: 'signed-out' });
     if (!connect) return back({ problem: 'missing-settings' });
     const query = callbackQuery.safeParse(request.query);
     if (!query.success) return back({ problem: 'sign-in-failed' });
-    const result = await finishGoogleConnect(connect, { ownerId: user.id, query: query.data });
+    const result = await finishGoogleConnect(connect, {
+      ownerId: user.id,
+      sessionKey,
+      query: query.data,
+    });
     if ('problem' in result) return back({ problem: result.problem });
     changed(user.id, shownIds(await findMine(user.id, result.connectionId)));
     return back({ connected: result.connectionId });

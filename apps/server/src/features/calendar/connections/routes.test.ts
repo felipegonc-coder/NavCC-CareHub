@@ -40,7 +40,16 @@ describe.skipIf(!hasDatabase)('calendar connections on Postgres', () => {
     };
     test = await createTestApp({
       routes: async (app) => {
-        await app.register(connectionRoutes, { prefix: '/api/calendar', env, fetch: google.fetch });
+        await app.register(connectionRoutes, {
+          prefix: '/api/calendar',
+          env,
+          fetch: google.fetch,
+          // injectAs starts a new session for every request, so a test names its session.
+          sessionKey: (request) => {
+            const named = request.headers['x-test-session'];
+            return typeof named === 'string' ? named : request.user?.id;
+          },
+        });
         // The same routes on a server where nothing is set up.
         await app.register(connectionRoutes, { prefix: '/api/calendar-off', env: {} });
       },
@@ -54,8 +63,13 @@ describe.skipIf(!hasDatabase)('calendar connections on Postgres', () => {
     await test?.close();
   });
 
-  const call = (user: TestUser, method: Method, url: string, payload?: object) =>
-    injectAs(test.app, user, { method, url, ...(payload ? { payload } : {}) });
+  const call = (user: TestUser, method: Method, url: string, payload?: object, session?: string) =>
+    injectAs(test.app, user, {
+      method,
+      url,
+      ...(payload ? { payload } : {}),
+      ...(session ? { headers: { 'x-test-session': session } } : {}),
+    });
   const list = async (user: TestUser) =>
     (await call(user, 'GET', '/api/calendar/connections')).json().connections as {
       id: string;
@@ -69,12 +83,14 @@ describe.skipIf(!hasDatabase)('calendar connections on Postgres', () => {
     return started.json().url as string;
   };
   /** Google's sign-in screen, then back to Care Hub: where Care Hub sends the person next. */
-  async function signIn(user: TestUser, url: string, choice?: Choice) {
+  async function signIn(user: TestUser, url: string, choice?: Choice, session?: string) {
     const query = Object.entries(google.consent(url, choice)).filter(([, value]) => value);
     const back = await call(
       user,
       'GET',
       `/api/calendar/google/callback?${new URLSearchParams(query)}`,
+      undefined,
+      session,
     );
     expect(back.statusCode).toBe(302);
     return new URL(String(back.headers.location), PUBLIC_URL);
@@ -148,6 +164,9 @@ describe.skipIf(!hasDatabase)('calendar connections on Postgres', () => {
   it('turns back sign-ins that are cancelled, someone else’s, or for another account', async () => {
     const cancelled = await signIn(avery, await start(avery), { deny: true });
     expect(cancelled.searchParams.get('problem')).toBe('cancelled');
+    // Only the session that started a sign-in can finish it.
+    const elsewhere = await signIn(avery, await start(avery), undefined, 'another-session');
+    expect(elsewhere.searchParams.get('problem')).toBe('state-mismatch');
 
     const url = await start(avery);
     const query = Object.entries(google.consent(url)).filter(([, value]) => value);

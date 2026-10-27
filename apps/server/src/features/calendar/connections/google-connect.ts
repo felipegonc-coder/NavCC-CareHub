@@ -59,7 +59,13 @@ export const GOOGLE_LABEL = 'Google Calendar';
 /** Starts a sign-in, or a new sign-in for one of the person's Google connections. */
 export async function startGoogleConnect(
   deps: GoogleConnectDeps,
-  input: { ownerId: string; workspaceId: string | null; connectionId?: string | undefined },
+  input: {
+    ownerId: string;
+    /** From signInSessionKey: the callback has to come back in this session. */
+    sessionKey: string;
+    workspaceId: string | null;
+    connectionId?: string | undefined;
+  },
 ): Promise<{ url: string }> {
   const mine = await listConnections(deps.db, input.ownerId);
   if (input.connectionId !== undefined) {
@@ -74,6 +80,7 @@ export async function startGoogleConnect(
   await saveOAuthState(deps.db, {
     state: request.state,
     ownerId: input.ownerId,
+    sessionKey: input.sessionKey,
     workspaceId: input.workspaceId,
     codeVerifier: sealJson(deps.box, { verifier: request.codeVerifier }, context),
     connectionId: input.connectionId ?? null,
@@ -81,13 +88,13 @@ export async function startGoogleConnect(
   return { url: request.url };
 }
 
-/** Finishes a sign-in from Google's callback, for the person who started it. */
+/** Finishes a sign-in from Google's callback, in the session of the person who started it. */
 export async function finishGoogleConnect(
   deps: GoogleConnectDeps,
-  input: { ownerId: string; query: CallbackQuery },
+  input: { ownerId: string; sessionKey: string; query: CallbackQuery },
 ): Promise<ConnectResult> {
   const state = input.query.state ?? '';
-  const saved = state ? await takeOAuthState(deps.db, state, input.ownerId) : undefined;
+  const saved = state ? await takeOAuthState(deps.db, state, input) : undefined;
   if (!saved) return { problem: 'state-mismatch' };
   let codeVerifier: string;
   try {
