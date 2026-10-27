@@ -101,3 +101,17 @@ Every Learning notice has one in-app button: "Open course" (`/learning/courses/:
 (`/learning/certificates/:certificateId`) for certificate expiry. Course titles only go to people who can see the
 course.
 
+## 0314 · Quiz papers: surveys too, plain shuffles, per-attempt ids
+Adds to 0302 (B2, #192).
+- `learnerCourse(course)` removes the questions and bank-draw copies of every quiz lesson, surveys included, and
+  keeps id, title, intro, settings and `questionCount`. Every quiz, graded or survey, starts on the server and
+  gets its questions from the paper.
+- Shuffles are plain random orders, so the listed order can come up (never allowing it would give away a
+  two-item answer). `shuffleOptions` covers choice options only; matching answers and ordering items are always
+  shuffled.
+- On the paper, matching answers and ordering items get per-attempt ids (`match-1`, `item-1`, … in the order
+  shown); choice option and hotspot spot ids stay real. `paperResponses(quiz, plan, responses)` maps answers
+  back before `scoreAttempt`.
+- Who does what: B1's `GET /courses/:id` sends `learnerCourse(course)`. B3's attempts route sends
+  `quizPaper(lesson, plan)` as `questions`, and the submit step in `progress/reduce.ts` calls `paperResponses`
+  first. B9's Studio label for `shuffleOptions` says it shuffles choice options.
