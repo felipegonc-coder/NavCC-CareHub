@@ -1,15 +1,15 @@
 import {
   linkTarget,
   richTextLength,
-  type Course,
   type Link,
+  type PlayerCourse,
   type RichText,
   type TextRun,
 } from '@carehub/learning';
 import { cn, VisuallyHidden } from '@carehub/ui';
 import { Fragment, type MouseEvent, type ReactNode } from 'react';
 
-type LinkCourse = Pick<Course, 'id' | 'lessons'>;
+type LinkCourse = Pick<PlayerCourse, 'id' | 'lessons'>;
 
 export interface RichTextViewProps {
   /** Paragraphs of text runs; "\n" inside a run is a line break. Without any text nothing shows. */

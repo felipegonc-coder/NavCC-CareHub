@@ -1,8 +1,8 @@
 import {
   courseOutline,
-  type Course,
   type LearnerCourseState,
   type NewProgressEvent,
+  type PlayerCourse,
 } from '@carehub/learning';
 import { buttonClasses, cn } from '@carehub/ui';
 import { ArrowLeft } from 'lucide-react';
@@ -17,7 +17,7 @@ import { SignOffSection } from './SignOff';
 import { almostDoneLine, courseFacts, hasStarted, signOff, startAction, statusLine } from './start';
 
 type CourseStartProps = {
-  course: Course;
+  course: PlayerCourse;
   state: LearnerCourseState;
   emit(event: NewProgressEvent): void;
 };

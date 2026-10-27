@@ -2,10 +2,10 @@ import {
   DEFAULT_ACKNOWLEDGEMENT,
   lessonHref,
   playerLabels,
-  type Course,
   type CourseOutline,
   type IsoDateTime,
   type LearnerCourseState,
+  type PlayerCourse,
 } from '@carehub/learning';
 
 // What the course start page says about the learner's place in a course, and where its button goes.
@@ -35,7 +35,7 @@ export function hasStarted(state: LearnerCourseState, outline: CourseOutline): b
  * without lessons.
  */
 export function startAction(
-  course: Pick<Course, 'id' | 'lessons' | 'settings'>,
+  course: Pick<PlayerCourse, 'id' | 'lessons' | 'settings'>,
   state: LearnerCourseState,
   outline: CourseOutline,
 ): StartAction | null {
@@ -80,7 +80,7 @@ export type SignOff = {
 
 /** The course's sign-off, or null when it doesn't ask for one. */
 export function signOff(
-  course: Pick<Course, 'lessons' | 'settings'>,
+  course: Pick<PlayerCourse, 'lessons' | 'settings'>,
   state: Pick<LearnerCourseState, 'lessons' | 'acknowledgedAt'>,
 ): SignOff | null {
   const { completion, acknowledgement } = course.settings;
@@ -100,7 +100,7 @@ export function signOff(
  * minimum time (how much of it) or the sign-off. Null otherwise.
  */
 export function almostDoneLine(
-  course: Pick<Course, 'settings'>,
+  course: Pick<PlayerCourse, 'settings'>,
   state: Pick<LearnerCourseState, 'status' | 'blockedBy' | 'activeSeconds'>,
   outline: Pick<CourseOutline, 'completed' | 'total'>,
   sign: SignOff | null,
