@@ -271,6 +271,13 @@ describe('CellEditor: read-only types', () => {
     expect(screen.getByRole('dialog', { name: 'Total' })).toHaveFocus();
   });
 
+  it('shows a verification, which only the knowledge base changes', async () => {
+    await openEditor({ property: prop({ type: 'verification' }, 'Verification'), value: null });
+    expect(screen.getByText('Not verified')).toBeInTheDocument();
+    expect(screen.getByText("This property can't be edited.")).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Verification' })).toHaveFocus();
+  });
+
   it('leaves on Enter and Escape, and passes Tab on', async () => {
     const { onCancel, onCommit } = await openEditor({
       property: prop({ type: 'unique_id', prefix: 'QA' }, 'ID'),
