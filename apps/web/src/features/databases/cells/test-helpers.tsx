@@ -56,9 +56,14 @@ export function cellCtx(overrides: Partial<CellContext> = {}): CellContext {
   };
 }
 
-/** Lets the popover finish opening (it starts listening for presses outside a tick late). */
+/**
+ * Lets overlays finish what they do a tick late: listening for presses outside once open, and
+ * giving focus back once closed. The second wait is for timers that the first one's last render
+ * started (act renders at its end, so a close that a saved write causes starts its timer there).
+ */
 export async function settle(ms = 10): Promise<void> {
   await act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 }
 
 /** A press outside the open editor. */

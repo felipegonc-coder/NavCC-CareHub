@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_ACTIVE_SECONDS_PER_EVENT, reduceProgress } from './index';
+import { MAX_ACTIVE_SECONDS_PER_EVENT, checkProgressEvents, reduceProgress } from './index';
 import { blocks, content, learner, makeCourse, quiz, quizLesson } from './test-helpers';
 
 const course = makeCourse({
@@ -49,6 +49,20 @@ describe('anti-tamper', () => {
     const state = reduceProgress(course, l.events);
     expect(state.lessons[0]?.activeSeconds).toBe(70);
     expect(state.rejected.map((r) => [r.reason, r.secondsLeft])).toEqual([['minimum_time', 230]]);
+  });
+
+  it("can't fast-forward time with events dated after the server's clock", () => {
+    const l = learner();
+    l.open('l1');
+    l.spend('l1', 600);
+    l.complete('l1');
+    // Ten minutes of heartbeats and the completion, all sent 5 seconds after the learner started.
+    const checked = checkProgressEvents(l.events, '2026-10-27T09:00:05.000Z');
+    expect(checked.valid).toHaveLength(3);
+    expect(checked.rejected.map((r) => r.reason)).toEqual(Array(9).fill('future'));
+    const state = reduceProgress(course, checked.valid);
+    expect(state.activeSeconds).toBe(120);
+    expect(state.lessons[0]?.status).toBe('in_progress');
   });
 
   it('drops duplicate events, even when the copy has another time', () => {
