@@ -1,41 +1,43 @@
 /*
- * Content styles for @carehub/editor. Colors come only from the @carehub/ui tokens
- * (--ch-<name> holds RGB channels, used as rgb(var(--ch-<name>))).
+ * Content styles for @carehub/editor. Colors, sizes and type come only from the @carehub/ui
+ * tokens: a color --ch-<name> holds RGB channels, used as rgb(var(--ch-<name>)); sizes and type
+ * are --ch-space-*, --ch-radius*, --ch-text-*, --ch-leading-*, --ch-weight-* and --ch-font-*.
+ * Lines of 1px or 2px (borders, outlines, carets) are drawn as they are.
  */
 
 .ch-editor {
   color: rgb(var(--ch-fg));
-  font-size: 1rem;
-  line-height: 1.6;
+  font-size: var(--ch-text-body);
+  line-height: var(--ch-leading-body);
   outline: none;
   overflow-wrap: anywhere;
 }
 
 .ch-editor > * + *,
 .ch-editor li > * + * {
-  margin-top: 0.25rem;
+  margin-top: var(--ch-space-1);
 }
 
-.ch-editor h1,
-.ch-editor h2,
-.ch-editor h3 {
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.ch-editor h1 {
-  font-size: 1.875rem;
-  margin-top: 1.5rem;
-}
-
+/* Heading 1 to 3 are drawn as h2 to h4, because the page title is the h1. */
 .ch-editor h2 {
-  font-size: 1.5rem;
-  margin-top: 1.25rem;
+  font-size: var(--ch-text-h1);
+  line-height: var(--ch-leading-h1);
+  font-weight: var(--ch-weight-h1);
+  margin-top: var(--ch-space-6);
 }
 
 .ch-editor h3 {
-  font-size: 1.25rem;
-  margin-top: 1rem;
+  font-size: var(--ch-text-h2);
+  line-height: var(--ch-leading-h2);
+  font-weight: var(--ch-weight-h2);
+  margin-top: var(--ch-space-5);
+}
+
+.ch-editor h4 {
+  font-size: var(--ch-text-h3);
+  line-height: var(--ch-leading-h3);
+  font-weight: var(--ch-weight-h3);
+  margin-top: var(--ch-space-4);
 }
 
 .ch-editor > :first-child {
@@ -44,7 +46,7 @@
 
 .ch-editor ul,
 .ch-editor ol {
-  padding-left: 1.5rem;
+  padding-left: var(--ch-space-6);
 }
 
 .ch-editor ul {
@@ -71,14 +73,27 @@
   list-style: lower-roman;
 }
 
+/* A style set on the list (typed as "a." or "i.") wins over the depth. */
+.ch-editor ol[type='1'] {
+  list-style: decimal;
+}
+
+.ch-editor ol[type='a'] {
+  list-style: lower-alpha;
+}
+
+.ch-editor ol[type='i'] {
+  list-style: lower-roman;
+}
+
 .ch-editor ul[data-type='taskList'] {
   list-style: none;
-  padding-left: 0.25rem;
+  padding-left: var(--ch-space-1);
 }
 
 .ch-editor ul[data-type='taskList'] li {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--ch-space-2);
 }
 
 .ch-editor ul[data-type='taskList'] li > label {
@@ -92,9 +107,10 @@
 }
 
 .ch-editor ul[data-type='taskList'] input[type='checkbox'] {
-  width: 1rem;
-  height: 1rem;
-  margin-top: 0.3rem;
+  width: var(--ch-space-4);
+  height: var(--ch-space-4);
+  /* Centred on the first line of text (--ch-leading-body). */
+  margin-top: var(--ch-space-1);
   accent-color: rgb(var(--ch-primary));
   cursor: pointer;
 }
@@ -105,31 +121,33 @@
 }
 
 .ch-editor blockquote {
-  border-left: 3px solid rgb(var(--ch-fg));
-  padding-left: 1rem;
+  border-left: var(--ch-space-1) solid rgb(var(--ch-fg));
+  padding-left: var(--ch-space-4);
 }
 
 .ch-editor hr {
   border: none;
   border-top: 1px solid rgb(var(--ch-border));
-  margin: 1rem 0;
+  margin: var(--ch-space-4) 0;
 }
 
 .ch-editor pre {
   background: rgb(var(--ch-fill));
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
+  border-radius: var(--ch-radius);
+  padding: var(--ch-space-3) var(--ch-space-4);
   overflow-x: auto;
-  font-size: 0.875rem;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
 }
 
 .ch-editor code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--ch-font-mono);
 }
 
+/* Inline code is sized in em, so it follows the text around it (in a heading too). */
 .ch-editor :not(pre) > code {
   background: rgb(var(--ch-fill));
-  border-radius: 0.25rem;
+  border-radius: var(--ch-radius-sm);
   padding: 0.1em 0.3em;
   font-size: 0.875em;
 }
@@ -137,11 +155,11 @@
 .ch-editor a {
   color: rgb(var(--ch-primary));
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: var(--ch-space-0_5);
 }
 
 /* Placeholders. */
-.ch-editor :is(p, h1, h2, h3).is-empty::before {
+.ch-editor :is(p, h2, h3, h4).is-empty::before {
   content: attr(data-placeholder);
   color: rgb(var(--ch-faint));
   float: left;
@@ -161,13 +179,13 @@
   position: absolute;
   bottom: 100%;
   left: -2px;
-  padding: 0 0.25rem;
-  border-radius: 0.25rem 0.25rem 0.25rem 0;
+  padding: 0 var(--ch-space-1);
+  border-radius: var(--ch-radius-sm) var(--ch-radius-sm) var(--ch-radius-sm) 0;
   background: color-mix(in srgb, var(--ch-caret) 30%, rgb(var(--ch-bg)));
   color: rgb(var(--ch-fg));
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1.4;
+  font-size: var(--ch-text-label);
+  font-weight: var(--ch-weight-semibold);
+  line-height: var(--ch-leading-label);
   white-space: nowrap;
   user-select: none;
 }
@@ -178,23 +196,24 @@
 
 .ch-editor .ProseMirror-selectednode {
   outline: 2px solid rgb(var(--ch-ring));
-  border-radius: 0.25rem;
+  border-radius: var(--ch-radius-sm);
 }
 
 /* A lane block whose view isn't loaded. */
 .ch-lane-block {
   border: 1px dashed rgb(var(--ch-border));
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  border-radius: var(--ch-radius);
+  padding: var(--ch-space-2) var(--ch-space-3);
 }
 
 span.ch-lane-block {
-  padding: 0 0.25rem;
+  padding: 0 var(--ch-space-1);
 }
 
 .ch-lane-block-note {
   color: rgb(var(--ch-muted));
-  font-size: 0.875rem;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
   user-select: none;
 }
 

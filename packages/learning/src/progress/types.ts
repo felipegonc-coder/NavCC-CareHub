@@ -36,6 +36,11 @@ export type QuizAttemptRecord = {
    * own; scores sent by a browser are never used.
    */
   result: AttemptResult;
+  /**
+   * The right answers on the paper's ids (B2's `paperAnswerKey`, decision 0316). Only in the
+   * learner's own state, and only while the quiz's `revealAnswers` allows it.
+   */
+  answers?: Record<Id, QuestionResponse>;
 };
 
 /** quizStatus for the lesson, plus its attempts. */

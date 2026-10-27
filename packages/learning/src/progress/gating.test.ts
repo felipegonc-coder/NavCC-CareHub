@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ContentLesson } from '../format/index';
+import { learnerCourse } from '../quiz/index';
 import { missingBeforeContinue } from './gating';
 import { canCompleteLesson, nextLesson, ProgressEventSchema, visibleBlocks } from './index';
 import type { LearnerCourseState, LessonProgress, ScenarioProgress } from './index';
@@ -161,6 +162,26 @@ describe('nextLesson', () => {
     expect(nextLesson(course, state, 'l2')).toBe('l1');
     const stuck = stateWith({ l1: { status: 'in_progress' }, l2: locked, q3: locked, l4: locked });
     expect(nextLesson(course, stuck, 'l1')).toBeNull();
+  });
+});
+
+describe('gating on the learner view (decision 0314)', () => {
+  it('answers as for the full course: only lesson ids, kinds and content blocks are read', () => {
+    const view = learnerCourse(course);
+    const ready = stateWith({ l1: { activeSeconds: 61, completedBlockIds: ['c1', 'c2'] } });
+    expect(canCompleteLesson(view, ready, 'l1')).toEqual({ ok: true });
+    expect(canCompleteLesson(view, stateWith({ l1: { activeSeconds: 20 } }), 'l1')).toEqual({
+      ok: false,
+      reason: 'minimum_time',
+      secondsLeft: 40,
+    });
+    expect(canCompleteLesson(view, stateWith({}), 'q3')).toEqual({
+      ok: false,
+      reason: 'wrong_lesson_kind',
+    });
+    const state = stateWith({ l1: { status: 'completed' } });
+    expect(nextLesson(view, state, 'l2')).toBe('q3');
+    expect(nextLesson(view, state, 'q3')).toBe('l4');
   });
 });
 

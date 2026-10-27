@@ -1,5 +1,6 @@
 import type { Locator } from '@playwright/test';
 import { apiFor, expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
+import { png } from '../import-export/zip-files.js';
 import { Sidebar } from '../sidebar/sidebar-page.js';
 import { makePage } from './page-data.js';
 import { FORBIDDEN, PageScreen, TEAM_SPACE, literally, openAs } from './page-screen.js';
@@ -19,7 +20,7 @@ test.describe('Pages: new pages and who can change them', () => {
   onlyIn('desktop-light');
   needs('signIn', 'appShell', 'pages', 'editor');
 
-  test('SH-21 a new page in a space opens untitled with the cursor in the title, and Enter starts the first block', async ({
+  test('PB-37 a new page opens untitled, with the cursor in the title, and Enter starts the first block', async ({
     page,
   }) => {
     const title = uniqueName('Fictional QA page');
@@ -113,7 +114,7 @@ test.describe('Pages: icon, cover and Move to', () => {
   onlyIn('desktop-light');
   needs('signIn', 'appShell', 'pages');
 
-  test('SH-22 an emoji icon shows in the header, the browser tab and the sidebar, and can be removed', async ({
+  test('PB-38 an emoji icon shows on the page, in the sidebar and in the browser tab, stays after a reload, and can be removed', async ({
     page,
   }) => {
     const title = uniqueName('Fictional QA page');
@@ -123,6 +124,14 @@ test.describe('Pages: icon, cover and Move to', () => {
     await screen.goto(await makePage(page, title));
     const icon = screen.main.getByText('🚀', { exact: true });
     const picker = page.getByRole('dialog');
+    // The tab shows the icon in its title or as its picture (favicon).
+    const favicon = page.locator('link[rel~="icon"]').first();
+    const tab = async () =>
+      `${await page.title()} ${decodeURIComponent((await favicon.getAttribute('href')) ?? '')}`;
+    const reload = async () => {
+      await page.reload();
+      await expect(screen.title).toBeVisible();
+    };
 
     await test.step('Add icon opens the emoji picker; searching "rocket" finds 🚀', async () => {
       await screen.title.hover();
@@ -135,56 +144,101 @@ test.describe('Pages: icon, cover and Move to', () => {
         .click();
     });
 
-    await test.step('🚀 shows in the header, the browser tab and the sidebar entry', async () => {
-      await expect(icon).toBeVisible();
-      await expect(sidebar.entry(title)).toContainText('🚀');
-      // The tab shows the icon in its title or as its picture (favicon).
-      const favicon = page.locator('link[rel~="icon"]').first();
-      const tab = async () =>
-        `${await page.title()} ${decodeURIComponent((await favicon.getAttribute('href')) ?? '')}`;
-      await expect.poll(tab).toContain('🚀');
-      await expect((await screen.openAgain()).main.getByText('🚀', { exact: true })).toBeVisible();
+    await test.step('🚀 shows on the page, in the sidebar entry and in the tab, also after a reload', async () => {
+      for (const when of ['now', 'after a reload']) {
+        if (when !== 'now') await reload();
+        await expect(icon).toBeVisible();
+        await expect(sidebar.entry(title)).toContainText('🚀');
+        await expect.poll(tab).toContain('🚀');
+      }
     });
 
-    await test.step('Remove takes it away, and Add icon is offered again', async () => {
+    await test.step('Remove takes it away, also after a reload, and Add icon is offered again', async () => {
       await icon.click();
       await picker.getByRole('button', { name: 'Remove' }).click();
       await expect(icon).toHaveCount(0);
+      await reload();
+      await expect(icon).toHaveCount(0);
       await expect(sidebar.entry(title)).not.toContainText('🚀');
+      await expect.poll(tab).not.toContain('🚀');
       await screen.title.hover();
       await expect(screen.button('Add icon')).toBeVisible();
     });
   });
 
-  test('SH-23 a cover is 280 px tall on a computer, stays when the page is opened again, and can be removed', async ({
+  test('PB-39 Add cover puts a gallery cover on the page, Change swaps it for an uploaded picture, Remove takes it off, and each stays after a reload', async ({
     page,
   }) => {
     await signInAs(page, 'editor');
     const screen = new PageScreen(page);
     await screen.goto(await makePage(page, uniqueName('Fictional QA page')));
-    const coverOf = (on: PageScreen) => on.main.getByRole('img', { name: /cover/i });
+    const cover = screen.main.getByRole('img', { name: /cover/i });
+    /** Where the cover's picture comes from: its source, or its CSS background. */
+    const pictureOf = () =>
+      cover.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return [element.getAttribute('src'), style.backgroundImage, style.backgroundColor]
+          .filter((part) => part && part !== 'none')
+          .join(' ');
+      });
+    const reload = async () => {
+      await page.reload();
+      await expect(screen.title).toBeVisible();
+    };
 
-    await test.step('Add cover puts a picture from the gallery above the title', async () => {
+    let gallery = '';
+    await test.step('Add cover puts a gallery cover above the title, 280 px tall; it stays after a reload', async () => {
       await screen.title.hover();
       await screen.button('Add cover').click();
-      await expect(coverOf(screen)).toBeVisible();
-      expect((await coverOf(screen).boundingBox())?.height).toBeCloseTo(280, 0);
+      await expect(cover).toBeVisible();
+      expect((await cover.boundingBox())?.height).toBeCloseTo(280, 0);
+      gallery = await pictureOf();
+      await reload();
+      await expect(cover).toBeVisible();
+      expect(await pictureOf()).toBe(gallery);
     });
 
-    await test.step('the cover is still there when the page is opened again', async () => {
-      await expect(coverOf(await screen.openAgain())).toBeVisible();
+    await test.step('Change swaps it for an uploaded picture, which stays after a reload', async () => {
+      await cover.hover();
+      await screen.button(/^change/i).click();
+      const picker = page.getByRole('dialog');
+      await expect(picker).toBeVisible();
+      const uploadTab = picker.getByRole('tab', { name: /upload/i });
+      if (await uploadTab.isVisible()) await uploadTab.click();
+      const chooser = page.waitForEvent('filechooser');
+      await picker
+        .getByRole('button', { name: /upload|choose/i })
+        .first()
+        .click();
+      await (
+        await chooser
+      ).setFiles({
+        name: 'Fictional QA cover.png',
+        mimeType: 'image/png',
+        buffer: png(320, 120, [46, 125, 50]),
+      });
+      // Uploads are served from /api/files/:id (docs/decisions/0007, files).
+      await expect.poll(pictureOf).toContain('/api/files/');
+      const uploaded = await pictureOf();
+      expect(uploaded).not.toBe(gallery);
+      await reload();
+      await expect.poll(pictureOf).toBe(uploaded);
     });
 
-    await test.step('hovering the cover offers Change, Reposition and Remove; Remove takes it away', async () => {
-      await coverOf(screen).hover();
+    await test.step('hovering offers Change, Reposition and Remove; Remove takes it off, also after a reload', async () => {
+      await cover.hover();
       await expect(screen.button(/^change/i)).toBeVisible();
       await expect(screen.button(/^reposition/i)).toBeVisible();
       await screen.button(/^remove/i).click();
-      await expect(coverOf(screen)).toHaveCount(0);
+      await expect(cover).toHaveCount(0);
+      await reload();
+      await expect(cover).toHaveCount(0);
+      await screen.title.hover();
+      await expect(screen.button('Add cover')).toBeVisible();
     });
   });
 
-  test('PB-24 Move to warns when access changes, and the moved page keeps its sub-pages', async ({
+  test('PB-24 Move to says whose access changes before moving, and the moved page keeps its sub-pages', async ({
     page,
   }) => {
     const title = uniqueName('Fictional QA page');
@@ -207,8 +261,17 @@ test.describe('Pages: icon, cover and Move to', () => {
         .or(dialog.getByRole('button', { name: /^private/i }))
         .first()
         .click();
-      const confirm = page.getByRole('alertdialog');
-      await expect(confirm).toContainText(/\d+ (person|people) will lose access/);
+      // "Moving Refund steps to Billing changes who can open it: 4 people lose access; …" (the
+      // parts that don't apply are left out).
+      const confirm = page
+        .getByRole('alertdialog')
+        .or(page.getByRole('dialog'))
+        .filter({ hasText: 'changes who can open it' });
+      await expect(confirm).toContainText(
+        new RegExp(
+          `Moving ${literally(title).source} to Private changes who can open it: \\d+ (person loses|people lose) access`,
+        ),
+      );
       await confirm.getByRole('button', { name: /^move/i }).click();
     });
 

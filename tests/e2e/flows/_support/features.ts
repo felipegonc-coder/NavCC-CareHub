@@ -13,7 +13,7 @@ export const onMain = {
   overlays: true,
 
   /** The app shell: sidebar from the slots, phone menu, top bar and Not found (#34). */
-  appShell: false,
+  appShell: true,
 
   /** The sign-in screens, the seeded people and signInAs in tests/e2e/helpers/auth.ts. */
   signIn: false,
@@ -105,14 +105,32 @@ export const onMain = {
   /** Data settings: Settings → Data (keeping data, storage, uploads) and Export my content. */
   dataSettings: false,
 
-  /** Learning: Studio, the course player and My learning. */
+  /** Learning for learners: My learning, the Catalog, start pages and the player (#250, #245). */
   learning: false,
+
+  /** Learning Studio: the course editor, Preview and Publish (B1's editor screens, after #250). */
+  learningStudio: false,
+
+  /** Learning quizzes in the player: questions, Submit, the score, Try again (B2's quiz views). */
+  learningQuizzes: false,
 
   /** Learning: assign courses, due dates and tracking. */
   learningAssign: false,
 
+  /** Learning reports: course reports, Download CSV, Reset and transcripts (B4's reports PR). */
+  learningReports: false,
+
+  /** Learning review links: the read-only screen for a shared draft (B1's review screen, #231). */
+  learningReview: false,
+
+  /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */
+  learningTestHooks: false,
+
   /** Learning: certificates. */
   certificates: false,
+
+  /** Claude features: Settings → Claude, writing help, assistant, Claude fields, meeting summary. */
+  claude: false,
 } as const satisfies Record<string, boolean>;
 
 export type Feature = keyof typeof onMain;

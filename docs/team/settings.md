@@ -2,6 +2,8 @@
 
 All Team tools settings are optional. Each feature reads its own with `readSettings(schema)` from `apps/server/src/core/settings.ts` (decision 0007, section 2.3). Empty counts as unset. A missing value switches only that feature off, with a plain message on the screens that need it; it never stops the server.
 
+The Claude settings moved to the Extras lane: see [docs/extras/settings.md](../extras/settings.md).
+
 Secrets live only in the server's settings file. They never go in the repository, API responses, the Status page or logs; screens show only "set" or "not set".
 
 | Setting | Feature | What it's for | When it's missing |
@@ -12,7 +14,6 @@ Secrets live only in the server's settings file. They never go in the repository
 | `PUSH_VAPID_PRIVATE_KEY` | push | The private half of that key pair | Same as above |
 | `PUSH_VAPID_SUBJECT` | push | A contact for the push services: a `mailto:` address or an `https://` URL | Same as above |
 | `CALENDAR_SECRET_KEY` | calendar | Encrypts stored calendar tokens, iCloud app-specific passwords and private calendar links (32 random bytes, base64) | Connecting calendars is off: "Calendar connections aren't set up yet." |
-| `ANTHROPIC_API_KEY` | claude | Claude features | Claude stays off and can't be turned on |
 | `MODELS_DIR` | meetings | Folder with the speech model files Care Hub serves for private, in-browser transcription | Transcription is off: "Transcription isn't set up yet." |
 
 ## Making the values
@@ -42,8 +43,6 @@ PUSH_VAPID_PRIVATE_KEY=
 PUSH_VAPID_SUBJECT=mailto:admin@example.com
 # Encrypts stored calendar connections: openssl rand -base64 32
 CALENDAR_SECRET_KEY=
-# Claude features (they stay off until an admin turns them on)
-ANTHROPIC_API_KEY=
 # Folder with the speech model files for private transcription
 MODELS_DIR=
 ```
