@@ -4,7 +4,7 @@ _Copied from the Notion plan (the source of truth) on 2026-10-26. If they differ
 
 > 🧭 **Status:** Approved on Oct 26. Phase 0 (setup) is being built.  
 > **Goal:** a brand-new Care Hub with no AppFlowy code in it.  
-> **Owner:** Felipe Gonçalves · Fictional data only.
+> Fictional data only.
 
 ## 1. The idea
 
@@ -14,7 +14,7 @@ Care Hub is a private workspace for a Customer Care team: Notion-style pages and
 
 1. **A clean start.** Builders work only from this plan. They never copy or look at code from the old Care Hub repositories, which contain AppFlowy's code. We carry over ideas, features, screens, the look and the plans. Not code.
 2. **Only "use it for anything" building blocks.** Every outside library must have a license like MIT, Apache 2.0 or BSD. An automatic check blocks anything else (like GPL, AGPL or paid licenses) on every change.
-3. **All rights reserved.** The code is marked "© Felipe Gonçalves. All rights reserved."
+3. **All rights reserved.** The code carries the copyright notice in LICENSE.
 
 ## 3. What we're building
 
@@ -46,18 +46,18 @@ Every feature is on the **Feature list** page below, including the Learning feat
 
 ## 5. How we'll build it
 
-- The same way as Learning. A lead agent plans waves and builders each take one part. Every change is a pull request with automatic checks: tests, license check, keyboard and readability checks, and screenshots in light and dark mode. The lead reviews and merges.
+- Work is planned in waves and split into small parts. Every change is a pull request with automatic checks: tests, license check, keyboard and readability checks, and screenshots in light and dark mode. Each one is reviewed before it's merged.
 - A new **Care Hub rebuild tracker**, like the Learning tracker, lists every feature with its phase and status.
-- Felipe's part: approve this plan, answer short batched questions, and test each phase with fictional data.
-- This plan is also saved in the repository, so every builder works from the same copy.
+- Reviews: the plan is approved once, questions come in short batches, and each phase is tested with fictional data.
+- This plan is also saved in the repository, so all work starts from the same copy.
 
-## 6. Time
+## 6. Size
 
-- Learning alone took 6 build waves. The whole rebuild is several times that. The biggest pieces are the editor with live co-editing (Phase 1) and databases (Phase 2).
+- The biggest pieces are the editor with live co-editing (Phase 1) and databases (Phase 2).
 
 ## 7. Decisions
 
-1. **GitHub:** repository `NavCC-CareHub` on the `felipegonc-coder` account.
+1. **GitHub:** one repository (this one).
 2. **Feature list:** going with the default. Phases 1–6 as listed; Later items stay later.
 
 ## Detailed pages

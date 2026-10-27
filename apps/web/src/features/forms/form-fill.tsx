@@ -360,7 +360,7 @@ export function FormFill({ data, code, onReload }: FormFillProps) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-page flex-col gap-4">
       {cover && <img src={cover} alt="" className="h-40 w-full rounded object-cover" />}
       <header className="flex flex-col gap-2 rounded border border-border bg-bg p-6">
         {def.icon && (
