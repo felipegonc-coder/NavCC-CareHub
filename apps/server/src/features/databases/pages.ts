@@ -45,23 +45,34 @@ export async function loadPagePlace(db: Executor, id: string): Promise<PagePlace
 }
 
 export interface NewDatabasePage {
+  /** Absent: a new id. */
+  id?: string;
   workspaceId: string;
   spaceId: string;
-  parentId: string;
+  /** null: the top of the space (never for an inline database). */
+  parentId: string | null;
   title: string;
   inline: boolean;
+  /** As the pages API stores them ({ type: 'emoji', emoji } and so on); absent: none. */
+  icon?: unknown;
+  cover?: unknown;
   createdBy: string;
 }
 
+const asJson = (value: unknown) =>
+  value === undefined || value === null ? null : JSON.stringify(value);
+
 /** A database page, last among its parent's pages. Returns its id. */
-export async function createDatabasePage(tx: Tx, page: NewDatabasePage): Promise<string> {
+export async function createDatabasePage(tx: Executor, page: NewDatabasePage): Promise<string> {
   const { rows } = await tx.execute<{ id: string }>(sql`
-    INSERT INTO pages
-      (workspace_id, space_id, parent_id, kind, is_inline, title, position, created_by, updated_by)
-    VALUES (${page.workspaceId}, ${page.spaceId}, ${page.parentId}, 'database', ${page.inline},
-      ${page.title},
+    INSERT INTO pages (id, workspace_id, space_id, parent_id, kind, is_inline, title, icon, cover,
+      position, created_by, updated_by)
+    VALUES (COALESCE(${page.id ?? null}::uuid, gen_random_uuid()), ${page.workspaceId},
+      ${page.spaceId}, ${page.parentId}, 'database', ${page.inline}, ${page.title},
+      ${asJson(page.icon)}::jsonb, ${asJson(page.cover)}::jsonb,
       COALESCE(
-        (SELECT max(position) || 'V' FROM pages WHERE space_id = ${page.spaceId} AND parent_id = ${page.parentId}),
+        (SELECT max(position) || 'V' FROM pages
+          WHERE space_id = ${page.spaceId} AND parent_id IS NOT DISTINCT FROM ${page.parentId}::uuid),
         'a0'),
       ${page.createdBy}, ${page.createdBy})
     RETURNING id`);

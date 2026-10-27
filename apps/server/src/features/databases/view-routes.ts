@@ -51,7 +51,7 @@ const patchOf = (sent: Omit<ViewChangeRequest, 'version'>): ViewPatch =>
   Object.fromEntries(Object.entries(sent).filter(([, value]) => value !== undefined)) as ViewPatch;
 
 /** Keeps a new form's link code, so the forms API finds the form by it. */
-async function keepLinkCode(tx: Tx, databaseId: Id, view: View): Promise<void> {
+export async function keepLinkCode(tx: Tx, databaseId: Id, view: View): Promise<void> {
   if (!view.form) return;
   await tx.execute(sql`
     INSERT INTO forms_links (code, database_id, view_id)

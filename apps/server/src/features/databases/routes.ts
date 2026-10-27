@@ -7,11 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   LIMITS,
   newDatabaseSchema,
-  newProperty,
-  relationConfig,
-  uniqueViewName,
   type DatabaseGrant,
-  type Id,
   type Property,
   type View,
 } from '@carehub/databases';
@@ -31,6 +27,7 @@ import {
   signedIn,
 } from './http';
 import { createDatabasePage, loadPagePlace } from './pages';
+import { relationPair } from './properties';
 import { registerPropertyRoutes } from './property-routes';
 import { isUuid, type DatabaseRecord, type DatabaseSettings } from './record';
 import {
@@ -43,25 +40,6 @@ import { changeDatabase, insertDatabase, loadDatabase } from './store';
 import { registerTemplateRoutes } from './template-routes';
 import { followDatabaseDefault } from './templates';
 import { registerViewRoutes } from './view-routes';
-
-/** A two-way relation pair inside one database, named as given (or "Name 2" when taken). */
-function relationPair(
-  databaseId: Id,
-  existing: readonly Property[],
-  names: readonly [string, string],
-  firstIsSingle: boolean,
-): [Property, Property] {
-  const taken = existing.map((p) => p.name);
-  const firstName = uniqueViewName(names[0], taken);
-  const first = newProperty(firstName, relationConfig(databaseId));
-  const second = newProperty(
-    uniqueViewName(names[1], [...taken, firstName]),
-    relationConfig(databaseId),
-  );
-  first.config = { ...first.config, single: firstIsSingle, twoWayPropertyId: second.id };
-  second.config = { ...second.config, twoWayPropertyId: first.id };
-  return [first, second];
-}
 
 /** New properties join every view as hidden columns. */
 const withHiddenColumns = (views: readonly View[], added: readonly Property[]): View[] =>
