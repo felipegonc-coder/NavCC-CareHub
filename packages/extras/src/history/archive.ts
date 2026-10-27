@@ -49,7 +49,7 @@ export function archiveDoneText(change: ArchiveChange, archived: boolean): strin
   return `${archived ? 'Archived' : 'Unarchived'} ${quoted(change.title)}${along}.`;
 }
 
-/** The banner: "Archived by Sam Ortiz on Oct 20, 2026", in `timeZone` (the browser's if left out). */
+/** The banner: "Archived by Sam Ortiz on Oct 20, 2026", in `timeZone` (else the browser's). */
 export function archivedText(
   archived: NonNullable<ArchiveState['archived']>,
   timeZone?: string,

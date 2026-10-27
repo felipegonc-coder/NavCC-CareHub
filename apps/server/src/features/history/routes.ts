@@ -1,7 +1,8 @@
 // /api/history: versions, Updates and Archive. Extras lane (decision 0400, docs/extras/history.md).
 // Versions need Can edit on the page; restoring and naming also need it unlocked and not archived;
-// Updates and the archive state need Can view; archiving and unarchiving need Full access (HT-15). Open Version history windows hear `history.versions` and
-// `history.restored` on the live topic `history:<pageId>` (Can edit needed).
+// Updates and the archive state need Can view; archiving and unarchiving need Full access (HT-15).
+// Open Version history windows hear `history.versions` and `history.restored` on the live topic
+// `history:<pageId>` (Can edit needed).
 import {
   nameVersionSchema,
   saveVersionSchema,
