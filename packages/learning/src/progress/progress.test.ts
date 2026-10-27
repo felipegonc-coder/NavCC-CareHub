@@ -190,7 +190,7 @@ describe('lesson order and continue blocks', () => {
     const l = learner();
     l.answer('l1', 'kc2');
     l.pass('l1', 'c1');
-    l.answer('l1', 'kc1', 'wrong');
+    l.answer('l1', 'kc1', false);
     l.pass('l1', 'pr1');
     l.pass('l1', 'c1');
     l.complete('l1');
@@ -326,23 +326,14 @@ describe('knowledge checks, scenarios and acknowledgement', () => {
       lessons: [content('l1', [blocks.check('once', false), blocks.check('again')])],
     });
     const l = learner();
-    l.answer('l1', 'once', 'wrong');
-    l.answer('l1', 'once', 'right');
-    l.answer('l1', 'again', 'wrong');
-    l.answer('l1', 'again', 'right');
-    l.add({
-      type: 'knowledge_check_answered',
-      lessonId: 'l1',
-      blockId: 'again',
-      response: { type: 'true_false', value: true },
-    });
+    l.answer('l1', 'once', false);
+    l.answer('l1', 'once', true);
+    l.answer('l1', 'again', false);
+    l.answer('l1', 'again', true);
     const state = reduceProgress(checks, l.events);
-    expect(reasons(state)).toEqual([
-      ['ev-0002', 'already_answered'],
-      ['ev-0005', 'bad_response'],
-    ]);
+    expect(reasons(state)).toEqual([['ev-0002', 'already_answered']]);
     expect(
-      state.knowledgeChecks.map((k) => [k.blockId, k.answers, k.firstCorrect, k.result.correct]),
+      state.knowledgeChecks.map((k) => [k.blockId, k.answers, k.firstCorrect, k.lastCorrect]),
     ).toEqual([
       ['once', 1, false, false],
       ['again', 2, false, true],

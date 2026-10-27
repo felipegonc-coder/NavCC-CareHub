@@ -173,12 +173,7 @@ describe('ProgressEventSchema', () => {
       { type: 'lesson_opened', lessonId: 'l1' },
       { type: 'time_active', lessonId: 'l1', seconds: 12.5 },
       { type: 'block_completed', lessonId: 'l1', blockId: 'c1' },
-      {
-        type: 'knowledge_check_answered',
-        lessonId: 'l1',
-        blockId: 'kc1',
-        response: { type: 'single_choice', optionId: 'right' },
-      },
+      { type: 'knowledge_check_answered', lessonId: 'l1', blockId: 'kc1', correct: true },
       { type: 'scenario_finished', lessonId: 'l1', blockId: 'sc1', choiceIds: ['good'] },
       { type: 'lesson_completed', lessonId: 'l1' },
       { type: 'quiz_attempt_started', lessonId: 'q3', plan },
