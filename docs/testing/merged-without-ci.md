@@ -23,5 +23,14 @@ None of them has run against a server yet. The features each check needs are sti
 | #332         | `4bab6e2009b886ca13709341be4713f0b81e97a5` | `c81db6f`     | PB-02, PB-04, PB-35                                                                             |
 | #260         | `214bb903ae6a910387c3a36e6ad3fb63d087869a` | `6403afe`     | DB-09, DB-10, DB-14 to DB-16, FM-01 to FM-04, FM-08, FM-09, FM-11, FM-13, FX-02, FX-04, FLOW-02 |
 | #328         | `c42a610711bcc727a91e7bd7ebdb13a0cf0fd537` | `9eef1cc`     | CM-05, CM-11, CM-12                                                                             |
+| #254         | `574895fc9dd45a1db0b1f143d2dd987d5e605b4f` | `3f77a64`     | AN-01, AN-04, AN-05, SM-01, SM-06, SM-07, FLOW-05, FLOW-08, HR-02                               |
+| #385         | `f7fb3627523f6c907c14a523f6b4d294ed4ea9d1` | `b1d61cb`     | SM-02, SM-03, SM-05, SM-09, SM-10, SM-12, ST-03, ST-05, ST-09                                   |
+| #396         | `83d8af8e4a9e0c622f29fdd7b8c1b22a3907ba3c` | `8dda3e7`     | KB-02, KB-07, KB-08, KB-11, KB-12                                                               |
+| #397         | `ca9ce68c60b7db77bb8413e3aad34567f38c5835` | `edb617b`     | FLOW-04, FLOW-07                                                                                |
+
+Notes:
+
+- #385: `settings/security.workspace.e2e.ts` is `fixme` until #369 adds the `workspace` project. ST-03 and ST-05 stop the test server's database or app, so they run by hand only.
+- #396 and #397: KB-07 and FLOW-07 set a "Verified until" day of today or earlier. The server needs a knowledge base test hook for that, and it isn't there yet.
 
 Pull requests that change only `docs/testing/` aren't listed.
