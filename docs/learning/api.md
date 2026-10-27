@@ -20,8 +20,8 @@ analytics = `learning.analytics` (managers see their own teams).
 | B1 | GET `/studio/examples`; GET, POST `/studio/block-templates`, DELETE `/studio/block-templates/:id` | build | example courses to copy; { name, blocks } |
 | B1 | GET `/catalog?q=&topic=` | anyone | → CatalogEntry[] (live, listed, not archived) |
 | B1 | GET `/courses/:id` | anyone | → { course (live version, learner view: `learnerCourse(course)` removes graded quiz questions and bank-draw copies, decision 0302), version } (hidden courses open by link; drafts never) |
-| B1 | POST, GET `/studio/courses/:id/review-links`, DELETE `/studio/review-links/:token` | build | → { token, url, expiresAt } |
-| B1 | GET `/review/:token`, POST `/review/:token/comments` | anyone with the link | → { course (draft), comments } / { lessonId, blockId?, body } → Comment |
+| B1 | POST, GET `/studio/courses/:id/review-links`, DELETE `/studio/review-links/:linkId` | build | → { id, url, expiresAt } (url `/learning/review#<token>`, token shown once) / list without tokens; DELETE stops sharing |
+| B1 | GET `/review`, POST `/review/comments` (token in the `X-Review-Token` header, 0309) | signed in, with the link | → { course (draft), comments } / { lessonId, blockId?, body } → Comment |
 | B1 | GET `/studio/courses/:id/comments` (+ `.csv`), PATCH `/studio/comments/:id` | build | → Comment[] / { resolved } |
 | B3 | GET `/courses/:id/progress`, POST `/courses/:id/events` | the learner | → LearnerCourseState / { events } → { state, rejected } (idempotent by event id) |
 | B3 | POST `/courses/:id/quizzes/:lessonId/attempts` | the learner | → { attemptId, questions: QuizPaperQuestion[] } (the server plans the attempt with its own seed, records quiz_attempt_started and sends the question paper with no answers; browsers never send quiz_attempt_started; decision 0302) |
