@@ -12,4 +12,13 @@ export const screens: Screen[] = [
       await page.getByRole('dialog', { name: 'New course' }).waitFor();
     },
   },
+  // Assign (B4): the form and what's assigned, once the list is in (or the reason it isn't).
+  {
+    name: 'learning-assign',
+    path: '/learning/assign',
+    setup: async (page) => {
+      const list = page.getByRole('heading', { level: 2, name: 'Assignments' });
+      await list.or(page.getByRole('alert')).first().waitFor();
+    },
+  },
 ];
