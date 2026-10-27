@@ -165,7 +165,7 @@ async function openMenu() {
 const itemsOf = (menu: HTMLElement) =>
   Array.from(menu.querySelectorAll('[role^="menuitem"]'), (item) => item.textContent);
 
-/** Stands in for another feature's banner, such as Extras' archive banner. */
+/** Stands in for another feature's banner, such as an archive banner. */
 function ArchivedBanner({ page }: { page: { title: string } }) {
   return <p>{`${page.title} is archived.`}</p>;
 }
