@@ -22,6 +22,7 @@ import {
 import { quoteText, toStoredFormula } from './names';
 import { parseFormula } from './parser';
 import {
+  EMPTY,
   FUNCTION_KINDS,
   FUNCTION_KIND_LABELS,
   getFunction,
@@ -43,7 +44,7 @@ export type PropertyKind = Property['config']['type'];
 
 /** What the editor says besides the formula's own messages. */
 export const EDITOR_MESSAGES = {
-  noRows: 'No rows yet. The preview uses empty values.',
+  noRows: 'No rows to preview',
   formulaError: '⚠ Formula error',
 } as const;
 
@@ -817,12 +818,13 @@ export type FormulaEditorState =
       /** "Number". */
       type: string;
       value: ComputedValue;
-      /** "Number · 42"; or, when the preview row gives an error, its message. */
+      /**
+       * "Number · 42"; when the preview row gives an error, its message; EDITOR_MESSAGES.noRows
+       * ("No rows to preview") when the view has no rows.
+       */
       message: string;
       /** Where the preview's error happened; null when it worked. */
       problem: ProblemPlace | null;
-      /** EDITOR_MESSAGES.noRows when there was no row to preview. */
-      note: string | null;
     }
   | { ok: false; message: string; problem: ProblemPlace };
 
@@ -839,21 +841,6 @@ const placeOf = (source: string, e: Pick<FormulaError, 'start' | 'end'>): Proble
   end: e.end,
   ...lineAndColumn(source, e.start),
 });
-
-/** A row with every value empty, for previews when there are no rows. */
-function emptyRow(ctx: FormulaContext): Row {
-  const now = ctx.viewer.now.toISOString();
-  return {
-    id: '',
-    title: '',
-    values: {},
-    createdAt: now,
-    createdBy: null,
-    editedAt: now,
-    editedBy: null,
-    uniqueNumber: null,
-  };
-}
 
 /**
  * "Number · 42": the result's type and its value as a cell shows it (lists: 100 items, then
@@ -892,17 +879,18 @@ export function editorState(
   if (!compiled.ok) {
     return { ok: false, message: compiled.error.message, problem: placeOf(source, compiled.error) };
   }
-  const row = preview.row ?? emptyRow(preview.ctx);
-  const { value, error } = compiled.preview(row, preview.ctx, preview.inputs);
+  const saved = { ok: true, expression: stored.expression, kind: stored.kind } as const;
+  const type = typeName(compiled.type);
+  if (!preview.row) {
+    return { ...saved, type, value: EMPTY, message: EDITOR_MESSAGES.noRows, problem: null };
+  }
+  const { value, error } = compiled.preview(preview.row, preview.ctx, preview.inputs);
   return {
-    ok: true,
-    expression: stored.expression,
-    kind: stored.kind,
-    type: typeName(compiled.type),
+    ...saved,
+    type,
     value,
     message: resultLabel(compiled.type, value, preview.ctx),
     problem: value.kind === 'error' && error ? placeOf(source, error) : null,
-    note: preview.row ? null : EDITOR_MESSAGES.noRows,
   };
 }
 

@@ -291,7 +291,6 @@ describe('formula editor: the line under the code', () => {
       value: { kind: 'number', value: 85 },
       message: 'Number · 85',
       problem: null,
-      note: null,
     });
     const shown = (source: string) =>
       editorState(source, CASES_SCHEMA, { row: CASE_ROW, ctx }).message;
@@ -305,15 +304,18 @@ describe('formula editor: the line under the code', () => {
     );
   });
 
-  it('previews with empty values when there are no rows', () => {
-    expect(editorState('prop("Score") + 1', CASES_SCHEMA, { row: null, ctx })).toMatchObject({
+  it('shows "No rows to preview" when the view has no rows, and Done stays on', () => {
+    expect(EDITOR_MESSAGES.noRows).toBe('No rows to preview');
+    expect(editorState('prop("Score") + 1', CASES_SCHEMA, { row: null, ctx })).toEqual({
       ok: true,
-      message: 'Number · Empty',
-      note: EDITOR_MESSAGES.noRows,
+      expression: 'prop("p_score") + 1',
+      kind: 'number',
+      type: 'Number',
+      value: { kind: 'empty' },
+      message: 'No rows to preview',
+      problem: null,
     });
-    expect(editorState('empty(prop("Score"))', CASES_SCHEMA, { row: null, ctx }).message).toBe(
-      'Checkbox · true',
-    );
+    expect(editorState('round(1,', CASES_SCHEMA, { row: null, ctx }).ok).toBe(false);
   });
 
   it('shows the problem with its line and place, and Done stays off', () => {
