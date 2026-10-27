@@ -21,6 +21,7 @@ import type { LayoutProps, ViewActions } from './contract';
 import {
   fixtureRow,
   groupedByStatus,
+  JOBS_PARENT_ID,
   jobsDatabase,
   jobsMembers,
   jobsRows,
@@ -119,6 +120,8 @@ export function mockClient(): MockClient {
     submitPublicForm: ok,
     changeFormLink: async () => ({ linkCode: 'new-link-code' }),
     listMembers: async (q) => membersMatching(q),
+    getPage: async (pageId) => ({ id: pageId, kind: 'database', parentId: JOBS_PARENT_ID }),
+    trashPage: async () => undefined,
   };
   return Object.fromEntries(
     Object.entries(answers).map(([name, answer]) => [name, vi.fn(answer)]),

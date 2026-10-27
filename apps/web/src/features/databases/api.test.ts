@@ -187,6 +187,16 @@ describe('createDatabaseClient', () => {
       { method: 'GET', path: '/api/workspace/members?q=Avery%20Lin', body: undefined },
     ]);
   });
+
+  it("reads a database's own page and moves it to Trash through the pages API", async () => {
+    const { calls, client } = recorder();
+    await client.getPage('db1');
+    await client.trashPage('db1');
+    expect(calls).toEqual([
+      { method: 'GET', path: '/api/pages/db1', body: undefined },
+      { method: 'DELETE', path: '/api/pages/db1', body: undefined },
+    ]);
+  });
 });
 
 describe('fetchJson', () => {

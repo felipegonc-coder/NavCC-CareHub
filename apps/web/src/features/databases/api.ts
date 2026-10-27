@@ -314,6 +314,11 @@ export interface DatabaseClient {
 
   /** Everyone in the workspace, or those whose name or email matches `q`. */
   listMembers(q?: string): Promise<Member[]>;
+
+  /** GET /api/pages/:id (decision 0007): a database's own page, for the page it sits in. */
+  getPage(pageId: Id): Promise<unknown>;
+  /** DELETE /api/pages/:id (decision 0007): moves a page to Trash; a database's rows go with it. */
+  trashPage(pageId: Id): Promise<unknown>;
 }
 
 const seg = encodeURIComponent;
@@ -438,5 +443,8 @@ export function createDatabaseClient(request: RequestJson = fetchJson): Database
 
     listMembers: (q) =>
       request('GET', q ? `/api/workspace/members?q=${seg(q)}` : '/api/workspace/members'),
+
+    getPage: (pageId) => request('GET', `/api/pages/${seg(pageId)}`),
+    trashPage: (pageId) => request('DELETE', `/api/pages/${seg(pageId)}`),
   };
 }

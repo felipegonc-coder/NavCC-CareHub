@@ -251,10 +251,14 @@ export interface PanelProps {
   /** Can edit, Lock structure off and online: changes to the view are saved for everyone. */
   canEditViews: boolean;
   /**
-   * Filter, opened from a condition's chip under the toolbar (spec 3.2): the condition to show by
-   * itself. Absent: the whole filter.
+   * The view's answer as the layout gets it: rows, groups, lanes and counts. Absent until it
+   * loads, and while the view is blocked.
    */
-  conditionId?: Id;
+  data?: ViewData;
+  /** From the view's answer: the properties the viewer can see, in database order. */
+  propertyIds?: readonly Id[];
+  /** From the view's answer: the titles of the rows its rows link to. */
+  rowTitles?: Readonly<Record<Id, string>>;
   /** Closes the panel and gives focus back to its button. Esc and presses outside close it too. */
   close(): void;
 }

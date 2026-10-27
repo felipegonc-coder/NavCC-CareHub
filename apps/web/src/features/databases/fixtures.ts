@@ -16,6 +16,9 @@ import type { PersonName, QueryGroup, QueryRow, ViewData, ViewQueryData } from '
 
 export const JOBS_ID = 'db-jobs';
 
+/** The page that the Jobs database's own page sits in. */
+export const JOBS_PARENT_ID = 'page-operations';
+
 export const PROPS = {
   name: 'prop-name',
   status: 'prop-status',
