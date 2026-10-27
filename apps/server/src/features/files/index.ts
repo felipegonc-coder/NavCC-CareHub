@@ -5,6 +5,7 @@ export {
   getFile,
   getFiles,
   removeDeletedFiles,
+  saveFile,
   type FileInfo,
   type StoredFile,
 } from './service';
