@@ -1,8 +1,8 @@
 /**
  * Uploads for file questions through the files API (decision 0007: `POST /api/files`, multipart
  * field `file`, query `scope=<feature>:<id>`), with progress. A stand-in for `uploadFile` from
- * apps/web/src/lib/files.ts until it lands. Signed in only: uploads from forms anyone can fill in
- * without signing in wait for the security review.
+ * apps/web/src/lib/files.ts until it lands. Forms anyone can fill in upload the same way with
+ * nobody signed in: the `forms` scope takes anonymous uploads (decision 0010).
  */
 import type { FileRef } from '@carehub/databases';
 import { ApiError, OFFLINE_MESSAGE, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
