@@ -1,8 +1,8 @@
 import type { Request } from '@playwright/test';
-import { expect, needs, onlyIn, signInAs, test } from '../_support/index.js';
+import { expect, needs, onlyIn, sendAgainAs, signInAs, test } from '../_support/index.js';
 import { signedInPage } from '../databases/database-page.js';
 import { FORBIDDEN } from '../pages/page-screen.js';
-import { choose, DataSettings, sendAgainAs } from './data-settings-screen.js';
+import { choose, DataSettings } from './data-settings-screen.js';
 
 // Who may use Settings → Data (Data settings spec, section 5): Admins for Keeping data, Storage
 // and the workspace's upload limit; site admins for the rest. Avery is the seeded site admin and
