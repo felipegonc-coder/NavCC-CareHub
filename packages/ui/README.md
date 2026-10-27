@@ -65,8 +65,9 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
   `[&>svg]:`), Radix's measured sizes and kit variables in brackets
   (`max-h-[var(--radix-select-content-available-height)]`, `w-[var(--ch-sidebar-width)]`) and
   `transition-[...]` lists. The kit's value files, configs and tests are exempt. It is an error in
-  core folders and a warning in lane folders until 2026-10-29. If the kit lacks a value you need,
-  add it to `src/scale.ts` or `src/tokens.ts` rather than writing it inline.
+  core folders and, until the lanes switch over (decision 0008), a warning in lane folders. If the
+  kit lacks a value you need, add it to `src/scale.ts` or `src/tokens.ts` rather than writing it
+  inline.
 - **Theme:** `ThemeProvider` + `ThemeSwitch` (light, dark, system), saved on the device.
   `apps/web/public/theme-init.js` applies the saved theme before the first paint; it is a file, not
   an inline script, because the Content Security Policy allows only `script-src 'self'`.
@@ -79,7 +80,10 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
   and invalid state for screen readers.
 - **Overlays:** `DropdownMenu`, `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
   and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
-  focus back.
+  focus back. A toast can carry one button, `action: { label: 'Undo', onClick }`; it then stays
+  8 seconds instead of 5. Its timer stops while the pointer or keyboard focus is on it, so people
+  have time to reach Undo, and a press can come after the server's Undo window. The server then
+  answers 409 `conflict`; show a short "Too late to undo" toast.
 - **Shell parts:** `SheetContent` (a panel sliding in from the left, inside `Dialog`), and
   `SidebarGroup` and `sidebarRowClasses` for blocks and rows in the sidebar. Below
   `breakpoints.md` (768px, `md:`) the app shell shows the phone layout.
