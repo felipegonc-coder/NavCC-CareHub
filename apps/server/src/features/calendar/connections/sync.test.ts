@@ -375,7 +375,8 @@ describe('private link sync', () => {
     expect(connection?.nextSyncAt.getTime()).toBe(t.google.now().getTime() + LINK_EVERY_MS);
 
     // Unchanged since last time: nothing to write or tell.
-    t.link.answer = async () => ({ status: 'not-modified' });
+    const fresher = { etag: '"v1"', lastModified: 'Tue, 27 Oct 2026 12:00:00 GMT' };
+    t.link.answer = async () => ({ status: 'not-modified', cursor: fresher });
     t.google.advance(LINK_EVERY_MS);
     t.changes.length = 0;
     expect(await t.sync.runDue()).toBe(1);
@@ -383,10 +384,11 @@ describe('private link sync', () => {
     expect(t.changes).toEqual([]);
     expect(t.memory.connection(id)?.lastSyncedAt?.getTime()).toBe(t.google.now().getTime());
 
-    // Gone from the file: gone here.
+    // Gone from the file: gone here. The fresher validators went with the read.
     t.link.answer = async () => readLink([], '"v2"');
     t.google.advance(LINK_EVERY_MS);
     await t.sync.runDue();
+    expect(t.reads[2]?.[1]).toEqual(fresher);
     expect(t.titles(calendar!.id)).toEqual([]);
     expect(t.changes).toEqual([[AVERY, calendar!.id]]);
   });

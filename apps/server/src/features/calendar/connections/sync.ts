@@ -67,10 +67,12 @@ export const googleTokensSchema: z.ZodType<GoogleTokens> = z.object({
 });
 /** What a private link connection seals: the link as the person entered it. */
 export const linkSecretSchema = z.object({ url: z.string().min(1) });
+const NO_CHANGES = { upserts: [], removed: [] };
 
 /** The iCalendar reader's readCalendarLink, as agreed with its owner. */
 export type LinkReadResult =
-  | { status: 'not-modified' }
+  /** The cursor, when given, carries fresh validators: keep it. */
+  | { status: 'not-modified'; cursor?: SyncCursor }
   | {
       status: 'ok';
       events: ExternalEvent[];
@@ -292,7 +294,10 @@ export function createCalendarSync(deps: CalendarSyncDeps) {
       ownAddresses: [connection.ownerEmail],
       window: { start: monthsFrom(at, -6), end: monthsFrom(at, 12) },
     });
-    if (result.status === 'not-modified') return;
+    if (result.status === 'not-modified') {
+      if (result.cursor) await store.applyChanges(calendar.id, NO_CHANGES, result.cursor, at);
+      return;
+    }
     const events = result.events.map((event) => ({ remoteId: linkEventId(event), event }));
     const saved = result.complete
       ? await store.replaceEvents(calendar.id, events, result.cursor, at)
