@@ -101,7 +101,7 @@ function PreviewContent({
     <DialogContent
       onKeyDown={onKeyDown}
       className={cn(
-        'md:max-w-3xl',
+        'md:max-w-page',
         phone && 'm-0 min-h-full max-w-none rounded-none border-0 p-4 pt-12',
       )}
     >
@@ -115,10 +115,10 @@ function PreviewContent({
         </DialogDescription>
       </DialogHeader>
       {template.description && <p className="text-body text-muted">{template.description}</p>}
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
+      <div className="grid gap-4 md:grid-cols-3">
         <section
           aria-label="Preview"
-          className="max-h-[60vh] overflow-y-auto rounded border border-border p-4"
+          className="rounded border border-border p-4 md:col-span-2 md:max-h-96 md:overflow-y-auto"
         >
           {preview.isPending ? (
             <div className="flex flex-col gap-2" aria-hidden>
@@ -141,7 +141,7 @@ function PreviewContent({
                 <li
                   key={page.key}
                   className="flex items-center gap-2"
-                  style={{ paddingLeft: `${depth}rem` }}
+                  style={{ paddingLeft: `calc(var(--ch-space-4) * ${depth})` }}
                 >
                   {page.kind === 'database' ? (
                     <Database aria-hidden className="size-4 text-muted" />

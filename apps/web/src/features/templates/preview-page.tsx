@@ -26,7 +26,7 @@ function Item({
   const marker =
     block.checked !== undefined ? (block.checked ? '☑' : '☐') : block.ordered ? `${number}.` : '•';
   return (
-    <div className="flex gap-2" style={{ paddingLeft: `${block.depth * 1.5}rem` }}>
+    <div className="flex gap-2" style={{ paddingLeft: `calc(var(--ch-space-6) * ${block.depth})` }}>
       <span aria-hidden className="w-5 shrink-0 text-muted">
         {marker}
       </span>
