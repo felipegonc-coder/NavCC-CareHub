@@ -405,6 +405,26 @@ describe('PropertyMenu: the view and its columns', () => {
     expect(actions.create).toHaveBeenCalledWith(expect.objectContaining({ name: 'Status 2' }));
   });
 
+  it('offers Verification in a wiki database only', async () => {
+    const { trigger } = renderMenu();
+    await openMenu(trigger);
+    await choose(PROPERTY_TEXT.insertRight);
+    expect(itemTexts()).toContain('Button');
+    expect(itemTexts()).not.toContain('Verification');
+  });
+
+  it('adds a Verification property to a wiki database', async () => {
+    const { actions, trigger } = renderMenu(PROPS.cost, { meta: { ...db, wiki: true } });
+    await openMenu(trigger);
+    await choose(PROPERTY_TEXT.insertRight);
+    expect(itemTexts().at(-1)).toBe('Verification');
+    await choose('Verification');
+    expect(actions.create).toHaveBeenCalledWith({
+      name: 'Verification',
+      config: { type: 'verification' },
+    });
+  });
+
   it('refuses a name that is taken and stays on the list', async () => {
     const { actions, trigger } = renderMenu();
     await openMenu(trigger);
