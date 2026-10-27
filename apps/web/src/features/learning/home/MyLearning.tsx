@@ -19,11 +19,17 @@ const SECTIONS = [
 /** How many catalog courses the home page shows; the catalog page has the rest. */
 const CATALOG_PREVIEW = 6;
 
+type MyLearningProps = {
+  learning: MyLearningResponse;
+  /** The profile's time zone, which the days courses were finished on are in (0317). */
+  timeZone: string;
+};
+
 /**
  * The Learning home: the learner's courses (overdue, in progress, assigned, finished), then
  * courses from the catalog they haven't started.
  */
-export function MyLearning({ learning }: { learning: MyLearningResponse }) {
+export function MyLearning({ learning, timeZone }: MyLearningProps) {
   const mine = SECTIONS.flatMap(({ key }) => learning[key]);
   return (
     <main
@@ -44,7 +50,7 @@ export function MyLearning({ learning }: { learning: MyLearningResponse }) {
           <Section key={key} title={title}>
             {learning[key].map((entry) => (
               <li key={entry.courseId}>
-                <EntryCard entry={entry} />
+                <EntryCard entry={entry} timeZone={timeZone} />
               </li>
             ))}
           </Section>
@@ -75,7 +81,7 @@ function Section({ title, children, after }: SectionProps) {
  * One of the learner's courses: where they are, whether it's required, and when it's due. A course
  * in progress opens where they stopped.
  */
-function EntryCard({ entry }: { entry: MyLearningEntry }) {
+function EntryCard({ entry, timeZone }: { entry: MyLearningEntry; timeZone: string }) {
   const due = dueLine(entry);
   return (
     <CourseCard
@@ -93,7 +99,7 @@ function EntryCard({ entry }: { entry: MyLearningEntry }) {
         </p>
       )}
       <div className="mt-auto flex flex-col gap-2 pt-1">
-        <p className="text-small font-medium">{entryStatus(entry)}</p>
+        <p className="text-small font-medium">{entryStatus(entry, timeZone)}</p>
         {entry.status === 'in_progress' && (
           <ProgressBar percent={entry.progressPercent} label={`${entry.title} progress`} />
         )}

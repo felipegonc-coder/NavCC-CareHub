@@ -7,7 +7,8 @@ import {
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { inOrder, learner, renderRoute, serveCourse } from '../player/test-utils';
+import { DEFAULT_TIME_ZONE } from '../player/data';
+import { inOrder, learner, LEARNER, renderRoute, serveCourse } from '../player/test-utils';
 import { CourseStartScreen } from './index';
 import { formatSignedAt } from './SignOff';
 import { RESUME_STATE } from './start';
@@ -291,11 +292,14 @@ describe('the sign-off', () => {
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
-  it('says when a signed course was signed', async () => {
+  it("says when a signed course was signed, in the profile's time zone", async () => {
     const at = '2026-10-20T14:30:00.000Z';
+    for (const other of ['UTC', DEFAULT_TIME_ZONE]) {
+      expect(formatSignedAt(at, LEARNER.timeZone)).not.toBe(formatSignedAt(at, other));
+    }
     show(course, { ...read, status: 'passed', acknowledgedAt: at });
     // Matched as the page reads it: some time formats have a narrow space before AM or PM.
-    const signed = `Signed on ${formatSignedAt(at)}`.replace(/\s+/gu, ' ');
+    const signed = `Signed on ${formatSignedAt(at, LEARNER.timeZone)}`.replace(/\s+/gu, ' ');
     expect(await screen.findByText(signed)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sign' })).not.toBeInTheDocument();
   });

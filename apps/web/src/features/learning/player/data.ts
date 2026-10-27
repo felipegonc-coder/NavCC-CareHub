@@ -73,29 +73,68 @@ export function useLearnerState(courseId: Id) {
   });
 }
 
-/** What the player reads from core's GET /api/auth/me: the signed-in person's id. */
-const SignedInReply = z.object({ user: z.object({ id: z.string().min(1) }) });
-const signedInId = (reply: z.infer<typeof SignedInReply>) => reply.user.id;
+/** The zone for times when the profile has none, or has one this browser doesn't know (0317). */
+export const DEFAULT_TIME_ZONE = 'America/Denver';
+
+/**
+ * What Learning reads from core's GET /api/auth/me: the signed-in person's id, and the time zone on
+ * their profile (an IANA name such as "America/Denver") when it has one.
+ */
+const SignedInReply = z.object({
+  user: z.object({ id: z.string().min(1), timeZone: z.string().nullish().catch(null) }),
+});
+type SignedIn = z.infer<typeof SignedInReply>;
+
+const signedInId = ({ user }: SignedIn) => user.id;
+
+/** Whether this browser can show times in the zone: Intl throws for one it doesn't know. */
+function isKnownZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const profileZone = ({ user }: SignedIn) =>
+  user.timeZone && isKnownZone(user.timeZone) ? user.timeZone : DEFAULT_TIME_ZONE;
 
 /** As `retryOnce`, for core's API errors. */
 const retryCore = (failures: number, error: unknown) =>
   failures < 1 && (!(error instanceof ApiError) || error.status === 0 || error.status >= 500);
 
 /**
- * The signed-in person's id, from the session (never from a link), so their waiting events are
- * kept apart from anyone else's (0310). It is read again when the window gets focus, which notices
- * someone else signing in from another tab. A stand-in until core's `useMe()` is on main (0007
- * section 5.2); then this reads the id from it.
+ * Core's GET /api/auth/me. It is read again when the window gets focus, which notices someone else
+ * signing in from another tab. A stand-in until core's `useMe()` is on main (0007 section 5.2);
+ * then the two hooks below read from it.
  */
-export function useSignedInId() {
-  const me = useQuery({
+const useSignedIn = <T>(select: (reply: SignedIn) => T) =>
+  useQuery({
     queryKey: signedInKey,
     queryFn: ({ signal }) => coreApi.get('/api/auth/me', { schema: SignedInReply, signal }),
-    select: signedInId,
+    select,
     retry: retryCore,
     refetchOnWindowFocus: true,
   });
+
+/**
+ * The signed-in person's id, from the session (never from a link), so their waiting events are
+ * kept apart from anyone else's (0310).
+ */
+export function useSignedInId() {
+  const me = useSignedIn(signedInId);
   return { userId: me.data, error: me.error, refetch: me.refetch };
+}
+
+/**
+ * The time zone on the signed-in person's profile. Every time Learning shows (completed, tried,
+ * signed, issued, last active) is in it, never in the browser's zone (0317); calendar days, such as
+ * due dates, show as stored. Undefined while core's GET /api/auth/me loads; America/Denver when the
+ * profile has no zone, or the call fails.
+ */
+export function useProfileTimeZone(): string | undefined {
+  const me = useSignedIn(profileZone);
+  return me.data ?? (me.error ? DEFAULT_TIME_ZONE : undefined);
 }
 
 type PersonQueue = { userId: string; queue: EventQueue<ProgressEvent> };

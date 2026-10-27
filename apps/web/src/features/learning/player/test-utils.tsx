@@ -111,8 +111,20 @@ export const errorReply = (status: number) => jsonReply(status, { error: ERRORS[
 
 type Call = { method: string; url: string };
 
-/** The fictional learner the fake API signs in. */
-export const LEARNER = { id: 'learner-1', email: 'lee.learner@example.test', name: 'Lee Learner' };
+/**
+ * The fictional learner the fake API signs in. Their profile is on Tokyo time: neither the test
+ * browser's zone nor the default, so times on the page show which zone they're in.
+ */
+export const LEARNER = {
+  id: 'learner-1',
+  email: 'lee.learner@example.test',
+  name: 'Lee Learner',
+  timeZone: 'Asia/Tokyo',
+};
+
+/** Core's GET /api/auth/me reply for the learner, with `user` changed as given. */
+export const signedInReply = (user: { id?: string; timeZone?: string | null } = {}) =>
+  jsonReply(200, { user: { ...LEARNER, ...user }, member: null, workspace: null });
 
 /** Where the learner's waiting events are kept in this browser (B1's event queue). */
 export const queueKey = (userId = LEARNER.id) => `carehub.learning.events.v1:${userId}`;
@@ -145,8 +157,7 @@ export function serveCourse(course: Course, state: LearnerCourseState, options: 
     calls.push({ method, url });
     if (method === 'GET' && url === '/api/auth/me') {
       if (typeof server.me === 'number') return jsonReply(server.me, {});
-      const user = { ...LEARNER, id: server.me };
-      return jsonReply(200, { user, member: null, workspace: null });
+      return signedInReply({ id: server.me });
     }
     if (method === 'GET' && url === api) {
       if (server.course !== 200) return errorReply(server.course);
