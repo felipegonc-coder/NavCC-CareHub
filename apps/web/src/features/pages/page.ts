@@ -1,5 +1,6 @@
-// What the page screen works out from page data: the browser tab's title, the "start with"
-// choices and edits to cached page data (Pages and blocks, sections 2 and 3.1).
+// What the page screen works out from page data: the breadcrumbs, "Edited 2m ago", the browser
+// tab's title, the "start with" choices and edits to cached page data (Pages and blocks, 2 and 3.1).
+import type { Stamp } from './api';
 import type { PageIcon } from './types';
 
 /** A title is plain text on one line, up to 2,000 characters (section 3.1). */
@@ -12,6 +13,50 @@ export const cleanTitle = (text: string): string =>
 export function tabTitle(page: { title: string; icon: PageIcon | null }): string {
   const icon = page.icon?.type === 'emoji' ? `${page.icon.emoji} ` : '';
   return `Care Hub · ${icon}${page.title.trim() || 'Untitled'}`;
+}
+
+/**
+ * Breadcrumbs past `max` levels keep the first and the last two, and fold the middle into "…"
+ * (section 2): `first`, then "…" for `folded` when there are any, then `last`.
+ */
+export function foldCrumbs<T>(crumbs: readonly T[], max = 4) {
+  if (crumbs.length <= max) return { first: [...crumbs], folded: [] as T[], last: [] as T[] };
+  const kept = max - 2;
+  return {
+    first: crumbs.slice(0, 1),
+    folded: crumbs.slice(1, crumbs.length - kept),
+    last: crumbs.slice(-kept),
+  };
+}
+
+const day = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const dayAndTime = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+/** "Edited just now", "Edited 2m ago", "Edited 3h ago", "Edited 4d ago", then "Edited Oct 20, 2026". */
+export function editedLabel(at: string, now: number): string {
+  const minutes = Math.floor((now - Date.parse(at)) / 60_000);
+  if (minutes < 1) return 'Edited just now';
+  if (minutes < 60) return `Edited ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Edited ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return days < 7 ? `Edited ${days}d ago` : `Edited ${day.format(new Date(at))}`;
+}
+
+/** Who and when, for hovering "Edited 2m ago": "Edited by Sam Ortiz, Oct 26, 2026, 3:30 PM". */
+export const editedWhen = (stamp: Stamp): string =>
+  `Edited${stamp.by?.name ? ` by ${stamp.by.name}` : ''}, ${dayAndTime.format(new Date(stamp.at))}`;
+
+/** "Archived by Sam Ortiz on Oct 20, 2026", "Locked by Avery Lin" (section 2, States). */
+export function stampLabel(what: 'Archived' | 'Locked', stamp: Stamp): string {
+  const by = stamp.by?.name ? ` by ${stamp.by.name}` : '';
+  return what === 'Archived' ? `Archived${by} on ${day.format(new Date(stamp.at))}` : `Locked${by}`;
 }
 
 /** The "start with" choices of a new empty page that the editor's "/" menu has, in this order. */

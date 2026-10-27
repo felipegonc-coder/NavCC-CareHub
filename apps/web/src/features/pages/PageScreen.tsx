@@ -13,10 +13,14 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { ApiError } from '../../lib/api';
 import { slots } from '../../slots';
 import { atLeast, pageUrl } from './access';
+import { useEntryActions } from './actions';
 import { fetchPage, pagesKeys, type PageDetail } from './api';
 import { usePageDoc } from './doc';
+import { useMoveDialogs } from './MoveDialog';
 import { startItems, tabTitle } from './page';
+import { PageBanner } from './PageBanner';
 import { columnClasses, PageHeader } from './PageHeader';
+import { PageTopBar, TopBarSkeleton } from './PageTopBar';
 
 /** Not found and no access don't get better by asking again. */
 const retry = (count: number, error: unknown) =>
@@ -70,7 +74,7 @@ function Problem({ title, text, children }: ProblemProps) {
   );
 }
 
-/** 6 grey lines, only once loading has taken 300 ms. */
+/** The top bar and 6 grey lines, only once loading has taken 300 ms. */
 function Loading() {
   const [late, setLate] = useState(false);
   useEffect(() => {
@@ -80,6 +84,7 @@ function Loading() {
   if (!late) return <main />;
   return (
     <main className={cn(columnClasses(false), 'flex flex-col gap-3 pt-24')}>
+      <TopBarSkeleton />
       <VisuallyHidden role="status">Loading the page</VisuallyHidden>
       {['w-1/2', 'w-full', 'w-11/12', 'w-full', 'w-3/4', 'w-2/3'].map((width, index) => (
         <Skeleton key={index} className={cn(index === 0 ? 'mb-4 h-10' : 'h-5', width)} />
@@ -92,6 +97,8 @@ function PageView({ page }: { page: PageDetail }) {
   const navigate = useNavigate();
   const location = useLocation();
   const doc = usePageDoc(page.id);
+  const { host } = useMoveDialogs();
+  const actions = useEntryActions(host);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [empty, setEmpty] = useState(true);
   const [started, setStarted] = useState(false);
@@ -133,6 +140,8 @@ function PageView({ page }: { page: PageDetail }) {
   return (
     <main className="flex flex-col pb-32">
       <title>{tabTitle(page)}</title>
+      <PageTopBar page={page} actions={actions} />
+      <PageBanner page={page} />
       <PageHeader
         page={page}
         editable={editable}

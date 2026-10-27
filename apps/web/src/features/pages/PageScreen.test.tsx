@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useState, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HeaderTargetContext } from '../shell/header-context';
 import { PageScreen } from './PageScreen';
 
 const { api, toast, Refused, editor, slots } = vi.hoisted(() => {
@@ -102,21 +104,35 @@ const refunds = (more: Record<string, unknown> = {}) => ({
 let pages = new Map<string, Record<string, unknown>>();
 let refused = new Map<string, number>();
 
+/** The shell's top bar, which the page fills. */
+function Shell({ children }: { children: ReactNode }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <header ref={setTarget} />
+      <HeaderTargetContext.Provider value={target}>{children}</HeaderTargetContext.Provider>
+    </>
+  );
+}
+
 function open(id: string, state?: unknown) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[{ pathname: `/p/${id}`, state }]}>
-        <Routes>
-          <Route path="/p/:pageId" element={<PageScreen />} />
-          <Route path="/" element={<p>Home</p>} />
-        </Routes>
+        <Shell>
+          <Routes>
+            <Route path="/p/:pageId" element={<PageScreen />} />
+            <Route path="/" element={<p>Home</p>} />
+          </Routes>
+        </Shell>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
 const titleField = () => screen.findByRole('textbox', { name: 'Page title' });
+const topBar = () => screen.getByRole('banner');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -156,21 +172,48 @@ beforeEach(() => {
 });
 
 describe('PageScreen', () => {
-  it('shows the title, the icon and the tab title, ready to edit', async () => {
+  it('shows the breadcrumbs, title, icon, tab title and when the page was edited', async () => {
     open('refunds');
     expect(await titleField()).toHaveValue('Refund steps');
     expect(document.title).toBe('Care Hub · 🚀 Refund steps');
     expect(screen.getByRole('img', { name: 'Page icon' })).toHaveTextContent('🚀');
+    const crumbs = within(topBar()).getByRole('navigation', { name: 'Breadcrumbs' });
+    expect(within(crumbs).getByRole('link', { name: 'Policies' })).toHaveAttribute(
+      'href',
+      '/p/policies',
+    );
+    expect(within(crumbs).getByText('Support')).toBeInTheDocument();
+    expect(within(crumbs).getByText('Refund steps').parentElement).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(topBar()).getByText('Edited 5m ago')).toHaveAttribute(
+      'title',
+      expect.stringMatching(/^Edited by Sam Ortiz, /),
+    );
+    expect(within(topBar()).queryByText('View only')).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Page content' })).toHaveAttribute(
       'aria-readonly',
       'false',
     );
   });
 
-  it('shows a read-only page to someone who can only view', async () => {
+  it('folds the middle of a long path into "…"', async () => {
+    const deep = [support, policies, { ...policies, id: 'eu', title: 'Europe' }];
+    pages.set('refunds', refunds({ path: [...deep, { ...policies, id: 'fr', title: 'France' }] }));
+    open('refunds');
+    await titleField();
+    const crumbs = within(topBar()).getByRole('navigation', { name: 'Breadcrumbs' });
+    expect(within(crumbs).getByRole('button', { name: 'Pages in between' })).toBeInTheDocument();
+    expect(within(crumbs).queryByRole('link', { name: 'Policies' })).not.toBeInTheDocument();
+    expect(within(crumbs).getByRole('link', { name: 'France' })).toBeInTheDocument();
+  });
+
+  it('shows View only and a read-only page to someone who can only view', async () => {
     pages.set('refunds', refunds({ access: 'view' }));
     open('refunds');
     expect(await titleField()).toHaveAttribute('readonly');
+    expect(within(topBar()).getByText('View only')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Page content' })).toHaveAttribute(
       'aria-readonly',
       'true',
@@ -224,6 +267,17 @@ describe('PageScreen', () => {
     expect(slots.editor.slashItems[1]?.run).toHaveBeenCalledWith(editor);
   });
 
+  it('stars the page with Favorite', async () => {
+    open('refunds');
+    await titleField();
+    const star = within(topBar()).getByRole('button', { name: 'Favorite' });
+    expect(star).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(star);
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith('/api/favorites', { pageId: 'refunds' }),
+    );
+  });
+
   it('goes to the parent page with Ctrl+Shift+U', async () => {
     open('refunds');
     await titleField();
@@ -252,21 +306,49 @@ describe('PageScreen', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Loading the page');
   });
 
-  const stopped = {
-    archived: { archivedAt: '2026-10-20T15:00:00Z', archivedBy: sam },
-    locked: { lockedAt: at(-60_000), lockedBy: sam },
-    'in Trash': { deletedAt: at(-60_000), deletedBy: sam },
-  };
-  for (const [state, more] of Object.entries(stopped)) {
-    it(`keeps a page that is ${state} read-only`, async () => {
-      pages.set('refunds', refunds(more));
-      open('refunds');
-      expect(await titleField()).toHaveAttribute('readonly');
-      expect(screen.getByRole('textbox', { name: 'Page content' })).toHaveAttribute(
-        'aria-readonly',
-        'true',
-      );
-      expect(screen.queryByText(HINT)).not.toBeInTheDocument();
-    });
-  }
+  it('shows an archived page read-only, and Unarchive brings it back', async () => {
+    pages.set('refunds', refunds({ archivedAt: '2026-10-20T15:00:00Z', archivedBy: sam }));
+    open('refunds');
+    expect(await screen.findByText('Archived by Sam Ortiz on Oct 20, 2026')).toBeInTheDocument();
+    expect(await titleField()).toHaveAttribute('readonly');
+    fireEvent.click(screen.getByRole('button', { name: 'Unarchive' }));
+    await waitFor(() => expect(screen.queryByText(/^Archived by/)).not.toBeInTheDocument());
+    expect(api.patch).toHaveBeenCalledWith('/api/pages/refunds', { archived: false });
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Page title' })).not.toHaveAttribute('readonly'),
+    );
+  });
+
+  it('shows a locked page read-only, and Unlock needs Can edit', async () => {
+    const avery = { id: 'avery', name: 'Avery Lin' };
+    pages.set('refunds', refunds({ access: 'edit', lockedAt: at(-60_000), lockedBy: avery }));
+    open('refunds');
+    expect(await screen.findByText('Locked by Avery Lin')).toBeInTheDocument();
+    expect(await titleField()).toHaveAttribute('readonly');
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+    await waitFor(() => expect(screen.queryByText('Locked by Avery Lin')).not.toBeInTheDocument());
+    expect(api.patch).toHaveBeenCalledWith('/api/pages/refunds', { locked: false });
+  });
+
+  it('offers Restore and Delete forever on a page in Trash', async () => {
+    pages.set('refunds', refunds({ deletedAt: at(-60_000), deletedBy: sam }));
+    open('refunds');
+    expect(await screen.findByText('This page is in Trash.')).toBeInTheDocument();
+    expect(await titleField()).toHaveAttribute('readonly');
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    await waitFor(() =>
+      expect(screen.queryByText('This page is in Trash.')).not.toBeInTheDocument(),
+    );
+    expect(api.post).toHaveBeenCalledWith('/api/trash/refunds/restore', {});
+  });
+
+  it('deletes a page in Trash forever after asking, then goes Home', async () => {
+    pages.set('refunds', refunds({ deletedAt: at(-60_000), deletedBy: sam }));
+    open('refunds');
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete forever' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete Refund steps forever?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete forever' }));
+    expect(await screen.findByText('Home')).toBeInTheDocument();
+    expect(api.delete).toHaveBeenCalledWith('/api/trash/refunds');
+  });
 });
