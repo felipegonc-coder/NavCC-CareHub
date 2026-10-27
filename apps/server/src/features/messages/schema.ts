@@ -1,7 +1,8 @@
-import type { SystemEvent } from '@carehub/team-chat';
+import type { HasFilter, SystemEvent } from '@carehub/team-chat';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  customType,
   integer,
   jsonb,
   pgTable,
@@ -11,10 +12,16 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-// Mirrors migrations/202610271023_messages_chats.sql, the source of truth (schema.test.ts compares
-// them). Foreign keys, checks and indexes are in the SQL only.
+// Mirrors migrations/202610271023_messages_chats.sql and 202610271525_messages_search.sql, the
+// source of truth (schema.test.ts compares them). Foreign keys, checks and indexes are in the SQL
+// only.
 
 const time = (name: string) => timestamp(name, { withTimezone: true });
+
+/** A Postgres `tsvector`, read and written as its text form (`searchVector`). */
+const tsvector = customType<{ data: string; driverData: string }>({
+  dataType: () => 'tsvector',
+});
 
 export const msgChats = pgTable('msg_chats', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -63,6 +70,16 @@ export const msgMessages = pgTable('msg_messages', {
   createdAt: time('created_at').notNull().defaultNow(),
   editedAt: time('edited_at'),
   deletedAt: time('deleted_at'),
+  /** The words search finds (`searchVector`); empty for system lines and deleted messages. */
+  search: tsvector('search')
+    .notNull()
+    .default(sql`''::tsvector`),
+  /** For the Has filter: `picture`, `file`, `link`, `pageCard`. */
+  has: text('has')
+    .array()
+    .$type<HasFilter[]>()
+    .notNull()
+    .default(sql`'{}'`),
 });
 
 export type ChatRow = typeof msgChats.$inferSelect;

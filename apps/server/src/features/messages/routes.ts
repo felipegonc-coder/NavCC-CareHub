@@ -12,6 +12,7 @@ import {
   editMessageBodySchema,
   historyQuerySchema,
   membersKey,
+  messageSearchBodySchema,
   newChatBodySchema,
   planAddPeople,
   planLeave,
@@ -28,12 +29,14 @@ import {
   type DraftError,
   type HistoryResponse,
   type MessageResponse,
+  type MessageSearchResponse,
   type NewChatResponse,
   type PeopleListResponse,
   type ReadResponse,
   type UnreadCounts,
   type UnreadResponse,
 } from '@carehub/team-chat';
+import { DEFAULT_TIME_ZONE } from '@carehub/shared';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { httpError, type ErrorCode } from '../../core/errors';
@@ -44,6 +47,7 @@ import type { MessageCreatedEvent } from './events';
 import { chatJson, messageJson, peopleInChats, peopleInMessages } from './json';
 import { canBeMessaged, isUuid, listPeople, lookUpPeople } from './people';
 import type { ChatRow, MemberRow, MessageRow } from './schema';
+import { messageIndex, searchMessages } from './search';
 import * as store from './store';
 
 const chatParams = z.object({ chatId: z.string() });
@@ -138,6 +142,15 @@ const messagesRoutes: FastifyPluginAsync = async (app) => {
     const json = chatJson(item, viewer.userId);
     const people = await lookUpPeople(app.db, viewer.workspaceId, peopleInChats([json]));
     return { viewerId: viewer.userId, chat: json, people } satisfies ChatResponse;
+  }
+
+  /** What search stores for a message, with mentions read as the people's names. */
+  async function indexOf(
+    viewer: Viewer,
+    message: { text: string; mentions: readonly string[]; pageIds: readonly string[] },
+  ) {
+    const names = await lookUpPeople(app.db, viewer.workspaceId, message.mentions);
+    return messageIndex(message, (userId) => names[userId]);
   }
 
   async function messageAnswer(viewer: Viewer, row: MessageRow) {
@@ -262,8 +275,9 @@ const messagesRoutes: FastifyPluginAsync = async (app) => {
     if (!prepared.ok) throw httpError(400, 'invalid', DRAFT_ERRORS[prepared.error]);
     const { text, mentionedUserIds: mentions, pageIds } = prepared.message;
     const input = { chatId: chat.id, senderId: viewer.userId, clientId: body.clientId };
+    const index = await indexOf(viewer, { text, mentions, pageIds });
     const sent = await store
-      .sendMessage(app.db, { ...input, text, mentions, pageIds })
+      .sendMessage(app.db, { ...input, text, mentions, pageIds, index })
       .catch((error: unknown) => {
         // The same clientId sent to two chats at once: the second one loses.
         if (isUniqueViolation(error, 'msg_messages_client_key')) {
@@ -441,10 +455,32 @@ const messagesRoutes: FastifyPluginAsync = async (app) => {
     const unchanged = text === message.text && pageIds.join(' ') === message.pageIds.join(' ');
     const edited = unchanged
       ? message
-      : await store.editMessage(app.db, message.id, { text, mentions, pageIds }, new Date());
+      : await store.editMessage(
+          app.db,
+          message.id,
+          { text, mentions, pageIds, index: await indexOf(viewer, { text, mentions, pageIds }) },
+          new Date(),
+        );
     if (!edited) throw changeError('deleted');
     if (!unchanged) nudge(current(members), message.chatId);
     return messageAnswer(viewer, edited);
+  });
+
+  // Search (MS-19 to MS-21): newest first, in chats the person is in now. The Date filter's days
+  // are the person's own, in their time zone.
+  app.post('/search', async (request): Promise<MessageSearchResponse> => {
+    const viewer = viewerOf(request);
+    const body = messageSearchBodySchema.parse(request.body);
+    const timeZone = request.user?.timeZone ?? DEFAULT_TIME_ZONE;
+    const { rows, hasMore } = await searchMessages(app.db, {
+      workspaceId: viewer.workspaceId,
+      viewerId: viewer.userId,
+      timeZone,
+      body,
+    });
+    const results = rows.map((row) => messageJson(row, viewer.userId));
+    const people = await lookUpPeople(app.db, viewer.workspaceId, peopleInMessages(results));
+    return { results, hasMore, people };
   });
 
   // Only the sender deletes a message (MS-05): its text is erased from the server.
