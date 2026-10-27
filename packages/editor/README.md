@@ -92,6 +92,33 @@ Links from the panel or a picker go through `safeHref` and open like every other
 sites in a new tab; Care Hub (like `/p/<pageId>`), `mailto` and `tel` links in the same tab. An
 address starting with `//` becomes `https://`, and an unsafe href from a picker is ignored.
 
+## RichTextField
+
+A small rich text input for forms and properties, without live co-editing: paragraphs, hard
+breaks (Shift+Enter) and the marks you allow, with the same selection toolbar.
+
+```tsx
+import { RichTextField, type JSONContent } from '@carehub/editor';
+
+const [description, setDescription] = useState<JSONContent>({ type: 'doc', content: [] });
+<RichTextField
+  value={description}
+  onChange={setDescription}
+  ariaLabel="Lesson description"
+  marks={['bold', 'italic', 'link']}
+  onPickPage={pickPage} // adds "Link to a page", which links to /p/<pageId>
+/>;
+```
+
+- `value` is Tiptap JSON. Whatever it holds, the field shows (and `onChange` sends) only
+  paragraphs of text and hard breaks with the allowed marks and safe links. `sanitizeRichText`
+  does the same cleanup, for example on the server before saving.
+- A link keeps only its `href`, through `safeHref` (`//host` becomes `https://host`). Where it
+  opens comes from the href when it's drawn, as in the page editor.
+- `singleLine`: Enter adds nothing, and pasted or dropped lines join with spaces.
+- Also `placeholder`, `autoFocus`, `readOnly`, `id`, `ariaDescribedBy` (for a field label and
+  hint) and `linkPickers`. Changing `marks` or `singleLine` makes a new editor.
+
 ## Lane blocks and extension points (shared contract, see docs/decisions/0007)
 
 - **Lane nodes** go in `src/lanes/<lane>.ts` (`export const nodes: AnyExtension[]`). Each lane owns

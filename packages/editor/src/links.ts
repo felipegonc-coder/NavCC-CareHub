@@ -78,3 +78,6 @@ export const linkAttributes = (href: string) => ({
   href,
   target: opensNewTab(href) ? '_blank' : null,
 });
+
+/** The address of a Care Hub page, `/p/<pageId>` (like `pageUrl` in @carehub/shared). */
+export const pageHref = (pageId: string) => `/p/${encodeURIComponent(pageId)}`;
