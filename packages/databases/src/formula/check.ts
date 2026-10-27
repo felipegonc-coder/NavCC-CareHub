@@ -277,7 +277,11 @@ class Checker {
     let problem: { message: string; at: At } | null = null;
     for (const { sig, params } of options) {
       const r = this.match(def, sig, params, exprs, at);
-      if ('type' in r) return { op: 'call', def, args: exprs, slots, type: r.type, ...at };
+      if ('type' in r) {
+        const bad = def.checkConstants?.(exprs.map((e) => (e.op === 'value' ? e.value : null)));
+        if (bad) reject(bad.message, span(exprs[bad.input] ?? at));
+        return { op: 'call', def, args: exprs, slots, type: r.type, ...at };
+      }
       problem ??= r;
     }
     reject(problem?.message ?? countMessage(def, args.length), problem?.at ?? at);

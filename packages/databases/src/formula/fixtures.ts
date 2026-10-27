@@ -206,7 +206,7 @@ export const FORMULA_FIXTURES: FormulaFixture[] = [
     `"x" isn't a style. Use b, i, u, s, c, a color, or a color with _background.`,
   ),
   v('unstyle(style("Hi", "b"))', 'Hi'),
-  x('test("abc", "b")', "Patterns can't be used here yet."),
+  v('test("abc", "b")', true),
   x('upper(1)', 'upper() needs Text here; it gets Number.'),
   x('length(1)', 'length() needs Text or List here; it gets Number.'),
   v('"a\\"b"', 'a"b'),

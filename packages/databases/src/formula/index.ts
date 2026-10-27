@@ -34,6 +34,7 @@ export {
   listFunctions,
   listType,
   spendText,
+  textLeft,
   typeName,
   unify,
 } from './registry';
@@ -48,10 +49,22 @@ export type {
   FunctionInfo,
   FunctionKind,
   PatternEngine,
+  PatternLimits,
   PatternResult,
   Signature,
   TypePattern,
 } from './registry';
+export {
+  MAX_PATTERN_COPIES,
+  MAX_PATTERN_LENGTH,
+  MAX_PATTERN_PROGRAM,
+  PATTERNS,
+  PATTERN_CACHE_SIZE,
+  PATTERN_MESSAGES,
+  PATTERN_TEXT_LENGTH,
+  createPatternEngine,
+} from './patterns';
+export type { CachedPatternEngine } from './patterns';
 export { parseFormula } from './parser';
 export type { Node, ParseResult } from './parser';
 export { LENGTH_MESSAGE, RELATION_DEPTH, TEXT_AND_NUMBER, checkFormula } from './check';
