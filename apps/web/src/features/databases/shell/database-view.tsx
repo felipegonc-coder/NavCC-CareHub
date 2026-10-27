@@ -12,6 +12,7 @@ import {
   type Viewer,
 } from '@carehub/databases';
 import { can } from '@carehub/databases/access';
+import { applyOverride } from '@carehub/databases/engine';
 import { countConditions } from '@carehub/databases/filter';
 import { Button, cn, Tabs, TabsContent, TabsList, TabsTrigger } from '@carehub/ui';
 import { isApiError, type DatabaseWithVersion } from '../api';
@@ -31,7 +32,7 @@ import {
 import { WithToasts } from './toasts';
 import { useViewActions } from './use-view-actions';
 import { useOnline, useViewer } from './viewer';
-import { pickView, readLastView, rememberView, tabViews, withOverride } from './view-state';
+import { pickView, readLastView, rememberView, tabViews } from './view-state';
 
 /**
  * Layouts that show "No rows yet." and "No rows match." in place of themselves. The others draw
@@ -175,7 +176,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
     (next: ViewOverride | null) => setOwn(next ? { viewId: savedView.id, override: next } : null),
     [savedView.id],
   );
-  const view = withOverride(savedView, override);
+  const view = applyOverride(savedView, override);
   const result = useViewData(meta.id, savedView.id, { override });
   const actions = useViewActions({
     meta,
