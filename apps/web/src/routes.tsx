@@ -10,7 +10,7 @@ import { NotFoundPage } from './shell/NotFoundPage';
 
 // feature: auth
 
-// feature: status
+import { routes as statusRoutes } from './features/status/routes';
 
 // feature: design
 
@@ -49,7 +49,7 @@ import { HomePage } from './HomePage'; // placeholder until the home line takes 
 export const publicRoutes: RouteObject[] = [
   // feature: auth
 
-  // feature: status
+  ...statusRoutes,
 
   // feature: design
   { path: 'design', lazy: () => import('./features/design/route') },
