@@ -87,9 +87,7 @@ describe('useNoticesUnread and useNoticesPreview', () => {
     await waitFor(() => expect(result.current.unread).toBe(1));
     await act(() => live.open());
     await act(async () => {
-      live.last().emit('error');
-    });
-    await act(async () => {
+      live.last().emit('bye', { reason: 'replaced' });
       live.wake();
       await live.open();
     });

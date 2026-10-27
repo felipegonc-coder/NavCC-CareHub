@@ -244,7 +244,9 @@ describe('NoticesChat', () => {
     fireEvent.click(button);
     await waitFor(() => expect(api.server.posts()).toEqual([['/api/notices/read-all', undefined]]));
     await waitFor(() => expect(button).toBeDisabled());
-    expect(screen.queryByText('Unread')).toBeNull();
+    for (const item of screen.getAllByRole('article')) {
+      expect(within(item).queryByText('Unread')).toBeNull();
+    }
   });
 
   it('marks a notice read when one of its links is opened', async () => {

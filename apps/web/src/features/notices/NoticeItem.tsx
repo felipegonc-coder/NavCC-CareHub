@@ -30,6 +30,8 @@ export function NoticeItem({ notice, prefs, tabbable, onFocus, onOpen }: NoticeI
   return (
     <article
       data-notice-id={notice.id}
+      // Arrow keys move between notices as between messages (MS-13), so each notice takes focus.
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={tabbable ? 0 : -1}
       aria-labelledby={`${id}-sender ${id}-title`}
       onFocus={onFocus}
