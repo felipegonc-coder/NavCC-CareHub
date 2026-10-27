@@ -1,12 +1,19 @@
-// /api/push: the server's public key, the person's browsers, a test notification and the
-// notification settings. Every route needs a signed-in person; the auth plugin checks CSRF and
-// Origin on changes. The plugin also pushes new notices (delivery.ts).
+// /api/push: the server's public key, the person's browsers, a test notification, the
+// notification settings and pausing notifications. Every route needs a signed-in person; the auth
+// plugin checks CSRF and Origin on changes.
+import { DEFAULT_TIME_ZONE } from '@carehub/shared';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
 import { readSettings } from '../../core/settings';
-import { NOTICE_CREATED_EVENT } from '../notices';
-import { createPushDelivery, type DeliverySources } from './delivery';
-import { changedPreferences, preferencesPatch } from './domain/preferences';
+import {
+  activePause,
+  changedPreferences,
+  pauseBody,
+  pauseFrom,
+  preferencesPatch,
+  type NotificationPreferences,
+  type NotifyAbout,
+} from './domain/preferences';
 import {
   deviceName,
   subscriptionBody,
@@ -21,21 +28,20 @@ import {
 } from './settings';
 import type { PushNotice } from './payload';
 import { pushToUser } from './service';
-import { deliverySources } from './sources';
 import { createPostgresPushStore } from './store';
 import type { PushStore, PushSubscriptionRecord } from './types';
 
 export interface PushRoutesOptions {
   /** The signed-in person's id, or null (401). Defaults to `request.user?.id`. */
   getUserId?: (request: FastifyRequest) => string | null | undefined;
+  /** Their time zone, for "tomorrow 8:00 AM". Defaults to `request.user?.timeZone`. */
+  getTimeZone?: (request: FastifyRequest) => string | null | undefined;
   /** Defaults to Postgres on `app.db`. */
   store?: PushStore;
   /** Defaults to the PUSH_VAPID_* settings. */
   config?: PushConfig;
   fetch?: typeof fetch;
   now?: () => Date;
-  /** What delivery reads: notices, open tabs and the rules. Defaults to the app's (sources.ts). */
-  sources?: DeliverySources;
 }
 
 /** A browser in Settings → Notifications. Never the endpoint or keys. */
@@ -44,6 +50,14 @@ export interface PushDeviceView {
   device: string;
   createdAt: string;
   lastUsedAt: string;
+}
+
+/** Settings → Notifications. A pause that has ended reads as none. */
+export interface PreferencesView {
+  notifyAbout: NotifyAbout;
+  showText: boolean;
+  /** `until` is an ISO instant, or null: until the person turns notifications back on. */
+  pause: { until: string | null } | null;
 }
 
 /** One test notification per person per this long. */
@@ -66,21 +80,9 @@ const pushRoutes: FastifyPluginAsync<PushRoutesOptions> = async (app, options) =
     options.config ?? resolvePushConfig(readSettings(pushSettingsSchema, { log: app.log }));
   if (!config.enabled) app.log.info(config.message); // For site admins: it says what's missing.
   const getUserId = options.getUserId ?? ((request: FastifyRequest) => request.user?.id);
+  const getTimeZone = options.getTimeZone ?? ((request: FastifyRequest) => request.user?.timeZone);
   const now = options.now ?? (() => new Date());
   const lastTests = new Map<string, number>();
-
-  // A notification for each new notice, sent while Care Hub isn't open.
-  const sources = options.sources ?? (app.hasDecorator('db') ? deliverySources(app.db) : null);
-  if (sources && app.hasDecorator('events')) {
-    const delivery = createPushDelivery(
-      { store, config, fetch: options.fetch ?? fetch, now, log: app.log },
-      sources,
-    );
-    const stop = app.events.on(NOTICE_CREATED_EVENT, async (event) => {
-      await delivery.noticeCreated(event);
-    });
-    app.addHook('onClose', async () => stop());
-  }
 
   function userOf(request: FastifyRequest): string {
     const userId = getUserId(request);
@@ -148,17 +150,39 @@ const pushRoutes: FastifyPluginAsync<PushRoutesOptions> = async (app, options) =
     for (const [id, at] of lastTests) if (time - at >= TEST_COOLDOWN_MS) lastTests.delete(id);
     lastTests.set(userId, time);
     const runtime = { store, config, fetch: options.fetch ?? fetch, now, log: request.log };
-    return pushToUser(runtime, userId, TEST_NOTICE, { urgency: 'high' });
+    return pushToUser(runtime, userId, TEST_NOTICE, { urgency: 'high', evenIfPaused: true });
   });
 
-  app.get('/preferences', async (request) => ({
-    preferences: await store.getPreferences(userOf(request)),
-  }));
+  app.get('/preferences', async (request) => {
+    const preferences = await store.getPreferences(userOf(request));
+    return { preferences: toPreferencesView(preferences, now()) };
+  });
 
   app.patch('/preferences', async (request) => {
     const userId = userOf(request);
     const changes = changedPreferences(preferencesPatch.parse(request.body ?? {}));
-    return { preferences: await store.updatePreferences(userId, changes, now()) };
+    const time = now();
+    const preferences = await store.updatePreferences(userId, changes, time);
+    return { preferences: toPreferencesView(preferences, time) };
+  });
+
+  // "Pause notifications" in Settings → Notifications. Like the other settings, it can be changed
+  // while push is off.
+  app.put('/pause', async (request) => {
+    const userId = userOf(request);
+    const { ends } = pauseBody.parse(request.body ?? {});
+    const time = now();
+    const pause = pauseFrom(ends, time, getTimeZone(request) ?? DEFAULT_TIME_ZONE);
+    const preferences = await store.updatePreferences(userId, { pause }, time);
+    return { preferences: toPreferencesView(preferences, time) };
+  });
+
+  // "Turn back on".
+  app.delete('/pause', async (request) => {
+    const userId = userOf(request);
+    const time = now();
+    const preferences = await store.updatePreferences(userId, { pause: null }, time);
+    return { preferences: toPreferencesView(preferences, time) };
   });
 };
 
@@ -171,4 +195,12 @@ function toDeviceView({
   lastUsedAt,
 }: PushSubscriptionRecord): PushDeviceView {
   return { id, device, createdAt: createdAt.toISOString(), lastUsedAt: lastUsedAt.toISOString() };
+}
+
+function toPreferencesView(
+  { pause, ...settings }: NotificationPreferences,
+  now: Date,
+): PreferencesView {
+  const active = activePause(pause, now);
+  return { ...settings, pause: active && { until: active.until?.toISOString() ?? null } };
 }
