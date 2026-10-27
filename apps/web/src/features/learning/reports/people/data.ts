@@ -1,6 +1,5 @@
 import {
   daysBetween,
-  isoDateInTimeZone,
   PersonTranscriptResponseSchema,
   type CourseStatus,
   type Id,
@@ -9,7 +8,6 @@ import {
 } from '@carehub/learning';
 import { useQuery } from '@tanstack/react-query';
 import { api, apiPath, LEARNING_API, LearningApiError, withQuery } from '../../data';
-import { LEARNING_DAY_ZONE } from '../../data/timeZone';
 import { retryOnce } from '../../player/data';
 
 // The person, team and path reports (docs/learning/api.md): a person's learning record, GET
@@ -95,10 +93,6 @@ export function formatMinutes(seconds: number): string {
 /** A whole percentage, "92%", or null without one. */
 export const formatPercent = (value: number | null): string | null =>
   value === null ? null : `${Math.round(value)}%`;
-
-/** Today in `LEARNING_DAY_ZONE` (decision 0317), for days overdue: the same day for everyone. */
-export const learningToday = (now = new Date()): IsoDate =>
-  isoDateInTimeZone(now.toISOString(), LEARNING_DAY_ZONE);
 
 /** Days past the due date of an unfinished course on `today`, or 0. */
 export function daysLate(

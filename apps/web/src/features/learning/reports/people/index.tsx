@@ -1,8 +1,8 @@
-import { IdSchema, type Id } from '@carehub/learning';
+import { IdSchema, learningToday, type Id } from '@carehub/learning';
 import { useParams } from 'react-router';
 import { LEARNING_DAY_ZONE, useProfileTimeZone } from '../../data/timeZone';
 import { ScreenLoading } from '../../player/ScreenMessage';
-import { learningToday, usePersonTranscript } from './data';
+import { usePersonTranscript } from './data';
 import { ReportFailed, ReportNotFound } from './parts';
 import { TranscriptView } from './Transcript';
 
