@@ -10,15 +10,7 @@ import { sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Tx } from '../../db';
 import { notFound } from './errors';
-import {
-  accept,
-  allow,
-  answerFor,
-  databasePage,
-  hiddenProperties,
-  signedIn,
-  versionOf,
-} from './http';
+import { accept, allow, answerFor, databasePage, signedIn, versionOf, viewEditor } from './http';
 import {
   newViewRequest,
   versionRequest,
@@ -74,16 +66,20 @@ async function revokeLinkCodes(tx: Tx, databaseId: Id, viewIds: readonly Id[]): 
 export function registerViewRoutes(app: FastifyInstance): void {
   const edit = { preHandler: app.requirePageAccess('edit') };
 
-  // A new view with its layout's defaults, or a dashboard tile; a form gets its link code.
+  // A new view with its layout's defaults, or a dashboard tile; a form gets its link code, and its
+  // first question (Name) is the person's.
   app.post('/:id/views', edit, async (request) => {
     const page = databasePage(request);
+    const user = signedIn(request);
     const { version, ...input } = accept(parseRequest(newViewRequest, request.body));
     let viewId = '';
     const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
       allow('edit_views', page.level, current.locked);
-      if (input.layout === 'form') allow('edit_forms', page.level, current.locked);
-      const linkCode = input.layout === 'form' ? newLinkCode() : undefined;
-      const plan = planNewView(current, { ...input, linkCode });
+      const form = input.layout === 'form';
+      if (form) allow('edit_forms', page.level, current.locked);
+      const linkCode = form ? newLinkCode() : undefined;
+      const editor = form ? await viewEditor(tx, user.id, current, page.level) : undefined;
+      const plan = planNewView(current, { ...input, linkCode }, editor);
       await keepLinkCode(tx, current.id, plan.view);
       viewId = plan.view.id;
       return { views: plan.views };
@@ -92,7 +88,8 @@ export function registerViewRoutes(app: FastifyInstance): void {
   });
 
   // Any settings but the view's id, dashboard and manual order. A form's gates (who answers,
-  // anonymous, open or closed) take Full access and aren't stopped by Lock structure.
+  // anonymous, open or closed) take Full access and aren't stopped by Lock structure; a question
+  // only goes on a property the person can change.
   app.patch('/:id/views/:vid', edit, async (request) => {
     const page = databasePage(request);
     const user = signedIn(request);
@@ -104,8 +101,8 @@ export function registerViewRoutes(app: FastifyInstance): void {
       if (Object.keys(patch).some((key) => key !== 'form')) {
         allow('edit_views', page.level, current.locked);
       }
-      const hidden = await hiddenProperties(tx, user.id, current);
-      const plan = planEditView(current, viewId, patch, { userId: user.id, hidden });
+      const editor = await viewEditor(tx, user.id, current, page.level);
+      const plan = planEditView(current, viewId, patch, editor);
       if (plan.structure) allow('edit_views', page.level, current.locked);
       if (plan.structure && plan.view.form) allow('edit_forms', page.level, current.locked);
       if (plan.formAccess) allow('manage_form_access', page.level, current.locked);
@@ -130,15 +127,18 @@ export function registerViewRoutes(app: FastifyInstance): void {
     return answerFor(app.db, request, record, page.level);
   });
 
-  // A copy with every setting right after the view; a form's copy gets a new link.
+  // A copy with every setting right after the view; a form's copy gets a new link, and its
+  // questions are the person's (each on a property they can change).
   app.post('/:id/views/:vid/duplicate', edit, async (request) => {
     const page = databasePage(request);
+    const user = signedIn(request);
     const viewId = viewIdOf(request);
     const { version } = accept(parseRequest(versionRequest, request.body));
     let copyId = '';
     const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
       allow('edit_views', page.level, current.locked);
-      const plan = planDuplicateView(current, viewId, newLinkCode());
+      const editor = await viewEditor(tx, user.id, current, page.level);
+      const plan = planDuplicateView(current, viewId, { linkCode: newLinkCode(), editor });
       if (plan.view.form) allow('edit_forms', page.level, current.locked);
       if (hasOpenFormAccess(plan.view)) allow('manage_form_access', page.level, current.locked);
       await keepLinkCode(tx, current.id, plan.view);

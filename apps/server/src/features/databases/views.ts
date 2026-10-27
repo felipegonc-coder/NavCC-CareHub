@@ -11,6 +11,7 @@ import {
   uniqueViewName,
   type Aggregate,
   type FormDefinition,
+  type FormQuestion,
   type Id,
   type Property,
   type View,
@@ -38,6 +39,7 @@ export const VIEW_MESSAGES = {
   calculation: "This calculation doesn't fit its property.",
   date: 'Choose a date property.',
   files: 'Choose a Files & media property.',
+  mapping: 'A question can only use a property you can change.',
 } as const;
 
 /** Layouts a view can switch between (a form keeps its link and a dashboard its tiles). */
@@ -104,8 +106,12 @@ export interface NewViewPlan {
   views: View[];
 }
 
-/** A new view with the package's defaults for its layout. */
-export function planNewView(current: DatabaseRecord, input: NewViewInput): NewViewPlan {
+/** A new view with the package's defaults for its layout; a form's questions are `editor`'s. */
+export function planNewView(
+  current: DatabaseRecord,
+  input: NewViewInput,
+  editor?: ViewEditor,
+): NewViewPlan {
   if (current.views.length >= LIMITS.views) throw invalid(VIEW_MESSAGES.tooMany);
   const dashboard =
     input.dashboardId === undefined ? null : findView(current.views, input.dashboardId);
@@ -123,8 +129,9 @@ export function planNewView(current: DatabaseRecord, input: NewViewInput): NewVi
     name,
     databaseTitle: current.title,
   });
-  if (view.form && input.linkCode !== undefined) {
-    view.form = { ...view.form, linkCode: input.linkCode, linkChangedAt: null };
+  if (view.form) {
+    const linkCode = input.linkCode ?? view.form.linkCode;
+    view.form = savedForm(undefined, { ...view.form, linkCode, linkChangedAt: null }, editor);
   }
   if (input.layout === 'dashboard') view.dashboard = { widgets: [] };
   let views = [...current.views];
@@ -195,11 +202,58 @@ export interface EditViewPlan {
   formResponses: boolean;
 }
 
-/** Who is changing a view: the person, and the properties they can't see. */
+/** Who is changing a view: the person, what they can't see, and the properties they can change. */
 export interface ViewEditor {
   userId: Id;
   hidden: ReadonlySet<Id>;
+  /** Whether they can change this property's values (the package's canChangeProperty). */
+  canChange: (propertyId: Id) => boolean;
 }
+
+/** A question without the fields the server keeps (as a client sends it, or a viewer sees it). */
+export function asSent(question: FormQuestion): FormQuestion {
+  const out = { ...question };
+  delete out.mappedBy;
+  delete out.mapperLostAccess;
+  return out;
+}
+
+/**
+ * A form as it's saved. Who mapped each question is kept by the server: a new question, or one
+ * moved to another property, needs an editor who can change that property (403 otherwise) and
+ * becomes theirs. An edited question becomes the editor's when they can change its property and
+ * otherwise keeps its mapper; unchanged ones keep theirs, flag included. What a client sends for
+ * these is ignored. A form anyone can fill in is always anonymous.
+ */
+export function savedForm(
+  before: FormDefinition | undefined,
+  next: FormDefinition,
+  editor: ViewEditor | undefined,
+): FormDefinition {
+  if (!editor) throw new Error('A form is saved by someone.');
+  const saved = new Map((before?.questions ?? []).map((q) => [q.propertyId, q]));
+  const questions = next.questions.map((sent): FormQuestion => {
+    const question = asSent(sent);
+    const old = saved.get(question.propertyId);
+    const theirs = editor.canChange(question.propertyId);
+    if (!old && !theirs) throw forbidden(VIEW_MESSAGES.mapping);
+    if (!old || (theirs && !isDeepStrictEqual(asSent(old), question))) {
+      return { ...question, mappedBy: editor.userId };
+    }
+    const kept: FormQuestion = { ...question };
+    if (old.mappedBy !== undefined) kept.mappedBy = old.mappedBy;
+    if (old.mapperLostAccess !== undefined) kept.mapperLostAccess = old.mapperLostAccess;
+    return kept;
+  });
+  return { ...next, questions, anonymous: next.anonymous || next.audience === 'anyone' };
+}
+
+/** A copied database's form: its questions are all the person copying's. */
+export const formCopiedBy = (form: FormDefinition, userId: Id): FormDefinition => ({
+  ...form,
+  questions: form.questions.map((q) => ({ ...asSent(q), mappedBy: userId })),
+  anonymous: form.anonymous || form.audience === 'anyone',
+});
 
 /** The form takes guests' or anyone's responses, or anonymous ones: setting that takes Full access. */
 export const hasOpenFormAccess = (view: View): boolean =>
@@ -210,8 +264,9 @@ export const hasOpenFormAccess = (view: View): boolean =>
  * Changing a view. Columns and totals of properties the person can't see stay as saved, and a view
  * that uses one (a filter, sort, grouping and so on) can only be renamed by them. Changed settings
  * are checked against the database's properties. A form's link stays as it is ("Change link" is
- * the forms API's), and of the people notified about responses, a person can add or take out only
- * themselves. A view can switch layouts, except to or from a form or a dashboard.
+ * the forms API's), of the people notified about responses a person can add or take out only
+ * themselves, and savedForm keeps who mapped each question. A view can switch layouts, except to or
+ * from a form or a dashboard.
  */
 export function planEditView(
   current: DatabaseRecord,
@@ -269,6 +324,7 @@ export function planEditView(
     };
   }
   checkView(current, before, next, patch);
+  if (next.form) next.form = savedForm(before.form, next.form, editor);
   const form = next.form;
   const was = before.form;
   return {
@@ -427,13 +483,14 @@ export interface DuplicateViewPlan {
 
 /**
  * Duplicating a view with every setting, named "Board 2" and so on, right after it. A dashboard's
- * tiles are copied too; a tile's copy joins the same dashboard. A form's copy gets `linkCode` and
- * notifies no one until people ask.
+ * tiles are copied too; a tile's copy joins the same dashboard. A form's copy gets `linkCode`,
+ * notifies no one until people ask, and its questions are the person copying's: each needs a
+ * property they can change.
  */
 export function planDuplicateView(
   current: DatabaseRecord,
   viewId: Id,
-  linkCode?: string,
+  form?: { linkCode: string; editor: ViewEditor },
 ): DuplicateViewPlan {
   const source = findView(current.views, viewId);
   const tiles =
@@ -448,7 +505,8 @@ export function planDuplicateView(
     ),
   };
   if (copy.form) {
-    copy.form = { ...copy.form, linkCode: linkCode ?? '', linkChangedAt: null, notifyUserIds: [] };
+    const fresh = { linkCode: form?.linkCode ?? '', linkChangedAt: null, notifyUserIds: [] };
+    copy.form = savedForm(undefined, { ...copy.form, ...fresh }, form?.editor);
   }
   let views = [...current.views];
   const copies: View[] = [];

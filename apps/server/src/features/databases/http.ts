@@ -2,7 +2,7 @@
 // database page requirePageAccess found, permission checks with the Lock structure message, and the
 // answer of GET /:id and every settings write (the database as this person may see it).
 import type { DatabaseGrant, Id } from '@carehub/databases';
-import { atLeast, can, type DbAction } from '@carehub/databases/access';
+import { atLeast, can, canChangeProperty, type DbAction } from '@carehub/databases/access';
 import { parseRequest, type RequestResult } from '@carehub/databases/schemas';
 import type { FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
@@ -13,6 +13,7 @@ import { databaseMeta, mentionedPageIds, visibleIds, type DatabaseAnswer } from 
 import type { DatabaseRecord } from './record';
 import { versionRequest } from './requests';
 import { loadPropertyViewer, loadRelatedProperties, type Executor } from './store';
+import type { ViewEditor } from './views';
 
 /** The checked body, or 400 with the fixed message. */
 export function accept<T>(result: RequestResult<T>): T {
@@ -79,4 +80,28 @@ export async function hiddenProperties(
   const related = await loadRelatedProperties(db, record.properties);
   const visible = visibleIds(record.properties, viewer, related);
   return new Set(record.properties.map((p) => p.id).filter((id) => !visible.has(id)));
+}
+
+/**
+ * The person changing a view where they have `level`: the properties they can't see, and the ones
+ * whose values they can change (a form question needs one of those).
+ */
+export async function viewEditor(
+  db: Executor,
+  userId: string,
+  record: DatabaseRecord,
+  level: DatabaseGrant,
+): Promise<ViewEditor> {
+  const viewer = await loadPropertyViewer(db, userId, record.workspaceId);
+  const related = await loadRelatedProperties(db, record.properties);
+  const visible = visibleIds(record.properties, viewer, related);
+  const access = level === 'rows_only' ? 'view' : level;
+  const changeable = new Set(
+    record.properties.filter((p) => canChangeProperty(p, viewer, access)).map((p) => p.id),
+  );
+  return {
+    userId,
+    hidden: new Set(record.properties.map((p) => p.id).filter((id) => !visible.has(id))),
+    canChange: (id) => changeable.has(id),
+  };
 }

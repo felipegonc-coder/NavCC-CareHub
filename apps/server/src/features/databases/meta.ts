@@ -1,8 +1,8 @@
 // DatabaseMeta as one person may see it (decision 0200, "Who can do what"): their level, only the
 // properties they can see (formulas and rollups that read hidden ones are hidden too, across
 // relations), views and templates without hidden properties, row access rules for Full access only,
-// form links for people who can edit, and no titles of mentioned pages they can't open. Pure, so
-// GET /:id and every settings write answer the same way.
+// form links and mappers for people who can edit, and no titles of mentioned pages they can't open.
+// Pure, so GET /:id and every settings write answer the same way.
 import type {
   CardPreview,
   DatabaseGrant,
@@ -24,6 +24,7 @@ import { visiblePropertyIds } from '@carehub/databases/engine';
 import { formulaDependencies } from '@carehub/databases/formula';
 import { liveDeleted } from './properties';
 import { iconText, type DatabaseRecord } from './record';
+import { asSent } from './views';
 
 /** A deleted property people who can edit may restore (Properties → Deleted), without values. */
 export type DeletedPropertyInfo = { property: Property; deletedAt: string };
@@ -98,11 +99,14 @@ function usesHidden(node: FilterNode, hidden: ReadonlySet<Id>): boolean {
  * A view without the properties this person can't see: no columns, filter conditions, sorts,
  * groupings, calculations, color rules, card previews or date and chart settings that use them.
  * (Their queries are blocked anyway; this keeps the hidden properties out of the settings too.)
- * A form keeps its questions (a form shows only its own); its link code is for people who can edit.
+ * A form keeps its questions (a form shows only its own); its link code, and who mapped each
+ * question, are for people who can edit.
  */
 export function viewForViewer(view: View, hidden: ReadonlySet<Id>, canEdit: boolean): View {
   const out: View = { ...view };
-  if (view.form && !canEdit) out.form = { ...view.form, linkCode: '' };
+  if (view.form && !canEdit) {
+    out.form = { ...view.form, linkCode: '', questions: view.form.questions.map(asSent) };
+  }
   if (hidden.size === 0) return out;
   const shown = (id: Id | null | undefined): boolean => !id || !hidden.has(id);
   const keep = <T extends { propertyId: Id }>(list: readonly T[]): T[] =>
