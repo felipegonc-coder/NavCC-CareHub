@@ -189,13 +189,20 @@ describe('copyPictureFromUrl', () => {
       mimeType: 'image/png',
       url: '/api/files/0b0c7f39-5d9e-4c55-9e57-3f4f3a1e2d10',
     };
-    const fetch = vi.fn(async (_path: string, _init: RequestInit) => json(copied, 201));
-    vi.stubGlobal('fetch', fetch);
+    const sent: Array<{ path: string; init?: RequestInit }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string, init?: RequestInit) => {
+        sent.push({ path, init });
+        return json(copied, 201);
+      }),
+    );
     document.cookie = 'carehub_csrf=fictional-token; path=/';
 
     const url = 'https://pictures.example/harbour.png';
     expect(await copyPictureFromUrl(url, { scope: 'learning:course-1' })).toEqual(copied);
-    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(sent).toHaveLength(1);
+    const [{ path, init } = { path: '' }] = sent;
     expect(path).toBe('/api/files/from-url');
     expect(init?.method).toBe('POST');
     expect(JSON.parse(String(init?.body))).toEqual({ url, scope: 'learning:course-1' });
