@@ -12,4 +12,4 @@ export * from './crop';
 
 // media: embed publish check
 
-export * from './interactive';
+// media: interactive blocks
