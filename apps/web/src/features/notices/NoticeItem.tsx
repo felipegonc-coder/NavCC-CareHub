@@ -68,7 +68,7 @@ export function NoticeItem({ notice, prefs, tabbable, onFocus, onOpen }: NoticeI
 }
 
 const cardClasses =
-  'mt-2 flex max-w-md items-center gap-2 rounded border border-border px-3 py-2 text-small';
+  'mt-2 flex max-w-dialog items-center gap-2 rounded border border-border px-3 py-2 text-small';
 
 function NoticeCard({ card, onOpen }: { card: NoticeCardView; onOpen: () => void }) {
   if (card.state !== 'open') {
