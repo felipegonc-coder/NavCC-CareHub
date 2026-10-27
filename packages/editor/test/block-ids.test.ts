@@ -102,6 +102,29 @@ describe('block IDs', () => {
     expect(idOf(editor, 'Medication round')).toBe(id);
   });
 
+  it('gives a heading made on an empty page its ID before anything is typed in it', async () => {
+    const ydoc = new Y.Doc();
+    editor = await createTestEditor({ ydoc });
+    typeText(editor, '## ');
+    expect(editor.state.doc.firstChild?.type.name).toBe('heading');
+    const id = editor.state.doc.firstChild?.attrs.blockId;
+    expect(id).toMatch(UUID);
+    typeText(editor, 'Shift handover');
+    expect(lines(editor)[0]).toEqual(['Shift handover', id]);
+    // The Y.Doc has it too, so every editor shows the same ID.
+    const stored = ydoc.getXmlFragment(PAGE_FIELD).get(0);
+    expect(stored instanceof Y.XmlElement ? stored.getAttribute('blockId') : null).toBe(id);
+  });
+
+  it('gives a code block made on an empty page its ID at once', async () => {
+    editor = await createTestEditor();
+    editor.commands.setCodeBlock();
+    const id = editor.state.doc.firstChild?.attrs.blockId;
+    expect(id).toMatch(UUID);
+    typeText(editor, 'const ward = 4;');
+    expect(lines(editor)[0]).toEqual(['const ward = 4;', id]);
+  });
+
   it('gives pasted blocks new IDs, whatever IDs the HTML has', async () => {
     editor = await createTestEditor();
     typeText(editor, 'Intake');

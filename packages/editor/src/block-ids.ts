@@ -122,6 +122,13 @@ function keeper(
   return stayed ?? holders[0];
 }
 
+/** A page as it is made: one empty line with no ID. */
+function isUntouched(doc: ProseMirrorNode): boolean {
+  if (doc.childCount !== 1 || doc.content.size !== 2) return false;
+  const empty = doc.type.createAndFill();
+  return empty !== null && doc.eq(empty);
+}
+
 /**
  * Gives IDs to the blocks your own changes made or touched: new blocks get new IDs, and so does
  * every copy (pasted blocks, the copy in a duplicate, the second part of a split line). A block
@@ -136,9 +143,10 @@ function fillBlockIds(
   const isFromYjs = fromYjs(state);
   if (!transactions.some((tr) => tr.docChanged && !isFromYjs(tr))) return null;
   const { doc } = state;
-  // An empty page's line gets its ID with the first thing typed.
-  const only = doc.childCount === 1 ? doc.firstChild : null;
-  if (only?.isTextblock && only.content.size === 0) return null;
+  // A page nobody has changed yet keeps its empty line without an ID, so it writes nothing to the
+  // Y.Doc. Any other change gets its IDs at once: a heading or code block made on an empty page
+  // has one before anything is typed in it.
+  if (isUntouched(before) && isUntouched(doc)) return null;
 
   // The ranges your changes touched, in today's positions, and the way back to the old ones.
   const ranges: { from: number; to: number }[] = [];

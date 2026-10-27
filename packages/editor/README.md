@@ -163,12 +163,13 @@ and search use it.
 - Lines are paragraphs, headings and code blocks, also in lists, to-do items and quotes; one-piece
   blocks are dividers and atom blocks, like a lane's database. Lists, list items and quotes have
   no ID of their own (a list item goes by its first line), so Turn into keeps the ID.
-- Your editor fills IDs in for your own changes; a read-only editor adds none, and an empty page's
-  line gets one with the first thing typed. A new block gets a new ID, and so does a copy: pasted
-  blocks (IDs are never read from HTML, so cut and paste is a copy too), the copy in a duplicate
-  and the second part of a split line (Enter at the start leaves the ID with the text). Turn into,
-  Markdown shortcuts, drag and drop and undo keep IDs. A block loaded without one gets it when you
-  edit it.
+- Your editor fills IDs in for your own changes; a read-only editor adds none. A page nobody has
+  changed yet (one empty line) gets its first ID with the first change, so opening a page writes
+  nothing, and a block made on an empty page has its ID before you type in it. A new block gets a
+  new ID, and so does a copy: pasted blocks (IDs are never read from HTML, so cut and paste is a
+  copy too), the copy in a duplicate and the second part of a split line (Enter at the start leaves
+  the ID with the text). Turn into, Markdown shortcuts, drag and drop and undo keep IDs. A block
+  loaded without one gets it when you edit it.
 - `@carehub/editor/schema` has `blockIdAt(doc, pos)` (the block a position belongs to),
   `findBlock(doc, blockId)` (`{ node, pos }` or null) and `withBlockIds(json)`, for content made
   outside an editor (import, templates, the API).
