@@ -27,9 +27,10 @@ export async function fileTypeOf(
 }
 
 /**
- * Checks a file written to `tempPath` by its contents (unless its `type` is already known), then moves it into place and records it in `db`,
- * which may be the caller's transaction. Programs are refused whatever they're called (Data settings,
- * DS-06), and the type comes from the contents. When the row can't be saved, the bytes go too.
+ * Checks a file written to `tempPath` by its contents (unless its `type` is known already), then moves
+ * it into place and records it in `db`, which may be the caller's transaction. Programs are refused
+ * whatever they're called (Data settings, DS-06), and the type comes from the contents. When the row
+ * can't be saved, the bytes go too.
  */
 export async function keepFile(
   db: Db | Tx,
