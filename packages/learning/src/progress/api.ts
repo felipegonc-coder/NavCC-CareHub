@@ -16,6 +16,9 @@ import type { LearnerCourseState, ProgressRejectReason } from './types';
 /** Most events one POST /courses/:id/events may carry. */
 export const MAX_EVENTS_PER_REQUEST = 200;
 
+/** Most events stored for one learner and course; after that the server answers 422. */
+export const MAX_EVENTS_PER_LEARNER_COURSE = 20_000;
+
 /**
  * POST /courses/:id/events. Events stay `unknown` here: the server checks each one on its own
  * (`checkProgressEvents`) and refuses a bad one as invalid_event instead of failing the batch.
@@ -25,6 +28,13 @@ export const ProgressEventsRequestSchema = z.strictObject({
   events: z.array(z.unknown()).min(1).max(MAX_EVENTS_PER_REQUEST),
 });
 export type ProgressEventsRequest = z.infer<typeof ProgressEventsRequestSchema>;
+
+/**
+ * POST /courses/:id/quizzes/:lessonId/attempts: the browser's clock now, so the server-made start
+ * sorts among the learner's own events (see quizAttemptStart).
+ */
+export const QuizAttemptStartRequestSchema = z.strictObject({ at: IsoDateTimeSchema });
+export type QuizAttemptStartRequest = z.infer<typeof QuizAttemptStartRequestSchema>;
 
 /** POST /people/:personId/courses/:courseId/reset and .../complete (learning.analytics). */
 export const ProgressNoteRequestSchema = z.strictObject({
@@ -44,7 +54,6 @@ const REJECT_REASONS = [
   'not_ready',
   'minimum_time',
   'continue_blocks',
-  'bad_response',
   'already_answered',
   'bad_choices',
   'no_attempts_left',
@@ -53,6 +62,7 @@ const REJECT_REASONS = [
   'unknown_attempt',
   'not_required',
   'bad_statement',
+  'server_only',
 ] as const satisfies readonly ProgressRejectReason[];
 
 /** Read straight from what was sent, cut to 100 characters, so not always a valid id or time. */
@@ -134,8 +144,7 @@ const KnowledgeCheckProgressSchema = z.strictObject({
   blockId: IdSchema,
   answers: z.number().int().min(1),
   firstCorrect: z.boolean(),
-  response: QuestionResponseSchema,
-  result: QuestionResultSchema,
+  lastCorrect: z.boolean(),
   firstAnsweredAt: IsoDateTimeSchema,
   lastAnsweredAt: IsoDateTimeSchema,
 });
