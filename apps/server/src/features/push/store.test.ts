@@ -142,13 +142,39 @@ function describeStore(name: string, open: () => Promise<Opened>) {
       expect(await store.updatePreferences(avery, { showText: false }, t(1))).toEqual({
         notifyAbout: 'all',
         showText: false,
+        pause: null,
       });
       await store.updatePreferences(avery, { notifyAbout: 'mentions' }, t(2));
       expect(await store.getPreferences(avery)).toEqual({
         notifyAbout: 'mentions',
         showText: false,
+        pause: null,
       });
       expect(await store.getPreferences(sam)).toEqual(DEFAULT_PREFERENCES);
+    });
+
+    it('keeps a pause until it is changed or turned off', async () => {
+      const { store, avery, sam } = await setup();
+      const pause = { until: t(60) };
+      expect(await store.updatePreferences(avery, { pause }, t(1))).toEqual({
+        ...DEFAULT_PREFERENCES,
+        pause,
+      });
+      await store.updatePreferences(avery, { showText: false }, t(2));
+      expect(await store.getPreferences(avery)).toEqual({
+        notifyAbout: 'all',
+        showText: false,
+        pause,
+      });
+      await store.updatePreferences(avery, { pause: { until: null } }, t(3));
+      expect((await store.getPreferences(avery)).pause).toEqual({ until: null });
+      await store.updatePreferences(avery, { pause: null }, t(4));
+      expect((await store.getPreferences(avery)).pause).toBeNull();
+      await store.updatePreferences(sam, { pause: { until: null } }, t(5));
+      expect(await store.getPreferences(sam)).toEqual({
+        ...DEFAULT_PREFERENCES,
+        pause: { until: null },
+      });
     });
   });
 }

@@ -6,6 +6,9 @@ import {
   daysBetween,
   isIsoDate,
   isoDateInTimeZone,
+  LEARNING_DAY_ZONE,
+  learningToday,
+  profileZone,
 } from './index';
 
 describe('isIsoDate', () => {
@@ -137,5 +140,29 @@ describe('isoDateInTimeZone', () => {
     expect(() => isoDateInTimeZone('2026-10-27T03:00:00Z', 'Mars/Olympus_Mons')).toThrow(
       RangeError,
     );
+  });
+});
+
+describe('learningToday', () => {
+  it('is the day in America/Denver: just after midnight UTC it is still the day before', () => {
+    expect(LEARNING_DAY_ZONE).toBe('America/Denver');
+    expect(learningToday(new Date('2026-10-28T00:05:00Z'))).toBe('2026-10-27');
+    expect(learningToday(new Date('2026-10-28T05:59:59Z'))).toBe('2026-10-27');
+    expect(learningToday(new Date('2026-10-28T06:00:00Z'))).toBe('2026-10-28');
+    expect(learningToday(new Date('2026-12-01T00:05:00Z'))).toBe('2026-11-30');
+    expect(learningToday(new Date('2026-12-01T07:00:00Z'))).toBe('2026-12-01');
+  });
+});
+
+describe('profileZone', () => {
+  it('keeps a time zone Intl accepts', () => {
+    expect(profileZone('Asia/Tokyo')).toBe('Asia/Tokyo');
+    expect(profileZone('UTC')).toBe('UTC');
+  });
+
+  it('falls back to the Learning day zone for a bad, empty or missing zone', () => {
+    for (const zone of ['Mars/Olympus_Mons', 'not a zone', '', null, undefined]) {
+      expect(profileZone(zone)).toBe('America/Denver');
+    }
   });
 });

@@ -13,7 +13,19 @@ import {
   type CommentView,
   type CreateCommentInput,
 } from '@carehub/shared';
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { users } from '../auth/schema';
@@ -334,4 +346,39 @@ export async function setThreadResolved(
     )
     .returning();
   return changed ?? thread;
+}
+
+/**
+ * For live editing: may `userId` take the comment marks of `threadIds` off the page's text, on a
+ * connection that can only comment? Only as far as they could remove those threads: every comment
+ * still in each one is theirs, or they have Full access. IDs that aren't threads on the page are
+ * fine (nothing is left to keep), since a deleted thread's mark comes off after it's gone.
+ */
+export async function mayRemoveThreads(
+  db: Executor,
+  userId: string,
+  pageId: string,
+  threadIds: Iterable<string>,
+): Promise<boolean> {
+  const page = await pageAccess(db, userId, pageId);
+  if (!page || !atLeast(page.level, 'comment')) return false;
+  if (atLeast(page.level, 'full')) return true;
+  const ids = [...new Set([...threadIds].filter(isUuid).map((id) => id.toLowerCase()))];
+  if (ids.length === 0) return true;
+  // More than a page can have at once: refused, so one check stays small.
+  if (ids.length > MAX_THREADS_PER_PAGE) return false;
+  const [someoneElses] = await db
+    .select({ id: comments.id })
+    .from(comments)
+    .innerJoin(commentThreads, eq(commentThreads.id, comments.threadId))
+    .where(
+      and(
+        eq(commentThreads.pageId, pageId),
+        inArray(commentThreads.id, ids),
+        isNull(comments.deletedAt),
+        ne(comments.authorId, userId),
+      ),
+    )
+    .limit(1);
+  return someoneElses === undefined;
 }
