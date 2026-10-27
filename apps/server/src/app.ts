@@ -6,6 +6,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import type { Config } from './config';
 import { DEFAULT_ERROR_MESSAGES, errorBody, errorHandler } from './core/errors';
 import { registerEvents } from './core/events';
+import { securityHeaders } from './core/security';
 import { databasePlugin } from './db';
 import { authPlugin } from './features/auth/plugin';
 
@@ -24,6 +25,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // Errors are { error: { code, message } } (decision 0007, section 2.2).
   app.setErrorHandler(errorHandler);
+  // The Content-Security-Policy and the other security headers, on every response (0007, 4.3).
+  await app.register(securityHeaders, { publicUrl: config.CAREHUB_PUBLIC_URL });
   await app.register(databasePlugin, { databaseUrl: config.DATABASE_URL });
   // Every /api route after this needs a signed-in user unless it sets config: { public: true }.
   await app.register(authPlugin, {

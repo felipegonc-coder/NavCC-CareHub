@@ -8,7 +8,9 @@ emulation). For each one the test
 - checks that the page loads without uncaught errors, has exactly one `<main>` and a title that
   starts with "Care Hub",
 - runs axe with the WCAG 2.1 A and AA rules (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) and
-  expects no violations.
+  expects no violations,
+- expects that the server's Content-Security-Policy blocks nothing on the screen (no inline
+  scripts, eval, `blob:` workers, or frames and connections to sites it doesn't allow).
 
 [`health.api.e2e.ts`](health.api.e2e.ts) checks that `GET /api/health` answers `status: "ok"`
 (once, in `desktop-light`). Fix accessibility problems in the markup; do not turn axe rules off
