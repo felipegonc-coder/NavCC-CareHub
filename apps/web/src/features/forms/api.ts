@@ -3,7 +3,7 @@
  * response, signed in (`/api/forms/:code`); plus the people and row searches of Person and
  * Relation questions and file uploads. Forms anyone on the network can fill in without signing in
  * (`/api/forms/public/:code`) wait for the security review, so they aren't built here yet.
- * Requests go through the database shell's `fetchJson` until lib/api lands.
+ * Requests go through lib/api, which adds the CSRF header to changes (decision 0007 section 3.1).
  * Screens get the client from FormsClientProvider; tests pass mockFormsClient() (test-utils.tsx).
  */
 import { createContext, createElement, useContext, type ReactNode } from 'react';
@@ -17,12 +17,14 @@ import type {
 } from '@carehub/databases';
 import { DEFAULT_TIME_ZONE } from '@carehub/databases';
 import type { FormGate, Respondent } from '@carehub/databases/forms';
+import { api } from '../../lib/api';
 import {
   ApiError,
-  fetchJson,
   isApiError,
+  OFFLINE_MESSAGE,
   UNKNOWN_ERROR_MESSAGE,
   type FormAnswers,
+  type HttpMethod,
   type Ok,
   type RequestJson,
   type RowPick,
@@ -162,7 +164,23 @@ export function parseFillForm(raw: unknown): FillForm {
 
 const seg = encodeURIComponent;
 
-export function createFormsClient(request: RequestJson = fetchJson): FormsClient {
+/** One request through lib/api: the session cookie, JSON and, on changes, the CSRF header. */
+export const apiRequest: RequestJson = <T>(method: HttpMethod, path: string, body?: unknown) => {
+  switch (method) {
+    case 'GET':
+      return api.get<T>(path);
+    case 'POST':
+      return api.post<T>(path, body);
+    case 'PUT':
+      return api.put<T>(path, body);
+    case 'PATCH':
+      return api.patch<T>(path, body);
+    case 'DELETE':
+      return api.delete<T>(path, body);
+  }
+};
+
+export function createFormsClient(request: RequestJson = apiRequest): FormsClient {
   return {
     getForm: async (code) =>
       parseFillForm(await request<unknown>('GET', `/api/forms/${seg(code)}`)),
@@ -173,6 +191,12 @@ export function createFormsClient(request: RequestJson = fetchJson): FormsClient
       request<RowPick[]>('GET', `/api/databases/${seg(databaseId)}/rows/pick?q=${seg(q)}`),
     uploadFile: (file, options) => uploadWithProgress(file, options),
   };
+}
+
+/** What to tell the person when a request fails: offline, the server's message, or a general one. */
+export function problemText(error: unknown): string {
+  if (!isApiError(error)) return UNKNOWN_ERROR_MESSAGE;
+  return error.status === 0 ? OFFLINE_MESSAGE : error.message;
 }
 
 /** What opening a form link gives: the form, or the sign-in screen first. */

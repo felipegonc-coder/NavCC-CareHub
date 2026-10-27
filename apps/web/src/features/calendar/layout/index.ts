@@ -17,3 +17,24 @@ export type { HourMark, TimedPlacement, TimeGridOptions } from './timeGrid';
 export { hourAxis, initialScrollMinutes, layoutTimeGrid, nowPosition } from './timeGrid';
 export type { LaneOptions, LaneRow, LaneSegment, MonthLayout, MonthWeekLayout } from './lanes';
 export { itemsByDate, layoutAllDayRow, layoutMonth } from './lanes';
+export type { GridGeometry, GridPoint, Shift, Slot } from './interaction';
+export {
+  allDayOn,
+  dragMove,
+  dragResize,
+  moveItem,
+  nextHalfHour,
+  resizeItem,
+  slotAt,
+  snapMinutes,
+  timedAt,
+} from './interaction';
+export type { EditStep, FocusEntry, FocusMove, GridKeyAction, KeyPress } from './keyboard';
+export {
+  applyEdit,
+  gridKeyAction,
+  monthFocusOrder,
+  moreKey,
+  moveFocus,
+  weekFocusOrder,
+} from './keyboard';

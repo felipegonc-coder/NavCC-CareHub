@@ -75,6 +75,9 @@ export const buttonActionSchema = z.discriminatedUnion('kind', [
     to: z.strictObject({
       userIds: idListSchema(LIMITS.buttonMessagePeople),
       propertyIds: idListSchema(LIMITS.properties),
+      groupIds: idListSchema(REQUEST_LIMITS.principals).exactOptional(),
+      roleIds: idListSchema(REQUEST_LIMITS.principals).exactOptional(),
+      everyone: z.boolean().exactOptional(),
     }),
     message: textSchema(REQUEST_LIMITS.message),
   }),

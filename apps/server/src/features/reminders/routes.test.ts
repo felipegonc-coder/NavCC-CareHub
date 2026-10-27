@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createTestApp,
@@ -9,13 +10,22 @@ import {
 } from '../../testing';
 import { drainJobsForTest } from '../jobs/testing';
 import { bindMemoryNotices } from '../notices/testing';
-import remindersRoutes, { STAND_IN_WORKSPACE_ID } from './routes';
-import { createEventReminder, deleteEventReminders, syncEventReminders } from './service';
+import { STAND_IN_WORKSPACE_ID } from './routes';
+import {
+  createEventReminder,
+  deleteEventReminders,
+  doneFromNotice,
+  registerEventLookup,
+  registerTitleLookup,
+  remapEventReminders,
+  snoozeFromNotice,
+  syncEventReminders,
+} from './service';
 import { postgresReminderStore } from './store';
 
 const PAGE = { type: 'page', pageId: 'c0ffee00-1111-4222-8333-444455556666' } as const;
 const hoursFromNow = (hours: number) => new Date(Date.now() + hours * 3_600_000);
-type View = { id: string; dueAt: string; status: string };
+type View = { id: string; dueAt: string; status: string; title: string | null };
 
 describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
   let test: TestApp;
@@ -24,11 +34,7 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
   let notices: ReturnType<typeof bindMemoryNotices>;
 
   beforeAll(async () => {
-    test = await createTestApp({
-      routes: async (app) => {
-        await app.register(remindersRoutes, { prefix: '/api/reminders' });
-      },
-    });
+    test = await createTestApp();
     notices = bindMemoryNotices();
     avery = await createUser(test.db, { name: 'Avery Lin', email: 'avery.lin@example.test' });
     sam = await createUser(test.db, { name: 'Sam Ortiz', email: 'sam.ortiz@example.test' });
@@ -69,6 +75,31 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
       card: PAGE,
     });
     expect((await list(avery)).sent).toMatchObject([{ id: reminder.id, status: 'sent' }]);
+  });
+
+  it('lists each reminder with the title the person may see, and where Open goes', async () => {
+    const asked: string[][] = [];
+    registerTitleLookup('page', async (_db, userId, ids) => {
+      asked.push([userId, ...ids]);
+      return new Map(userId === avery.id ? [[PAGE.pageId, 'Bluebird Bakery order']] : []);
+    });
+    try {
+      const reminder = await create(avery, { target: PAGE, at: hoursFromNow(8).toISOString() });
+      expect(reminder).toMatchObject({ title: 'Bluebird Bakery order', href: `/p/${PAGE.pageId}` });
+      const mine = (await list(avery)).pending.find((view) => view.id === reminder.id);
+      expect(mine).toMatchObject({ title: 'Bluebird Bakery order' });
+      expect(asked.at(-1)).toEqual([avery.id, PAGE.pageId]);
+    } finally {
+      registerTitleLookup('page', null);
+    }
+    const event = { target: { type: 'event', eventId: 'evt_t' }, minutesBefore: 10 };
+    registerEventLookup(async () => ({ start: hoursFromNow(9) }));
+    try {
+      const reminder = await create(avery, event);
+      expect(reminder).toMatchObject({ title: null, href: '/calendar?event=evt_t' });
+    } finally {
+      registerEventLookup(null);
+    }
   });
 
   it('refuses another person’s requests (HR-12)', async () => {
@@ -123,8 +154,30 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
     expect((await call(avery, 'POST', '/api/reminders', event)).statusCode).toBe(403);
   });
 
+  it('snoozes and marks done from the notice (HR-09)', async () => {
+    const reminder = await create(avery, { target: PAGE, at: hoursFromNow(5).toISOString() });
+    await runJobsAt(reminder.dueAt);
+    const click = (value: string, userId = avery.id) => ({
+      noticeId: randomUUID(),
+      workspaceId: STAND_IN_WORKSPACE_ID,
+      userId,
+      action: 'reminders.snooze',
+      value,
+    });
+    const snoozed = await snoozeFromNotice(test.db, click(`${reminder.id}:1h`));
+    expect(snoozed).toEqual({ message: 'Snoozed for 1 hour' });
+    const mine = (views: View[]) => views.find((view) => view.id === reminder.id);
+    expect(mine((await list(avery)).pending)).toMatchObject({ status: 'snoozed' });
+    expect(await doneFromNotice(test.db, click(reminder.id))).toEqual({
+      message: 'Marked as done.',
+    });
+    expect(mine((await list(avery)).sent)).toMatchObject({ status: 'done' });
+    const theirs = await doneFromNotice(test.db, click(reminder.id, sam.id));
+    expect(theirs).toEqual({ message: 'This reminder was deleted.' });
+  });
+
   it('keeps Calendar’s event reminders in step (HR-08)', async () => {
-    const [five, six] = [5, 6].map((hours) => ({ start: hoursFromNow(hours) }));
+    const [five, six, seven] = [5, 6, 7].map((hours) => ({ start: hoursFromNow(hours) }));
     const occurrenceStart = '2026-11-02T09:00';
     const input = {
       workspaceId: STAND_IN_WORKSPACE_ID,
@@ -136,15 +189,17 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
       use24h: false,
     };
     const mine = await createEventReminder(test.db, { ...input, userId: avery.id });
-    await createEventReminder(test.db, { ...input, userId: sam.id });
+    const theirs = await createEventReminder(test.db, { ...input, userId: sam.id });
     const moved = { eventId: 'evt_pg', occurrenceStart, start: six! };
     expect(await syncEventReminders(test.db, moved)).toBe(2);
+    const map = () => ({ eventId: 'evt_pg2', start: seven! });
+    expect(await remapEventReminders(test.db, { eventId: 'evt_pg', map })).toBe(2);
+    expect(await deleteEventReminders(test.db, { eventId: 'evt_pg2', userIds: [sam.id] })).toBe(1);
     const left = await postgresReminderStore.get(test.db, mine?.reminderId ?? '');
     expect(left).toMatchObject({ status: 'pending', minutesBefore: 10 });
-    expect(left?.target).toEqual({ type: 'event', eventId: 'evt_pg', occurrenceStart });
-    expect(left?.dueAt).toEqual(new Date(six!.start.getTime() - 10 * 60_000));
-    expect(await deleteEventReminders(test.db, { eventId: 'evt_pg', occurrenceStart })).toBe(2);
-    const gone = await postgresReminderStore.get(test.db, mine?.reminderId ?? '');
+    expect(left?.target).toEqual({ type: 'event', eventId: 'evt_pg2' });
+    expect(left?.dueAt).toEqual(new Date(seven!.start.getTime() - 10 * 60_000));
+    const gone = await postgresReminderStore.get(test.db, theirs?.reminderId ?? '');
     expect(gone?.status).toBe('deleted');
   });
 

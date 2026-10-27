@@ -15,13 +15,11 @@ FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4
 WORKDIR /src
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY --from=manifests /out/ ./
-# Exactly the lockfile, without install scripts (decision 0011), as in ci.yml. npm install
-# (also without scripts) only when the lockfile is out of sync with a package.json, which can
-# happen on a pull request or just after a merge, before the repo bot updates it.
-RUN if npm ci --ignore-scripts > /tmp/npm.log 2>&1; then cat /tmp/npm.log; \
-    else cat /tmp/npm.log; grep -q 'can only install' /tmp/npm.log || exit 1; \
-      echo 'package-lock.json is out of sync: npm install --ignore-scripts instead'; \
-      npm install --ignore-scripts; fi
+# Exactly the lockfile, without install scripts (decision 0011). There is no npm install
+# fallback: if package-lock.json is out of sync with a package.json, npm ci stops the build,
+# so the image never gets a package the lockfile doesn't list. If that happens, build a later
+# commit, once the repo bot has updated the lockfile.
+RUN npm ci --ignore-scripts
 COPY . .
 RUN npm run build
 RUN test -f apps/server/dist/index.js && test -f apps/web/dist/index.html \
@@ -40,10 +38,7 @@ FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4
 WORKDIR /src
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY --from=manifests /out/ ./
-RUN if npm ci --ignore-scripts --omit=dev --workspace=apps/server > /tmp/npm.log 2>&1; then cat /tmp/npm.log; \
-    else cat /tmp/npm.log; grep -q 'can only install' /tmp/npm.log || exit 1; \
-      echo 'package-lock.json is out of sync: npm install --ignore-scripts instead'; \
-      npm install --ignore-scripts --omit=dev --workspace=apps/server; fi \
+RUN npm ci --ignore-scripts --omit=dev --workspace=apps/server \
  && mkdir -p node_modules /app/apps/server \
  && rm -rf node_modules/@carehub node_modules/.package-lock.json \
  && mv node_modules /app/node_modules \

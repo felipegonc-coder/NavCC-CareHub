@@ -30,14 +30,26 @@ export const onMain = {
   /** Live co-editing: two people in one page, names and cursors. */
   coEditing: false,
 
+  /** Live updates and jobs in app.ts (#288): others' changes show without a reload. */
+  liveUpdates: false,
+
   /** Sharing: the share dialog, access levels, guests and share links. */
   sharing: false,
 
   /** Comments, replies and @ mentions of people, pages and dates. */
   comments: false,
 
+  /** Suggested edits: Suggesting mode, the marks by their author, Accept and Reject (all). */
+  suggestedEdits: false,
+
+  /** Following a page (a notice for each new comment) and muting a thread. */
+  following: false,
+
   /** The 🔔 Care Hub chat where notices arrive. */
   notices: false,
+
+  /** Reply in a comment notice: the answer goes into the thread without leaving the 🔔 chat. */
+  noticeReply: false,
 
   /** Search from the search box and Ctrl/Cmd + K. */
   search: false,
@@ -105,14 +117,32 @@ export const onMain = {
   /** Data settings: Settings → Data (keeping data, storage, uploads) and Export my content. */
   dataSettings: false,
 
-  /** Learning: Studio, the course player and My learning. */
+  /** Learning for learners: My learning, the Catalog, start pages and the player (#250, #245). */
   learning: false,
+
+  /** Learning Studio: the course editor, Preview and Publish (B1's editor screens, after #250). */
+  learningStudio: false,
+
+  /** Learning quizzes in the player: questions, Submit, the score, Try again (B2's quiz views). */
+  learningQuizzes: false,
 
   /** Learning: assign courses, due dates and tracking. */
   learningAssign: false,
 
+  /** Learning reports: course reports, Download CSV, Reset and transcripts (B4's reports PR). */
+  learningReports: false,
+
+  /** Learning review links: the read-only screen for a shared draft (B1's review screen, #231). */
+  learningReview: false,
+
+  /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */
+  learningTestHooks: false,
+
   /** Learning: certificates. */
   certificates: false,
+
+  /** Claude features: Settings → Claude, writing help, assistant, Claude fields, meeting summary. */
+  claude: false,
 } as const satisfies Record<string, boolean>;
 
 export type Feature = keyof typeof onMain;
