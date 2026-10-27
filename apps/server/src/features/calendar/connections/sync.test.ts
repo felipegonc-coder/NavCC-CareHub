@@ -355,7 +355,7 @@ describe('Google calendar sync', () => {
 });
 
 describe('private link sync', () => {
-  it("reads the link with where it left off and the owner's address", async () => {
+  it("reads the link from where it left off, without looking up the owner's address", async () => {
     const t = setup();
     const id = t.addLink();
     const [calendar] = t.memory.calendarsOf(id);
@@ -365,7 +365,7 @@ describe('private link sync', () => {
     const [link, cursor, options] = t.reads[0]!;
     expect(link).toBe(LINK);
     expect(cursor).toBeUndefined();
-    expect(options.ownAddresses).toEqual(['avery.lin@example.com']);
+    expect(options.ownAddresses).toEqual([]);
     expect(options.window?.start.toISOString()).toBe('2026-04-27T13:00:00.000Z');
     expect(options.window?.end.toISOString()).toBe('2027-10-27T13:00:00.000Z');
     expect(t.titles(calendar!.id)).toEqual(['Swimming lesson']);

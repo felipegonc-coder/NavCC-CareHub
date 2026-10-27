@@ -77,13 +77,12 @@ export function createMemorySyncStore() {
     async load(id) {
       const connection = connections.get(id);
       if (!connection) return undefined;
-      const { ownerId, ownerEmail, workspaceId, kind, label, account, secret } = connection;
+      const { ownerId, workspaceId, kind, label, account, secret } = connection;
       const { status, lastError, failures, lastSyncedAt } = connection;
       return {
         connection: {
           id,
           ownerId,
-          ownerEmail,
           workspaceId,
           kind,
           label,
@@ -188,7 +187,6 @@ export function createMemorySyncStore() {
     addConnection(input: {
       id?: string;
       ownerId: string;
-      ownerEmail?: string;
       workspaceId?: string | null;
       kind: ConnectionKind;
       label?: string;
@@ -202,7 +200,6 @@ export function createMemorySyncStore() {
       connections.set(id, {
         id,
         ownerId: input.ownerId,
-        ownerEmail: input.ownerEmail ?? 'avery.lin@example.com',
         workspaceId: input.workspaceId === undefined ? 'workspace-1' : input.workspaceId,
         kind: input.kind,
         label: input.label ?? (input.kind === 'link' ? 'School' : 'Google'),

@@ -206,7 +206,9 @@ export function createCalendarSync(deps: CalendarSyncDeps) {
     }
     const at = now();
     const result = await readLink(url, calendar.cursor ?? undefined, {
-      ownAddresses: [connection.ownerEmail],
+      // The engine doesn't look people up (decision 0007, 2.2). With no addresses, the reader
+      // leaves `self` unset, and the person is matched by address when their events are read.
+      ownAddresses: [],
       window: { start: monthsFrom(at, -6), end: monthsFrom(at, 12) },
     });
     if (result.status === 'not-modified') {
