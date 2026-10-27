@@ -1,6 +1,6 @@
 import type { Block, Course } from '@carehub/learning';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { blockEditors } from '../editors/registry';
 import { CourseEditorScreen } from '../index';
 import { pageTitles, renderStudio, testStudioClient } from '../test-utils';
@@ -45,6 +45,9 @@ const blockTexts = () => screen.getAllByTestId('paragraph').map((text) => text.t
 const savedTitle = (client: { getCourse(id: string): Promise<{ course: Course }> }, id: string) =>
   client.getCourse(id).then((draft) => draft.course.title);
 const SAVE_WAIT = { timeout: 3000 };
+/** The quiz editor asks the API for the question banks; these tests leave that list loading. */
+const banksPending = () =>
+  vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => undefined));
 
 // Show each paragraph's text plainly, so these tests read it without the paragraph editor.
 const realParagraphEditor = blockEditors.paragraph;
@@ -58,6 +61,7 @@ beforeEach(() => {
 afterEach(() => {
   if (realParagraphEditor) blockEditors.paragraph = realParagraphEditor;
   else delete blockEditors.paragraph;
+  vi.restoreAllMocks();
 });
 
 describe('course editor', () => {
@@ -111,6 +115,7 @@ describe('course editor', () => {
   });
 
   it('adds, moves, copies and deletes lessons, and Undo brings one back', async () => {
+    banksPending();
     await openCourse();
     fireEvent.click(screen.getByRole('button', { name: 'Add lesson' }));
     expect(screen.getByRole('link', { name: '3. Lesson 3' })).toHaveAttribute(
@@ -140,12 +145,12 @@ describe('course editor', () => {
     expect(screen.queryByText('Deleted “Lesson 3”.')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add quiz' }));
-    expect(screen.getByRole('region', { name: 'Lesson: Quiz' })).toHaveTextContent(
-      'Quiz questions and settings are edited here once the quiz editor is ready.',
-    );
+    const quiz = screen.getByRole('region', { name: 'Lesson: Quiz' });
+    expect(within(quiz).getByRole('heading', { level: 2, name: 'Settings' })).toBeInTheDocument();
   });
 
   it("sets a lesson's minimum time in seconds; an empty box removes it", async () => {
+    banksPending();
     const { client, courseId } = await openCourse();
     const firstLesson = async () => (await client.getCourse(courseId)).course.lessons[0];
     const minimum = screen.getByRole('spinbutton', { name: 'Minimum time, in seconds' });
@@ -162,7 +167,32 @@ describe('course editor', () => {
       SAVE_WAIT,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Add quiz' }));
-    expect(screen.queryByRole('spinbutton')).toBeNull();
+    expect(screen.queryByRole('spinbutton', { name: 'Minimum time, in seconds' })).toBeNull();
+  });
+
+  it('edits a quiz in the quiz editor and saves it, and Undo takes the change back', async () => {
+    banksPending();
+    const { client, courseId } = await openCourse();
+    fireEvent.click(screen.getByRole('button', { name: 'Add quiz' }));
+    const quiz = screen.getByRole('region', { name: 'Lesson: Quiz' });
+    fireEvent.click(within(quiz).getByRole('button', { name: 'True or false' }));
+    const passMark = () => within(quiz).getByRole('spinbutton', { name: 'Pass mark (%)' });
+    fireEvent.change(passMark(), { target: { value: '90' } });
+    expect(within(quiz).getByRole('heading', { level: 3, name: 'Question 1' })).toBeInTheDocument();
+    await waitFor(
+      async () =>
+        expect((await client.getCourse(courseId)).course.lessons[2]).toMatchObject({
+          kind: 'quiz',
+          settings: { passMark: 90 },
+          questions: [{ type: 'true_false' }],
+        }),
+      SAVE_WAIT,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(passMark()).not.toHaveValue(90);
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(passMark()).toHaveValue(90);
   });
 
   it('adds blocks from the menu, asking for an address when a block needs one', async () => {
