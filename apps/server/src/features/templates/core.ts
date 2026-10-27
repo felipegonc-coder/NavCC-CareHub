@@ -7,6 +7,7 @@ import type { TemplateIcon } from '@carehub/extras/templates/gallery';
 import type { FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
+import { saveVersionNow } from '../history';
 
 /** The person asking, in their workspace. */
 export interface TemplatesViewer {
@@ -67,11 +68,7 @@ export interface TemplatesCore {
   markdown(db: Db | Tx, pageId: string): Promise<string>;
   setMarkdown(tx: Tx, pageId: string, markdown: string, by: string): Promise<void>;
   /** A version in the page's history, before a template changes it (history, HT-02). */
-  saveVersionNow(
-    tx: Tx,
-    pageId: string,
-    options: { reason: 'template'; by: string | null },
-  ): Promise<{ id: string; pageId: string; kind: string; createdAt: Date } | null>;
+  saveVersionNow: typeof saveVersionNow;
   /** A copy of a database under `parentId`; null when databases can't be copied yet. */
   duplicateDatabase(
     tx: Tx,
@@ -127,8 +124,7 @@ const standIn: TemplatesCore = {
   setMarkdown: async () => {
     throw notYet(); // stand-in: setPageContentFromMarkdown (collab #200)
   },
-  // stand-in: saveVersionNow from '../history' (#317), which also gives null until pages land.
-  saveVersionNow: async () => null,
+  saveVersionNow, // History's (#317); it saves no version until pages land (#49)
   duplicateDatabase: async () => null, // stand-in: duplicateDatabase (Databases api.ts)
   rowCount: async () => 0, // stand-in: the Databases lane's row count
   contentChanged: () => {}, // stand-in: emit page.updated (collab #197)
