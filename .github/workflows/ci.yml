@@ -58,7 +58,7 @@ jobs:
         run: |
           query='[.workflow_runs[] | select(.id != ($run | tonumber) and .event != "pull_request"
             and (.conclusion == "success" or .conclusion == "failure"))] | length'
-          finished=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=completed&per_page=50" \
+          finished=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&branch=main&status=completed&per_page=50" \
             | jq --arg run "$GITHUB_RUN_ID" "$query") || finished=0
           if [ "${finished:-0}" -gt 0 ]; then
             echo 'skip=true' >> "$GITHUB_OUTPUT"
