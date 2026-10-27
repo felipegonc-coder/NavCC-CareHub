@@ -12,18 +12,19 @@ beforeEach(() => {
 afterEach(restoreFetch);
 
 function renderAt(path: string) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={client}>
+    <QueryClientProvider client={queryClient}>
       <RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />
     </QueryClientProvider>,
   );
 }
 
 describe('routes', () => {
-  it('shows the home placeholder at /', async () => {
+  it('shows Home at /', async () => {
     renderAt('/');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Care Hub' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good / })).toBeInTheDocument();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
     expect(document.title).toBe('Care Hub');
   });
 

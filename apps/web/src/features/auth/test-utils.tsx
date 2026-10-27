@@ -1,5 +1,10 @@
 // Test helpers: a fake auth API on top of fetch, and a render with the app's providers.
-import type { CurrentUser, MeResponse } from '@carehub/shared';
+import {
+  BUILT_IN_ROLES,
+  type CurrentUser,
+  type MeResponse,
+  type WorkspaceSummary,
+} from '@carehub/shared';
 import { ToastProvider } from '@carehub/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
@@ -18,9 +23,25 @@ export const USER: CurrentUser = {
   mustChangePassword: false,
 };
 
-/** GET /api/auth/me for `user`. */
+export const WORKSPACE: WorkspaceSummary = {
+  id: '2b9e4c71-8d3a-4f5e-a1c6-7e0d9b3f2a58',
+  name: 'Care Hub',
+};
+
+/** GET /api/auth/me for `user`: an Editor of the Care Hub workspace. */
 export function meFor(user: CurrentUser = USER): MeResponse {
-  return { user, member: null, workspace: null };
+  return {
+    user,
+    member: {
+      kind: 'member',
+      workspaceId: WORKSPACE.id,
+      roleId: '5c1f7a93-2e4d-4b8a-9f06-d3a7b2e8c140',
+      roleName: BUILT_IN_ROLES.editor.name,
+      permissions: [...BUILT_IN_ROLES.editor.permissions],
+      isAdmin: false,
+    },
+    workspace: WORKSPACE,
+  };
 }
 
 export interface SentRequest {
