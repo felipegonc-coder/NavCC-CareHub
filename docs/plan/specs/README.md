@@ -2,8 +2,8 @@
 
 _Copied from the Notion spec (https://app.notion.com/p/46a3bb9cb57a49c283778189759ad1c5) on 2026-10-27. If they differ, Notion wins. Core specs are copied into this folder; lane specs are read in Notion by their lanes._
 
-> 📐 Builder-ready specs for the Care Hub rebuild: 🆕 **Phase 1 workspace features that match Notion**, **Phase 2** (databases, formulas and forms) and **Phase 3** (team tools and the knowledge base). Written only from the plan, the Feature list, Look and feel, Builder rules and Felipe's answers. Draft v2 · Oct 27, 2026 · Owner: Felipe Gonçalves · Fictional data only.
-> **Build order:** Phase 1 first, then Phase 2 (Databases, Messages and the rest), then Phase 3. Messages is listed under Phase 3 but is built early, alongside Phase 2.
+> 📐 Builder-ready specs for the Care Hub rebuild: 🆕 **Phase 1 workspace features that match Notion**, **Phase 2** (databases, formulas and forms) and **Phase 3** (team tools, the knowledge base and 🆕 Claude features). Written only from the plan, the Feature list, Look and feel, Builder rules and Felipe's answers. Draft v2 · Oct 27, 2026 · Owner: Felipe Gonçalves · Fictional data only.
+> **Build order:** Phase 1 first, then Phase 2 (Databases, Messages and the rest), then Phase 3. Messages is listed under Phase 3 but is built early, alongside Phase 2. 🆕 Claude features is listed under Phase 3 too (Phase 5 in the plan and the tracker): the Extras lane builds it now, with every feature switched off until Nav's OK.
 
 ## How to use these specs
 
@@ -97,6 +97,8 @@ Templates and buttons and Import and export also have Phase 2 parts (database te
 
 - [Data settings](./data-settings.md) (Notion: https://app.notion.com/p/d3e3077867b6443697837e8a30eadd4c)
 
+- Claude features (Notion: https://app.notion.com/p/c1116656e6d34bc7b986993564fb5944)
+
 ## 🆕 Cross-area flows
 
 Checks that run through several areas. Try each one end to end in the browser with fictional data; each gets one row on the Care Hub test results page, titled with its FLOW ID. FLOW-01 to FLOW-03 come from the Testing lane and keep their numbers; a new flow takes the next free number.
@@ -112,7 +114,7 @@ Checks that run through several areas. Try each one end to end in the browser wi
 
 ## Not in these specs
 
-- Learning (Phase 4) and Claude features (Phase 5) get their own specs later.
+- Learning (Phase 4) gets its own spec later, including Claude's Learning help.
 - What Care Hub leaves out on purpose (email, outside integrations and the public API, single sign-on, app-store apps, custom domains) is listed in the Notion parity checklist with the reason.
 
 ## Decisions for Felipe
@@ -158,6 +160,10 @@ Checks that run through several areas. Try each one end to end in the browser wi
 | 🆕 DS-D1 | Should Export everything include other people's private pages, chats and private events? | No |  |
 | 🆕 DS-D2 | Default keeping periods for page versions and Trash? | Versions 1 year, Trash 30 days |  |
 | 🆕 PC-D1 | Pages that open with no connection at all (offline pages)? | Later: typing already continues through short drops |  |
+| 🆕 CL-D1 | Which Claude model? | One model for every feature, named in the server's settings file next to the key (a current Claude Sonnet model) |  |
+| 🆕 CL-D2 | Monthly limit on Claude requests? | 3,000 a month per workspace; Admins can change it |  |
+| 🆕 CL-D3 | How long to keep assistant chats? | Until their owner deletes them or the account is removed |  |
+| 🆕 CL-D4 | May Claude fields fill automatically? | Yes, as a choice per field; new fields start By hand |  |
 
 ## 🆕 Notion parity
 
@@ -166,3 +172,9 @@ Every Notion feature mapped to the spec and section that covers it, plus what Ca
 - [Notion parity checklist](./parity-checklist.md) (Notion: https://app.notion.com/p/cb343e6d8b204ee28047788d6cc9dd14)
 
 - Care Hub test results (Notion: https://app.notion.com/p/08111f7e847f4fe0b8511d47d8e6d40e)
+
+## 🆕 Care Hub help
+
+Plain-English help for the team, one page per area, written from these specs with made-up examples. These pages will be the first pages in the Knowledge base.
+
+- Care Hub help (Notion: https://app.notion.com/p/aedf43e511ae43abbead02c7259c7064)
