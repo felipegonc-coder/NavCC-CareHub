@@ -1,7 +1,9 @@
-// /api/push: the server's public key, the person's browsers and their notification settings.
-// Every route needs a signed-in person; the auth plugin checks CSRF and Origin on changes.
+// /api/push: the server's public key, the person's browsers, a test notification and the
+// notification settings. Every route needs a signed-in person; the auth plugin checks CSRF and
+// Origin on changes.
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
+import { readSettings } from '../../core/settings';
 import { changedPreferences, preferencesPatch } from './domain/preferences';
 import {
   deviceName,
@@ -15,6 +17,8 @@ import {
   resolvePushConfig,
   type PushConfig,
 } from './settings';
+import type { PushNotice } from './payload';
+import { pushToUser } from './service';
 import { createPostgresPushStore } from './store';
 import type { PushStore, PushSubscriptionRecord } from './types';
 
@@ -25,6 +29,7 @@ export interface PushRoutesOptions {
   store?: PushStore;
   /** Defaults to the PUSH_VAPID_* settings. */
   config?: PushConfig;
+  fetch?: typeof fetch;
   now?: () => Date;
 }
 
@@ -36,14 +41,28 @@ export interface PushDeviceView {
   lastUsedAt: string;
 }
 
+/** One test notification per person per this long. */
+export const TEST_COOLDOWN_MS = 10_000;
+
+const TEST_NOTICE: PushNotice = {
+  kind: 'notice',
+  from: 'Care Hub',
+  what: 'Test notification',
+  text: 'Notifications work on this device.',
+  url: '/settings/notifications',
+  tag: 'push-test',
+};
+
 const pushRoutes: FastifyPluginAsync<PushRoutesOptions> = async (app, options) => {
   const store = options.store ?? (app.hasDecorator('db') ? createPostgresPushStore(app.db) : null);
   if (!store) throw new Error('The push routes need a database or a store.');
-  // From the environment until core/settings.ts (readSettings) is on main.
-  const config = options.config ?? resolvePushConfig(pushSettingsSchema.parse(process.env));
+  // The PUSH_VAPID_* settings. While any is missing, push is off and the routes say so.
+  const config =
+    options.config ?? resolvePushConfig(readSettings(pushSettingsSchema, { log: app.log }));
   if (!config.enabled) app.log.info(config.message); // For site admins: it says what's missing.
   const getUserId = options.getUserId ?? ((request: FastifyRequest) => request.user?.id);
   const now = options.now ?? (() => new Date());
+  const lastTests = new Map<string, number>();
 
   function userOf(request: FastifyRequest): string {
     const userId = getUserId(request);
@@ -97,6 +116,21 @@ const pushRoutes: FastifyPluginAsync<PushRoutesOptions> = async (app, options) =
       (await store.deleteSubscription(userId, { id: params.data.subscriptionId }));
     if (!deleted) throw httpError(404, 'not_found');
     return reply.code(204).send();
+  });
+
+  // "Send a test notification" in Settings → Notifications: to all of the person's browsers.
+  app.post('/test', async (request) => {
+    const userId = userOf(request);
+    if (!config.enabled) throw httpError(409, 'conflict', PUSH_OFF_MESSAGE);
+    const time = now().getTime();
+    const last = lastTests.get(userId);
+    if (last !== undefined && time - last < TEST_COOLDOWN_MS) {
+      throw httpError(429, 'rate_limited', 'A test notification was just sent. Wait a moment.');
+    }
+    for (const [id, at] of lastTests) if (time - at >= TEST_COOLDOWN_MS) lastTests.delete(id);
+    lastTests.set(userId, time);
+    const runtime = { store, config, fetch: options.fetch ?? fetch, now, log: request.log };
+    return pushToUser(runtime, userId, TEST_NOTICE, { urgency: 'high' });
   });
 
   app.get('/preferences', async (request) => ({

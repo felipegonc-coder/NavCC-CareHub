@@ -15,7 +15,7 @@ export { buttonClasses } from './components/classes';
 export type { ButtonClassOptions, ButtonSize, ButtonVariant } from './components/classes';
 export { useFieldControlProps } from './components/field-context';
 export { useToast } from './components/toast-context';
-export type { ToastApi, ToastOptions, ToastVariant } from './components/toast-context';
+export type { ToastAction, ToastApi, ToastOptions, ToastVariant } from './components/toast-context';
 export * from './components/avatar';
 export * from './components/button';
 export * from './components/card';

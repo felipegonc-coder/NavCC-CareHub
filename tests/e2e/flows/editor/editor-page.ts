@@ -13,7 +13,9 @@ export type BlockType =
   | 'Numbered list'
   | 'To-do list'
   | 'Toggle list'
+  | 'Toggle heading 1'
   | 'Quote'
+  | 'Callout'
   | 'Divider'
   | 'Code'
   | 'Block equation';
@@ -34,7 +36,11 @@ const SHOWN_AS: Record<BlockType, (content: Locator, page: Page) => Locator> = {
     content
       .getByRole('button', { expanded: true })
       .or(content.getByRole('button', { expanded: false })),
+  // A heading that folds what's nested under it; its arrow is the same control as a toggle's.
+  'Toggle heading 1': (content) => content.getByRole('heading', { level: 2 }),
   Quote: (content) => content.getByRole('blockquote'),
+  // An aside to the text around it, with its icon and background (section 3.4).
+  Callout: (content) => content.getByRole('note').or(content.locator('aside')),
   Divider: (content) => content.getByRole('separator'),
   Code: (content) => content.getByRole('code'),
   'Block equation': (content, page) =>

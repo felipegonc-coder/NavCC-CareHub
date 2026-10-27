@@ -1,6 +1,6 @@
 # Templates and buttons
 
-_Copied from the Notion spec (https://app.notion.com/p/53b55b188e7c49e19a3d43e383e01eb6) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > 🧩 Phase 1 · Notion parity · Depends on: Pages and blocks, Roles and permissions (the Templates permission) · Phase 2 parts: database templates, repeating templates, the Button property and the row actions (Databases, Formulas) · Shares its action list with Automations · Used by: Forms, Knowledge base, Sidebar (Templates)
 
@@ -33,6 +33,7 @@ Starting from something good instead of a blank page, and doing several steps wi
 ### 3.1 Template gallery
 
 - **Care Hub starters** (🟨 TB-D1), written for Care Hub with fictional sample text: Meeting notes, Weekly huddle, 1:1 notes, Project brief, Project tracker (database), Task board (database), Decision record, How-to guide, Policy page, Team wiki (a knowledge base), New hire onboarding (a checklist with sub-pages), Incident review, Shift handover, Content calendar (database), Request form, Feedback form and Event sign-up (forms).
+- 🆕 **Customer Care starters** (named in the Feature list; part of TB-D1), under Support, each a database with 3 fictional sample rows: **Agents** (Name, Person, Team, Team lead, Start date, Status: Active, On leave or Left; views All agents and By team); **QA reviews** (Review, Agent, Reviewer, Team lead, Date, Channel: Phone, Chat or Email, Score 0–100, Status: Draft, Shared or Escalated, Ticket link, Notes; views All reviews, By agent and My reviews, where Agent is Me; it comes with the row rule "Agent → Can view" from Databases section 3.12, which changes nothing until a group is set to Only rows they're in); **Coaching conversations** (Conversation, Agent, Coach, Date, Focus, Agreed actions, Follow-up date, Status: Planned or Done; views Upcoming and My conversations, where Agent or Coach is Me; new rows start from a template with the headings What went well, What to work on and Agreed actions). The Feature list's Tasks is the Task board starter, and its Meeting notes is the one above.
 - **Using a template** makes a full copy at the chosen place: content, sub-pages, databases with their properties, views, templates and sample rows, and files. Links inside point to the copies; template variables are filled in (section 3.3); comments and history aren't copied. A template with databases has "Include sample rows" (on by default).
 - The copy gets the access of where it's put (Roles and permissions); sharing isn't copied. Database rules that belong to the structure, such as row access and hidden properties, are copied.
 - **Workspace templates are copies, not links.** Changing or deleting a template never changes pages made from it. Each page made from one says so in its Updates ("Made from Weekly huddle").
@@ -110,7 +111,7 @@ Starting from something good instead of a blank page, and doing several steps wi
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **TB-01** Open the template gallery, search meeting, preview one and choose Use template. → The page appears with its sub-pages, and its links point to the new copies.
 2. ⭐ **TB-04** In a Tasks database, click New, then open New ▾. → New uses the view's default template; New ▾ lists every template and Empty.
@@ -138,7 +139,8 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **TB-14** Send a message reaches up to 50 people; Everyone and roles are only offered on buttons set up by Admins.
 - **TB-15** Buttons are hidden on share-link pages, disabled on archived pages and in Trash, and Insert blocks is refused on a locked page.
 - **TB-16** Everything works by keyboard and screen reader; axe finds no serious problems; the phone layout works.
+- 🆕 **TB-17** Each Customer Care starter (Agents, QA reviews, Coaching conversations) makes a database with the properties, views and 3 sample rows in section 3.1; My reviews shows only rows where Agent is the viewer; a new Coaching conversations row starts with the three headings.
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **TB-D1** Care Hub's own starter templates, as listed in section 3.1, with fictional sample text (Notion's gallery isn't copied). **Default:** as listed.
