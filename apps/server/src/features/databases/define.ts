@@ -181,7 +181,17 @@ export const databaseDefinitionSchema = z.strictObject({
   by: pageIdSchema,
 });
 export type CheckedDefinition = z.output<typeof databaseDefinitionSchema>;
-type CheckedView = NonNullable<CheckedDefinition['views']>[number];
+
+/** A definition for the top of a space (the seed's): no parent page, so never inline. */
+export type TopLevelDefinition = Omit<DatabaseDefinition, 'parentId' | 'inline'>;
+export const topLevelDefinitionSchema = databaseDefinitionSchema.omit({
+  parentId: true,
+  inline: true,
+});
+
+/** What planDefinition reads: the database itself (where it goes is create.ts's business). */
+export type PlannedDefinition = Omit<CheckedDefinition, 'parentId' | 'inline'>;
+type CheckedView = NonNullable<PlannedDefinition['views']>[number];
 
 /** What duplicateDatabase takes. */
 export interface DuplicateInput {
@@ -247,16 +257,16 @@ export interface DefinitionContext {
 
 const none: ReadonlySet<Id> = new Set();
 
-function blankRecord(def: CheckedDefinition, ctx: DefinitionContext): DatabaseRecord {
+function blankRecord(def: PlannedDefinition, ctx: DefinitionContext): DatabaseRecord {
   const at = new Date(0);
   return {
     id: ctx.databaseId,
     workspaceId: ctx.workspaceId,
     spaceId: ctx.spaceId,
-    parentId: def.parentId,
+    parentId: null,
     title: def.title,
     pageIcon: null,
-    inline: def.inline ?? false,
+    inline: false,
     inTrash: false,
     description: [],
     properties: [],
@@ -285,7 +295,7 @@ function keyed(keys: ReadonlyMap<string, Id>, key: string): Id {
 }
 
 /** The definition's template keys → their page ids (each key once). */
-function templateKeys(def: CheckedDefinition, ctx: DefinitionContext): Map<string, Id> {
+function templateKeys(def: PlannedDefinition, ctx: DefinitionContext): Map<string, Id> {
   const keys = new Map<string, Id>();
   (def.templates ?? []).forEach((t, i) => {
     const id = ctx.templateIds[i];
@@ -343,7 +353,7 @@ type OwnProperties = Pick<DatabaseSettings, 'properties' | 'subItems' | 'depende
  * nothing changes; a property that still fails then is refused.
  */
 function definedProperties(
-  def: CheckedDefinition,
+  def: PlannedDefinition,
   ctx: DefinitionContext,
   keys: ReadonlyMap<string, Id>,
 ): OwnProperties {
@@ -398,7 +408,7 @@ function definedProperties(
 /** The definition's templates, each checked like POST /:id/templates. */
 function definedTemplates(
   record: DatabaseRecord,
-  def: CheckedDefinition,
+  def: PlannedDefinition,
   ctx: DefinitionContext,
 ): RowTemplate[] {
   let current = record;
@@ -415,7 +425,7 @@ function definedTemplates(
 /** The definition's views, made like POST /:id/views and set up like PATCH /:id/views/:vid. */
 function definedViews(
   record: DatabaseRecord,
-  def: CheckedDefinition,
+  def: PlannedDefinition,
   ctx: DefinitionContext,
   keys: ReadonlyMap<string, Id>,
 ): { views: View[]; needsFull: boolean } {
@@ -443,7 +453,7 @@ function definedViews(
 /** The sample rows: values checked like cells, ME as `by`, ID numbers when there's an ID. */
 function definedRows(
   record: DatabaseRecord,
-  def: CheckedDefinition,
+  def: PlannedDefinition,
   ctx: DefinitionContext,
 ): PlannedRow[] {
   const numbered = record.properties.some((p) => p.config.type === 'unique_id');
@@ -493,7 +503,7 @@ const nextNumber = (rows: readonly PlannedRow[]): number =>
  * properties, then templates, views (whose defaults may name templates), row access rules, the
  * row page layout and the sample rows.
  */
-export function planDefinition(def: CheckedDefinition, ctx: DefinitionContext): DatabasePlan {
+export function planDefinition(def: PlannedDefinition, ctx: DefinitionContext): DatabasePlan {
   const keys = templateKeys(def, ctx);
   let record: DatabaseRecord = { ...blankRecord(def, ctx), ...definedProperties(def, ctx, keys) };
   record = { ...record, templates: definedTemplates(record, def, ctx) };

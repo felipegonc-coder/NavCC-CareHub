@@ -64,7 +64,7 @@ export async function seedFeatures(ctx: SeedContext): Promise<void> {
 
   // feature: learning
 
-  // feature: databases
+  await (await import('./features/databases/seed')).seed(ctx);
 
   // feature: forms
 

@@ -3,7 +3,7 @@
 // page, its settings, its template pages, form links and repeat state, and its rows, in the
 // caller's transaction. Rows are written here (their pages and db_rows entries) until the row
 // server's createRows lands; then these call it. Page content isn't copied yet: that waits for
-// core's page copy.
+// core's page copy. seedDatabase is the seed's: a database at the top of a space.
 import { randomUUID } from 'node:crypto';
 import type { AccessLevel, Id, Property, Row } from '@carehub/databases';
 import { atLeast } from '@carehub/databases/access';
@@ -18,10 +18,13 @@ import {
   duplicateInputSchema,
   planCopy,
   planDefinition,
+  topLevelDefinitionSchema,
   type DatabaseDefinition,
   type DatabasePlan,
   type DuplicateInput,
+  type PlannedDefinition,
   type PlannedRow,
+  type TopLevelDefinition,
 } from './define';
 import { forbidden, invalid, invalidRequest, notFound } from './errors';
 import { hiddenProperties } from './http';
@@ -180,8 +183,10 @@ async function writeRows(
 
 interface NewPage {
   id: Id;
-  /** The page it goes under. */
-  under: PagePlace;
+  workspaceId: string;
+  spaceId: string;
+  /** The page it goes under; null: the top of the space. */
+  parentId: string | null;
   title: string;
   inline: boolean;
   icon: unknown;
@@ -191,12 +196,11 @@ interface NewPage {
 
 /** Everything a plan says: the page, its settings, template pages, form links, repeats and rows. */
 async function writeDatabase(tx: Tx, plan: DatabasePlan, page: NewPage): Promise<void> {
-  const { under } = page;
-  const place = { workspaceId: under.workspaceId, spaceId: under.spaceId };
+  const place = { workspaceId: page.workspaceId, spaceId: page.spaceId };
   await createDatabasePage(tx, {
     id: page.id,
     ...place,
-    parentId: under.id,
+    parentId: page.parentId,
     title: page.title,
     inline: page.inline,
     icon: page.icon,
@@ -205,7 +209,7 @@ async function writeDatabase(tx: Tx, plan: DatabasePlan, page: NewPage): Promise
   });
   await insertDatabase(tx, {
     id: page.id,
-    workspaceId: under.workspaceId,
+    workspaceId: page.workspaceId,
     ...plan.settings,
     nextUniqueNumber: plan.nextUniqueNumber,
   });
@@ -225,6 +229,32 @@ async function writeDatabase(tx: Tx, plan: DatabasePlan, page: NewPage): Promise
   await writeRows(tx, { ...place, databaseId: page.id, by: page.by, rows: plan.rows, now });
 }
 
+/** A definition's plan, with new ids for the database, its templates and its rows. */
+function planNew(
+  def: PlannedDefinition,
+  place: { workspaceId: string; spaceId: string },
+  related: Map<Id, Property[]>,
+): { databaseId: Id; plan: DatabasePlan } {
+  const databaseId = randomUUID();
+  const plan = planDefinition(def, {
+    databaseId,
+    workspaceId: place.workspaceId,
+    spaceId: place.spaceId,
+    templateIds: (def.templates ?? []).map(() => randomUUID()),
+    rowIds: (def.rows ?? []).map(() => randomUUID()),
+    linkCode: newLinkCode,
+    related,
+  });
+  return { databaseId, plan };
+}
+
+const created = (databaseId: Id, plan: DatabasePlan): CreatedDatabase => ({
+  databaseId,
+  viewIds: plan.settings.views.map((v) => v.id),
+  templateIds: plan.templatePages.map((t) => t.id),
+  rowIds: plan.rows.map((r) => r.id),
+});
+
 /**
  * A new database from a definition (define.ts), under a page `by` can edit. Refused before any
  * change: 400 for a definition that isn't valid (with where), 404 for a parent that's gone, 403
@@ -240,32 +270,48 @@ export async function createDatabase(
   const def = parsed.value;
   const under = await editablePage(tx, def.by, def.parentId);
   const related = await relatedDatabases(tx, def.by, under.workspaceId, def.properties);
-  const databaseId = randomUUID();
-  const plan = planDefinition(def, {
-    databaseId,
-    workspaceId: under.workspaceId,
-    spaceId: under.spaceId,
-    templateIds: (def.templates ?? []).map(() => randomUUID()),
-    rowIds: (def.rows ?? []).map(() => randomUUID()),
-    linkCode: newLinkCode,
-    related,
-  });
+  const { databaseId, plan } = planNew(def, under, related);
   if (plan.needsFull && !atLeast(under.level, 'full')) throw forbidden();
   await writeDatabase(tx, plan, {
     id: databaseId,
-    under,
+    workspaceId: under.workspaceId,
+    spaceId: under.spaceId,
+    parentId: under.id,
     title: def.title,
     inline: def.inline ?? false,
     icon: emojiIcon(def.icon ?? null),
     cover: null,
     by: def.by,
   });
-  return {
-    databaseId,
-    viewIds: plan.settings.views.map((v) => v.id),
-    templateIds: plan.templatePages.map((t) => t.id),
-    rowIds: plan.rows.map((r) => r.id),
-  };
+  return created(databaseId, plan);
+}
+
+/**
+ * A database at the top of a space, from a definition checked like createDatabase's: for the seed,
+ * which adds fictional data as the server, so the person's access isn't checked. Not offered to
+ * other lanes (they put databases under a page).
+ */
+export async function seedDatabase(
+  tx: Tx,
+  input: { workspaceId: string; spaceId: string; definition: TopLevelDefinition },
+): Promise<CreatedDatabase> {
+  const parsed = parseRequest(topLevelDefinitionSchema, input.definition);
+  if (!parsed.ok) throw invalid(DEFINITION_MESSAGES.invalidAt(parsed.path));
+  const def = parsed.value;
+  const related = await relatedDatabases(tx, def.by, input.workspaceId, def.properties);
+  const { databaseId, plan } = planNew(def, input, related);
+  await writeDatabase(tx, plan, {
+    id: databaseId,
+    workspaceId: input.workspaceId,
+    spaceId: input.spaceId,
+    parentId: null,
+    title: def.title,
+    inline: false,
+    icon: emojiIcon(def.icon ?? null),
+    cover: null,
+    by: def.by,
+  });
+  return created(databaseId, plan);
 }
 
 /** The database's rows (not in Trash) this person can open, oldest first. */
@@ -313,7 +359,9 @@ export async function duplicateDatabase(tx: Tx, input: DuplicateInput): Promise<
   const looks = await pageLooks(tx, [source.id]);
   await writeDatabase(tx, plan, {
     id: copyId,
-    under,
+    workspaceId: under.workspaceId,
+    spaceId: under.spaceId,
+    parentId: under.id,
     title: parsed.value.title ?? source.title,
     inline: parsed.value.inline ?? source.inline,
     icon: source.pageIcon ?? null,
