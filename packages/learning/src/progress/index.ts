@@ -27,6 +27,8 @@ export type {
 } from './api';
 export { quizAttemptStart, quizSubmissionTime } from './attempts';
 export type { QuizAttemptStart } from './attempts';
+export { TOO_MANY_EVENTS_MESSAGE, progressIntake } from './intake';
+export type { ProgressIntake } from './intake';
 export { courseUpdateFor, withManualCompletion } from './updates';
 export type {
   CourseUpdate,
