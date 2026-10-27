@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryJobStore } from './memoryStore';
-import { createJobRunner, JobError, nextSlot, PERIODIC_KIND, type JobContext } from './runner';
+import {
+  createJobRunner,
+  isTestHookRun,
+  JobError,
+  nextSlot,
+  PERIODIC_KIND,
+  type JobContext,
+} from './runner';
 import type { Job, JobStore } from './types';
 
 const T0 = Date.parse('2026-10-27T09:00:00.000Z');
@@ -433,22 +440,6 @@ describe('periodic tasks', () => {
     expect(times).toEqual([T0 + MINUTE + 5 * SECOND]);
   });
 
-  it('runs a task once off its grid for a test hook, at the time it gives', async () => {
-    const { runner } = setup();
-    const runs: { now: number; attempt: number; aborted: boolean }[] = [];
-    runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
-      runs.push({ now: ctx.now.getTime(), attempt: ctx.attempt, aborted: ctx.signal.aborted });
-    });
-    const now = new Date('2026-10-26T15:00:00.000Z');
-    expect(await runner.runPeriodicTask('reminders.sweep', { now })).toBe(true);
-    expect(await runner.runPeriodicTask('reminders.sweep')).toBe(true);
-    expect(await runner.runPeriodicTask('reminders.nothing')).toBe(false);
-    expect(runs).toEqual([
-      { now: now.getTime(), attempt: 1, aborted: false },
-      { now: T0, attempt: 1, aborted: false },
-    ]);
-  });
-
   it('cleans up finished jobs after 7 days', async () => {
     const { runner, store, setClock } = setup();
     runner.registerHandler('reminders.fire', async () => {});
@@ -468,6 +459,163 @@ describe('periodic tasks', () => {
     }
     expect(await store.get(old.jobId)).toBeNull();
     expect(await store.get(recent.jobId)).not.toBeNull();
+  });
+});
+
+describe('test-hook runs', () => {
+  const YEAR_LATER = new Date(T0 + 300 * 24 * 60 * MINUTE);
+
+  /** A task whose runs wait for `release()`; `runs` records each run's now and flag. */
+  function gatedTask() {
+    const runs: { now: number; hook: boolean }[] = [];
+    let open: () => void = () => {};
+    let gate = new Promise<void>((resolve) => (open = resolve));
+    return {
+      runs,
+      release: () => open(),
+      close: () => (gate = new Promise<void>((resolve) => (open = resolve))),
+      run: async (ctx: { now: Date }) => {
+        runs.push({ now: ctx.now.getTime(), hook: isTestHookRun() });
+        await gate;
+      },
+    };
+  }
+
+  it('runs a task once off its grid at the given time, and keeps the next slot', async () => {
+    const { runner, store, setClock } = setup();
+    const runs: { now: number; hook: boolean; jobId: string }[] = [];
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
+      runs.push({ now: ctx.now.getTime(), hook: isTestHookRun(), jobId: ctx.jobId });
+    });
+    expect(await runner.runPeriodicTask('reminders.sweep', { now: YEAR_LATER })).toEqual({
+      status: 'ran',
+      ms: 0,
+    });
+    expect(await runner.runPeriodicTask('reminders.sweep')).toEqual({ status: 'ran', ms: 0 });
+    expect(await runner.runPeriodicTask('reminders.nothing')).toEqual({ status: 'unknown' });
+    expect(runs.map(({ now, hook }) => ({ now, hook }))).toEqual([
+      { now: YEAR_LATER.getTime(), hook: true },
+      { now: T0, hook: true },
+    ]);
+    expect(isTestHookRun()).toBe(false);
+
+    // `now` isn't stored: the task's job is queued again on its real slot, on the real clock.
+    const job = await store.get(runs[0]?.jobId ?? '');
+    expect(job).toMatchObject({ kind: PERIODIC_KIND, key: 'reminders.sweep', status: 'queued' });
+    expect(job?.attempts).toBe(0);
+    expect(job?.runAt.getTime()).toBe(T0 + MINUTE);
+    const stored = [job?.dueAt, job?.createdAt, job?.updatedAt, job?.startedAt];
+    expect(stored.map((time) => time?.getTime())).toEqual([T0 + MINUTE, T0, T0, T0]);
+
+    // The scheduled run still happens on that slot, as a normal run.
+    await runner.start();
+    try {
+      await runner.tick();
+      setClock(MINUTE + 5 * SECOND);
+      await runner.tick();
+      await sleep(10);
+    } finally {
+      await runner.stop();
+    }
+    expect(runs.slice(2).map(({ now, hook }) => ({ now, hook }))).toEqual([
+      { now: T0 + MINUTE + 5 * SECOND, hook: false },
+    ]);
+  });
+
+  it('is busy while the scheduler runs the task, without waiting or running alongside', async () => {
+    const { runner, setClock } = setup();
+    const task = gatedTask();
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, task.run);
+    await runner.start();
+    try {
+      await runner.tick();
+      setClock(MINUTE);
+      await runner.tick();
+      await flush();
+      expect(task.runs).toHaveLength(1);
+      expect(await runner.runPeriodicTask('reminders.sweep', { now: YEAR_LATER })).toEqual({
+        status: 'busy',
+      });
+      expect(task.runs).toHaveLength(1);
+      task.release();
+      await sleep(10);
+      expect(await runner.runPeriodicTask('reminders.sweep')).toMatchObject({ status: 'ran' });
+    } finally {
+      await runner.stop();
+    }
+    expect(task.runs.map((run) => run.hook)).toEqual([false, true]);
+  });
+
+  it('holds the lock while it runs: the scheduler and other calls wait for it', async () => {
+    const { runner, setClock } = setup();
+    const task = gatedTask();
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, task.run);
+    await runner.start();
+    try {
+      await runner.tick();
+      const first = runner.runPeriodicTask('reminders.sweep', { now: YEAR_LATER });
+      await flush();
+      expect(await runner.runPeriodicTask('reminders.sweep')).toEqual({ status: 'busy' });
+      setClock(MINUTE + 5 * SECOND);
+      await runner.tick();
+      await sleep(10);
+      expect(task.runs.map((run) => run.hook)).toEqual([true]);
+      task.release();
+      expect(await first).toMatchObject({ status: 'ran' });
+      // Its slot came due meanwhile: the scheduled run follows at once.
+      await runner.tick();
+      await sleep(10);
+    } finally {
+      await runner.stop();
+    }
+    expect(task.runs).toEqual([
+      { now: YEAR_LATER.getTime(), hook: true },
+      { now: T0 + MINUTE + 5 * SECOND, hook: false },
+    ]);
+  });
+
+  it('returns the counts a task gives, and failed when it throws', async () => {
+    const { runner, store, warnings } = setup();
+    let jobId = '';
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
+      jobId = ctx.jobId;
+      return { sent: 2, skipped: 0, minus: -1, half: 0.5, 'Bad name': 3 };
+    });
+    runner.registerPeriodicTask('reminders.broken', MINUTE, async () => {
+      throw new Error('Database is down');
+    });
+    expect(await runner.runPeriodicTask('reminders.sweep')).toEqual({
+      status: 'ran',
+      counts: { sent: 2, skipped: 0 },
+      ms: 0,
+    });
+    expect(await runner.runPeriodicTask('reminders.broken')).toEqual({ status: 'failed', ms: 0 });
+    expect(warnings).toContain('jobs: test run failed');
+    expect(await store.get(jobId)).toMatchObject({ status: 'queued', attempts: 0 });
+  });
+
+  it("doesn't pass the flag to jobs it schedules or to other runs", async () => {
+    const { runner } = setup();
+    const seen: { where: string; hook: boolean }[] = [];
+    runner.registerHandler('reminders.fire', async () => {
+      seen.push({ where: 'job', hook: isTestHookRun() });
+    });
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, async () => {
+      await runner.schedule({ kind: 'reminders.fire', payload: {} });
+      seen.push({ where: 'task', hook: isTestHookRun() });
+      await sleep(20);
+    });
+    await runner.start();
+    try {
+      await runner.runPeriodicTask('reminders.sweep');
+      await sleep(10);
+    } finally {
+      await runner.stop();
+    }
+    expect(seen).toEqual([
+      { where: 'task', hook: true },
+      { where: 'job', hook: false },
+    ]);
   });
 });
 
