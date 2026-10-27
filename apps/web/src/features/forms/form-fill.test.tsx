@@ -25,6 +25,7 @@ function renderFill(
 }
 
 const textbox = (name: string) => screen.getByRole('textbox', { name });
+const COVER = { id: 'file-cover', name: 'van.jpg', size: 2048, mime: 'image/jpeg' };
 const submitButton = () => screen.getByRole('button', { name: 'Send request' });
 
 function answerRequired() {
@@ -34,6 +35,7 @@ function answerRequired() {
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   stubResizeObserver();
 });
 
@@ -243,6 +245,36 @@ describe('FormFill', () => {
       [IDS.category]: 'opt-billing',
     });
     expect(client.submitResponse).not.toHaveBeenCalled();
+  });
+
+  it('keeps a signed-out draft in this tab only, never in the browser', async () => {
+    const key = draftKey('form-1', null);
+    window.sessionStorage.setItem(key, JSON.stringify({ answers: { [IDS.name]: 'Jordan Park' } }));
+    const data = fillForm({ audience: 'anyone' }, { respondent: null });
+    renderWithForms(<FormFill data={data} code="code-123" signedOut />);
+    expect(textbox('Your name')).toHaveValue('Jordan Park');
+    fireEvent.click(screen.getByRole('radio', { name: 'Billing' }));
+    expect(window.sessionStorage.getItem(key)).toContain('opt-billing');
+    expect(window.localStorage.length).toBe(0);
+    fireEvent.click(submitButton());
+    await screen.findByRole('status');
+    expect(window.sessionStorage.getItem(key)).toBeNull();
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it('shows an uploaded cover from the files API', () => {
+    renderFill({ cover: COVER });
+    expect(document.querySelector('img')).toHaveAttribute('src', '/api/files/file-cover');
+  });
+
+  it("shows the cover from the form's link with nobody signed in, and leaves out one that fails", () => {
+    const data = fillForm({ audience: 'anyone', cover: COVER }, { respondent: null });
+    renderWithForms(<FormFill data={data} code="code-123" signedOut />);
+    const cover = document.querySelector('img');
+    expect(cover).toHaveAttribute('src', '/api/forms/public/code-123/cover');
+    if (cover) fireEvent.error(cover);
+    expect(document.querySelector('img')).toBeNull();
+    expect(screen.getByRole('form', { name: 'QA dispute request' })).toBeInTheDocument();
   });
 
   it('uploads files to the form, signed in', async () => {

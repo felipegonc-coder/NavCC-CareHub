@@ -23,7 +23,7 @@ import {
 import { validateValue } from '@carehub/databases/values';
 import { Button, Logo } from '@carehub/ui';
 import { isApiError, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
-import { DEFAULT_CONFIRMATION, useFormsClient, type FillForm } from './api';
+import { DEFAULT_CONFIRMATION, publicCoverUrl, useFormsClient, type FillForm } from './api';
 import {
   answerInput,
   answerInputs,
@@ -36,6 +36,7 @@ import {
   saveDraft,
   uploadingText,
   type Answers,
+  type DraftPlace,
 } from './answers';
 import { Question, questionDomId } from './questions';
 import { RichText } from './rich-text';
@@ -94,11 +95,12 @@ function focusQuestion(propertyId: Id): void {
 const confirmationOf = (def: FormDefinition): RichTextValue =>
   isRichTextEmpty(def.confirmation) ? DEFAULT_CONFIRMATION : def.confirmation;
 
-function coverSource(def: FormDefinition): string | null {
+/** An uploaded cover comes from the files API, or from the form's own link with nobody signed in. */
+function coverSource(def: FormDefinition, code: string, signedOut: boolean): string | null {
   const cover = def.cover;
   if (!cover) return null;
   if (cover.url !== undefined) return isSafeWebLink(cover.url) ? cover.url : null;
-  return `/api/files/${encodeURIComponent(cover.id)}`;
+  return signedOut ? publicCoverUrl(code) : `/api/files/${encodeURIComponent(cover.id)}`;
 }
 
 export interface FormFillProps {
@@ -114,7 +116,8 @@ export interface FormFillProps {
 /**
  * The form as a person fills it in (Forms spec, Filling in): cover, icon, title, description, the
  * questions that show for the answers so far, checks on submit, the confirmation, and a message
- * instead of the form when it can't be filled in. Unsent answers stay in the browser.
+ * instead of the form when it can't be filled in. Unsent answers stay in the browser. A cover that
+ * doesn't load is left out.
  */
 export function FormFill({ data, code, signedOut = false, onReload }: FormFillProps) {
   const client = useFormsClient();
@@ -128,9 +131,10 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
     [respondent],
   );
   const key = draftKey(formId, respondent?.userId ?? null);
+  const place: DraftPlace = signedOut ? 'session' : 'local';
   const asked = useMemo(() => askedQuestions(def, properties), [def, properties]);
 
-  const [answers, setAnswers] = useState<Answers>(() => loadDraft(key) ?? {});
+  const [answers, setAnswers] = useState<Answers>(() => loadDraft(key, place) ?? {});
   const [errors, setErrors] = useState<Partial<Record<Id, string>>>({});
   const [summary, setSummary] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -139,6 +143,7 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   const [uploads, setUploads] = useState<Partial<Record<Id, number>>>({});
   const [announcement, setAnnouncement] = useState('');
   const [focusTarget, setFocusTarget] = useState<{ propertyId: Id } | null>(null);
+  const [brokenCover, setBrokenCover] = useState<string | null>(null);
   const sendingNow = useRef(false);
   const shownBefore = useRef<ReadonlySet<Id> | null>(null);
   const online = useOnline();
@@ -153,10 +158,10 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   );
   const uploading = Object.values(uploads).reduce<number>((n, c) => n + (c ?? 0), 0);
 
-  // Unsent answers stay in the browser until the response is sent.
+  // Unsent answers stay in the browser (this tab only, signed out) until the response is sent.
   useEffect(() => {
-    if (!sent) saveDraft(key, answers);
-  }, [key, answers, sent]);
+    if (!sent) saveDraft(key, answers, place);
+  }, [key, answers, sent, place]);
 
   // Questions that start to show are read out, without moving the focus.
   useEffect(() => {
@@ -232,7 +237,7 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
       await (signedOut
         ? client.submitPublicResponse(code, response)
         : client.submitResponse(code, response));
-      clearDraft(key);
+      clearDraft(key, place);
       setAnswers({});
       setSent(true);
     } catch (error) {
@@ -270,7 +275,7 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   }
 
   const title = def.title.trim() || 'Untitled';
-  const cover = coverSource(def);
+  const cover = coverSource(def, code, signedOut);
   const anonymous = anonymousLine(def);
   const failed = asked.filter((q) => errors[q.prop.id] !== undefined);
   const banner = notice ?? (online ? null : { text: OFFLINE_TEXT, retry: false });
@@ -366,7 +371,14 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
 
   return (
     <div className="mx-auto flex w-full max-w-page flex-col gap-4">
-      {cover && <img src={cover} alt="" className="h-40 w-full rounded object-cover" />}
+      {cover && cover !== brokenCover && (
+        <img
+          src={cover}
+          alt=""
+          className="h-40 w-full rounded object-cover"
+          onError={() => setBrokenCover(cover)}
+        />
+      )}
       <header className="flex flex-col gap-2 rounded border border-border bg-bg p-6">
         {def.icon && (
           <span aria-hidden className="text-title">
