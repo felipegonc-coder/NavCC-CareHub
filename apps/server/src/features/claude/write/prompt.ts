@@ -8,7 +8,7 @@ import {
   type WriteRequest,
   type WriteTone,
 } from '@carehub/extras/claude/write';
-import type { AskClaudeInput, ClaudeDocument } from './claude';
+import type { AskClaudeInput, ClaudeDocument } from '../index';
 
 /** What goes to askClaude besides who's asking. */
 export type WritePrompt = Pick<

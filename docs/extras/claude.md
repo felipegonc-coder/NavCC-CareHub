@@ -27,6 +27,15 @@ Switch and approval changes go to the Security log (`logSecurityEvent`).
 
 The `documents` are `{ title, text }` pairs the **server** loaded by ID after the access check. A caller never passes text a client says came from a page; only the person's own selection comes from the client. The model and the largest `max_tokens` are set on the server. `maxTokens` can only lower that limit for one feature.
 
+The numbers (core PR 1):
+
+- `MAX_TOKENS` is 2,048, and a request holds at most `MAX_REQUEST_CHARS` (60,000) characters.
+- Each person can send 30 requests in any 10 minutes.
+- The monthly cap counts the calendar month in America/Denver.
+- Every request sent is a row in `claude_usage`, failures included. Refusals before sending aren't.
+
+Until Settings → Claude binds the real checks with `configureClaude`, every switch reads as off and nobody has `claude.use`, so nothing is sent. Tests bind fakes the same way and put the old ones back with the function `configureClaude` returns.
+
 ## Security rules (security reviewer, Oct 27)
 
 - **One way out:**
