@@ -307,6 +307,9 @@ describe('filterOpLabel', () => {
       not_all_done: 'Not all done',
       is_empty: 'Is empty',
       is_not_empty: 'Is not empty',
+      is_verified: 'Is verified',
+      is_expired: 'Is expired',
+      is_not_verified: 'Is not verified',
     };
     for (const [op, text] of Object.entries(labels)) {
       expect(filterOpLabel(op as FilterOp)).toBe(text);
