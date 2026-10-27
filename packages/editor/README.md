@@ -49,7 +49,8 @@ has JSX): `export const slashItems: SlashItem[]` and `export const nodeViews: No
 Type "/" at the start of a line or after a space. The menu filters by title and keywords as you
 type (spaces allowed), moves with the arrow keys, runs the active entry on Enter, and closes on
 Escape (for that "/") or after three characters that match nothing. Nothing typed yet: the last
-five blocks you used come first under "Suggested" (kept per `user.id` in `localStorage`).
+five blocks you used come first under "Suggested" (kept per `user.id` in `localStorage`). The
+menu stays on screen on a phone, above the on-screen keyboard (it reads `visualViewport`).
 
 Groups are listed in the spec's order, "Suggested", "Basic blocks", "Media", "Database",
 "Advanced", "Inline", "Embeds", then any other group, and "Actions" last. Lanes add entries through
@@ -87,33 +88,9 @@ const lessonPicker: LinkPicker = {
 <BlockEditor ydoc={ydoc} linkPickers={[lessonPicker]} />;
 ```
 
-Links without a scheme (inside Care Hub, like `/p/<pageId>`) open in the same tab; others open in
-a new tab. Unsafe hrefs from a picker are ignored.
-
-## RichTextField
-
-A small rich text input for forms and properties, without live co-editing: paragraphs, hard
-breaks (Shift+Enter) and the marks you allow, with the same selection toolbar.
-
-```tsx
-import { RichTextField, type JSONContent } from '@carehub/editor';
-
-const [description, setDescription] = useState<JSONContent>({ type: 'doc', content: [] });
-<RichTextField
-  value={description}
-  onChange={setDescription}
-  ariaLabel="Lesson description"
-  marks={['bold', 'italic', 'link']}
-  onPickPage={pickPage} // adds "Link to a page", which links to /p/<pageId>
-/>;
-```
-
-- `value` is Tiptap JSON. Whatever it holds, the field shows (and `onChange` sends) only
-  paragraphs of text and hard breaks with the allowed marks and safe links. `sanitizeRichText`
-  does the same cleanup, for example on the server before saving.
-- `singleLine`: Enter adds nothing, and pasted or dropped lines join with spaces.
-- Also `placeholder`, `autoFocus`, `readOnly`, `id`, `ariaDescribedBy` (for a field label and
-  hint) and `linkPickers`. Changing `marks` or `singleLine` makes a new editor.
+Links from the panel or a picker go through `safeHref` and open like every other link: other
+sites in a new tab; Care Hub (like `/p/<pageId>`), `mailto` and `tel` links in the same tab. An
+address starting with `//` becomes `https://`, and an unsafe href from a picker is ignored.
 
 ## Lane blocks and extension points (shared contract, see docs/decisions/0007)
 
@@ -160,7 +137,12 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
   lane nodes.
 - Marks: `bold`, `italic`, `underline`, `strike`, `code`, `link` (`href`, `target`, `rel`).
 - Links keep only `http`, `https`, `mailto`, `tel` and relative hrefs (like `/p/<pageId>`); other
-  schemes are dropped when typed, pasted or loaded from HTML.
+  schemes are dropped when typed, pasted or loaded from HTML, and never drawn as an href, even when
+  another client sends one. A href starting with `//` goes to another site, so it is only kept as
+  `https://...`. `safeHref(href)` gives the href to use, or null.
+- Where a link opens comes from its href each time it is drawn, never from a stored or pasted
+  `target` or `rel`: other sites open in a new tab with `rel="noopener noreferrer"`; Care Hub,
+  `mailto` and `tel` links open in the same tab.
 - Names are part of the stored data: never rename or remove a node, mark or attribute once it is
   on main; only add new ones.
 

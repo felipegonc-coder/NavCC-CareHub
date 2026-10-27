@@ -100,8 +100,23 @@ describe('selection toolbar', () => {
     await typeInto(input, 'care.example.org');
     await submit(container);
     editor.commands.setTextSelection(10);
-    expect(editor.getAttributes('link')).toMatchObject({ href: 'https://care.example.org' });
+    expect(editor.getAttributes('link')).toMatchObject({
+      href: 'https://care.example.org',
+      target: '_blank',
+    });
     expect(container.querySelector('form')).toBeNull();
+  });
+
+  it('turns a typed //host address into an https link', async () => {
+    const { editor, container, button } = await setup();
+    await click(button('Add link'));
+    await typeInto(container.querySelector('input'), '//care.example.org/rota');
+    await submit(container);
+    editor.commands.setTextSelection(10);
+    expect(editor.getAttributes('link')).toMatchObject({
+      href: 'https://care.example.org/rota',
+      target: '_blank',
+    });
   });
 
   it('opens Care Hub links in the same tab', async () => {
@@ -111,6 +126,20 @@ describe('selection toolbar', () => {
     await submit(container);
     editor.commands.setTextSelection(10);
     expect(editor.getAttributes('link')).toMatchObject({ href: '/p/page-123', target: null });
+  });
+
+  it('opens a link changed to mailto in the same tab', async () => {
+    const { editor, container, button } = await setup();
+    editor.commands.setLink({ href: 'https://example.com', target: '_blank' });
+    await act(flush);
+    await click(button('Edit link'));
+    await typeInto(container.querySelector('input'), 'mailto:robin@example.com');
+    await submit(container);
+    editor.commands.setTextSelection(10);
+    expect(editor.getAttributes('link')).toMatchObject({
+      href: 'mailto:robin@example.com',
+      target: null,
+    });
   });
 
   it('explains what to type when the address is not a link', async () => {
@@ -143,12 +172,20 @@ describe('selection toolbar', () => {
     );
     await click(picker ?? null);
     editor.commands.setTextSelection(10);
-    expect(editor.getAttributes('link')).toMatchObject({ href: '/learning/l-1' });
+    expect(editor.getAttributes('link')).toMatchObject({ href: '/learning/l-1', target: null });
 
     editor.commands.setTextSelection({ from: 1, to: 6 });
     expect(await pickLink(editor, { label: 'Bad', pick: async () => 'javascript:x' })).toBe(false);
     expect(await pickLink(editor, { label: 'Cancel', pick: async () => null })).toBe(false);
     expect(marksAt(editor, 3)).toEqual([]);
+
+    const site: LinkPicker = { label: 'Other site', pick: async () => '//care.example.org' };
+    expect(await pickLink(editor, site)).toBe(true);
+    editor.commands.setTextSelection(3);
+    expect(editor.getAttributes('link')).toMatchObject({
+      href: 'https://care.example.org',
+      target: '_blank',
+    });
   });
 
   it('adds bubble items after the formatting buttons', async () => {
