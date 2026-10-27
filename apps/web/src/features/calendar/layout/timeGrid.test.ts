@@ -1,3 +1,4 @@
+import { toCivil } from '@carehub/team-time';
 import { describe, expect, it } from 'vitest';
 import { viewRange } from './period';
 import { hourAxis, initialScrollMinutes, layoutTimeGrid, nowPosition } from './timeGrid';
@@ -18,19 +19,8 @@ const byId = (placements: TimedPlacement[]) =>
   Object.fromEntries(placements.map((p) => [p.item.id, p]));
 
 /** Viewer's wall clock for an instant, the way the screens convert before calling the layout. */
-function civil(instant: string, timeZone = 'America/Denver'): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(new Date(instant));
-  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`;
-}
+const civil = (instant: string, timeZone = 'America/Denver') =>
+  toCivil(new Date(instant), timeZone);
 
 /** A small seeded random generator, so the dense test is the same every run. */
 function random(seed: number) {
