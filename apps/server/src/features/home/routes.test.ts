@@ -1,7 +1,7 @@
 // The Home settings routes on Postgres: each person's own settings (HR-06).
 import { eq, sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createTestApp,
   createUser,
@@ -11,27 +11,22 @@ import {
   type TestUser,
 } from '../../testing';
 import { users } from '../auth/schema';
-import type { LiveEvent } from '../live';
-import homeRoutes from './routes';
+import { publishToUsers } from '../live';
 import { homeSettings } from './schema';
+
+// The app's own /api/home, with the live events kept here instead of sent.
+vi.mock('../live', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../live')>()),
+  publishToUsers: vi.fn(),
+}));
 
 describe.skipIf(!hasDatabase)('Home settings on Postgres', () => {
   let test: TestApp;
   let avery: TestUser;
   let sam: TestUser;
-  const published: { userIds: readonly string[]; event: LiveEvent }[] = [];
 
   beforeAll(async () => {
-    test = await createTestApp({
-      routes: async (app) => {
-        await app.register(homeRoutes, {
-          prefix: '/api/home',
-          publish: (userIds, event) => {
-            published.push({ userIds, event });
-          },
-        });
-      },
-    });
+    test = await createTestApp();
     avery = await createUser(test.db, { name: 'Avery Lin' });
     sam = await createUser(test.db, { name: 'Sam Ortiz' });
   });
@@ -58,9 +53,8 @@ describe.skipIf(!hasDatabase)('Home settings on Postgres', () => {
     expect(response.json()).toEqual({ settings });
     expect(await read(avery)).toEqual(settings);
     expect(await read(sam)).toEqual({ hiddenSections: [], upcomingFolded: false });
-    expect(published.at(-1)).toEqual({
-      userIds: [avery.id],
-      event: { type: 'home-settings-changed' },
+    expect(vi.mocked(publishToUsers)).toHaveBeenLastCalledWith([avery.id], {
+      type: 'home-settings-changed',
     });
   });
 

@@ -6,19 +6,12 @@ import { publishToUsers } from '../live';
 import { changeHomeSettings, readHomeSettings } from './store';
 import { HOME_SETTINGS_CHANGED, homeSettingsChangeSchema, type HomeSettings } from './types';
 
-export interface HomeRoutesOptions {
-  /** Tells the person's open tabs about a change. The live server's, unless a test sets it. */
-  publish?: typeof publishToUsers;
-}
-
 function userIdOf(request: FastifyRequest): string {
   if (!request.user) throw httpError(401, 'signed_out');
   return request.user.id;
 }
 
-const homeRoutes: FastifyPluginAsync<HomeRoutesOptions> = async (app, options) => {
-  const publish = options.publish ?? publishToUsers;
-
+const homeRoutes: FastifyPluginAsync = async (app) => {
   app.get('/settings', async (request): Promise<{ settings: HomeSettings }> => ({
     settings: await readHomeSettings(app.db, userIdOf(request)),
   }));
@@ -27,7 +20,7 @@ const homeRoutes: FastifyPluginAsync<HomeRoutesOptions> = async (app, options) =
     const userId = userIdOf(request);
     const change = homeSettingsChangeSchema.parse(request.body);
     const settings = await changeHomeSettings(app.db, userId, change);
-    publish([userId], { type: HOME_SETTINGS_CHANGED });
+    publishToUsers([userId], { type: HOME_SETTINGS_CHANGED });
     return { settings };
   });
 };
