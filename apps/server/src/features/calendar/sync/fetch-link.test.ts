@@ -1,4 +1,9 @@
-import type { IncomingHttpHeaders } from 'node:http';
+import type {
+  IncomingHttpHeaders,
+  IncomingMessage,
+  RequestListener,
+  RequestOptions,
+} from 'node:http';
 import { createServer, request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { gzipSync } from 'node:zlib';
@@ -7,8 +12,8 @@ import {
   createTransport,
   fetchCalendarLink,
   FetchLinkError,
+  LINK_MAX_HEADER_BYTES,
   pinnedLookup,
-  testCalendarOrigins,
   toHttpsUrl,
 } from './fetch-link';
 import type {
@@ -212,34 +217,45 @@ describe('fetchCalendarLink', () => {
     expect(requests).toHaveLength(4);
   });
 
-  it('refuses redirects to private addresses, to http or without a location', async () => {
-    const cases: [IncomingHttpHeaders, string][] = [
+  it('refuses redirects to private addresses, to http, with credentials or without a location', async () => {
+    const unusable = "The link redirected to an address Care Hub can't use.";
+    const cases: [IncomingHttpHeaders, string, string?][] = [
       [{ location: 'https://metadata.example.net/latest' }, 'blocked-address'],
       [{ location: 'https://127.0.0.1/a.ics' }, 'blocked-address'],
-      [{ location: 'http://calendar.example.com/a.ics' }, 'invalid-link'],
-      [{}, 'invalid-link'],
+      [{ location: 'http://calendar.example.com/a.ics' }, 'invalid-link', unusable],
+      [{ location: 'https://avery:fictional@mirror.example.org/a.ics' }, 'invalid-link', unusable],
+      [{ location: 'https://avery@mirror.example.org/a.ics' }, 'invalid-link', unusable],
+      [{}, 'invalid-link', unusable],
     ];
-    for (const [headers, code] of cases) {
+    for (const [headers, code, message] of cases) {
+      const lookups: string[] = [];
       const { requests, transport } = server(() => reply(302, headers));
-      const error = await failure(LINK, { resolve: resolver(), transport });
+      const error = await failure(LINK, { resolve: resolver(lookups), transport });
       expect(error.code).toBe(code);
+      if (message) expect(error.message).toBe(message);
       expect(requests).toHaveLength(1);
+      if (code === 'invalid-link') expect(lookups).toEqual(['calendar.example.com']);
     }
   });
 
-  it('sends credentials from the link only to its own origin', async () => {
-    const { requests, transport } = server(
-      () => reply(302, { location: '/moved.ics' }),
-      () => reply(302, { location: 'https://mirror.example.org/a.ics' }),
-      () => reply(200, {}, ICS),
-    );
-    await fetchCalendarLink('https://avery:fictional@calendar.example.com/a.ics', {
-      resolve: resolver(),
-      transport,
-    });
-    const basic = `Basic ${Buffer.from('avery:fictional').toString('base64')}`;
-    expect(requests.map((r) => r.headers.authorization)).toEqual([basic, basic, undefined]);
-    expect(requests.every((r) => r.url.username === '' && r.url.password === '')).toBe(true);
+  it('refuses links with a user name and password', async () => {
+    const lookups: string[] = [];
+    const { requests, transport } = server(() => reply(200, {}, ICS));
+    for (const link of [
+      'https://avery:fictional@calendar.example.com/a.ics',
+      'webcal://avery@calendar.example.com/a.ics',
+      'https://:fictional@calendar.example.com/a.ics',
+    ]) {
+      const error = await failure(link, { resolve: resolver(lookups), transport });
+      expect(error.code).toBe('invalid-link');
+      expect(error.retryable).toBe(false);
+      expect(error.message).toBe(
+        "Links with a user name and password aren't supported. Use the calendar's private link, which has its secret in the address.",
+      );
+    }
+    expect(lookups).toEqual([]);
+    expect(requests).toEqual([]);
+    expect(requests.every((r) => !('authorization' in r.headers))).toBe(true);
   });
 
   it('sends validators and reports an unchanged calendar', async () => {
@@ -404,21 +420,37 @@ describe('pinnedLookup', () => {
 });
 
 describe('createTransport', () => {
+  async function withServer(handler: RequestListener, run: (port: number) => Promise<void>) {
+    const local = createServer(handler);
+    await new Promise<void>((resolve) => local.listen(0, '127.0.0.1', resolve));
+    try {
+      await run((local.address() as AddressInfo).port);
+    } finally {
+      local.closeAllConnections();
+      await new Promise((resolve) => local.close(resolve));
+    }
+  }
+
+  const signal = new AbortController().signal;
+  const caught = (promise: Promise<unknown>) =>
+    promise.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
   it('connects to the pinned address and keeps the host name', async () => {
     const seen: { host?: string; path?: string; agent?: string }[] = [];
-    const local = createServer((req, res) => {
+    const handler: RequestListener = (req, res) => {
       seen.push({ host: req.headers.host, path: req.url, agent: req.headers['user-agent'] });
       res.writeHead(200, { 'content-type': 'text/calendar' });
       res.end(ICS);
-    });
-    await new Promise<void>((resolve) => local.listen(0, '127.0.0.1', resolve));
-    const { port } = local.address() as AddressInfo;
-    try {
+    };
+    await withServer(handler, async (port) => {
       const response = await createTransport(httpRequest)({
         url: new URL(`http://calendar.example.com:${port}/feeds/avery.ics?view=week`),
         addresses: [{ address: '127.0.0.1', family: 4 }],
         headers: { 'user-agent': 'CareHub-Calendar/test' },
-        signal: new AbortController().signal,
+        signal,
       });
       const chunks: Uint8Array[] = [];
       for await (const chunk of response.body) chunks.push(chunk);
@@ -431,144 +463,53 @@ describe('createTransport', () => {
           agent: 'CareHub-Calendar/test',
         },
       ]);
-    } finally {
-      local.close();
-    }
+    });
   });
-});
 
-describe('test origins (browser tests only)', () => {
-  const ORIGIN = 'http://127.0.0.1:4599';
-  const FEED = `${ORIGIN}/family.ics`;
-  const WARNING = 'CAREHUB_TEST_CALENDAR_ORIGINS is ignored outside test and development.';
-
-  async function withNodeEnv(value: string | undefined, run: () => Promise<void>) {
-    const saved = process.env.NODE_ENV;
-    if (value === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = value;
-    try {
-      await run();
-    } finally {
-      if (saved === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = saved;
-    }
-  }
-
-  it('refuses 127.0.0.1 without the option', () =>
-    withNodeEnv('test', async () => {
-      const { requests, transport } = server(() => reply(200, {}, ICS));
-      expect((await failure(FEED, { transport })).code).toBe('invalid-link');
-      const https = await failure('https://127.0.0.1:4599/family.ics', { transport });
-      expect(https.code).toBe('blocked-address');
-      expect(requests).toHaveLength(0);
-    }));
-
-  it('lets through only the exact listed origin, skipping only the address check', () =>
-    withNodeEnv('test', async () => {
-      const { requests, transport } = server(() => reply(200, {}, ICS));
-      const allowLocalOrigins = [ORIGIN, 'https://[::1]:4600'];
-      expect((await fetchCalendarLink(FEED, { allowLocalOrigins, transport })).status).toBe('ok');
-      const v6 = await fetchCalendarLink('https://[::1]:4600/a.ics', {
-        allowLocalOrigins,
-        transport,
-      });
-      expect(v6.status).toBe('ok');
-      expect(requests.map((r) => r.addresses)).toEqual([
-        [{ address: '127.0.0.1', family: 4 }],
-        [{ address: '::1', family: 6 }],
-      ]);
-      const others: [string, string][] = [
-        ['http://127.0.0.1:4600/family.ics', 'invalid-link'],
-        ['http://127.0.0.2:4599/family.ics', 'invalid-link'],
-        ['http://localhost:4599/family.ics', 'invalid-link'],
-        ['https://127.0.0.1:4599/family.ics', 'blocked-address'],
-        ['webcal://127.0.0.1:4599/family.ics', 'blocked-address'],
-        ['http://[::1]:4600/a.ics', 'invalid-link'],
-      ];
-      for (const [link, code] of others) {
-        const error = await failure(link, { allowLocalOrigins, resolve: resolver(), transport });
-        expect(error.code).toBe(code);
-      }
-      expect(requests).toHaveLength(2);
-    }));
-
-  it('checks every redirect from a listed origin again', () =>
-    withNodeEnv('test', async () => {
-      const cases: [string, string][] = [
-        ['http://10.0.0.5/a.ics', 'invalid-link'],
-        ['https://internal.example.net/a.ics', 'blocked-address'],
-        ['http://127.0.0.1:4600/a.ics', 'invalid-link'],
-        ['https://127.0.0.1:4600/a.ics', 'blocked-address'],
-      ];
-      for (const [location, code] of cases) {
-        const { requests, transport } = server(() => reply(302, { location }));
-        const options = { allowLocalOrigins: [ORIGIN], resolve: resolver(), transport };
-        expect((await failure(FEED, options)).code).toBe(code);
-        expect(requests).toHaveLength(1);
-      }
-      const moved = server(
-        () => reply(302, { location: '/moved.ics' }),
-        () => reply(200, {}, ICS),
+  it("drops a connection that reached an address that wasn't checked, before sending anything", async () => {
+    let requests = 0;
+    const handler: RequestListener = (_req, res) => {
+      requests++;
+      res.end(ICS);
+    };
+    // A request function whose lookup ignores the checked addresses, as a rebinding bug would.
+    const leaky = ((options: RequestOptions, callback?: (res: IncomingMessage) => void) =>
+      httpRequest(
+        { ...options, lookup: pinnedLookup([{ address: '127.0.0.1', family: 4 }]) },
+        callback,
+      )) as unknown as Parameters<typeof createTransport>[0];
+    await withServer(handler, async (port) => {
+      const error = await caught(
+        createTransport(leaky)({
+          url: new URL(`http://calendar.example.com:${port}/a.ics`),
+          addresses: [{ address: '93.184.216.34', family: 4 }],
+          headers: {},
+          signal,
+        }),
       );
-      await fetchCalendarLink(FEED, { allowLocalOrigins: [ORIGIN], transport: moved.transport });
-      expect(moved.requests.map((r) => r.url.href)).toEqual([FEED, `${ORIGIN}/moved.ics`]);
-    }));
+      expect(error).toBeInstanceOf(FetchLinkError);
+      expect((error as FetchLinkError).code).toBe('blocked-address');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(requests).toBe(0);
+    });
+  });
 
-  it('keeps the size limit and the timeout for a listed origin', () =>
-    withNodeEnv('development', async () => {
-      const allowLocalOrigins = [ORIGIN];
-      const big = server(() => reply(200, { 'content-length': '2000' }, ICS));
-      const tooLarge = await failure(FEED, {
-        allowLocalOrigins,
-        maxBytes: 1000,
-        transport: big.transport,
-      });
-      expect(tooLarge.code).toBe('too-large');
-      const silent: Transport = ({ signal }) =>
-        new Promise((_resolve, reject) => {
-          signal.addEventListener('abort', () => reject(signal.reason as Error));
-        });
-      const late = await failure(FEED, { allowLocalOrigins, timeoutMs: 20, transport: silent });
-      expect(late.code).toBe('timeout');
-    }));
-
-  it('accepts only exact loopback origins with a port', () =>
-    withNodeEnv('test', async () => {
-      const bad = [
-        'http://127.0.0.1',
-        'http://127.0.0.1:80',
-        'http://127.0.0.1:4599/',
-        'http://localhost:4599',
-        'http://10.0.0.5:4599',
-        'http://192.168.1.20:4599',
-        'ftp://127.0.0.1:4599',
-        'http://avery@127.0.0.1:4599',
-      ];
-      for (const entry of bad) {
-        await expect(fetchCalendarLink(FEED, { allowLocalOrigins: [entry] })).rejects.toThrow(
-          TypeError,
-        );
-        expect(() => testCalendarOrigins(entry, 'test', () => {})).toThrow(TypeError);
-      }
-      const list = ` ${ORIGIN}, http://[::1]:4600 ,`;
-      expect(testCalendarOrigins(list, 'test', () => {})).toEqual([ORIGIN, 'http://[::1]:4600']);
-    }));
-
-  it('is ignored in production, with a warning', () =>
-    withNodeEnv('production', async () => {
-      const { requests, transport } = server(() => reply(200, {}, ICS));
-      const allowLocalOrigins = [ORIGIN, 'https://127.0.0.1:4600'];
-      expect((await failure(FEED, { allowLocalOrigins, transport })).code).toBe('invalid-link');
-      const https = await failure('https://127.0.0.1:4600/a.ics', { allowLocalOrigins, transport });
-      expect(https.code).toBe('blocked-address');
-      expect(requests).toHaveLength(0);
-      for (const nodeEnv of ['production', undefined, 'staging']) {
-        const warnings: string[] = [];
-        expect(testCalendarOrigins(ORIGIN, nodeEnv, (m) => warnings.push(m))).toEqual([]);
-        expect(warnings).toEqual([WARNING]);
-      }
-      const quiet: string[] = [];
-      expect(testCalendarOrigins(undefined, 'production', (m) => quiet.push(m))).toEqual([]);
-      expect(quiet).toEqual([]);
-    }));
+  it('refuses response headers over 16 KB', async () => {
+    expect(LINK_MAX_HEADER_BYTES).toBe(16 * 1024);
+    const handler: RequestListener = (_req, res) => {
+      res.writeHead(200, { 'x-padding': 'a'.repeat(20_000) });
+      res.end(ICS);
+    };
+    await withServer(handler, async (port) => {
+      const error = await caught(
+        createTransport(httpRequest)({
+          url: new URL(`http://calendar.example.com:${port}/a.ics`),
+          addresses: [{ address: '127.0.0.1', family: 4 }],
+          headers: {},
+          signal,
+        }),
+      );
+      expect((error as NodeJS.ErrnoException | undefined)?.code).toBe('HPE_HEADER_OVERFLOW');
+    });
+  });
 });

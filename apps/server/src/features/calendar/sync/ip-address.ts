@@ -1,6 +1,6 @@
 // Which addresses a calendar link may reach: public unicast only. Everything else (loopback,
-// private, link-local, CGNAT, multicast, reserved, documentation, and the IPv6 equivalents,
-// including IPv4 addresses inside IPv6) is refused, so a link can't probe Care Hub's network.
+// private, link-local, CGNAT and Tailscale, multicast, reserved, documentation, and the IPv6
+// equivalents, including IPv4 inside IPv6) is refused, so a link can't probe Care Hub's network.
 
 import { isIPv4, isIPv6 } from 'node:net';
 
@@ -9,7 +9,7 @@ type Range = readonly [prefix: string, bits: number, reason: string];
 const IPV4_BLOCKED: readonly Range[] = [
   ['0.0.0.0', 8, 'this network'],
   ['10.0.0.0', 8, 'private'],
-  ['100.64.0.0', 10, 'shared (CGNAT)'],
+  ['100.64.0.0', 10, 'shared (CGNAT, Tailscale)'],
   ['127.0.0.0', 8, 'loopback'],
   ['169.254.0.0', 16, 'link-local'],
   ['172.16.0.0', 12, 'private'],
@@ -36,6 +36,7 @@ const IPV6_RULES: readonly (readonly [prefix: string, bits: number, rule: string
   ['2002::', 16, 'reserved'], // 6to4
   ['3fff::', 20, 'documentation'],
   ['2000::', 3, 'public'],
+  ['fd7a:115c:a1e0::', 48, 'private (Tailscale)'],
   ['fc00::', 7, 'private'],
   ['fe80::', 10, 'link-local'],
   ['ff00::', 8, 'multicast'],
