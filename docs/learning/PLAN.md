@@ -194,11 +194,13 @@ Routes (B1 creates them all in PR 3, each lazy-loading the owner's `index.tsx` s
 
 ### Shared web contracts
 - Block views (B5 owns `blocks/registry.tsx`; creates empty family files that their owners fill):
-  `type BlockViewProps<B> = { block: B; lesson: ContentLesson; course: Course; mode: "learn" | "preview" | "review";
+  `type BlockViewProps<B> = { block: B; lesson: ContentLesson; course: PlayerCourse; mode: "learn" | "preview" | "review";
   state: LearnerCourseState; emit(e: NewProgressEvent): void; go(link: Link): void }` and
   `blockViews: { [T in Block["type"]]?: (p: BlockViewProps<Extract<Block, { type: T }>>) => JSX.Element }`.
   Families: text and continue (B5), media and interactive (B10), knowledge_check and scenario (B2). Unknown types
-  render a plain "This block can't be shown yet" note.
+  render a plain "This block can't be shown yet" note. `PlayerCourse` is `Course | LearnerCourse` (0314, #204): the
+  learner view in the player (quiz lessons have `questionCount`, no questions), the full draft in preview. Block views
+  use `course` only for links and labels.
 - Block editors (B8 owns `studio/editors/registry.tsx`; same pattern): `type BlockEditorProps<B> = { block: B;
   onChange(next: B): void; course: Course; lessonId: Id }`. Families: text and continue (B8), media and interactive
   (B10), knowledge_check (B9), scenario (B2).
@@ -218,8 +220,19 @@ Routes (B1 creates them all in PR 3, each lazy-loading the owner's `index.tsx` s
 B1 creates `index.ts` mounting one router per area (stubs) and owns `courses/` and `reviews/`; B3 `progress/`,
 `certificates/`, `paths/`; B4 `assignments/`, `reports/` (B3 adds its report routes in its own routers); B9 `banks/`;
 B10 `media/`. Publish hooks (stubs by B1, filled by the owners): `banks/publish.ts`
-`resolveBankDraws(db, course)` (B9) and `progress/on-publish.ts` `onCoursePublished(db, { courseId, version, notify })`
+`resolveBankDraws(db, workspaceId, course)` (B9; it throws `cannotPublish(problems)` from `errors.ts` itself, listing
+every bank problem by title, and returns the course with bank snapshots) and `progress/on-publish.ts` `onCoursePublished(db, { courseId, version, notify })`
 (B3). B1 also stubs `public.ts` (isLearningEnabled, listLearningDueDates, listMyLearning for Team tools' Calendar and Home; B4 fills it). Each owner writes its own migration `YYYYMMDDHHMM_learning_<area>.sql`. Endpoints: `api.md`.
+
+### Learning help (Claude, 0315)
+Writing help in blocks, summaries and key points, quiz questions from a lesson, and a first draft of a course. Studio
+only (`learning.author`, plus `claude.use`). Calls Extras' shared client on the server (`askClaude`, `askClaudeJson`,
+`isClaudeFeatureOn` from `apps/server/src/features/claude/index.ts`; feature keys, error reasons and messages from
+`@carehub/extras/claude`) with the feature key `learning_help`: off until an admin switches it on, and every button is
+hidden while it's off. The server loads the course text itself by id; see 0315 for the rules.
+Owner: to be named. Paths: `packages/learning/src/help/`, `apps/server/src/features/learning/help/`,
+`apps/web/src/features/learning/studio/help/`. B8 and B9 give it a place for its buttons (rich text toolbar, lesson
+editor, New course, quiz editor).
 
 ## Every Learning PR
 
@@ -227,6 +240,6 @@ B10 `media/`. Publish hooks (stubs by B1, filled by the owners): `banks/publish.
 - Only touches the lane paths above (never package-lock.json).
 - Vitest tests for logic; Playwright + axe and light/dark, desktop/phone screenshots for screens.
 - Styles only through design-kit tokens and @carehub/ui components: no hard-coded colours, fonts, sizes or spacing.
-- Type check, lint and license check pass in CI. Fictional data only. No secrets. Claude features off.
+- Type check, lint and license check pass in CI. Fictional data only. No secrets. Claude features stay off until an admin switches them on.
 - Updates its Learning row in the Care Hub rebuild tracker.
 - The Learning lead reviews and squash-merges with `expectedHeadSha`.

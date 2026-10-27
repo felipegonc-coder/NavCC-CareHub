@@ -151,16 +151,17 @@ jobs:
           cat "$RUNNER_TEMP/ci-logs/audit.md" >> "$GITHUB_STEP_SUMMARY"
           npm audit --omit=dev --audit-level=critical 2>&1 | tee "$RUNNER_TEMP/ci-logs/audit.log"
 
-      # Secrets in the pull request's commits, with a pinned gitleaks (MIT) for Linux x64, the
-      # runner's platform, whose checksum is checked first. Findings are redacted in the log. A
-      # false positive, such as a fictional password, gets a "gitleaks:allow" comment on its line,
-      # or its fingerprint (printed in the log) in .gitleaksignore.
+      # Secrets in the pull request's commits, or on main in the commits of each push, with a
+      # pinned gitleaks (MIT) for Linux x64, the runner's platform, whose checksum is checked
+      # first. Findings are redacted in the log. A false positive, such as a fictional password,
+      # gets a "gitleaks:allow" comment on its line, or its fingerprint (printed in the log) in
+      # .gitleaksignore.
       - name: Secret scan
         id: gitleaks
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.checkout.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           version=8.30.1
           sum=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
@@ -173,7 +174,10 @@ jobs:
             exit 1
           fi
           tar -xzf "$dir/gitleaks.tar.gz" -C "$dir" gitleaks
-          "$dir/gitleaks" git --no-banner --redact --verbose --log-opts="$BASE_SHA..$HEAD_SHA" . 2>&1 \
+          # Without a known earlier commit (a new branch, a forced push), only the last commit.
+          range="$BASE_SHA..$HEAD_SHA"
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2> /dev/null; then range="-1 $HEAD_SHA"; fi
+          "$dir/gitleaks" git --no-banner --redact --verbose --log-opts="$range" . 2>&1 \
             | tee "$RUNNER_TEMP/ci-logs/gitleaks.log"
 
       # Keep this step last: the report job reads these logs.

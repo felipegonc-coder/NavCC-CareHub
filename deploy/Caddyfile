@@ -1,0 +1,12 @@
+# HTTPS for CAREHUB_DOMAIN (from .env), served only on the server's Tailscale address
+# (see docker-compose.yml). A *.ts.net name gets its certificate from the host's
+# tailscaled, through the mounted /var/run/tailscale.
+{
+	# Caddy runs as the Care Hub user: it doesn't add its own CA to a system trust store.
+	skip_install_trust
+}
+
+{$CAREHUB_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

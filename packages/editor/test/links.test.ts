@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { isSafeHref, opensNewTab, safeHref } from '../src/links';
+import {
+  isSafeHref,
+  linkAttributes,
+  normalizeLinkInput,
+  opensNewTab,
+  safeHref,
+} from '../src/links';
 
 describe('isSafeHref', () => {
   it.each([
@@ -73,4 +79,50 @@ describe('opensNewTab', () => {
       expect(opensNewTab(href)).toBe(false);
     },
   );
+});
+
+describe('normalizeLinkInput', () => {
+  it.each([
+    ['example.com', 'https://example.com'],
+    ['  care.example.org/rota?week=2  ', 'https://care.example.org/rota?week=2'],
+    ['example.com:8080', 'https://example.com:8080'],
+    ['https://example.com/a', 'https://example.com/a'],
+    ['HTTP://example.com', 'HTTP://example.com'],
+    ['//care.example.org/rota', 'https://care.example.org/rota'],
+    ['robin@example.com', 'mailto:robin@example.com'],
+    ['mailto:robin@example.com', 'mailto:robin@example.com'],
+    ['tel:+15550100', 'tel:+15550100'],
+    ['/p/page-123', '/p/page-123'],
+    ['#handover', '#handover'],
+  ])('turns %j into %j', (input, href) => {
+    expect(normalizeLinkInput(input)).toBe(href);
+  });
+
+  it.each([
+    '',
+    '   ',
+    'not a link',
+    'javascript:alert(1)',
+    'data:text/html,hi',
+    'notes',
+    'a@b',
+    '//',
+    '\\\\care.example.org',
+  ])('refuses %j', (input) => {
+    expect(normalizeLinkInput(input)).toBeNull();
+  });
+});
+
+describe('linkAttributes', () => {
+  it.each([
+    ['https://example.com', '_blank'],
+    ['https://care.example.org/rota', '_blank'],
+    ['/p/page-123', null],
+    ['#handover', null],
+    ['mailto:robin@example.com', null],
+    ['tel:+15550100', null],
+  ])('gives %j the target %j, as it is drawn', (href, target) => {
+    expect(linkAttributes(href)).toEqual({ href, target });
+    expect(target === '_blank').toBe(opensNewTab(href));
+  });
 });

@@ -1,7 +1,7 @@
-import AxeBuilder from '@axe-core/playwright';
 import { apiFor, expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
 import { makePage, spaceIdOf } from '../pages/page-data.js';
 import { PageScreen, TEAM_SPACE, literally, openAs } from '../pages/page-screen.js';
+import { checkScreen } from '../../support/screen-checks.js';
 import { Sidebar } from './sidebar-page.js';
 
 // Sidebar, spaces and nested pages, sections 3.2, 3.4 and 6: the page tree and Favorites.
@@ -18,9 +18,9 @@ test.describe('Sidebar: the page tree', () => {
   onlyIn('desktop-light');
   needs('signIn', 'appShell', 'pages');
 
-  test('SB-12 the tree works fully by keyboard and reads as a tree; axe finds no serious problems', async ({
+  test('SB-12 the tree works fully by keyboard and reads as a tree; axe finds no problems with an entry expanded', async ({
     page,
-  }) => {
+  }, testInfo) => {
     const parent = uniqueName('Fictional QA parent');
     const first = uniqueName('Fictional QA first sub-page');
     const second = uniqueName('Fictional QA second sub-page');
@@ -53,11 +53,6 @@ test.describe('Sidebar: the page tree', () => {
             - treeitem ${inOrder(first)}
             - treeitem ${inOrder(second)}
       `);
-      const { violations } = await new AxeBuilder({ page })
-        .include('nav[aria-label="Sidebar"]')
-        .analyze();
-      const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-      expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
     });
 
     await test.step('Ctrl+Shift+↓ and ↑ move the entry among its siblings', async () => {
@@ -94,11 +89,29 @@ test.describe('Sidebar: the page tree', () => {
       await expect(page).toHaveURL(new RegExp(`/p/${firstId}$`));
       await new PageScreen(page).expectTitle(renamed);
     });
+
+    await test.step('axe finds no problems with the entry expanded', async () => {
+      // A state tests/e2e/screens.ts can't reach, so it's checked here (desktop-light only).
+      await checkScreen(
+        page,
+        {
+          name: 'sb-12-tree-expanded',
+          path: `/p/${parentId}`,
+          setup: async (opened) => {
+            const tree = new Sidebar(opened);
+            await tree.expand(parent);
+            await expect(tree.entry(renamed)).toBeVisible();
+          },
+        },
+        testInfo,
+      );
+    });
   });
 
   test('SB-03 dragging a page above, below and onto a page, onto a space, onto Favorites and onto Trash', async ({
     page,
   }) => {
+    const shelf = uniqueName('Fictional QA drag shelf');
     const parent = uniqueName('Fictional QA parent');
     const target = uniqueName('Fictional QA target');
     const starred = uniqueName('Fictional QA starred');
@@ -106,18 +119,23 @@ test.describe('Sidebar: the page tree', () => {
     const two = uniqueName('Fictional QA two');
     const three = uniqueName('Fictional QA three');
     await signInAs(page, 'admin');
-    const parentId = await makePage(page, parent);
-    for (const sub of [one, two, three]) await makePage(page, sub, { parentId });
-    await makePage(page, target);
+    // Everything starts inside one page of this test's own, so the team space's top level only
+    // changes when "one" is dropped onto the space.
+    const shelfId = await makePage(page, shelf);
+    const parentId = await makePage(page, parent, { parentId: shelfId });
+    const ids = new Map<string, string>();
+    for (const sub of [one, two, three]) ids.set(sub, await makePage(page, sub, { parentId }));
+    await makePage(page, target, { parentId: shelfId });
     const screen = new PageScreen(page);
     const sidebar = new Sidebar(page);
     const space = sidebar.section(TEAM_SPACE);
     const favorites = sidebar.section('Favorites');
     // A starred page keeps the Favorites section on screen to drop onto.
-    await screen.goto(await makePage(page, starred));
+    await screen.goto(await makePage(page, starred, { parentId: shelfId }));
     await screen.favorite.click();
     await expect(sidebar.entry(starred, favorites)).toBeVisible();
     await screen.goto(parentId);
+    await sidebar.expand(shelf);
     await sidebar.expand(parent);
 
     await test.step('above and below a sibling: the tree and the parent page show the new order', async () => {
@@ -140,10 +158,15 @@ test.describe('Sidebar: the page tree', () => {
       await expect(sidebar.subEntries(parent)).toHaveText([inOrder(three), inOrder(one)]);
     });
 
-    await test.step('onto the space name: it moves to the top level', async () => {
+    await test.step('onto the space name: it moves to the top level of the space', async () => {
       await sidebar.drag(one, space.getByRole('heading', { name: TEAM_SPACE }));
       await expect(sidebar.subEntries(parent)).toHaveText([inOrder(three)]);
-      await expect(sidebar.entry(one, space)).toBeVisible();
+      // At the top level it sits at the same tree level as the shelf (aria-level), wherever.
+      const topLevel = await sidebar.entry(shelf, space).getAttribute('aria-level');
+      expect(topLevel).not.toBeNull();
+      await expect(sidebar.entry(one, space)).toHaveAttribute('aria-level', topLevel ?? '');
+      // Then back into the shelf (POST /api/pages/:id/move), so the top level is as it was.
+      await (await apiFor(page)).post(`/api/pages/${ids.get(one)}/move`, { parentId: shelfId });
     });
 
     await test.step('onto Favorites: it is starred and stays where it was', async () => {
@@ -166,11 +189,20 @@ test.describe('Sidebar: the page tree', () => {
     const sidebar = new Sidebar(page);
     const privateSection = sidebar.section('Private');
     const heading = privateSection.getByRole('heading', { name: 'Private' });
-    const confirm = page.getByRole('alertdialog');
+    // The same confirm as Move to (Pages and blocks, PB-24): "Moving <page> to Private changes who
+    // can open it: 4 people lose access; …".
+    const confirm = page
+      .getByRole('alertdialog')
+      .or(page.getByRole('dialog'))
+      .filter({ hasText: 'changes who can open it' });
 
     await test.step('dropping it on Private asks first; Cancel leaves it in the team space', async () => {
       await sidebar.drag(title, heading);
-      await expect(confirm).toContainText(/lose access/);
+      await expect(confirm).toContainText(
+        new RegExp(
+          `Moving ${literally(title).source} to Private changes who can open it: \\d+ (person loses|people lose) access`,
+        ),
+      );
       await confirm.getByRole('button', { name: 'Cancel' }).click();
       await expect(sidebar.entry(title, sidebar.section(TEAM_SPACE))).toBeVisible();
     });

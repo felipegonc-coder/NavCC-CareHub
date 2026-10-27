@@ -167,11 +167,12 @@ describe('dashboards and color rules', () => {
     expect(ok(dashboardOptionsSchema, { widgets: [{ ...widget('w1'), width: 5 }] })).toBe(false);
   });
 
-  it('takes up to 10 color rules, not in the default color', () => {
+  it('takes up to 10 color rules, in any option color', () => {
     const rules = (n: number) => Array.from({ length: n }, (_, i) => rule(`r${i}`));
     expect(ok(colorRulesSchema, rules(LIMITS.colorRules))).toBe(true);
     expect(ok(colorRulesSchema, rules(LIMITS.colorRules + 1))).toBe(false);
-    expect(ok(colorRulesSchema, [{ ...rule('r1'), color: 'default' }])).toBe(false);
+    expect(ok(colorRulesSchema, [{ ...rule('r1'), color: 'default' }])).toBe(true);
+    expect(ok(colorRulesSchema, [{ ...rule('r1'), color: 'teal' }])).toBe(false);
     expect(
       ok(colorRulesSchema, [{ ...rule('r1'), target: { kind: 'property', propertyId: 'p1' } }]),
     ).toBe(true);

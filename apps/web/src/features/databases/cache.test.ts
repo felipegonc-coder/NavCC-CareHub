@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  findQueryRow,
   mapQueryRows,
   mergeMore,
   moreRequest,
@@ -140,5 +141,22 @@ describe('moveInCache', () => {
     const grouped = groupedByStatus();
     expect(moveInCache(grouped, 'row-heater', { toGroupKey: 'missing' })).toBe(grouped);
     expect(moveInCache(grouped, 'missing', { toGroupKey: STATUS.done })).toBe(grouped);
+  });
+});
+
+describe('findQueryRow', () => {
+  it('finds a loaded row in the rows, a group or a sub-group', () => {
+    expect(findQueryRow(queryData(), 'row-drain')?.title).toBe('Unclog bathroom drain');
+    expect(findQueryRow(groupedByStatus(), 'row-boiler')?.title).toBe('Annual boiler service');
+    const grouped = groupedByStatus();
+    const lanes: ViewQueryData = {
+      ...grouped,
+      groups: (grouped.groups ?? []).map((g) => ({ ...g, rows: [], subGroups: [g] })),
+    };
+    expect(findQueryRow(lanes, 'row-sink')?.title).toBe('Fix kitchen sink leak');
+  });
+
+  it("is undefined for a row that isn't loaded", () => {
+    expect(findQueryRow(queryData(), 'row-gone')).toBeUndefined();
   });
 });

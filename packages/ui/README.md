@@ -53,7 +53,19 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
     `-bold`; fonts `--ch-font-sans`, `--ch-font-mono`.
   - Also `--ch-shadow-menu`, `--ch-shadow-dialog`, and widths `--ch-page-width` (48rem),
     `--ch-sidebar-width` (16rem), `--ch-dialog-width` (32rem), `--ch-toast-width` (24rem). Scrims
-    use `bg-overlay/50`; the logo uses `brand` and `brand-fg`.
+    use `bg-overlay/50`; the logo uses `brand` and `brand-fg`; `grid-cols-control` puts a checkbox
+    or switch before its label.
+- **Checked by lint:** the ESLint rule `carehub/no-one-off-styles` (`lint/no-one-off-styles.js`)
+  reads every string, class list and `style={{ }}` object in `apps/web` and `packages`. It flags
+  arbitrary values (`rounded-[4px]`, `w-[85vw]`, `max-[900px]:`), Tailwind defaults the kit
+  doesn't have (`text-sm`, `font-light`, `bg-gray-100`, `bg-black/50`, `rounded-lg`, `shadow-md`,
+  `max-w-lg`), hex and `rgb(0 0 0)` colours, px, rem, em and pt sizes, and px numbers or colour
+  names in `style`. Allowed: state and selector variants (`data-[state=open]:`, `has-[:checked]:`,
+  `[&>svg]:`), Radix's measured sizes and kit variables in brackets
+  (`max-h-[var(--radix-select-content-available-height)]`, `w-[var(--ch-sidebar-width)]`) and
+  `transition-[...]` lists. The kit's value files, configs and tests are exempt. It is an error in
+  core folders and a warning in lane folders until 2026-10-29. If the kit lacks a value you need,
+  add it to `src/scale.ts` or `src/tokens.ts` rather than writing it inline.
 - **Theme:** `ThemeProvider` + `ThemeSwitch` (light, dark, system), saved on the device.
   `apps/web/public/theme-init.js` applies the saved theme before the first paint; it is a file, not
   an inline script, because the Content Security Policy allows only `script-src 'self'`.
@@ -65,4 +77,7 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
 - **Overlays:** `DropdownMenu`, `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
   and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
   focus back.
+- **Shell parts:** `SheetContent` (a panel sliding in from the left, inside `Dialog`), and
+  `SidebarGroup` and `sidebarRowClasses` for blocks and rows in the sidebar. Below
+  `breakpoints.md` (768px, `md:`) the app shell shows the phone layout.
 - **Icons:** [Lucide](https://lucide.dev) (`lucide-react`), 16 px inside buttons and menus.

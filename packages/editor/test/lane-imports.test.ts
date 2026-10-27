@@ -14,6 +14,10 @@ const blocks = import.meta.glob('../src/blocks/*.ts', {
   eager: true,
 });
 
+// Browser files (`ui.ts`, `<group>.ui.ts`) may import React; the other files are schema files.
+const isBrowserFile = (path: string) => /(^|[/.])ui\.ts$/.test(path);
+const blockSchemas = Object.entries(blocks).filter(([path]) => !isBrowserFile(path));
+
 const specifiers = (source: string) =>
   [...source.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*['"]([^'"]+)['"]/g)].map((match) => match[1]);
 const isIndex = (path: string) => path.endsWith('/index.ts');
@@ -27,7 +31,7 @@ describe('schema files', () => {
     }
   });
 
-  it.each(Object.entries(blocks))('%s imports only Tiptap schema packages', (path, source) => {
+  it.each(blockSchemas)('%s imports only Tiptap schema packages', (path, source) => {
     for (const specifier of specifiers(source)) {
       expect(specifier).toMatch(
         isIndex(path) ? /^(@tiptap\/core|\.\/[\w-]+)$/ : /^@tiptap\/(?!react)[\w-]+(\/[\w-]+)?$/,
@@ -37,6 +41,8 @@ describe('schema files', () => {
 
   it('finds the files', () => {
     expect(Object.keys(lanes).length).toBeGreaterThan(1);
-    expect(Object.keys(blocks).length).toBeGreaterThan(1);
+    expect(blockSchemas.length).toBeGreaterThan(1);
+    expect(blockSchemas.map(([path]) => path)).toContain('../src/blocks/text.ts');
+    expect(blockSchemas.map(([path]) => path)).not.toContain('../src/blocks/text.ui.ts');
   });
 });
