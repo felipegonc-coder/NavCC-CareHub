@@ -107,8 +107,10 @@ describe('block IDs', () => {
     typeText(editor, 'Intake');
     const id = String(idOf(editor, 'Intake'));
     pressKey(editor, 'Enter');
+    // jsdom has no ClipboardEvent, so the paste gets a plain event.
     editor.view.pasteHTML(
       `<p data-block-id="${id}">Copied</p><hr data-block-id="${id}"><p data-block-id="${id}">Twice</p>`,
+      new Event('paste') as ClipboardEvent,
     );
     const ids = [...lines(editor), ...dividers(editor)].map(([, blockId]) => blockId);
     expect(lines(editor).map(([text]) => text)).toEqual(['Intake', 'Copied', 'Twice']);
