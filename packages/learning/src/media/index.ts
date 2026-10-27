@@ -6,7 +6,7 @@ export * from './webvtt';
 export * from './transcript';
 export * from './crop';
 
-// media: upload checks
+export * from './kinds';
 
 // media: embeds
 
