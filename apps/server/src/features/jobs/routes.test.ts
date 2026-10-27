@@ -2,12 +2,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMemoryJobStore } from './domain/memoryStore';
 import { createJobRunner, type JobRunner } from './domain/runner';
-import jobsRoutes from './routes';
+import jobsRoutes, { type JobsRoutesOptions } from './routes';
 
 let app: FastifyInstance | undefined;
 let runner: JobRunner;
 
-async function build(): Promise<FastifyInstance> {
+async function build(options: Partial<JobsRoutesOptions> = {}): Promise<FastifyInstance> {
   runner = createJobRunner({ store: createMemoryJobStore() });
   runner.registerHandler('automations.run', async () => ({ rows: 3 }));
   app = Fastify();
@@ -18,11 +18,14 @@ async function build(): Promise<FastifyInstance> {
       const user = request.headers['x-test-user'];
       return typeof user === 'string' ? user : null;
     },
+    isSiteAdmin: (request) => request.headers['x-test-site-admin'] === '1',
+    ...options,
   });
   return app;
 }
 
 const as = (user: string) => ({ 'x-test-user': user });
+const asSiteAdmin = (user: string) => ({ ...as(user), 'x-test-site-admin': '1' });
 const later = () => new Date(Date.now() + 60 * 60_000);
 
 afterEach(async () => {
@@ -116,5 +119,71 @@ describe('runner lifecycle', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(await runner.get(jobId)).toMatchObject({ status: 'succeeded', result: { rows: 3 } });
+  });
+});
+
+describe('POST /api/jobs/test/periodic/:name', () => {
+  const MINUTE = 60_000;
+
+  async function buildWithTask() {
+    const api = await build({ testHooks: true });
+    const times: string[] = [];
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
+      times.push(ctx.now.toISOString());
+    });
+    const post = (name: string, headers: Record<string, string>, payload?: object) =>
+      api.inject({ method: 'POST', url: `/api/jobs/test/periodic/${name}`, headers, payload });
+    return { times, post };
+  }
+
+  it('runs the task once at the given time for a site admin', async () => {
+    const { times, post } = await buildWithTask();
+    const now = '2026-10-26T15:00:00.000Z';
+    const response = await post('reminders.sweep', asSiteAdmin('user-avery'), { now });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ task: 'reminders.sweep', now });
+    expect(times).toEqual([now]);
+  });
+
+  it('uses the current time without one', async () => {
+    const { times, post } = await buildWithTask();
+    const before = Date.now();
+    expect((await post('reminders.sweep', asSiteAdmin('user-avery'))).statusCode).toBe(200);
+    expect(times).toHaveLength(1);
+    const ran = Date.parse(times[0] ?? '');
+    expect(ran >= before && ran <= Date.now()).toBe(true);
+  });
+
+  it('answers 401 signed out, 403 for others, 400 for a bad time and 404 for no such task', async () => {
+    const { times, post } = await buildWithTask();
+    expect((await post('reminders.sweep', {})).statusCode).toBe(401);
+    expect((await post('reminders.sweep', as('user-sam'))).statusCode).toBe(403);
+    const bad = await post('reminders.sweep', asSiteAdmin('user-avery'), { now: 'Monday' });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toMatchObject({ error: { code: 'invalid' } });
+    const unknown = await post('reminders.nothing', asSiteAdmin('user-avery'));
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json()).toMatchObject({ error: { code: 'not_found' } });
+    expect(times).toEqual([]);
+  });
+
+  it('is there only with CAREHUB_TEST_HOOKS=1', async () => {
+    const previous = process.env.CAREHUB_TEST_HOOKS;
+    const post = (api: FastifyInstance) =>
+      api.inject({
+        method: 'POST',
+        url: '/api/jobs/test/periodic/jobs.cleanup',
+        headers: asSiteAdmin('user-avery'),
+      });
+    try {
+      delete process.env.CAREHUB_TEST_HOOKS;
+      expect((await post(await build())).statusCode).toBe(404);
+      await app?.close();
+      process.env.CAREHUB_TEST_HOOKS = '1';
+      expect((await post(await build())).statusCode).toBe(200);
+    } finally {
+      if (previous === undefined) delete process.env.CAREHUB_TEST_HOOKS;
+      else process.env.CAREHUB_TEST_HOOKS = previous;
+    }
   });
 });
