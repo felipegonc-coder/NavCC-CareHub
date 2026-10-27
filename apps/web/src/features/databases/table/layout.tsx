@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -173,6 +174,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const rowDragged = useRef(false);
   // On touch screens a long press on a row opens its menu (the handle is hidden on phones).
   const [press] = useState(longPress);
+  const selectAllId = useId();
   // The cell that gets focus when the row menu closes.
   const afterMenu = useRef<CellAt | null>(null);
   const rowEls = useRef(new Map<string, HTMLDivElement>());
@@ -1394,13 +1396,20 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
                 <div role="columnheader" className={cn(selectClass, 'min-h-9 max-md:min-h-11')}>
                   {/* Room for the rows' handles, so the boxes line up. */}
                   <span aria-hidden className="w-4 shrink-0 max-md:hidden" />
-                  <Checkbox
-                    checked={allState}
-                    aria-label={TABLE_TEXT.selectAll}
-                    onCheckedChange={() =>
-                      setSelection(allState === true ? NO_SELECTION : selectAll(lines))
-                    }
-                  />
+                  {/* The label fills the cell on phones, so the box has a 44 px target. */}
+                  <label
+                    htmlFor={selectAllId}
+                    className="flex items-center justify-center max-md:size-11"
+                  >
+                    <Checkbox
+                      id={selectAllId}
+                      checked={allState}
+                      aria-label={TABLE_TEXT.selectAll}
+                      onCheckedChange={() =>
+                        setSelection(allState === true ? NO_SELECTION : selectAll(lines))
+                      }
+                    />
+                  </label>
                 </div>
               )}
               {columns.map((column) => (
