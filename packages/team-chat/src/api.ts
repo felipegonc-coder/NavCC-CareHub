@@ -3,6 +3,7 @@ import { idSchema } from './compose';
 import { GROUP_MAX_PEOPLE, HISTORY_PAGE_SIZE } from './constants';
 import type { SystemEvent } from './system-lines';
 import type { ChatType, PersonLabel } from './types';
+import type { UnreadCounts } from './unread';
 
 // What the web sends to /api/messages and what the server answers, so both sides agree.
 
@@ -33,6 +34,34 @@ export const historyQuerySchema = z
   });
 export type HistoryQuery = z.infer<typeof historyQuerySchema>;
 
+/** The chat list: `unread=true` keeps chats with unread messages (Home), `limit` the first ones. */
+export const chatListQuerySchema = z.object({
+  unread: z.stringbool().default(false),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+export type ChatListQuery = z.infer<typeof chatListQuerySchema>;
+
+/** Read up to `seq`, the newest message on screen. The marker only moves forward. */
+export const readBodySchema = z.object({ seq: seq(0) });
+export type ReadBody = z.infer<typeof readBodySchema>;
+
+/** Rename a group (a blank name removes it), or mute a chat for yourself. */
+export const changeChatBodySchema = z
+  .object({
+    name: z.string().max(1000).nullable().optional(),
+    muted: z.boolean().optional(),
+  })
+  .refine((body) => body.name !== undefined || body.muted !== undefined, {
+    message: 'Send a new name or muted.',
+  });
+export type ChangeChatBody = z.infer<typeof changeChatBodySchema>;
+
+/** Add people to a group. They see its earlier messages. */
+export const addPeopleBodySchema = z.object({
+  userIds: z.array(idSchema).min(1).max(GROUP_MAX_PEOPLE),
+});
+export type AddPeopleBody = z.infer<typeof addPeopleBodySchema>;
+
 /** A current member of a chat. Times are ISO strings. */
 export interface ChatMemberJson {
   userId: string;
@@ -60,7 +89,7 @@ export interface MessageJson {
   deletedAt: string | null;
 }
 
-export interface ChatJson {
+export interface ChatJson extends UnreadCounts {
   id: string;
   type: Exclude<ChatType, 'careHub'>;
   /** Groups only; null shows the members' names (`chatTitle`). */
@@ -73,7 +102,7 @@ export interface ChatJson {
   lastSeq: number;
   /** Current members, longest-standing first. */
   members: ChatMemberJson[];
-  /** The viewer's own settings. */
+  /** The viewer's own settings and read marker; `unread` and `mentions` count after it. */
   muted: boolean;
   lastReadSeq: number;
   lastMessage: MessageJson | null;
@@ -109,4 +138,14 @@ export interface HistoryResponse {
 export interface MessageResponse {
   message: MessageJson;
   people: PeopleJson;
+}
+
+/** After reading or Mark as unread: the viewer's marker and what's left unread. */
+export interface ReadResponse extends UnreadCounts {
+  lastReadSeq: number;
+}
+
+/** The Messages part of the sidebar badge (`badgeCount`); the 🔔 Care Hub chat adds its own. */
+export interface UnreadResponse {
+  count: number;
 }
