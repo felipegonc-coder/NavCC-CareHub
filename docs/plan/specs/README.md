@@ -2,8 +2,8 @@
 
 _Copied from the Notion spec (https://app.notion.com/p/46a3bb9cb57a49c283778189759ad1c5) on 2026-10-27. If they differ, Notion wins. Core specs are copied into this folder; lane specs are read in Notion by their lanes._
 
-> 📐 Builder-ready specs for the Care Hub rebuild: 🆕 **Phase 1 workspace features that match Notion**, **Phase 2** (databases, formulas and forms) and **Phase 3** (team tools and the knowledge base). Written only from the plan, the Feature list, Look and feel, Builder rules and Felipe's answers. Draft v2 · Oct 27, 2026 · Owner: Felipe Gonçalves · Fictional data only.
-> **Build order:** Phase 1 first, then Phase 2 (Databases, Messages and the rest), then Phase 3. Messages is listed under Phase 3 but is built early, alongside Phase 2.
+> 📐 Builder-ready specs for the Care Hub rebuild: 🆕 **Phase 1 workspace features that match Notion**, **Phase 2** (databases, formulas and forms) and **Phase 3** (team tools, the knowledge base and 🆕 Claude features). Written only from the plan, the Feature list, Look and feel, Builder rules and Felipe's answers. Draft v2 · Oct 27, 2026 · Owner: Felipe Gonçalves · Fictional data only.
+> **Build order:** Phase 1 first, then Phase 2 (Databases, Messages and the rest), then Phase 3. Messages is listed under Phase 3 but is built early, alongside Phase 2. 🆕 Claude features is listed under Phase 3 too (Phase 5 in the plan and the tracker): the Extras lane builds it now, with every feature switched off until Nav's OK.
 
 ## How to use these specs
 
@@ -12,6 +12,7 @@ _Copied from the Notion spec (https://app.notion.com/p/46a3bb9cb57a49c2837781897
 - 🟨 marks an open decision for Felipe: build the suggested default until he answers. ✅ marks one he has answered. All of them are in the table at the bottom.
 - 🆕 marks what v2 added to a spec that already existed.
 - Acceptance checks have IDs (DB-01, FM-01…). Each pull request lists the checks it covers.
+- 🆕 **Done means:** every spec has a short list just above its acceptance checks: things to try in the browser with fictional data, with ⭐ on what the team will notice first. Each item uses its acceptance-check ID, so tests, the Care Hub test results page and Friday's list all use the same IDs. A new check takes the next free number in its spec. Areas without a spec use DK (look and feel), SH (app shell), AC (accounts and sign-in) and LN (Learning). Checks that cross several areas are the flows below (FLOW-01…).
 - 🆕 **Goal (Oct 27):** Care Hub does everything Notion does, plus its own extras (Messages, Calendar, Meetings, Status page, Learning, Claude). The Notion parity checklist, at the bottom of this page, maps each Notion feature to the spec and section that covers it, and lists what Care Hub does differently on purpose.
 
 ## Rules for every spec
@@ -96,9 +97,24 @@ Templates and buttons and Import and export also have Phase 2 parts (database te
 
 - [Data settings](./data-settings.md) (Notion: https://app.notion.com/p/d3e3077867b6443697837e8a30eadd4c)
 
+- Claude features (Notion: https://app.notion.com/p/c1116656e6d34bc7b986993564fb5944)
+
+## 🆕 Cross-area flows
+
+Checks that run through several areas. Try each one end to end in the browser with fictional data; each gets one row on the Care Hub test results page, titled with its FLOW ID. FLOW-01 to FLOW-03 come from the Testing lane and keep their numbers; a new flow takes the next free number.
+
+- **FLOW-01 Page → share → comment mention → notice.** Avery shares the page Shift handover with Sam and mentions @Sam in a comment. → Sam gets one 🔔 notice with the snippet, and its link opens the exact spot. (RP-16, CM-08, MS-09)
+- **FLOW-02 Database → form → automation → calendar.** Riley submits the Callback request form; an automation messages the new row's owner; Callbacks is a database layer in Calendar. → One new row, one 🔔 message within 10 seconds, and the callback on the calendar at its date and time. (FM-02, AU-12, CA-04)
+- **FLOW-03 Assign course → take → certificate.** Phase 4 (Learning): an Admin assigns a course, the learner takes it and gets a certificate. The steps come with the Learning spec. (LN, HR-04)
+- **FLOW-04 Import → search → history.** Import a Notion export of Support handbook with its 3 databases, search for a phrase from one of its pages, edit that page, then restore the imported version. → The page tree, databases and links come back (formulas listed as problems), search finds the phrase, and Restore brings back the imported text. (IE-04, SR-09, HT-02)
+- **FLOW-05 Meeting → notes → action item → reminder.** Avery makes Team huddle with Sam and a Zoom link, takes meeting notes and adds the to-do "@Sam call Blue Pine Plumbing" with tomorrow's date; Sam adds a reminder to that date. → Sam gets the invite, sees Join on Home 10 minutes before the start, finds the to-do under My action items, and gets the reminder in 🔔 at its time. (CA-06, HR-02, MT-01, MT-15, HR-16)
+- **FLOW-06 Button → row → automation → message.** On the page QA desk, Avery clicks the button New QA review, which adds a row to QA reviews from its template, while the automation "Row added to QA reviews → message the row's Team lead" is on. → One new row with the template filled in, and the Team lead gets a 🔔 message within 10 seconds. (TB-09, AU-12)
+- **FLOW-07 Knowledge base review.** With test data, Refund policy is verified until today. → At 9:00 AM in the owner's time zone it turns Expired, the owner gets a notice in 🔔 and readers see the banner; Review now → Verify for 90 days brings the badge back, and the page ranks above an equal unverified page in search. (KB-05, KB-06, KB-07, KB-12)
+- **FLOW-08 Guest and share link → turn off.** Share Onboarding plan with the guest Casey (Can comment) and make a share link with sub-pages off. Casey comments, and a signed-out visitor opens the link; then remove Casey and turn off the link. → Members see Casey's comment; the visitor gets the page read only with sub-pages locked; Casey is signed out within 5 seconds of removal; the link then says "This link isn't active." (RP-18, RP-19, RP-21)
+
 ## Not in these specs
 
-- Learning (Phase 4) and Claude features (Phase 5) get their own specs later.
+- Learning (Phase 4) gets its own spec later, including Claude's Learning help.
 - What Care Hub leaves out on purpose (email, outside integrations and the public API, single sign-on, app-store apps, custom domains) is listed in the Notion parity checklist with the reason.
 
 ## Decisions for Felipe
@@ -144,6 +160,10 @@ Templates and buttons and Import and export also have Phase 2 parts (database te
 | 🆕 DS-D1 | Should Export everything include other people's private pages, chats and private events? | No |  |
 | 🆕 DS-D2 | Default keeping periods for page versions and Trash? | Versions 1 year, Trash 30 days |  |
 | 🆕 PC-D1 | Pages that open with no connection at all (offline pages)? | Later: typing already continues through short drops |  |
+| 🆕 CL-D1 | Which Claude model? | One model for every feature, named in the server's settings file next to the key (a current Claude Sonnet model) |  |
+| 🆕 CL-D2 | Monthly limit on Claude requests? | 3,000 a month per workspace; Admins can change it |  |
+| 🆕 CL-D3 | How long to keep assistant chats? | Until their owner deletes them or the account is removed |  |
+| 🆕 CL-D4 | May Claude fields fill automatically? | Yes, as a choice per field; new fields start By hand |  |
 
 ## 🆕 Notion parity
 
@@ -152,3 +172,9 @@ Every Notion feature mapped to the spec and section that covers it, plus what Ca
 - [Notion parity checklist](./parity-checklist.md) (Notion: https://app.notion.com/p/cb343e6d8b204ee28047788d6cc9dd14)
 
 - Care Hub test results (Notion: https://app.notion.com/p/08111f7e847f4fe0b8511d47d8e6d40e)
+
+## 🆕 Care Hub help
+
+Plain-English help for the team, one page per area, written from these specs with made-up examples. These pages will be the first pages in the Knowledge base.
+
+- Care Hub help (Notion: https://app.notion.com/p/aedf43e511ae43abbead02c7259c7064)

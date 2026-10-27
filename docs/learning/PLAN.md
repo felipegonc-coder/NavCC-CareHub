@@ -25,7 +25,8 @@ gets type-checked: nobody's computer has network. Browser tests, axe and screens
 label (add it with issue_write once the screens are ready; at most 2 runs per PR without asking the main lead) and
 nightly on main; put the result and the screenshot-comment link in the PR body. PRs stay under about 600 lines of
 non-test code (tests, fixtures and docs don't count). One GitHub account is shared by every agent: push complete
-batches in few commits, never poll in a loop, back off on rate-limit errors. Tracker: Care Hub rebuild tracker, Learning lane rows.
+batches in few commits, never poll in a loop, back off on rate-limit errors. Push work in progress to a feat/* branch with no open PR at least every 3 hours (branch
+pushes run no CI), so no work lives only on one computer; never push half-done work to a branch with an open PR. Tracker: Care Hub rebuild tracker, Learning lane rows.
 
 ## `packages/learning` layout and ownership
 
@@ -86,7 +87,7 @@ type ProgressEvent = { id: Id; at: IsoDateTime } & (          // id = client uui
   | { type: "lesson_opened"; lessonId: Id }
   | { type: "time_active"; lessonId: Id; seconds: number }     // 1..60 per event
   | { type: "block_completed"; lessonId: Id; blockId: Id }     // continue, process, flashcards, sorting
-  | { type: "knowledge_check_answered"; lessonId: Id; blockId: Id; response: QuestionResponse }
+  | { type: "knowledge_check_answered"; lessonId: Id; blockId: Id; correct: boolean } // no typed text (0310)
   | { type: "scenario_finished"; lessonId: Id; blockId: Id; choiceIds: Id[] }
   | { type: "lesson_completed"; lessonId: Id }
   | { type: "quiz_attempt_started"; lessonId: Id; plan: AttemptPlan }
@@ -144,6 +145,10 @@ searchCatalog(courses, query, topic?)  // listed and published only; accent- and
 Up to 8 builders at once, each keeping one track to the end. Dates are when each PR should be open.
 Last PR open Oct 30; anything not ready by Oct 31 is dropped; `docs/learning/STATUS.md` by Oct 30.
 
+**Order of work (Felipe, Oct 27):** his bar is "everything" (Notion parity, but better). Get a basic working version of
+every feature onto main before polishing any one. All colours, fonts, sizes and spacing come from design-kit tokens,
+with no one-off styles, because Felipe restyles Care Hub himself later.
+
 | Builder | Track |
 |---|---|
 | B1 Format, base, courses, reviews | 1 scaffold, schemas, parse (Oct 27) · 2 publish checks, fixtures, JSON schema (Oct 27) · 3 web and server base: `data/` HTTP client with the offline event queue, `routes.tsx` with every route below lazy-loading each area's `index.tsx` (stubs), server `index.ts` mounting every area router (stubs), the two mount lines (Oct 27–28) · 4 courses server: tables, Studio course API (draft save with revision check, publish = new live version, versions, roll back, duplicate, archive), catalog, examples, block templates (Oct 28) · 5 reviews: share a draft by link, comments on blocks, export comments as CSV, review-due reminders for authors (Oct 29) |
@@ -185,15 +190,17 @@ Routes (B1 creates them all in PR 3, each lazy-loading the owner's `index.tsx` s
 `/learning/studio`, `/learning/studio/courses/:courseId`, `.../preview` (B8); `/learning/studio/paths[/:pathId]` (B3);
 `/learning/studio/banks[/:bankId]` (B9); `/learning/assign` (B4); `/learning/reports`, `/learning/reports/courses/:courseId`,
 `/learning/reports/overdue` (B4); `/learning/reports/people/:personId`, `/learning/reports/team`,
-`/learning/reports/paths/:pathId` (B3); `/learning/review/:token` (B1).
+`/learning/reports/paths/:pathId` (B3); `/learning/review` with the token in the fragment (B1, 0309).
 
 ### Shared web contracts
 - Block views (B5 owns `blocks/registry.tsx`; creates empty family files that their owners fill):
-  `type BlockViewProps<B> = { block: B; lesson: ContentLesson; course: Course; mode: "learn" | "preview" | "review";
+  `type BlockViewProps<B> = { block: B; lesson: ContentLesson; course: PlayerCourse; mode: "learn" | "preview" | "review";
   state: LearnerCourseState; emit(e: NewProgressEvent): void; go(link: Link): void }` and
   `blockViews: { [T in Block["type"]]?: (p: BlockViewProps<Extract<Block, { type: T }>>) => JSX.Element }`.
   Families: text and continue (B5), media and interactive (B10), knowledge_check and scenario (B2). Unknown types
-  render a plain "This block can't be shown yet" note.
+  render a plain "This block can't be shown yet" note. `PlayerCourse` is `Course | LearnerCourse` (0314, #204): the
+  learner view in the player (quiz lessons have `questionCount`, no questions), the full draft in preview. Block views
+  use `course` only for links and labels.
 - Block editors (B8 owns `studio/editors/registry.tsx`; same pattern): `type BlockEditorProps<B> = { block: B;
   onChange(next: B): void; course: Course; lessonId: Id }`. Families: text and continue (B8), media and interactive
   (B10), knowledge_check (B9), scenario (B2).
@@ -213,14 +220,26 @@ Routes (B1 creates them all in PR 3, each lazy-loading the owner's `index.tsx` s
 B1 creates `index.ts` mounting one router per area (stubs) and owns `courses/` and `reviews/`; B3 `progress/`,
 `certificates/`, `paths/`; B4 `assignments/`, `reports/` (B3 adds its report routes in its own routers); B9 `banks/`;
 B10 `media/`. Publish hooks (stubs by B1, filled by the owners): `banks/publish.ts`
-`resolveBankDraws(db, course)` (B9) and `progress/on-publish.ts` `onCoursePublished(db, { courseId, version, notify })`
+`resolveBankDraws(db, workspaceId, course)` (B9; it throws `cannotPublish(problems)` from `errors.ts` itself, listing
+every bank problem by title, and returns the course with bank snapshots) and `progress/on-publish.ts` `onCoursePublished(db, { courseId, version, notify })`
 (B3). B1 also stubs `public.ts` (isLearningEnabled, listLearningDueDates, listMyLearning for Team tools' Calendar and Home; B4 fills it). Each owner writes its own migration `YYYYMMDDHHMM_learning_<area>.sql`. Endpoints: `api.md`.
+
+### Learning help (Claude, 0315)
+Writing help in blocks, summaries and key points, quiz questions from a lesson, and a first draft of a course. Studio
+only (`learning.author`, plus `claude.use`). Calls Extras' shared client on the server (`askClaude`, `askClaudeJson`,
+`isClaudeFeatureOn` from `apps/server/src/features/claude/index.ts`; feature keys, error reasons and messages from
+`@carehub/extras/claude`) with the feature key `learning_help`: off until an admin switches it on, and every button is
+hidden while it's off. The server loads the course text itself by id; see 0315 for the rules.
+Owner: to be named. Paths: `packages/learning/src/help/`, `apps/server/src/features/learning/help/`,
+`apps/web/src/features/learning/studio/help/`. B8 and B9 give it a place for its buttons (rich text toolbar, lesson
+editor, New course, quiz editor).
 
 ## Every Learning PR
 
 - Says: "Written from the spec. No code copied from AppFlowy or the old Care Hub."
 - Only touches the lane paths above (never package-lock.json).
 - Vitest tests for logic; Playwright + axe and light/dark, desktop/phone screenshots for screens.
-- Type check, lint and license check pass in CI. Fictional data only. No secrets. Claude features off.
+- Styles only through design-kit tokens and @carehub/ui components: no hard-coded colours, fonts, sizes or spacing.
+- Type check, lint and license check pass in CI. Fictional data only. No secrets. Claude features stay off until an admin switches them on.
 - Updates its Learning row in the Care Hub rebuild tracker.
 - The Learning lead reviews and squash-merges with `expectedHeadSha`.

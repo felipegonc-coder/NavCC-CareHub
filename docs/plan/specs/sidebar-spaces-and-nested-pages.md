@@ -14,7 +14,7 @@ The left-hand sidebar is how people get around Care Hub: switch workspaces, open
 
 - **Workspace switcher:** workspace icon and name. Menu: the person's other workspaces (click to switch), Settings, Invite members (Admins), Create workspace (site admins), Sign out.
 - **New page** button next to the switcher (Ctrl+Alt+N): opens a new page with a "Add to:" picker at the top (Private by default, or a space or page).
-- **Top items:** Search (Ctrl+K), Home, Messages (unread badge), Calendar. Later phases add Learning and Claude. Each can be hidden except Search.
+- **Top items:** Search (Ctrl+K), Home, Messages (unread badge), Calendar. Learning comes in Phase 4, and Claude shows once an Admin switches on the Assistant (Claude features). Each can be hidden except Search.
 - **Favorites:** pages the person starred, in their own order.
 - **Spaces:** each space the person belongs to, with its pages as a tree. Hovering a space shows "…" and "+".
 - **Shared:** pages shared with the person directly (not through a space), and their private pages they've shared with others.
@@ -113,6 +113,19 @@ The left-hand sidebar is how people get around Care Hub: switch workspaces, open
 - The tree is a real tree for screen readers: ↑ and ↓ move, → expands or goes to the first child, ← collapses or goes to the parent, Enter opens, Shift+F10 opens the entry menu, F2 renames.
 - Moving by keyboard: the entry menu's Move to, or Ctrl+Shift+↑ and ↓ to move an entry among its siblings.
 - **Phone:** the sidebar is a full screen opened from the menu button. A bottom bar has Home, Search, Messages and New page. Long-press an entry for its menu; dragging works after a long-press, and Move to always works.
+
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **SB-01** Sign in as a new member, Riley Chen. → The General space is there, with the Private, Shared and Favorites sections.
+2. ⭐ **SB-03** Drag "Refund steps" onto "Policies", then above it, then onto Trash. → It becomes a sub-page, then moves back up, then goes to Trash.
+3. ⭐ **SB-05** Avery adds a sub-page and renames another. → Sam's sidebar shows both within 2 seconds, without reloading.
+4. **SB-02** Make the sidebar wider, collapse Shared and reload. → It stays as you left it, for you only.
+5. **SB-04** Move a page into a space with different access. → A confirm explains the access change before anything moves.
+6. **SB-07** Riley clicks Request to join on a Closed space. → Its owners get a notice, and Approve adds Riley.
+7. **SB-11** Favorite three pages and drag them into a new order. → The order stays after a reload.
+8. **SB-13** On a phone, open the sidebar and use Move to on a page. → The sidebar is full screen, and Move to works without dragging.
 
 ## 7. Acceptance checks
 

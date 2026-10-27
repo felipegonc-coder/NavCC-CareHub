@@ -37,7 +37,7 @@ Pages are documents made of blocks: text, lists, media, databases and more. This
 
 ### 3.1 Pages
 
-- **Title:** plain text and emoji, up to 2,000 characters; empty shows "Untitled". Enter in the title moves to the first block, making one if needed. A rename updates every link, mention, breadcrumb, sidebar entry and browser tab live. The browser tab shows the page icon and title.
+- **Title:** plain text and emoji, up to 2,000 characters; empty shows "Untitled". A new page opens with the cursor in its empty title. Enter in the title moves to the first block, making one if needed. A rename updates every link, mention, breadcrumb, sidebar entry and browser tab live. The browser tab shows the page icon and title.
 - **Icon:** an emoji (search, categories, recently used, skin tone), an icon from the icon set in one of 10 colors, a custom workspace emoji, or an uploaded picture (PNG, JPEG, GIF or WebP up to 5 MB, cropped to a square). Also Random and Remove.
 - **Cover:** a picture from Care Hub's own gallery (colors, gradients and patterns), or an upload (PNG, JPEG, GIF or WebP up to 10 MB). Change, Reposition (drag up or down; the position is saved) and Remove. 280 px tall on computers, 160 px on phones.
 - **Sub-pages** live in their parent's content as page blocks. Every page has exactly one home: a space, a parent page, or a database (as a row). There's no depth limit.
@@ -53,7 +53,7 @@ Pages are documents made of blocks: text, lists, media, databases and more. This
 Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to · Move to Trash · Archive · Remind me (Home and reminders) · Follow (Comments and mentions) · Version history and Updates (Page history and Trash) · Save as template (Templates and buttons) · Turn into knowledge base page (Knowledge base) · Import · Export · Print (Import and export) · Analytics (Admins only) · Page info. Items the person can't use are hidden.
 
 - **Duplicate** copies the page with its sub-pages, databases (with rows), files and style, named "\[title\] (copy)", placed right after the original. Links inside the copy that pointed at copied pages point at the new copies. Comments, history, reminders and analytics aren't copied. Large copies run in the background ("Duplicating 340 pages…"), and a 🔔 notice says when it's done.
-- **Move to:** search pages and spaces where you can edit; the page moves there with its sub-pages. If that changes who can open it, a confirm says so first ("4 people will lose access and 2 will gain it."). 🆕 When Settings → Security and the space allow it, Move to also lists the person's other workspaces: the page, its sub-pages and files are copied there and moved to Trash here. Comments, history and access don't come along, and mentions of people who aren't in the other workspace become plain text.
+- **Move to:** search pages and spaces where you can edit; the page moves there with its sub-pages. If that changes who can open it, the confirm from Roles and permissions (section 3) shows first, for example "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." 🆕 When Settings → Security and the space allow it, Move to also lists the person's other workspaces: the page, its sub-pages and files are copied there and moved to Trash here. Comments, history and access don't come along, and mentions of people who aren't in the other workspace become plain text.
 
 ### 3.3 Blocks in general
 
@@ -61,7 +61,7 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 - **Block menu** (click ⋮⋮, right-click, or Ctrl+/): a search box, then Turn into, Color, Copy link to block, Duplicate, Move to, Delete, Comment, the type's own options, and "Last edited by Avery Lin · 3:12 PM" at the bottom.
 - **Colors:** 10 text colors and 10 backgrounds: Default, Gray, Brown, Orange, Yellow, Green, Blue, Purple, Pink and Red. Each has a light-mode and a dark-mode value that keeps text contrast at 4.5:1 or more. The names also work in "/" ("/red", "/blue background", "/default").
 - **Turn into:** text-like blocks change into each other and keep their text, inline formatting and children: Text, Heading 1–3, To-do, Bulleted list, Numbered list, Toggle list, Toggle heading 1–3, Quote, Callout, Code (formatting is dropped) and Page (the text becomes the title and the children its content). A page block can turn into a mention and back.
-- **Nesting:** Tab puts a block inside the block above when that block can hold children (text, the three lists, to-do, toggles, toggle headings, quote and callout). Shift+Tab takes it out. Up to 20 levels.
+- **Nesting:** Tab puts a block inside the block above when that block can hold children (text, the three lists, to-do, toggles, toggle headings, quote and callout). Shift+Tab takes it out. Up to 20 levels: a top-level block is level 1, so a block can be nested 19 times at most. Tab does nothing when it would put the block, or anything inside it, past level 20. Columns, tabs blocks and synced blocks don't count as levels, and pasted or imported content nested deeper lands at level 20.
 - **Selecting:** Esc selects the block the cursor is in; Shift+↑ and Shift+↓ grow the selection; Ctrl+A selects the block's text, then all blocks; dragging in the margin draws a selection box; Shift-click selects a range. Selected blocks can be deleted, duplicated, moved, colored, turned into another type, copied, cut, indented and dragged together.
 - **Dragging:** drag ⋮⋮ to move blocks; a blue line shows where they'll land. Dropping at the left or right edge of a block makes columns. Dropping on a page block, a link to page or a page in the sidebar moves the blocks to the end of that page. Alt-drag copies instead of moving. Files dropped from the computer become picture, video, audio, PDF or file blocks where they land.
 - **Moving by keyboard:** Ctrl+Shift+↑ and Ctrl+Shift+↓ move the selected blocks up and down, also into and out of toggles and columns. Move to sends them to the end of another page.
@@ -137,7 +137,7 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 
 ### 3.5 Text formatting and links
 
-- **Formatting:** bold, italic, underline, strikethrough, inline code, text color, background color, link, inline equation and comment. Selecting text shows a toolbar: Turn into ▾, Link, Comment, B, I, U, S, Code, Equation, Color ▾ and "…" (Copy link to block, Mention, Ask Claude in Phase 5). Inline code ignores other formatting.
+- **Formatting:** bold, italic, underline, strikethrough, inline code, text color, background color, link, inline equation and comment. Selecting text shows a toolbar: Turn into ▾, Link, Comment, B, I, U, S, Code, Equation, Color ▾ and "…" (Copy link to block, Mention, Ask Claude when Writing help is on, as in Claude features). Inline code ignores other formatting.
 - **Links:** to web addresses (http, https, mailto and tel only; anything else is refused) or to Care Hub pages and blocks. Ctrl+K with text selected opens the link editor: paste an address, or type to search pages. Hovering a link shows its address with Copy, Edit and Remove. Clicking opens it: web links in a new tab, Care Hub links in the same tab (Ctrl-click: new tab).
 - **Auto-format while typing:** `**bold**`, `*italic*` or `_italic_`, `~strike~`, text between two backticks (code), and arrows and dashes: `->` becomes →, `<-` ←, `<->` ↔, `=>` ⇒, `--` — . Ctrl+Z right after undoes it.
 
@@ -250,11 +250,28 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 - Long-press a block to select it and open its menu as a bottom sheet; then drag its handle to move it.
 - The "/" menu shows above the keyboard. Pictures open full screen. Tables scroll sideways inside their block. Columns stack. Embeds fit the width.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **PB-01** On a new page, type / and pick To-do, then type ## and a space on the next line. → A to-do and a heading appear; Ctrl+Z right after the ## turns it back into the typed text.
+2. ⭐ **PB-30** Avery Lin and Sam Ortiz open "Weekly huddle – Oct 27" in two browsers and type in the same paragraph. → No letters are lost, each sees the other's named cursor, and Ctrl+Z undoes only your own typing.
+3. ⭐ **PB-25** Copy a section with headings, a list, a table and a link from a Google Docs file and paste it. → It keeps its structure; Ctrl+Shift+V pastes the same text plain.
+4. ⭐ **PB-06** Drag 3 photos from the computer onto a page. → 3 image blocks appear in the same order.
+5. ⭐ **PB-19** Rename "Refund steps" to "Refund steps 2026". → Its mentions, links, breadcrumbs and sidebar entry change at once.
+6. **PB-03** Press Tab on a bullet below another bullet, then Shift+Tab. → It nests, then un-nests.
+7. **PB-02** Turn a bullet that has children into a heading, then into a to-do. → The text, formatting and children stay.
+8. **PB-05** Drag a block to the right edge of another block. → Two columns; at phone width they stack.
+9. **PB-26** Paste a Care Hub page link, then a web link. → The first becomes a page mention; the second offers Mention, Bookmark and Embed.
+10. **PB-28** Type @tomorrow 9am and add a reminder 15 minutes before. → A date chip appears, and the reminder arrives in the 🔔 chat on time.
+11. **PB-31** Turn the network off for 2 minutes while typing, then on. → Typing never stops, and everything saves once, in order.
+12. **PB-36** On a phone, use the / menu, long-press a block and open a picture. → The menus work and the picture opens full screen.
+
 ## 7. Acceptance checks
 
 - **PB-01** Every block in the catalog can be added from "/", and each Markdown shortcut makes its block; Ctrl+Z right after turns it back into the typed text.
 - **PB-02** Turn into between all text-like blocks keeps text, formatting and children; Turn into Page moves the children into the new page.
-- **PB-03** Tab and Shift+Tab nest and un-nest up to 20 levels, only under blocks that can hold children.
+- **PB-03** Tab and Shift+Tab nest and un-nest up to level 20 (a top-level block is level 1, so 19 Tabs at most), only under blocks that can hold children; at level 20, Tab does nothing.
 - **PB-04** Selecting several blocks with Shift+↓, the margin box and Shift-click, then duplicating, coloring, moving and deleting them, works as one action and undoes as one.
 - **PB-05** Dragging a block to another block's right edge makes 2 columns, up to 5; a 3-column layout stacks on a 390 px wide phone.
 - **PB-06** Dropping 3 pictures from the computer makes 3 image blocks in order; the location data is gone from the stored files.
@@ -288,6 +305,10 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 - **PB-34** A 2,000-block page opens in about a second on the ThinkCentre, and typing shows each key within 50 ms; the 20,000-block limit shows its message.
 - **PB-35** Every shortcut in section 6 works on Windows and Mac; every drag has a keyboard and a menu way; axe finds no serious problems.
 - **PB-36** Phone: the keyboard toolbar, long-press menu and drag, the "/" menu, and full-screen pictures work.
+- **PB-37** A new page opens untitled (the title shows "Untitled" until you type), with the cursor in the title.
+- **PB-38** Add icon with an emoji: it shows on the page, in the sidebar and in the browser tab, and stays after a reload.
+- **PB-39** Add cover puts a gallery cover on the page; Change swaps it for an uploaded picture; Remove takes it off. Each change stays after a reload.
+- **PB-40** Links in text: Ctrl+K on selected text adds a link to a web address or a searched Care Hub page; hovering the link offers Edit and Remove, and both work. Clicking a Care Hub link opens it in the same tab; a web link opens in a new tab.
 
 ## Decisions for Felipe
 

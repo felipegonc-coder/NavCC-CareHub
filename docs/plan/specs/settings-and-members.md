@@ -13,7 +13,7 @@ One place for each person's account and preferences, and for Admins to run the w
 - **Settings** opens over the current page (Ctrl+, or the workspace switcher → Settings), with a list of sections on the left. Each section has its own address (for example `/settings/members`) so links and Back work. Esc closes it and returns to the page.
 - **Sections:**
     - **Account** (everyone): My account · Preferences · Notifications · Connections (Calendar).
-    - **Workspace** (Admins, unless noted): General · Members (Members, Guests, Groups and Invite links tabs; everyone except guests can see the Members tab) · Roles (Roles and permissions) · Spaces · Security · Emoji (everyone can see it) · Embeds (Pages and blocks) · Automations · Analytics · Data (Data settings).
+    - **Workspace** (Admins, unless noted): General · Members (Members, Guests, Groups and Invite links tabs; everyone except guests can see the Members tab) · Roles (Roles and permissions) · Spaces · Security · Emoji (everyone can see it) · Embeds (Pages and blocks) · Automations · Analytics · Data (Data settings) · Claude (Claude features).
     - **Site** (site admins): Accounts · Server · Status (Status page) · Backups (Data settings).
 - Sections a person can't use aren't listed.
 - **Invite link page** and **password reset page:** the screens people see when they open those links (section 3).
@@ -68,7 +68,7 @@ One place for each person's account and preferences, and for Admins to run the w
     - Require 2-step verification for everyone (off). When turned on, people without it must set it up at their next sign-in.
     - Session length: sign out after 1, 7, 30 (default) or 90 days without use.
     - Failed sign-ins: after 10 wrong passwords in 15 minutes an account waits 15 minutes (fixed).
-    - **Security log:** sign-ins and failed sign-ins, password resets, 2-step changes, invite links made and used, guests added, share links made, exports, role changes and removals: who, what, when, from which device. Filter by person, kind and date. Kept as long as analytics (AN-D2).
+    - **Security log:** sign-ins and failed sign-ins, password resets, 2-step changes, invite links made and used, guests added, share links made, exports, role changes and removals, and Claude switch changes: who, what, when, from which device. Filter by person, kind and date. Kept as long as analytics (AN-D2).
 - **Emoji:** custom emoji with picture, name, added by and date. Add: PNG, GIF, JPEG or WebP up to 1 MB, cropped square; name of 2–32 lowercase letters, numbers, dashes or underscores, unique. Up to 500 per workspace. Deleting one leaves its name as text where it was used.
 
 ### 3.6 Site settings (site admins)
@@ -105,6 +105,19 @@ One place for each person's account and preferences, and for Admins to run the w
 - Ctrl+, opens Settings; the section list is navigable with ↑ and ↓; Enter opens a section; Esc closes Settings.
 - Every switch has a visible label and its explanation; changes are announced ("Saved").
 - **Phone:** Settings is a full screen: a list of sections, each opening as its own screen with Back. Tables become lists; tap a person for their actions.
+
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **SM-01** Change your name and photo in My account, then try a 6 MB picture. → The change shows everywhere within 2 seconds; the big picture is refused with the limit.
+2. ⭐ **SM-06** Make an invite link with 2 uses and the Editor role, and have two people join with it. → Both join as Editors; a third person is told the link isn't active.
+3. ⭐ **SM-07** Remove Riley from the workspace. → Riley is signed out of it within 5 seconds, and Riley's shared pages stay.
+4. **SM-02** Change your password, then try password123 as a new one. → Your other devices are signed out; password123 is refused.
+5. **SM-03** Turn on 2-step verification with an authenticator app, sign out and sign in. → Care Hub asks for the code, and a recovery code works once.
+6. **SM-05** Open Devices and choose Sign out of all other devices. → The other sessions end within 5 seconds.
+7. **SM-09** Turn off Allow guests as an Admin. → Guest invites are no longer offered anywhere.
+8. **SM-12** Upload a custom emoji named blue-pine. → It can be used in pages, comments and messages.
 
 ## 7. Acceptance checks
 

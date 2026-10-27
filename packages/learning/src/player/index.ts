@@ -10,6 +10,7 @@ export {
   type ActiveTracker,
   type ActiveTrackerInput,
 } from './active-time';
+export type { PlayerCourse, PlayerLesson } from './course';
 export {
   PLAYER_TEXT_SIZES,
   PLAYER_TEXT_SIZE_KEY,
@@ -45,3 +46,13 @@ export {
   type OutlineProgress,
   type OutlineRow,
 } from './outline';
+export {
+  COURSE_SEARCH_MIN_LENGTH,
+  buildCourseSearchIndex,
+  searchCourse,
+  searchCourseIndex,
+  type CourseSearchHit,
+  type CourseSearchIndex,
+  type CourseSearchResult,
+  type SearchSnippetPart,
+} from './search';
