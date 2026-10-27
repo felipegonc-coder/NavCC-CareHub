@@ -6,16 +6,24 @@ import { blocks, content, learner, makeCourse, quiz, quizLesson } from './test-h
 const course = { id: 'late-deliveries', title: 'Handling late deliveries (fictional)' };
 
 describe('courseUpdateFor', () => {
-  it('leaves learners alone with notify none, and anyone who has not started', () => {
-    const nothing = { restart: false, notice: null };
-    expect(courseUpdateFor('none', { status: 'in_progress' }, course)).toEqual(nothing);
-    expect(courseUpdateFor('tell', { status: 'not_started' }, course)).toEqual(nothing);
-    expect(courseUpdateFor('retake', { status: 'not_started' }, course)).toEqual(nothing);
+  it('none: nobody moves, and nobody is told', () => {
+    for (const status of ['in_progress', 'completed', 'passed', 'failed'] as const) {
+      expect(courseUpdateFor('none', { status }, course)).toEqual({ run: 'keep', notice: null });
+    }
   });
 
-  it('tell: keeps progress and sends an alert', () => {
+  it('moves a run with nothing counted yet to the new version, without a notice', () => {
+    for (const notify of ['none', 'tell', 'retake'] as const) {
+      expect(courseUpdateFor(notify, { status: 'not_started' }, course)).toEqual({
+        run: 'move',
+        notice: null,
+      });
+    }
+  });
+
+  it('tell: a run in progress moves and gets an alert; finished runs stay, untold', () => {
     expect(courseUpdateFor('tell', { status: 'in_progress' }, course)).toEqual({
-      restart: false,
+      run: 'move',
       notice: {
         kind: 'alert',
         title: 'Course updated',
@@ -23,6 +31,9 @@ describe('courseUpdateFor', () => {
         buttons: [{ label: 'Open course', href: '/learning/courses/late-deliveries' }],
       },
     });
+    for (const status of ['completed', 'passed', 'failed'] as const) {
+      expect(courseUpdateFor('tell', { status }, course)).toEqual({ run: 'keep', notice: null });
+    }
   });
 
   it('retake: starts over for everyone who started, with the note at the end', () => {
@@ -32,16 +43,17 @@ describe('courseUpdateFor', () => {
         { status },
         { ...course, note: '  New refund rules. ' },
       );
-      expect(update.restart).toBe(true);
+      expect(update.run).toBe('restart');
       expect(update.notice).toMatchObject({
         kind: 'reminder',
         title: 'Please take this course again',
         text:
           '“Handling late deliveries (fictional)” has changed. Please take it again. ' +
           'New refund rules.',
+        buttons: [{ label: 'Open course', href: '/learning/courses/late-deliveries' }],
       });
     }
-    const blankNote = courseUpdateFor('tell', { status: 'passed' }, { ...course, note: '   ' });
+    const blankNote = courseUpdateFor('tell', { status: 'in_progress' }, { ...course, note: ' ' });
     expect(blankNote.notice?.text.endsWith('Your progress is kept.')).toBe(true);
   });
 });

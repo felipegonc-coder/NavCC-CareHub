@@ -3,7 +3,7 @@
 
 export interface ContentLine {
   name: string; // upper case
-  params: Map<string, string[]>; // names upper case, values as written
+  params: ReadonlyMap<string, readonly string[]>; // names upper case, values as written
   value: string;
   line: number; // 1-based line where it starts, for warnings
 }
@@ -15,6 +15,8 @@ export interface Component {
 }
 
 const MAX_DEPTH = 8;
+const MAX_PARAMS = 100; // parameters per content line; more makes the line malformed
+const MAX_PARAM_VALUES = 1000; // values per parameter, repeats included
 
 /** Removes folds (a line break followed by one space or tab) before UTF-8 decoding. */
 export function unfoldBytes(bytes: Uint8Array): Uint8Array {
@@ -35,50 +37,69 @@ export function unfoldBytes(bytes: Uint8Array): Uint8Array {
   return out.subarray(0, size);
 }
 
+const UNTIL_BREAK = /[^\r\n]*/y;
+
 /** Splits text into unfolded logical lines. Accepts CRLF, LF or CR line breaks. */
 export function* logicalLines(text: string): Generator<{ text: string; line: number }> {
-  const physical = text.split(/\r\n|\n|\r/);
   let current: { text: string; line: number } | undefined;
-  for (let i = 0; i < physical.length; i++) {
-    const raw = physical[i]!;
-    if (current && (raw.startsWith(' ') || raw.startsWith('\t'))) {
+  for (let start = 0, line = 1; start < text.length; line++) {
+    const end = skip(UNTIL_BREAK, text, start);
+    const raw = text.slice(start, end);
+    start = end + (text[end] === '\r' && text[end + 1] === '\n' ? 2 : 1);
+    if (current && (raw[0] === ' ' || raw[0] === '\t')) {
       current.text += raw.slice(1);
       continue;
     }
     if (current && current.text !== '') yield current;
-    current = { text: raw, line: i + 1 };
+    current = { text: raw, line };
   }
   if (current && current.text !== '') yield current;
 }
 
+// Sticky patterns scan to the next delimiter natively, which keeps long lines fast.
+const UNTIL_PARAMS = /[^;:]*/y;
+const UNTIL_EQUALS = /[^=;:]*/y;
+const UNTIL_NEXT_VALUE = /[^,;:]*/y;
+
+const NO_PARAMS: ReadonlyMap<string, readonly string[]> = new Map();
+
+function skip(pattern: RegExp, text: string, from: number): number {
+  pattern.lastIndex = from;
+  pattern.test(text);
+  return pattern.lastIndex;
+}
+
 /** Reads `NAME;PARAM=a,"b;c":value`. Returns undefined for a malformed line. */
 export function parseContentLine(text: string, line: number): ContentLine | undefined {
-  const n = text.length;
-  let i = 0;
-  while (i < n && text[i] !== ';' && text[i] !== ':') i++;
+  let i = skip(UNTIL_PARAMS, text, 0);
   const name = text.slice(0, i).trim().toUpperCase();
   if (!/^[A-Z0-9-]+$/.test(name)) return undefined;
+  if (text[i] === ':') return { name, params: NO_PARAMS, value: text.slice(i + 1), line };
   const params = new Map<string, string[]>();
-  while (text[i] === ';') {
+  for (let count = 0; text[i] === ';'; count++) {
+    if (count === MAX_PARAMS) return undefined;
     const start = ++i;
-    while (i < n && text[i] !== '=' && text[i] !== ';' && text[i] !== ':') i++;
+    i = skip(UNTIL_EQUALS, text, i);
     const paramName = text.slice(start, i).trim().toUpperCase();
-    const values: string[] = [];
+    // Repeats of a parameter add to its list in place, so a long line stays linear.
+    let values = params.get(paramName);
+    if (!values) {
+      values = [];
+      if (paramName) params.set(paramName, values);
+    }
     while (text[i] === '=' || text[i] === ',') {
-      i++;
+      if (values.length === MAX_PARAM_VALUES) return undefined;
+      const valueStart = ++i;
       if (text[i] === '"') {
         const end = text.indexOf('"', i + 1);
         if (end < 0) return undefined;
         values.push(decodeParamValue(text.slice(i + 1, end)));
-        i = end + 1;
-        while (i < n && text[i] !== ',' && text[i] !== ';' && text[i] !== ':') i++;
+        i = skip(UNTIL_NEXT_VALUE, text, end + 1);
       } else {
-        const valueStart = i;
-        while (i < n && text[i] !== ',' && text[i] !== ';' && text[i] !== ':') i++;
+        i = skip(UNTIL_NEXT_VALUE, text, i);
         values.push(decodeParamValue(text.slice(valueStart, i)));
       }
     }
-    if (paramName) params.set(paramName, [...(params.get(paramName) ?? []), ...values]);
   }
   if (text[i] !== ':') return undefined;
   return { name, params, value: text.slice(i + 1), line };
@@ -86,29 +107,35 @@ export function parseContentLine(text: string, line: number): ContentLine | unde
 
 /** RFC 6868: ^n is a line break, ^' a double quote and ^^ a caret. */
 function decodeParamValue(value: string): string {
+  if (!value.includes('^')) return value;
   return value.replace(/\^([n'^])/g, (_, ch: string) =>
     ch === 'n' ? '\n' : ch === "'" ? '"' : '^',
   );
 }
 
-/** Builds the component tree. Stray or missing END lines are tolerated. */
+/** Builds the component tree. Stray or missing END lines are tolerated. Components nested
+ *  deeper than MAX_DEPTH are dropped with their contents, so the stack never grows past it. */
 export function readComponents(lines: Iterable<ContentLine>): Component[] {
   const roots: Component[] = [];
   const stack: Component[] = [];
+  let skipped = 0; // open components below MAX_DEPTH
   for (const line of lines) {
-    if (line.name === 'BEGIN' || line.name === 'END') {
+    const begin = line.name === 'BEGIN';
+    if (!begin && line.name !== 'END') {
+      if (skipped === 0) stack.at(-1)?.props.push(line);
+    } else if (skipped > 0) {
+      skipped += begin ? 1 : -1;
+    } else {
       const name = line.value.trim().toUpperCase();
       // A component never contains its own kind, so BEGIN:VEVENT also ends an open VEVENT.
       const open = stack.findLastIndex((c) => c.name === name);
       if (open >= 0) stack.length = open;
-      if (line.name === 'BEGIN') {
+      if (begin && stack.length >= MAX_DEPTH) skipped = 1;
+      else if (begin) {
         const component: Component = { name, props: [], children: [] };
-        const parent = stack.at(-1);
-        if (stack.length < MAX_DEPTH) (parent ? parent.children : roots).push(component);
+        (stack.at(-1)?.children ?? roots).push(component);
         stack.push(component);
       }
-    } else {
-      stack.at(-1)?.props.push(line);
     }
   }
   return roots;
