@@ -4,6 +4,7 @@ import {
   LIMITS,
   certificateDue,
   createCertificateCode,
+  earnsCertificate,
   isoDateInTimeZone,
   newCertificate,
   withCertificateStatus,
@@ -92,6 +93,7 @@ export async function issueCertificate(
   input: CertificateIssue,
 ): Promise<CertificateRecord | null> {
   const { workspaceId, learnerId, course, version, finish } = input;
+  if (finish.completedAt === null || !earnsCertificate(course, finish.status)) return null;
   const issued = await tx
     .select({ courseId: certificates.courseId, completedAt: certificates.completedAt })
     .from(certificates)
