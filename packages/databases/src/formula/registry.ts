@@ -100,7 +100,8 @@ export type PatternResult<T> = { ok: true; value: T } | { ok: false; error: stri
 
 /**
  * A safe pattern engine for test, match, replace and replaceAll (security: typed patterns never
- * reach JavaScript RegExp). It enforces the pattern and input limits and its own time limit.
+ * reach JavaScript RegExp). It enforces the pattern and input limits and its own time limit, and
+ * replace stops with an error rather than make a text longer than MAX_TEXT_LENGTH.
  */
 export interface PatternEngine {
   test(text: string, pattern: string): PatternResult<boolean>;
@@ -114,10 +115,38 @@ export interface FormulaContext extends EvalContext {
   page(id: Id): { row: Row; ctx: FormulaContext } | null;
   /** A person's sign-in email; undefined if unknown. */
   userEmail(id: Id): string | undefined;
-  /** Milliseconds from any fixed point. When given, a row gets LIMITS.formulaTimeMs, then "⚠ Too slow". */
+  /**
+   * Milliseconds from any fixed point (Date.now when there's a budget but no clock). With either,
+   * a row gets LIMITS.formulaTimeMs, then "⚠ Too slow".
+   */
   clock?(): number;
+  /** Time shared by every formula in one request; give every context in the request the same one. */
+  budget?: FormulaBudget;
   /** Without an engine, the pattern functions give an error. */
   patterns?: PatternEngine;
+}
+
+/**
+ * A time budget for one request (security). Sorts and filters work a formula out for every row, so
+ * the request as a whole gets a deadline: once the clock passes it, every further evaluation gives
+ * "⚠ Too slow" at once, without running.
+ */
+export interface FormulaBudget {
+  /** On the same clock as FormulaContext.clock. */
+  readonly deadline: number;
+  /** Set by the engine once the deadline has passed. */
+  spent?: boolean;
+}
+
+/** Formula time for one request when the caller doesn't choose. */
+export const REQUEST_FORMULA_MS = 1_000;
+
+/** A budget of `ms` milliseconds from now, on the context's clock. */
+export function formulaBudget(
+  ctx: Pick<FormulaContext, 'clock'>,
+  ms: number = REQUEST_FORMULA_MS,
+): FormulaBudget {
+  return { deadline: (ctx.clock ? ctx.clock() : Date.now()) + ms };
 }
 
 /** A problem in a formula, with its place in the formula text (start inclusive, end exclusive). */
@@ -131,11 +160,15 @@ export interface FormulaError {
 
 /** The empty value. */
 export const EMPTY: ComputedValue = { kind: 'empty' };
-/** Longest text a formula may build before "This formula is too complex." */
+/** Longest text a formula may build. */
 export const MAX_TEXT_LENGTH = 100_000;
-/** Too many steps, items, nesting or text. */
+/** Characters all the texts one row's formula builds may add up to, counted as they're built. */
+export const ROW_TEXT_LIMIT = 1_000_000;
+/** Past MAX_TEXT_LENGTH for one text, or ROW_TEXT_LIMIT for a row or a list. Not in the spec. */
+export const TOO_MUCH_TEXT = 'This formula makes too much text.';
+/** Too many steps, items or nesting. */
 export const TOO_COMPLEX = 'This formula is too complex.';
-/** Past LIMITS.formulaTimeMs for one row. */
+/** Past LIMITS.formulaTimeMs for one row, or past the request's budget. */
 export const TOO_SLOW = '⚠ Too slow';
 
 /** A number value; NaN and infinities become empty, and -0 becomes 0. */
@@ -145,7 +178,7 @@ export function num(n: number): ComputedValue {
 
 /** A text value, styled when `rich` is given. Refused past MAX_TEXT_LENGTH. */
 export function txt(value: string, rich?: RichText): ComputedValue {
-  if (value.length > MAX_TEXT_LENGTH) fail(TOO_COMPLEX);
+  if (value.length > MAX_TEXT_LENGTH) fail(TOO_MUCH_TEXT);
   return rich ? { kind: 'text', value, rich } : { kind: 'text', value };
 }
 
@@ -172,6 +205,67 @@ export class FormulaFailure extends Error {
 /** Stops the formula for this row; the cell shows the message. */
 export function fail(message: string): never {
   throw new FormulaFailure(message);
+}
+
+// ------------------------------------------------------------------ the running row's text budget
+
+/** What the row being worked out may still build, and its step counter. */
+export interface RowMeter {
+  /** Characters left of ROW_TEXT_LIMIT. */
+  text: number;
+  /** Counts work toward the row's step and time limits. */
+  step(n: number): void;
+}
+
+let meter: RowMeter | null = null;
+
+/** Runs `fn` with `m` as the running row's meter; a formula worked out inside it gets its own. */
+export function withMeter<T>(m: RowMeter, fn: () => T): T {
+  const outer = meter;
+  meter = m;
+  try {
+    return fn();
+  } finally {
+    meter = outer;
+  }
+}
+
+/**
+ * Counts `n` characters a function is about to build into one text. Past MAX_TEXT_LENGTH, or past
+ * what's left of the row's ROW_TEXT_LIMIT, the formula stops with "This formula makes too much
+ * text." Outside a running formula it does nothing.
+ */
+export function spendText(n: number): void {
+  if (!meter) return;
+  if (n > MAX_TEXT_LENGTH) fail(TOO_MUCH_TEXT);
+  meter.text -= n;
+  if (meter.text < 0) fail(TOO_MUCH_TEXT);
+}
+
+/** Counts work inside values (list items compared or joined) toward the running row's step limit. */
+export function spendSteps(n: number): void {
+  meter?.step(n);
+}
+
+/** Joins parts with a separator, counting each one before it's added; null parts are left out. */
+export function joinParts<T>(
+  items: readonly T[],
+  separator: string,
+  part: (item: T) => string | null,
+): string {
+  spendSteps(items.length);
+  const out: string[] = [];
+  let length = 0;
+  for (const item of items) {
+    const s = part(item);
+    if (s === null) continue;
+    const add = out.length ? separator.length + s.length : s.length;
+    length += add;
+    if (meter && length > MAX_TEXT_LENGTH) fail(TOO_MUCH_TEXT);
+    spendText(add);
+    out.push(s);
+  }
+  return out.join(separator);
 }
 
 /** A date's start (or end) in milliseconds; a date without a time starts at the viewer's midnight. */
@@ -204,10 +298,7 @@ export function formatText(v: ComputedValue, ctx: FormulaContext): string {
       return p ? p.row.title || 'Untitled' : '';
     }
     case 'list':
-      return v.value
-        .filter((x) => x.kind !== 'empty')
-        .map((x) => formatText(x, ctx))
-        .join(', ');
+      return joinParts(v.value, ', ', (x) => (x.kind === 'empty' ? null : formatText(x, ctx)));
     case 'error':
       return fail(v.message);
   }
@@ -219,10 +310,9 @@ export function sameValue(a: ComputedValue, b: ComputedValue, ctx: FormulaContex
   if (b.kind === 'error') fail(b.message);
   if (isEmpty(a) || isEmpty(b)) return isEmpty(a) && isEmpty(b);
   if (a.kind === 'list' && b.kind === 'list') {
-    return (
-      a.value.length === b.value.length &&
-      a.value.every((x, i) => sameValue(x, b.value[i] ?? EMPTY, ctx))
-    );
+    if (a.value.length !== b.value.length) return false;
+    spendSteps(a.value.length);
+    return a.value.every((x, i) => sameValue(x, b.value[i] ?? EMPTY, ctx));
   }
   if (a.kind === 'date' && b.kind === 'date') {
     const tz = ctx.viewer.timeZone;
@@ -253,21 +343,24 @@ export function compareValues(
   return null;
 }
 
-/** Joins texts, keeping style() and link() formatting when any part has it. */
+/** Joins texts (counted before they're joined), keeping style() and link() formatting. */
 export function joinTexts(parts: readonly ComputedValue[]): ComputedValue {
-  let value = '';
+  let length = 0;
   let styled = false;
   for (const p of parts) {
     if (p.kind === 'text') {
-      value += p.value;
+      length += p.value.length;
       if (p.rich) styled = true;
     }
   }
+  spendText(length);
+  let value = '';
+  for (const p of parts) if (p.kind === 'text') value += p.value;
   if (!styled) return txt(value);
   const rich: RichText = [];
   for (const p of parts) {
     if (p.kind !== 'text') continue;
-    if (p.rich) rich.push(...p.rich);
+    if (p.rich) for (const span of p.rich) rich.push(span);
     else if (p.value) rich.push({ text: p.value });
   }
   return txt(value, rich);
@@ -334,7 +427,10 @@ export interface Call {
   list(i: number): readonly ComputedValue[] | null;
   /** Input i as a checkbox; empty counts as false. */
   bool(i: number): boolean;
-  /** A list result; past LIMITS.formulaListItems the formula stops with "This formula is too complex." */
+  /**
+   * A list result. Past LIMITS.formulaListItems items (or 10 times that counting the items of
+   * lists inside it) it's "too complex"; holding more than ROW_TEXT_LIMIT characters, "too much text".
+   */
   makeList(items: ComputedValue[]): ComputedValue;
   /** Counts extra work (for example one step per item compared) toward the step limit. */
   step(n: number): void;

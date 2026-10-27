@@ -1,7 +1,10 @@
 /**
  * Runs checked formulas. compileFormula parses and checks a stored formula once; run() then works
- * it out for any row. More than LIMITS.formulaSteps steps or LIMITS.formulaListItems list items give
- * "This formula is too complex."; with ctx.clock, more than LIMITS.formulaTimeMs gives "⚠ Too slow".
+ * it out for any row. Limits (security): more than LIMITS.formulaSteps steps or
+ * LIMITS.formulaListItems list items give "This formula is too complex."; a text past
+ * MAX_TEXT_LENGTH, or more than ROW_TEXT_LIMIT characters built for one row, gives "This formula
+ * makes too much text."; with ctx.clock or ctx.budget, more than LIMITS.formulaTimeMs for a row, or
+ * passing the request's deadline, gives "⚠ Too slow".
  */
 import { decimalToNumber } from '../decimal';
 import { plainText } from '../richtext';
@@ -24,7 +27,9 @@ import { parseFormula } from './parser';
 import {
   EMPTY,
   FormulaFailure,
+  ROW_TEXT_LIMIT,
   TOO_COMPLEX,
+  TOO_MUCH_TEXT,
   TOO_SLOW,
   bool,
   compareValues,
@@ -33,7 +38,9 @@ import {
   joinTexts,
   num,
   txt,
+  withMeter,
   type Call,
+  type FormulaBudget,
   type FormulaContext,
   type FormulaError,
   type FormulaSchema,
@@ -64,23 +71,69 @@ interface Frame {
   ctx: FormulaContext;
   slots: ComputedValue[];
   steps: number;
+  /** When the row stops with "⚠ Too slow", on the context's clock; null without a time limit. */
   deadline: number | null;
   nextClock: number;
+  budget: FormulaBudget | null;
+  /** Property values read so far, so reading one again builds nothing new. */
+  reads: Map<Row, Map<Id, ComputedValue>>;
 }
 
 type Run = (f: Frame) => ComputedValue;
+
+/** The time on the context's clock, or Date.now without one. */
+const timeOf = (ctx: FormulaContext): number => (ctx.clock ? ctx.clock() : Date.now());
 
 function tick(f: Frame, n: number): void {
   f.steps += n;
   if (f.steps > LIMITS.formulaSteps) fail(TOO_COMPLEX);
   if (f.deadline !== null && f.steps >= f.nextClock) {
     f.nextClock = f.steps + 64;
-    if ((f.ctx.clock?.() ?? 0) > f.deadline) fail(TOO_SLOW);
+    const now = timeOf(f.ctx);
+    if (now > f.deadline) {
+      if (f.budget && now > f.budget.deadline) f.budget.spent = true;
+      fail(TOO_SLOW);
+    }
   }
+}
+
+/** Items in a list, counting the items of lists inside it, and the characters of text it holds. */
+interface ListSize {
+  items: number;
+  chars: number;
+}
+
+/**
+ * Items a list may hold counting the items of lists inside it. Lists can share items, so without
+ * this a list of 10,000 copies of a 10,000-item list would be small to make but huge to send.
+ */
+const NESTED_ITEMS = 10 * LIMITS.formulaListItems;
+const listSizes = new WeakMap<readonly ComputedValue[], ListSize>();
+
+/** A list's size, counted up to just past the limits. */
+function sizeOf(items: readonly ComputedValue[]): ListSize {
+  const known = listSizes.get(items);
+  if (known) return known;
+  const size: ListSize = { items: 0, chars: 0 };
+  for (const v of items) {
+    size.items += 1;
+    if (v.kind === 'text') size.chars += v.value.length;
+    else if (v.kind === 'list') {
+      const inner = sizeOf(v.value);
+      size.items += inner.items;
+      size.chars += inner.chars;
+    }
+    if (size.items > NESTED_ITEMS || size.chars > ROW_TEXT_LIMIT) break;
+  }
+  listSizes.set(items, size);
+  return size;
 }
 
 function listOf(items: ComputedValue[]): ComputedValue {
   if (items.length > LIMITS.formulaListItems) fail(TOO_COMPLEX);
+  const size = sizeOf(items);
+  if (size.items > NESTED_ITEMS) fail(TOO_COMPLEX);
+  if (size.chars > ROW_TEXT_LIMIT) fail(TOO_MUCH_TEXT);
   return { kind: 'list', value: items };
 }
 
@@ -340,11 +393,11 @@ function build(e: Expr): Run {
       const saved = e.property;
       const page = e.page ? compile(e.page) : null;
       return (f) => {
-        if (!page) return readProperty(f.row, f.ctx, currentProperty(f.ctx.properties, saved));
+        if (!page) return read(f, f.row, f.ctx, saved);
         const p = page(f);
         const found = p.kind === 'page' ? f.ctx.page(p.value) : null;
         if (!found) return EMPTY;
-        return readProperty(found.row, found.ctx, currentProperty(found.ctx.properties, saved));
+        return read(f, found.row, found.ctx, saved);
       };
     }
     case 'call': {
@@ -353,6 +406,18 @@ function build(e: Expr): Run {
       return (f) => def.evaluate(new CallImpl(f, e, args));
     }
   }
+}
+
+/** A property's value for a row, read once per evaluation. */
+function read(f: Frame, row: Row, ctx: FormulaContext, saved: Property): ComputedValue {
+  let values = f.reads.get(row);
+  if (!values) f.reads.set(row, (values = new Map()));
+  let v = values.get(saved.id);
+  if (!v) {
+    v = readProperty(row, ctx, currentProperty(ctx.properties, saved));
+    values.set(saved.id, v);
+  }
+  return v;
 }
 
 /** Parses, checks and prepares a stored formula (property references by id). */
@@ -367,12 +432,36 @@ export function compileFormula(expression: string, schema: FormulaSchema): Compi
   if (!checked.ok) return checked;
   const run: Run = checked.expr ? compile(checked.expr) : () => EMPTY;
   const slotCount = checked.slots;
+  const tooSlow = {
+    value: { kind: 'error', message: TOO_SLOW } as ComputedValue,
+    error: { message: TOO_SLOW, start: 0, end: expression.length },
+  };
   const preview = (row: Row, ctx: FormulaContext) => {
-    const deadline = ctx.clock ? ctx.clock() + LIMITS.formulaTimeMs : null;
+    const budget = ctx.budget ?? null;
+    if (budget?.spent) return tooSlow;
+    let deadline: number | null = null;
+    if (ctx.clock || budget) {
+      const now = timeOf(ctx);
+      if (budget && now > budget.deadline) {
+        budget.spent = true;
+        return tooSlow;
+      }
+      deadline = Math.min(now + LIMITS.formulaTimeMs, budget ? budget.deadline : Infinity);
+    }
     const slots = new Array<ComputedValue>(slotCount).fill(EMPTY);
-    const frame: Frame = { row, ctx, slots, steps: 0, deadline, nextClock: 64 };
+    const frame: Frame = {
+      row,
+      ctx,
+      slots,
+      steps: 0,
+      deadline,
+      nextClock: 64,
+      budget,
+      reads: new Map(),
+    };
+    const meter = { text: ROW_TEXT_LIMIT, step: (n: number) => tick(frame, n) };
     try {
-      return { value: run(frame), error: null };
+      return { value: withMeter(meter, () => run(frame)), error: null };
     } catch (err) {
       const failure = err instanceof FormulaFailure;
       const message = failure ? err.message : FORMULA_BROKE;

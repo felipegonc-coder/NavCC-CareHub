@@ -1,17 +1,22 @@
 /** List functions, and the functions for people and rows. */
 import { compareText } from '../../text';
+import { LIMITS } from '../../types';
 import type { ComputedValue } from '../../types';
 import {
   EMPTY,
   TEXT,
+  TOO_COMPLEX,
   bool,
   compareValues,
   dateMillis,
   defineFunction,
+  fail,
   formatText,
   isEmpty,
+  joinParts,
   listType,
   num,
+  sameValue,
   txt,
   type Call,
   type FormulaContext,
@@ -101,9 +106,9 @@ function valueKey(v: ComputedValue, ctx: FormulaContext): string {
       return `d${dateMillis(v.value, tz)}/${end}`;
     }
     case 'list':
-      return v.value.length ? `l[${v.value.map((x) => valueKey(x, ctx)).join(',')}]` : 'e';
+      return v.value.length ? `l[${joinParts(v.value, ',', (x) => valueKey(x, ctx))}]` : 'e';
     case 'text':
-      return v.value === '' ? 'e' : `t${JSON.stringify(v.value)}`;
+      return v.value === '' ? 'e' : `t${v.value.length}:${v.value}`;
     case 'number':
     case 'boolean':
     case 'person':
@@ -123,14 +128,16 @@ define({
     const items = c.list(0);
     if (!items) return EMPTY;
     c.step(items.length);
+    const texts = new Set<string>();
     const seen = new Set<string>();
+    const isNew = (set: Set<string>, key: string) => !set.has(key) && Boolean(set.add(key));
     return c.makeList(
-      items.filter((v) => {
-        const key = valueKey(v, c.ctx);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }),
+      items.filter((v) =>
+        // Texts are their own keys, so nothing is copied for them.
+        v.kind === 'text' && v.value !== ''
+          ? isNew(texts, v.value)
+          : isNew(seen, valueKey(v, c.ctx)),
+      ),
     );
   },
 });
@@ -149,9 +156,11 @@ define({
   evaluate: (c) => {
     const items = c.list(0);
     if (!items) return EMPTY;
-    const out = items.flatMap((v) => (v.kind === 'list' ? v.value : isEmpty(v) ? [] : [v]));
-    c.step(out.length);
-    return c.makeList(out);
+    let total = 0;
+    for (const v of items) total += v.kind === 'list' ? v.value.length : isEmpty(v) ? 0 : 1;
+    if (total > LIMITS.formulaListItems) fail(TOO_COMPLEX);
+    c.step(total);
+    return c.makeList(items.flatMap((v) => (v.kind === 'list' ? v.value : isEmpty(v) ? [] : [v])));
   },
 });
 
@@ -163,9 +172,16 @@ define({
   description: 'Joins lists into one.',
   example: 'concat(prop("Tags"), ["New"])',
   evaluate: (c) => {
-    const out: ComputedValue[] = [];
-    for (let i = 0; i < c.count; i++) out.push(...(c.list(i) ?? []));
-    return c.makeList(out);
+    const lists: (readonly ComputedValue[])[] = [];
+    let total = 0;
+    for (let i = 0; i < c.count; i++) {
+      const items = c.list(i) ?? [];
+      total += items.length;
+      if (total > LIMITS.formulaListItems) fail(TOO_COMPLEX);
+      lists.push(items);
+    }
+    c.step(total);
+    return c.makeList(lists.flat());
   },
 });
 
@@ -277,9 +293,9 @@ define({
   example: 'includes(prop("Tags"), "Urgent")',
   evaluate: (c) => {
     const items = c.list(0) ?? [];
-    const key = valueKey(c.value(1), c.ctx);
+    const value = c.value(1);
     c.step(items.length);
-    return bool(items.some((v) => valueKey(v, c.ctx) === key));
+    return bool(items.some((v) => sameValue(v, value, c.ctx)));
   },
 });
 
