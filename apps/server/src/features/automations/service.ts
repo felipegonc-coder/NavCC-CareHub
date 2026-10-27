@@ -1,24 +1,15 @@
-import { z } from 'zod';
 import { httpError } from '../../core/errors';
 import { MAX_AUTOMATIONS, type Trigger } from '@carehub/team-automations/automation';
 import { planNextRun } from '@carehub/team-automations/schedule';
 import {
   automationChanges,
   automationInput,
+  automationListQuery,
   automationProblems,
   type Problem,
 } from '@carehub/team-automations/validate';
 import type { Automation, AutomationPatch, AutomationStore, Run } from './domain/types';
-
-/** GET /api/automations: the list's filters. */
-const listQuery = z.object({
-  databaseId: z.string().min(1).max(200).optional(),
-  ownerUserId: z.guid().optional(),
-  enabled: z
-    .enum(['true', 'false'])
-    .transform((value) => value === 'true')
-    .optional(),
-});
+import { OWNER_LEFT } from './owners';
 
 /** An Admin of the workspace (the routes check that first). */
 export interface Caller {
@@ -81,7 +72,7 @@ export function createAutomationsService(options: AutomationsServiceOptions): Au
 
   return {
     async list(caller, query) {
-      return store.list(caller.workspaceId, listQuery.parse(query ?? {}));
+      return store.list(caller.workspaceId, automationListQuery.parse(query ?? {}));
     },
 
     get: found,
@@ -123,8 +114,12 @@ export function createAutomationsService(options: AutomationsServiceOptions): Au
         const lastRanAt = scheduled ? await lastScheduledRun(caller, id) : null;
         patch.nextRunAt = nextRunFor(merged, at, lastRanAt);
       }
-      // Switching it back on clears why the server paused it.
-      if (patch.enabled === true) patch.pausedReason = null;
+      // Switching it back on clears why the server paused it. If its owner left, the Admin who
+      // switches it on takes it over.
+      if (patch.enabled === true) {
+        if (current.pausedReason === OWNER_LEFT) patch.ownerUserId = caller.userId;
+        patch.pausedReason = null;
+      }
       const updated = await store.update(caller.workspaceId, id, patch, at);
       if (!updated) throw httpError(404, 'not_found');
       return updated;

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
 import { MAX_AUTOMATIONS, type Action, type Trigger } from '@carehub/team-automations/automation';
 import { createMemoryAutomationStore } from './domain/memoryStore';
+import { OWNER_LEFT } from './owners';
 import { createAutomationsService, nextRunFor, type Caller } from './service';
 
 const workspaceId = '3b9f0d52-6c1e-4f7a-9d3e-2a1b4c5d6e7f';
@@ -120,6 +121,15 @@ describe('update', () => {
     expect(back).toMatchObject({ enabled: true, nextRunAt: at('15:00'), pausedReason: null });
     const off = await service.update(avery, created.id, { enabled: false });
     expect(off).toMatchObject({ enabled: false, nextRunAt: null });
+  });
+
+  it('makes the Admin who switches it back on its owner when its owner left', async () => {
+    const { store, service } = setup();
+    const created = await service.create(riley, standUp);
+    const patch = { enabled: false, nextRunAt: null, pausedReason: OWNER_LEFT };
+    await store.update(workspaceId, created.id, patch, tuesday8am);
+    const back = await service.update(avery, created.id, { enabled: true });
+    expect(back).toMatchObject({ enabled: true, ownerUserId: avery.userId, pausedReason: null });
   });
 
   it('plans the next run 15 minutes after the last scheduled run, but not after a manual one', async () => {
