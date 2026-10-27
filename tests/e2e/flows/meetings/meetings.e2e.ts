@@ -3,7 +3,8 @@ import { expect, needs, onlyIn, people, signInAs, test, uniqueName } from '../_s
 import * as data from './meetings-data.js';
 import * as mt from './meetings-page.js';
 
-// The Meetings ⭐ checks and MT-11, from the Meetings spec's Done means and section 7. Avery (the
+// The Meetings ⭐ checks, from the Meetings spec's Done means and section 7 (MT-11 is in
+// claude/switches.e2e.ts, with the other checks of the Claude switches). Avery (the
 // fictional admin) organizes and the seeded Eli plays the spec's Sam. Each flow has a week of its
 // own and unique titles, because the whole run shares one database. Times are in America/Denver.
 
@@ -157,9 +158,10 @@ test.describe('Meetings: who can open the notes', () => {
   });
 
   test('MT-02 an outside guest of a Google or iCloud event shows in Attendees only as text', () => {
-    // Care Hub events invite members only; outside guests come with synced events, which need a
-    // connected calendar (no internet in CI). Written once there's a way to serve one locally.
-    test.fixme(true, 'Needs a synced event with an outside guest');
+    // Care Hub events invite members only; outside guests come with synced Google or iCloud
+    // events. The plan: a fictional .ics served on 127.0.0.1, once the safe fetcher (#203) may
+    // read loopback addresses in tests (or a test route adds a synced event). No by-hand step.
+    test.fixme(true, 'Needs a synced event with an outside guest: a local .ics or a test route');
   });
 });
 
@@ -339,66 +341,6 @@ test.describe('Meetings: all meeting notes and my action items', () => {
     } finally {
       for (const { by, id } of made) await data.deleteEvent(by, id);
       await eliPage.context().close();
-    }
-  });
-});
-
-test.describe('Meetings: Claude off', () => {
-  onlyIn('desktop-light');
-  needs('signIn', 'calendar', 'meetings', 'pages', 'claude');
-
-  /** No button, link or menu item called Summarize on the screen. */
-  async function expectNoSummarize(page: Page, where: string): Promise<void> {
-    for (const role of ['button', 'link', 'menuitem'] as const) {
-      await expect(page.getByRole(role, { name: /summari[sz]e/i }), where).toHaveCount(0);
-    }
-  }
-
-  test('MT-11 with Claude off, there is no Summarize button anywhere', async ({
-    page,
-    browser,
-  }) => {
-    await signInAs(page, 'admin');
-    const eli = await data.member(page, people.editor.email);
-    const sunday = mt.sundayIn(10);
-    const title = uniqueName('Team huddle');
-    const windows: Page[] = [];
-    const eventId = await data.createEvent(page, {
-      title,
-      ...slot(sunday, 2, '10:00'),
-      people: [eli.id],
-    });
-    try {
-      // Meeting summary starts off and only an Admin turns it on (Claude features, section 3.1).
-      await test.step('not in the event panel', async () => {
-        await mt.openEvent(page, title, sunday);
-        await expect(mt.notesButton(page)).toBeVisible();
-        await expectNoSummarize(page, 'event panel');
-      });
-
-      let notesId = '';
-      await test.step('not in the notes page, for Avery (an Admin) or Eli (an Editor)', async () => {
-        await mt.notesButton(page).click();
-        await page.waitForURL(/\/p\/[^/?#]+/);
-        notesId = mt.pageIdIn(page.url());
-        await expect(mt.sectionHeading(page, 'Summary')).toBeVisible();
-        await expectNoSummarize(page, "Avery's notes page");
-        const eliPage = await mt.windowFor(browser, 'editor');
-        windows.push(eliPage);
-        await eliPage.goto(`/p/${notesId}`);
-        await expect(mt.sectionHeading(eliPage, 'Summary')).toBeVisible();
-        await expectNoSummarize(eliPage, "Eli's notes page");
-      });
-
-      await test.step('not in All meeting notes', async () => {
-        await mt.openAllMeetingNotes(page);
-        await mt.searchNotes(page, title);
-        await expect(page.getByRole('main').getByText(title).first()).toBeVisible();
-        await expectNoSummarize(page, 'All meeting notes');
-      });
-    } finally {
-      await data.deleteEvent(page, eventId);
-      for (const opened of windows) await opened.context().close();
     }
   });
 });
