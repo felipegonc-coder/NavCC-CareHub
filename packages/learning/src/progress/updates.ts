@@ -21,9 +21,10 @@ export type CourseUpdate = {
 
 /**
  * What happens for one learner when a course gets a new live version. Only learners who have
- * started the course are affected. `tell` keeps their progress and sends a "this course changed"
- * alert. `retake` starts their progress over and sends a reminder to take the course again. `none`
- * does neither. `note`, the author's message to learners, ends the notice text when it isn't blank.
+ * started the course are affected, finished or not. `tell` keeps their progress and sends a "this
+ * course changed" alert. `retake` starts their progress over, since it points at the old content,
+ * and sends a reminder to take the course again. `none` does neither. `note`, the author's message
+ * to learners, ends the notice text when it isn't blank.
  */
 export function courseUpdateFor(
   notify: CourseUpdateNotify,
@@ -38,11 +39,10 @@ export function courseUpdateFor(
     { label: 'Open course', href: `/learning/courses/${encodeURIComponent(course.id)}` },
   ];
   if (notify === 'tell') {
-    const text = `“${course.title}” has a new version. Your progress is kept.${note}`;
+    const text = `“${course.title}” has changed. Your progress is kept.${note}`;
     return { restart: false, notice: { kind: 'alert', title: 'Course updated', text, buttons } };
   }
-  const again = 'so your progress starts over. Please take it again.';
-  const text = `“${course.title}” has a new version, ${again}${note}`;
+  const text = `“${course.title}” has changed. Please take it again.${note}`;
   return {
     restart: true,
     notice: { kind: 'reminder', title: 'Please take this course again', text, buttons },

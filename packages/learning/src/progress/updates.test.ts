@@ -19,7 +19,7 @@ describe('courseUpdateFor', () => {
       notice: {
         kind: 'alert',
         title: 'Course updated',
-        text: '“Handling late deliveries (fictional)” has a new version. Your progress is kept.',
+        text: '“Handling late deliveries (fictional)” has changed. Your progress is kept.',
         buttons: [{ label: 'Open course', href: '/learning/courses/late-deliveries' }],
       },
     });
@@ -37,8 +37,8 @@ describe('courseUpdateFor', () => {
         kind: 'reminder',
         title: 'Please take this course again',
         text:
-          '“Handling late deliveries (fictional)” has a new version, so your progress starts ' +
-          'over. Please take it again. New refund rules.',
+          '“Handling late deliveries (fictional)” has changed. Please take it again. ' +
+          'New refund rules.',
       });
     }
     const blankNote = courseUpdateFor('tell', { status: 'passed' }, { ...course, note: '   ' });
