@@ -24,11 +24,23 @@ export class VersionHistory {
   readonly versions: Locator;
   /** What the list says before the first version. */
   readonly empty: Locator;
+  /** "Show changes", on by default: marks what's different from the version before (section 2). */
+  readonly showChanges: Locator;
 
   constructor(readonly page: Page) {
     this.dialog = page.getByRole('dialog', { name: /version history/i });
     this.versions = this.dialog.getByRole('option');
     this.empty = this.dialog.getByText('Versions appear here after the first edits.');
+    const showChanges = /show changes/i;
+    this.showChanges = this.dialog
+      .getByRole('switch', { name: showChanges })
+      .or(this.dialog.getByRole('checkbox', { name: showChanges }))
+      .first();
+  }
+
+  /** What a screen reader hears in the window (its accessibility tree, as text). */
+  heard(): Promise<string> {
+    return this.dialog.ariaSnapshot();
   }
 
   /** Page menu → Version history. */
@@ -138,4 +150,13 @@ export function movedToTrash(page: Page): { message: Locator; undo: Locator } {
     message: page.getByText(/^Moved to Trash/).first(),
     undo: page.getByRole('button', { name: 'Undo', exact: true }),
   };
+}
+
+/** Page menu → Move to Trash on the page with this ID, then waits for "Moved to Trash". */
+export async function moveToTrash(page: Page, id: string) {
+  const screen = new PageScreen(page);
+  await screen.goto(id);
+  const menu = await screen.openPageMenu();
+  await menu.getByRole('menuitem', { name: /^move to trash/i }).click();
+  await expect(movedToTrash(page).message).toBeVisible();
 }
