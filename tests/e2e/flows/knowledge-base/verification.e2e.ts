@@ -2,19 +2,20 @@ import { expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/i
 import { PageScreen, openAs } from '../pages/page-screen.js';
 import { nameOf } from '../sharing/share-dialog.js';
 import {
+  EXPIRY_WAIT,
   KbPage,
-  KnowledgeBase,
   dayIn,
   idOf,
   makeHandbook,
   minutesIn,
   setVerifiedUntil,
   turnIntoKnowledgeBase,
+  untilExpiryShows,
 } from './kb-page.js';
 
 // Knowledge base, section 3.3: verifying a page, and the page turning Expired at 9:00 AM in its
 // owner's time zone on the until date. Eli (Editor) owns the pages, in the default time zone
-// (America/Denver); Val (Viewer) reads them. The until dates that have come are test data.
+// (America/Denver); Val (Viewer) reads them. Until dates of today and yesterday are test data.
 
 /** 9:00 AM, and a margin around it in which the expiry may not have shown yet. */
 const NINE_AM = 9 * 60;
@@ -28,6 +29,7 @@ test.describe('Knowledge base: verification', () => {
     page,
     browser,
   }) => {
+    test.setTimeout(EXPIRY_WAIT + 2 * 60_000);
     await signInAs(page, 'editor');
     const owner = await nameOf(page);
     const refund = uniqueName('Fictional QA Refund policy');
@@ -37,8 +39,6 @@ test.describe('Knowledge base: verification', () => {
       returns,
     ]);
     await turnIntoKnowledgeBase(page, handbook.id, 2);
-    const { verification } = await new KnowledgeBase(page, handbook.id).builtIns();
-    const kb = { id: handbook.id, verificationId: verification.id };
     const refundId = idOf(handbook.subIds, refund);
     const returnsId = idOf(handbook.subIds, returns);
     const screen = new PageScreen(page);
@@ -57,30 +57,35 @@ test.describe('Knowledge base: verification', () => {
     });
 
     const yesterday = dayIn(-1);
-    await test.step('Test data: verified until yesterday. Eli sees it Expired and due for review; Val sees the banner', async () => {
-      await setVerifiedUntil(page, kb, refundId, yesterday.iso);
-      await screen.goto(refundId);
-      await expect(kbPage.expiredBadge(yesterday)).toBeVisible();
+    const today = dayIn(0);
+    const now = minutesIn();
+    const nearNine = Math.abs(now - NINE_AM) < MARGIN;
+    await test.step('Test data: Refund policy verified until yesterday, Returns policy until today', async () => {
+      await setVerifiedUntil(page, refundId, yesterday.iso);
+      if (!nearNine) await setVerifiedUntil(page, returnsId, today.iso);
+    });
+
+    await test.step("Yesterday's 9:00 AM has passed: Eli sees Expired and due for review, Val the banner", async () => {
+      await untilExpiryShows(screen, refundId, kbPage.expiredBadge(yesterday));
       await expect(kbPage.reviewBanner(yesterday)).toBeVisible();
       await valScreen.goto(refundId);
       await expect(valPage.readerBanner(yesterday)).toBeVisible();
+      await expect(valPage.reviewBanner(yesterday)).toBeHidden();
     });
 
-    const today = dayIn(0);
-    const now = minutesIn();
-    await test.step("Test data: verified until today. Expired from 9:00 AM in the owner's time zone, verified before", async () => {
-      if (Math.abs(now - NINE_AM) < MARGIN) {
+    await test.step("Until today: Expired from 9:00 AM in the owner's time zone, still verified before", async () => {
+      if (nearNine) {
         test
           .info()
           .annotations.push({ type: 'note', description: 'Too close to 9:00 AM to tell.' });
         return;
       }
-      await setVerifiedUntil(page, kb, returnsId, today.iso);
-      await valScreen.goto(returnsId);
       if (now >= NINE_AM) {
-        await expect(valPage.readerBanner(today)).toBeVisible();
+        await untilExpiryShows(valScreen, returnsId, valPage.readerBanner(today));
         await expect(valPage.expiredBadge(today)).toBeVisible();
       } else {
+        // The expiry task has run since both were set (Refund policy turned Expired).
+        await valScreen.goto(returnsId);
         await expect(valPage.verifiedBadge(owner, today)).toBeVisible();
         await expect(valPage.readerBanner(today)).toBeHidden();
       }

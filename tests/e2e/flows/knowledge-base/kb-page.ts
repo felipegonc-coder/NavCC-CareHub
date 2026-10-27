@@ -132,23 +132,28 @@ export function minutesIn(timeZone = DEFAULT_TIME_ZONE): number {
 }
 
 /**
- * Test data for KB-05: marks a page "verified by me until <day>" through the rows API, as if it
- * had been verified long ago. Assumed: a Verification value is { state, verifiedBy, verifiedOn,
- * verifiedUntil } with calendar dates, and the Expired state is worked out when the page is read.
+ * Test data for KB-05 and FLOW-07: "verified until <day>", through the verify route as Until a
+ * date does (POST /api/knowledge/pages/:pageId/verification). The route takes only days after
+ * today ("Pick a date after today, up to ten years ahead."), so today and earlier days need a test
+ * hook on the server, which isn't there yet (asked). Once that day's 9:00 AM has passed in the
+ * first owner's time zone, the expiry task, every minute, turns the page Expired.
  */
-export async function setVerifiedUntil(
-  page: Page,
-  kb: { id: string; verificationId: string },
-  rowId: string,
-  until: string,
-) {
-  const api = await apiFor(page);
-  const me = await api.get<{ user: { id: string } }>('/api/auth/me');
-  const verifiedOn = dayIn(-90).iso;
-  const value = { state: 'verified', verifiedBy: me.user.id, verifiedOn, verifiedUntil: until };
-  await api.patch(`/api/databases/${kb.id}/rows/${rowId}`, {
-    values: { [kb.verificationId]: value },
-  });
+export async function setVerifiedUntil(page: Page, pageId: string, until: string) {
+  const response = await (
+    await apiFor(page)
+  ).send('POST', `/api/knowledge/pages/${pageId}/verification`, { period: 'date', until });
+  expect(response.status(), `Verified until ${until}: needs the server's test hook`).toBe(200);
+}
+
+/** How long the expiry task, which runs every minute, may take to turn a page Expired. */
+export const EXPIRY_WAIT = 2 * 60_000;
+
+/** Opens a page again until it shows something the expiry task brings, such as the banner. */
+export async function untilExpiryShows(screen: PageScreen, pageId: string, shows: Locator) {
+  await expect(async () => {
+    await screen.goto(pageId);
+    await expect(shows).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: EXPIRY_WAIT, intervals: [5_000] });
 }
 
 /** A day as the badge and banners show it, with or without its year ("Oct 1", "Oct 1, 2026"). */
@@ -171,9 +176,9 @@ export class KbPage {
     this.notVerified = this.main.getByText('Not verified', { exact: true }).first();
   }
 
-  /** The green badge: "✓ Verified by Riley Chen until Jan 20, 2027". */
-  verifiedBadge(name: string, until: { shown: string }): Locator {
-    const text = `Verified by ${literally(name).source} until ${literally(until.shown).source}`;
+  /** The green badge: "✓ Verified by Riley Chen until Jan 20, 2027" (no year this year). */
+  verifiedBadge(name: string, until: { short: string }): Locator {
+    const text = `Verified by ${literally(name).source} until ${onDay(until)}(?!\\d)`;
     return this.main.getByText(new RegExp(text)).first();
   }
 
@@ -211,6 +216,29 @@ export class KbPage {
     await confirm.getByRole('button', { name: /back to draft/i }).click();
     await expect(confirm).toBeHidden();
     await expect(this.draftBanner).toBeVisible();
+  }
+
+  /** The review bar, from Review now or a notice: "Still correct? · Verify for 90 days · …". */
+  get reviewBar(): Locator {
+    return this.main.getByText('Still correct?', { exact: true });
+  }
+
+  /** Review now, in the banner of an expired page, opens the review bar. */
+  async reviewNow() {
+    await this.main
+      .getByRole('button', { name: 'Review now' })
+      .or(this.main.getByRole('link', { name: 'Review now' }))
+      .first()
+      .click();
+    await expect(this.reviewBar).toBeVisible();
+  }
+
+  /** A choice in the review bar: /^Verify for/ (the default period), "Needs changes" or "Archive". */
+  async review(option: RegExp | 'Needs changes' | 'Archive') {
+    await this.main
+      .getByRole('button', { name: option, exact: typeof option === 'string' })
+      .click();
+    await expect(this.reviewBar).toBeHidden();
   }
 
   /** The verify menu from the badge: a period such as /90 days/, or Remove verification. */
