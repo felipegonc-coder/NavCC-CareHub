@@ -3,6 +3,7 @@
 import {
   ACCESS_LEVELS,
   atLeast,
+  hasPermission,
   type AccessLevel,
   type GrantLevel,
   type PermissionKey,
@@ -204,7 +205,7 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
     SELECT p.id, p.workspace_id AS "workspaceId", p.kind, p.parent_id AS "parentId",
       p.deleted_at IS NOT NULL OR s.deleted_at IS NOT NULL AS deleted, s.kind AS "spaceKind",
       s.owner_id AS "ownerId",
-      s.archived_at IS NOT NULL AS archived, b.best, b.granted
+      s.archived_at IS NOT NULL AS archived, b.best, b.granted, b.plain
     FROM pages p JOIN spaces s ON s.id = p.space_id LEFT JOIN best b ON b.page_id = p.id
     WHERE p.id = ANY(${ids})`);
   const answers = new Map<string, PageAnswer>();
@@ -348,14 +349,23 @@ export async function writeGrant(
 
 type GrantPlace = { spaceId?: string | null; pageId?: string | null };
 
-/** The page a grant is on, its kind and the changer's level there. */
+/** The page a grant is on, its kind, and the changer's level and membership there. */
 async function targetFor(db: Executor, userId: string, place: GrantPlace) {
   if (place.spaceId || !place.pageId) throw invalid('Grants on spaces come with the spaces API.');
   const viewer = await loadViewer(db, userId);
   const answer = (await resolvePages(db, viewer, [place.pageId])).get(place.pageId);
   if (!answer || answer.deleted) throw notFound();
   const target = { workspaceId: answer.workspaceId, spaceId: null, pageId: place.pageId };
-  return { target, kind: answer.kind, level: answer.level };
+  const member = viewer.memberships.get(answer.workspaceId);
+  return { target, kind: answer.kind, level: answer.level, member };
+}
+
+/** Whether the page's space lets its pages be shared with guests (an owners' switch). */
+async function allowsGuests(db: Executor, pageId: string) {
+  const { rows } = await db.execute<{ allowed: boolean }>(sql`
+    SELECT s.allow_guests AS allowed FROM pages p JOIN spaces s ON s.id = p.space_id
+    WHERE p.id = ${pageId}`);
+  return rows[0]?.allowed === true;
 }
 
 /** Checks the principal belongs to the workspace; returns whether it's a guest. */
@@ -386,16 +396,20 @@ export type GrantAccessInput = {
 
 /**
  * 0007: adds or changes a grant. It needs Full access there, which the role limit gives only with
- * the Share permission; Full is the top level, so nobody can grant above their own.
+ * the Share permission; Full is the top level, so nobody can grant above their own. Sharing with a
+ * guest also needs the Add guests permission and a space that allows guests.
  */
 export async function grantAccess(tx: Executor, input: GrantAccessInput) {
   if (input.level === 'none') throw invalid('Choose a level, or remove the grant.');
-  const { target, kind, level } = await targetFor(tx, input.grantedBy, input);
+  const { target, kind, level, member } = await targetFor(tx, input.grantedBy, input);
   if (!atLeast(level, 'full')) throw forbidden();
   const forDatabases = input.level === 'edit_content' || input.level === 'rows_only';
   if (forDatabases && kind !== 'database') throw invalid('That level is only for databases.');
-  const guest = await checkPrincipal(tx, target.workspaceId, input.principal);
-  if (guest && input.level === 'full') throw invalid('Guests never get Full access.');
+  if (await checkPrincipal(tx, target.workspaceId, input.principal)) {
+    if (input.level === 'full') throw invalid('Guests never get Full access.');
+    if (!hasPermission(member, 'guests.add')) throw forbidden();
+    if (!(await allowsGuests(tx, target.pageId))) throw invalid("This space doesn't allow guests.");
+  }
   return writeGrant(tx, target, input.principal, input.level, input.grantedBy);
 }
 

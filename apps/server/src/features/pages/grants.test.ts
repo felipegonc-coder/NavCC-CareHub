@@ -215,6 +215,20 @@ describe.skipIf(!hasDatabase)('page access', () => {
     expect(await getGrantLevel(db, val.id, missing)).toBe('none');
   });
 
+  it('answers a plain Can view on a database as view, not rows_only (getGrantLevel)', async () => {
+    const s = await space();
+    const folder = await page(s);
+    const intake = await page(s, folder, { kind: 'database' });
+    const by = people.admin.id;
+    const casey = people.commenter;
+    await grantAccess(db, { pageId: intake, principal: user(casey), level: 'view', grantedBy: by });
+    expect(await getGrantLevel(db, casey.id, intake)).toBe('view');
+    // From the page above too.
+    const val = people.viewer;
+    await grantAccess(db, { pageId: folder, principal: user(val), level: 'view', grantedBy: by });
+    expect(await getGrantLevel(db, val.id, intake)).toBe('view');
+  });
+
   it('reaches guests only through grants to them, without the role limit, up to Can edit', async () => {
     const guest = await createUser(db, { kind: 'guest', name: 'Gray Guest' });
     const s = await space();
@@ -228,6 +242,29 @@ describe.skipIf(!hasDatabase)('page access', () => {
     await expect(
       grantAccess(db, { pageId: p, principal: user(guest), level: 'full', grantedBy: by }),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('shares with guests only with Add guests, in a space that allows guests', async () => {
+    const guest = await createUser(db, { kind: 'guest', name: 'Gale Guest' });
+    const sharer = await createUser(db, {
+      permissions: ['pages.edit', 'pages.share'],
+      name: 'Sam Sharer',
+    });
+    const s = await space();
+    const p = await page(s);
+    await join(s, sharer, 'owner');
+    await join(s, people.editor, 'owner');
+    const share = (by: TestUser, to: TestUser = guest) =>
+      grantAccess(db, { pageId: p, principal: user(to), level: 'view', grantedBy: by.id });
+    // Full access without Add guests shares with members only.
+    await expect(share(sharer)).rejects.toMatchObject({ statusCode: 403 });
+    expect(await share(sharer, people.viewer)).toMatchObject({ level: 'view' });
+    await db.execute(sql`UPDATE spaces SET allow_guests = false WHERE id = ${s}`);
+    await expect(share(people.editor)).rejects.toMatchObject({ statusCode: 400 });
+    expect(await levels(guest, [p])).toEqual(['none']);
+    await db.execute(sql`UPDATE spaces SET allow_guests = true WHERE id = ${s}`);
+    expect(await share(people.editor)).toMatchObject({ level: 'view' });
+    expect(await levels(guest, [p])).toEqual(['view']);
   });
 
   it('answers every ID asked, with none for missing, malformed and trashed pages', async () => {
