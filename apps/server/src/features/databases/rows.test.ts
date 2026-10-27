@@ -14,13 +14,15 @@ import {
   type SelectOption,
   type View,
 } from '@carehub/databases';
+import { atLeast } from '@carehub/databases/access';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
-import { liveHub } from '../live';
+import { liveHub, registerTopic } from '../live';
 import { testSink } from '../live/domain/testSink';
 import { bindMemoryNotices } from '../notices/testing';
+import { getPageAccess } from '../pages';
 import { onDatabaseEvent, type DatabaseEvent } from './events';
 import type { DatabaseRecord, DatabaseSettings } from './record';
 import { ROW_NOTICES } from './rows';
@@ -138,6 +140,10 @@ describe.skipIf(!hasDatabase)('row routes', () => {
   beforeAll(async () => {
     ({ app, db, close } = await createTestApp());
     notices = bindMemoryNotices();
+    // Stand-in for W2-1's `db` live topic (#249) until it's in this branch's base.
+    registerTopic('db', async ({ userId, topic }) =>
+      atLeast(await getPageAccess(db, userId, topic.slice('db:'.length)), 'view'),
+    );
     stopEvents = onDatabaseEvent(app, async (event) => {
       events.push(event);
       if (event.name !== 'databases.row.created') return;

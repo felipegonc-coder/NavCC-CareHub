@@ -1,17 +1,14 @@
 // Row routes at /api/databases (decision 0200): add a row, read and change one, change many, and
 // move rows to Trash and back (Undo restores). Every write answers after its commit and then
-// announces itself (events, the `db:<databaseId>` live topic, Person notices). This plugin also
-// registers the row resolver with the page model and who may hear a database's live topic.
+// announces itself (events, a nudge on the `db:<databaseId>` live topic, Person notices). This
+// plugin also registers the row resolver with the page model (W2-1 owns the `db` topic itself).
 import type { AccessLevel, Viewer, WeekDay } from '@carehub/databases';
-import { atLeast } from '@carehub/databases/access';
 import { parseRequest, type RequestResult } from '@carehub/databases/schemas';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
-import { registerTopic } from '../live';
 import { getPageAccess, pageAccessOf } from '../pages';
 import { invalidRequest, notFound } from './errors';
-import { loadPagePlace } from './pages';
-import { isUuid, type DatabaseRecord } from './record';
+import type { DatabaseRecord } from './record';
 import { registerRowAccess } from './row-access';
 import { bulkValuesRequest, newRowRequest, rowIdsRequest, rowValuesRequest } from './row-requests';
 import { rowAnswer } from './row-view';
@@ -44,14 +41,6 @@ const rowIdOf = (request: FastifyRequest) => (request.params as { rowId?: unknow
 
 export default async function rowRoutes(app: FastifyInstance) {
   registerRowAccess();
-  // `db:<databaseId>`: everyone who can open the database hears that its rows changed.
-  registerTopic('db', async ({ userId, topic }) => {
-    const id = topic.slice('db:'.length);
-    if (!isUuid(id)) return false;
-    const place = await loadPagePlace(app.db, id);
-    if (!place || place.kind !== 'database' || place.inTrash) return false;
-    return atLeast(await getPageAccess(app.db, userId, id), 'view');
-  });
 
   /** The database checked by requirePageAccess, and the person's level on it. */
   async function database(request: FastifyRequest) {
