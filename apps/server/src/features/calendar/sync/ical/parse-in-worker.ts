@@ -2,14 +2,23 @@
 // crafted calendar can't hold up the server's event loop or use up its memory. A calendar that
 // runs out of either fails with `too-complex`; the sync should back off that subscription.
 
+import { existsSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { IcalParseError } from './parse';
 import type { IcalParseErrorCode, ParseOptions, ParseResult } from './parse';
 
 export const PARSE_TIMEOUT_MS = 10_000;
 const RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 };
-// Next to the server bundle; build.mjs builds parse-worker.ts there.
-const WORKER_FILE = new URL('./calendar-parse-worker.js', import.meta.url);
+
+/**
+ * The worker's file: next to the server bundle (build.mjs builds it there), or, running from
+ * source with tsx (which workers inherit through execArgv), parse-worker.ts itself.
+ */
+export function workerFileFor(moduleUrl: string, exists: (file: URL) => boolean = existsSync): URL {
+  const bundled = new URL('./calendar-parse-worker.js', moduleUrl);
+  return exists(bundled) ? bundled : new URL('./parse-worker.ts', moduleUrl);
+}
+const WORKER_FILE = workerFileFor(import.meta.url);
 
 type Reply =
   { ok: true; result: ParseResult } | { ok: false; code: IcalParseErrorCode; message: string };

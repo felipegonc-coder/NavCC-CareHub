@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -5,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IcalParseError, parseCalendar } from './parse';
-import { parseCalendarInWorker } from './parse-in-worker';
+import { parseCalendarInWorker, workerFileFor } from './parse-in-worker';
 
 // The worker runs as plain JavaScript, so it's built here the way build.mjs builds it.
 let dir = '';
@@ -105,5 +106,27 @@ describe('parseCalendarInWorker', () => {
     );
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(IcalParseError);
+  });
+});
+
+describe('workerFileFor', () => {
+  it('uses the worker built next to the server bundle', () => {
+    const file = workerFileFor('file:///app/apps/server/dist/index.js', () => true);
+    expect(file.href).toBe('file:///app/apps/server/dist/calendar-parse-worker.js');
+  });
+
+  it('falls back to parse-worker.ts when running from source', () => {
+    const checked: string[] = [];
+    const file = workerFileFor('file:///repo/src/ical/parse-in-worker.ts', (bundled) => {
+      checked.push(bundled.href);
+      return false;
+    });
+    expect(file.href).toBe('file:///repo/src/ical/parse-worker.ts');
+    expect(checked).toEqual(['file:///repo/src/ical/calendar-parse-worker.js']);
+  });
+
+  it('finds a worker file that exists in this repo', () => {
+    const here = new URL('./parse-in-worker.ts', import.meta.url).href;
+    expect(existsSync(workerFileFor(here))).toBe(true);
   });
 });
