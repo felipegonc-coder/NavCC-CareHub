@@ -1,38 +1,53 @@
-# Care Hub on one server: the app, PostgreSQL, Caddy (HTTPS) and nightly backups.
-# install.sh copies this folder to /opt/carehub and creates .env. See README.md.
+# Care Hub on one server: the app, PostgreSQL, Caddy (HTTPS on the tailnet) and backups.
+# up.sh builds the app image here, from this checkout. install.sh creates .env; the data
+# lives in CAREHUB_DATA_DIR (default /srv/carehub). See README.md.
 name: carehub
 
-x-logging: &logging
-  driver: local # compact, rotated log files
+# Every service runs as the Care Hub user (never root), can't gain privileges and keeps
+# compact, rotated logs. None of them gets the Docker socket.
+x-service: &service
+  restart: unless-stopped
+  user: '${CAREHUB_UID:?set CAREHUB_UID in .env}:${CAREHUB_GID:?set CAREHUB_GID in .env}'
+  security_opt: ['no-new-privileges:true']
+  logging:
+    driver: local
 
 services:
   app:
-    # A published version, changed only on purpose: see "Versions and updates" in README.md.
-    image: ghcr.io/felipegonc-coder/navcc-carehub:0.1.0
-    platform: linux/amd64
+    <<: *service
+    build:
+      context: ..
+      args:
+        CAREHUB_VERSION: ${CAREHUB_VERSION:-unknown}
+        CAREHUB_BUILD_DATE: ${CAREHUB_BUILD_DATE:-}
+    image: carehub-app:local
     init: true
-    restart: unless-stopped
     env_file: .env
+    expose: ['3000'] # only for Caddy, on the compose network
     volumes:
-      - files:/data/files
-      # For the Status page: backup results (read-only), and requests/now to ask for a backup.
-      - ./backups:/data/backups:ro
-      - ./backups/requests:/data/backups/requests
+      - ${CAREHUB_DATA_DIR:-/srv/carehub}/files:/data/files
+      # For the Status page: backup results (read-only), and requests/ to ask for a backup.
+      - ${CAREHUB_DATA_DIR:-/srv/carehub}/backups/status:/data/backups:ro
+      - ${CAREHUB_DATA_DIR:-/srv/carehub}/backups/status/requests:/data/backups/requests
     depends_on:
       db:
         condition: service_healthy
-    logging: *logging
 
   db:
-    image: postgres:17
-    restart: unless-stopped
+    <<: *service
+    # Pinned by digest; bumped by hand (see "Base images" in README.md).
+    image: &postgres postgres:17@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-carehub}
       POSTGRES_DB: ${POSTGRES_DB:-carehub}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # A password (scram-sha-256) for every connection, local ones too. Never "trust".
+      POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
       TZ: ${TZ:-America/Denver}
+    expose: ['5432'] # only for the app and the backups, on the compose network
     volumes:
-      - db:/var/lib/postgresql/data
+      - ${CAREHUB_DATA_DIR:-/srv/carehub}/postgres:/var/lib/postgresql/data
     healthcheck:
       # 127.0.0.1, not the socket, so the temporary server during first start doesn't count.
       test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
@@ -41,35 +56,36 @@ services:
       retries: 5
       start_period: 60s
       start_interval: 2s
-    logging: *logging
+    stop_grace_period: 1m
 
   caddy:
-    image: caddy:2
-    restart: unless-stopped
-    # CAREHUB_BIND_ADDRESS empty: every address of the server. The tailnet IP: only over
-    # Tailscale (see "Tailscale" in README.md).
+    <<: *service
+    image: caddy:2@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489
+    # Only on the server's Tailscale address, so Care Hub can't be reached from the internet.
     ports:
-      - { host_ip: '${CAREHUB_BIND_ADDRESS:-}', published: '80', target: 80 }
-      - { host_ip: '${CAREHUB_BIND_ADDRESS:-}', published: '443', target: 443 }
-      - { host_ip: '${CAREHUB_BIND_ADDRESS:-}', published: '443', target: 443, protocol: udp }
+      - '${CAREHUB_TAILSCALE_IP:?set CAREHUB_TAILSCALE_IP in .env}:80:80'
+      - '${CAREHUB_TAILSCALE_IP:?set CAREHUB_TAILSCALE_IP in .env}:443:443'
+      - '${CAREHUB_TAILSCALE_IP:?set CAREHUB_TAILSCALE_IP in .env}:443:443/udp'
+    # Lets Caddy listen on ports 80 and 443 inside its container without root.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
     environment:
       CAREHUB_DOMAIN: ${CAREHUB_DOMAIN:?set CAREHUB_DOMAIN in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-      # *.ts.net certificates come from the host's tailscaled. The folder, not the
+      - ${CAREHUB_DATA_DIR:-/srv/carehub}/caddy/data:/data
+      - ${CAREHUB_DATA_DIR:-/srv/carehub}/caddy/config:/config
+      # The *.ts.net certificate comes from the host's tailscaled. The folder, not the
       # socket file, is mounted so Caddy still finds the socket after tailscaled restarts.
       - /var/run/tailscale:/var/run/tailscale:ro
     depends_on:
       - app
-    logging: *logging
 
   # Also used by restore.sh: docker compose run --rm backup restore STAMP --confirmed
   backup:
-    image: postgres:17
+    <<: *service
+    image: *postgres
     init: true
-    restart: unless-stopped
     entrypoint: ['bash', '/opt/carehub/backup.sh']
     command: ['schedule']
     environment:
@@ -82,15 +98,8 @@ services:
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
     volumes:
       - ./backup.sh:/opt/carehub/backup.sh:ro
-      - ./backups:/backups
-      - files:/data/files
+      - ${CAREHUB_DATA_DIR:-/srv/carehub}/backups:/backups
+      - ${CAREHUB_DATA_DIR:-/srv/carehub}/files:/data/files
     depends_on:
       db:
         condition: service_healthy
-    logging: *logging
-
-volumes:
-  db:
-  files:
-  caddy-data:
-  caddy-config:

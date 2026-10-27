@@ -1,16 +1,17 @@
 # syntax=docker/dockerfile:1
-# Care Hub: one linux/amd64 image with the server, which also serves the web app.
-# See docs/decisions/0003-image-and-deploy.md.
+# Care Hub: one image with the server, which also serves the web app. It is built on the
+# server from a checkout (deploy/up.sh) and in CI. See docs/decisions/0003-image-and-deploy.md.
+# The base images are pinned by digest and bumped by hand ("Base images" in deploy/README.md).
 
 # Only the package manifests, so the npm install layers stay cached until they change.
-FROM node:24 AS manifests
+FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS manifests
 WORKDIR /src
 COPY . .
 RUN mkdir /out \
  && find . -name package.json -not -path '*/node_modules/*' -exec cp --parents {} /out/ \; \
  && for f in package-lock.json .npmrc; do if [ -f "$f" ]; then cp "$f" /out/; fi; done
 
-FROM node:24 AS build
+FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS build
 WORKDIR /src
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY --from=manifests /out/ ./
@@ -29,7 +30,7 @@ RUN test -f apps/server/dist/index.js && test -f apps/web/dist/index.html \
 
 # Production dependencies of the server and the workspace packages it uses. Those
 # packages are bundled into dist by esbuild, so their workspace links are dropped.
-FROM node:24 AS server-deps
+FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS server-deps
 WORKDIR /src
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY --from=manifests /out/ ./
@@ -39,19 +40,21 @@ RUN npm install --omit=dev --workspace=apps/server \
  && mv node_modules /app/node_modules \
  && if [ -d apps/server/node_modules ]; then mv apps/server/node_modules /app/apps/server/; fi
 
-FROM node:24-slim
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 LABEL org.opencontainers.image.title="Care Hub" \
       org.opencontainers.image.description="Care Hub workspace app (server and web app)" \
       org.opencontainers.image.source="https://github.com/felipegonc-coder/NavCC-CareHub"
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST_DIR=/app/apps/web/dist FILES_DIR=/data/files
 COPY --from=server-deps /app/ /app/
 COPY --from=build /app/ /app/
-# Uploaded files live here; a new named volume copies this owner.
+# Uploaded files. docker-compose.yml mounts a folder of CAREHUB_DATA_DIR here.
 RUN mkdir -p /data/files && chown node:node /data/files
-# The version /api/health reports; CI passes sha-<commit>.
-ARG CAREHUB_VERSION=0.0.0-dev
-ENV CAREHUB_VERSION=$CAREHUB_VERSION
+# What /api/health and the Status page report: up.sh passes the git version and the
+# build time (UTC, ISO 8601), CI sha-<commit>.
+ARG CAREHUB_VERSION=0.0.0-dev CAREHUB_BUILD_DATE=
+ENV CAREHUB_VERSION=$CAREHUB_VERSION CAREHUB_BUILD_DATE=$CAREHUB_BUILD_DATE
 WORKDIR /app/apps/server
+# docker-compose.yml runs it as the Care Hub user instead; never as root.
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=2s --retries=3 \

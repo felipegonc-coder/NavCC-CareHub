@@ -6,19 +6,20 @@
 #   backup.sh restore STAMP --confirmed  replace both with a backup (use restore.sh)
 # STAMP is the UTC start time, e.g. 20261027T080000Z. A backup is finished only once
 # carehub-STAMP.sha256 exists, which is written after the dump was restored into a scratch
-# database and the files archive was read back. Every run writes runs/STAMP.json and a
-# copy in status.json; a file named "now" in requests/ asks for a backup (see README.md).
-# Limits: one backup at a time; a request less than 60 minutes after the last run is
-# ignored; a backup does not start with less free space than twice the last one's size.
+# database and the files archive was read back. Every run writes status/runs/STAMP.json
+# and a copy in status/status.json; a file named "now" in status/requests/ asks for a
+# backup. The app sees only status/ (see README.md). Limits: one backup at a time; a
+# request less than 60 minutes after the last run is ignored; a backup does not start
+# with less free space than twice the last one's size.
 set -euo pipefail
 umask 077
 
 BACKUPS=${BACKUPS:-/backups}
+STATUS=$BACKUPS/status
 FILES=${FILES:-/data/files}
 KEEP_DAYS=${BACKUP_KEEP_DAYS:-30}
 BACKUP_AT=${BACKUP_AT:-02:00}
 DB=${PGDATABASE:?PGDATABASE is not set}
-APP_UID=1000 # the node user of the app image
 REQUEST_GAP=60 # minutes; requests sooner than this after the last run are ignored
 STAMP="" STARTED="" BASE="" ERROR="" LOCKED=0 CHANGED=0 PROVING=0
 DB_BYTES="" FILE_BYTES="" TEST_OK=false CHECKED_AT="" DETAILS=""
@@ -46,14 +47,10 @@ check_config() {
 }
 
 # The app reads status.json and runs/ (mounted read-only) and drops requests in requests/.
-prepare_dirs() {
-  mkdir -p "$BACKUPS/runs" "$BACKUPS/requests"
-  chmod 755 "$BACKUPS" "$BACKUPS/runs" "$BACKUPS/requests"
-  if (( EUID == 0 )); then chown "$APP_UID:$APP_UID" "$BACKUPS/requests"; fi
-}
+prepare_dirs() { mkdir -p "$STATUS/runs" "$STATUS/requests"; }
 
 write_run() { # ok: true or false
-  local tmp="$BACKUPS/.run.json"
+  local tmp="$STATUS/.run.json"
   cat > "$tmp" <<JSON
 {
   "startedAt": $(str "$STARTED"),
@@ -68,10 +65,9 @@ write_run() { # ok: true or false
   }
 }
 JSON
-  chmod 644 "$tmp"
-  cp -p "$tmp" "$BACKUPS/.status.json"
-  mv "$tmp" "$BACKUPS/runs/$STAMP.json"
-  mv "$BACKUPS/.status.json" "$BACKUPS/status.json"
+  cp -p "$tmp" "$STATUS/.status.json"
+  mv "$tmp" "$STATUS/runs/$STAMP.json"
+  mv "$STATUS/.status.json" "$STATUS/status.json"
 }
 
 schedule() {
@@ -86,17 +82,17 @@ schedule() {
   trap 'exit 0' TERM INT
   while :; do
     now=$(date '+%F %H:%M')
-    if [[ -e $BACKUPS/requests/now ]]; then
-      rm -f "$BACKUPS/requests/now"
-      if [[ -n $(find "$BACKUPS" -maxdepth 1 -name status.json -mmin "-$REQUEST_GAP" -print -quit) ]]; then
+    if [[ -e $STATUS/requests/now ]]; then
+      rm -f "$STATUS/requests/now"
+      if [[ -n $(find "$STATUS" -maxdepth 1 -name status.json -mmin "-$REQUEST_GAP" -print -quit) ]]; then
         log "ignored a backup request: the last backup finished less than $REQUEST_GAP minutes ago"
       else
-        log "a backup was requested (requests/now)"
-        bash "$0" now || log "the backup failed, see $BACKUPS/status.json" >&2
+        log "a backup was requested (status/requests/now)"
+        bash "$0" now || log "the backup failed, see $STATUS/status.json" >&2
       fi
     elif [[ ${now% *} != "$done_day" && ! ${now#* } < "$BACKUP_AT" ]]; then
       done_day=${now% *}
-      bash "$0" now || log "the backup failed, see $BACKUPS/status.json" >&2
+      bash "$0" now || log "the backup failed, see $STATUS/status.json" >&2
     fi
     sleep 30 & wait $!
   done
@@ -109,7 +105,7 @@ backup_now() {
   lock
   # A STAMP of its own even right after the last run, so a failure never removes that run's files.
   while t=$(date +%s) && STAMP=$(date -u -d "@$t" +%Y%m%dT%H%M%SZ) \
-    && [[ -e $BACKUPS/runs/$STAMP.json || -e $BACKUPS/carehub-$STAMP.db.dump ]]; do sleep 1; done
+    && [[ -e $STATUS/runs/$STAMP.json || -e $BACKUPS/carehub-$STAMP.db.dump ]]; do sleep 1; done
   STARTED=$(iso "$t")
   BASE="$BACKUPS/carehub-$STAMP"
   trap backup_exit EXIT
@@ -163,7 +159,7 @@ prove() {
 prune() {
   local cutoff f
   cutoff=$(date -u -d "-$((KEEP_DAYS - 1)) days" +%Y%m%d)
-  for f in "$BACKUPS"/carehub-* "$BACKUPS"/runs/*.json; do
+  for f in "$BACKUPS"/carehub-* "$STATUS"/runs/*.json; do
     [[ ${f##*/} =~ $NAME_RE || ${f##*/} =~ $RUN_RE ]] || continue
     if [[ ${BASH_REMATCH[1]} < "$cutoff" ]]; then rm -f -- "$f"; log "removed the old file ${f#"$BACKUPS"/}"; fi
   done

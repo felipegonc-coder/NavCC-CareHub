@@ -1,32 +1,20 @@
 name: Image
 
-# Builds the Docker image and smoke-tests it. Only main publishes it to GHCR
-# (docs/decisions/0003-image-and-deploy.md). It runs only:
-# - daily at 01:30 UTC on main, and stops early if that commit already has an image;
-# - by hand (Actions > Image > Run workflow): on main it publishes, optionally with a
-#   version tag like 0.1.0; on other branches it only builds and tests;
-# - on a pull request when the "image" label is added: builds and tests, never publishes.
-#   A pull request that changes only deploy/ (but not backup.sh) is validated without a build.
-# Each job gets only the permissions it needs: building and testing has contents: read, and
-# packages: write belongs to the publish job, which runs only on refs/heads/main.
-# Nothing here deletes old image versions.
+# Builds the Docker image and tests the deploy the way a server runs it: install.sh, up.sh,
+# a backup asked for like the Status page does, and restore.sh
+# (docs/decisions/0003-image-and-deploy.md). Nothing is published: the server builds its
+# own image. It runs only on request:
+# - by hand: Actions > Image > Run workflow;
+# - on a pull request when the "image" label is added.
 on:
-  schedule:
-    - cron: '30 1 * * *'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'On main, also tag the image with this version, like 0.1.0 (never overwritten)'
-        type: string
-        default: ''
   pull_request:
     types: [labeled]
 
-# On a pull request a newer run for the same label cancels the older one. On main, runs
-# wait for each other, so a publish is never cut short.
+# A newer run for the same ref and label cancels the older one.
 concurrency:
   group: image-${{ github.ref }}-${{ github.event.label.name || 'run' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -35,101 +23,55 @@ defaults:
   run:
     shell: bash
 
-env:
-  IMAGE: ghcr.io/felipegonc-coder/navcc-carehub
-
 jobs:
-  # On main only: does this commit have an image yet, and is the version tag still free?
-  registry:
-    name: registry
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      packages: read
-    outputs:
-      exists: ${{ steps.check.outputs.exists }}
-      build: ${{ steps.check.outputs.build }}
-    steps:
-      - name: Check the registry
-        id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          tag=sha-${GITHUB_SHA::7} exists=false build=true
-          if [[ -n $VERSION && ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::The version must look like 1.2.3 or 1.2.3-rc.1."; exit 1
-          fi
-          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
-          if [[ -n $VERSION ]] && docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
-            echo "::error::$IMAGE:$VERSION exists already. Version tags are never overwritten."; exit 1
-          fi
-          if docker buildx imagetools inspect "$IMAGE:$tag" >/dev/null 2>&1; then
-            exists=true
-            # For a version tag, this run still builds and tests an image of the commit.
-            if [[ -z $VERSION ]]; then build=false; fi
-          fi
-          echo "$IMAGE:$tag exists: $exists. Build: $build."
-          printf 'exists=%s\nbuild=%s\n' "$exists" "$build" >> "$GITHUB_OUTPUT"
-
-  # Builds and tests with read-only access to the repository: no registry login, no push.
   image:
     name: image
-    needs: registry
-    if: >-
-      ${{ !cancelled() && needs.registry.result != 'failure' && needs.registry.outputs.build != 'false' &&
-      (github.event_name != 'pull_request' || github.event.label.name == 'image') }}
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'image'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: read
-    outputs:
-      build: ${{ steps.plan.outputs.build }}
-      tag: ${{ steps.plan.outputs.tag }}
     steps:
       - name: Check out
         id: checkout
         uses: actions/checkout@v5
         with:
-          fetch-depth: 2
           persist-credentials: false
 
       # Each run step keeps its output in $RUNNER_TEMP/ci-logs/<step id>.log for the report.
-      - name: Plan
-        id: plan
-        env:
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/ci-logs"
-          {
-            head=${PR_HEAD:-$GITHUB_SHA}
-            build=true tag=sha-${head::7}
-            if [[ -n $VERSION && $GITHUB_REF != refs/heads/main ]]; then
-              echo "::error::Version tags are published only from main."; exit 1
-            fi
-            if [[ $GITHUB_EVENT_NAME == pull_request ]]; then
-              changed=$(git diff --name-only HEAD^1 HEAD)
-              printf 'Changed files:\n%s\n' "$changed"
-              if ! grep -qv '^deploy/' <<<"$changed" && ! grep -qx 'deploy/backup.sh' <<<"$changed"; then
-                build=false
-                echo "Only deploy/ changed, not backup.sh: validating it without building the image."
-              fi
-            fi
-            printf 'build=%s\ntag=%s\n' "$build" "$tag" | tee -a "$GITHUB_OUTPUT"
-          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/plan.log"
-
       - name: Validate deploy files
         id: validate
         run: |
+          mkdir -p "$RUNNER_TEMP/ci-logs"
           {
+            fail() { echo "::error::$*"; exit 1; }
+            config=$RUNNER_TEMP/compose.json
+            check() { jq -e "$1" "$config" >/dev/null || fail "$2"; }
             cp deploy/.env.example deploy/.env
             docker compose -f deploy/docker-compose.yml config --quiet
-            config=$(CAREHUB_BIND_ADDRESS=100.64.0.1 docker compose -f deploy/docker-compose.yml config)
-            grep -q 'host_ip: 100.64.0.1' <<<"$config" \
-              || { echo "::error::CAREHUB_BIND_ADDRESS does not reach Caddy's ports"; exit 1; }
-            echo "docker-compose.yml is valid, with and without CAREHUB_BIND_ADDRESS."
+            docker compose -f deploy/docker-compose.yml config --format json > "$config"
+            rm deploy/.env
+            # Tailnet only: nothing but Caddy publishes ports, and only on CAREHUB_TAILSCALE_IP.
+            check '[.services | to_entries[] | select(.value.ports) | .key] == ["caddy"]' 'only caddy may publish ports'
+            check '[.services.caddy.ports[].host_ip] | length > 0 and all(. == "100.64.0.1")' \
+              'caddy may publish ports only on CAREHUB_TAILSCALE_IP'
+            # Every service: a numeric user that isn't root, no-new-privileges, no Docker socket.
+            check '[.services[] | (.user // "" | test("^[1-9][0-9]*:[0-9]+$"))
+              and ((.security_opt // []) | index("no-new-privileges:true") != null)] | all' \
+              'every service needs a numeric user other than root, and no-new-privileges'
+            check '[.services[].volumes // [] | .[].source // "" | test("docker\\.sock|^/(var/)?run$")] | any | not' \
+              'no service may mount the Docker socket'
+            # PostgreSQL asks for a password (scram-sha-256) on every connection.
+            check '.services.db.environment | .POSTGRES_HOST_AUTH_METHOD == "scram-sha-256"
+              and (.POSTGRES_INITDB_ARGS | test("--auth-local=scram-sha-256") and test("--auth-host=scram-sha-256"))' \
+              'PostgreSQL must use scram-sha-256 for local and host connections'
+            # Base images pinned by digest.
+            check '[.services[] | select(.build == null) | .image | test("@sha256:[0-9a-f]{64}$")] | all' \
+              'every pulled image must be pinned by digest (@sha256:...)'
+            if grep -E '^FROM ' Dockerfile | grep -vE '@sha256:[0-9a-f]{64}( |$)'; then
+              fail 'every FROM in the Dockerfile must be pinned by digest (@sha256:...)'
+            fi
+            echo "docker-compose.yml and the Dockerfile follow the deploy rules."
             command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
             shellcheck -S warning deploy/*.sh
             echo "shellcheck found no warnings."
@@ -139,7 +81,6 @@ jobs:
       # which only JavaScript actions get. This passes them on to the later steps.
       - name: Expose the Actions cache to docker buildx
         id: cache-env
-        if: steps.plan.outputs.build == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -149,151 +90,126 @@ jobs:
 
       - name: Set up Docker Buildx
         id: buildx
-        if: steps.plan.outputs.build == 'true'
         uses: docker/setup-buildx-action@v3
 
+      # The same image up.sh builds on the server, with the Actions cache.
       - name: Build
         id: build
-        if: steps.plan.outputs.build == 'true'
         env:
-          VERSION: ${{ steps.plan.outputs.tag }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           {
-            docker buildx build --platform linux/amd64 --load --tag carehub:ci \
-              --build-arg "CAREHUB_VERSION=$VERSION" \
-              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            docker buildx build --load --tag carehub-app:local \
+              --build-arg "CAREHUB_VERSION=sha-${HEAD_SHA::7}" \
+              --build-arg "CAREHUB_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --cache-from type=gha,scope=image \
               --cache-to type=gha,scope=image,mode=max,ignore-error=true \
               --progress plain .
-            docker image ls carehub:ci
+            docker image ls carehub-app:local
           } 2>&1 | tee "$RUNNER_TEMP/ci-logs/build.log"
 
+      # As on a server (deploy/README.md), with 127.0.0.1 for the Tailscale address.
       - name: Smoke test
         id: smoke
-        if: steps.plan.outputs.build == 'true'
         env:
-          VERSION: ${{ steps.plan.outputs.tag }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           {
-            fail() { echo "::error::$*"; exit 1; }
-            # Waits until container $1 is healthy; fails clearly after about 60 seconds.
-            wait_healthy() {
-              local state=""
-              for _ in $(seq 30); do
-                state=$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' "$1")
-                [[ $state == 'running healthy' ]] && return 0
-                [[ $state == running* ]] || break
-                sleep 2
-              done
-              docker logs --tail 80 "$1" 2>&1
-              fail "$1 is not healthy ($state) after up to 60 seconds; its last log lines are above."
-            }
-            sql() { docker exec ci-db psql -X -q -t -A -v ON_ERROR_STOP=1 -U carehub -d carehub -c "$1"; }
+            data=/srv/carehub st=/srv/carehub/backups/status
+            dc() { (cd deploy && sudo docker compose "$@"); }
+            fail() { dc ps -a || true; dc logs --tail 40 || true; echo "::error::$*"; exit 1; }
+            sql() { dc exec -T backup psql -X -q -t -A -v ON_ERROR_STOP=1 -c "$1"; }
+            https() { curl -fsS --max-time 10 --insecure --resolve "carehub.localhost:443:${2:-127.0.0.1}" "https://carehub.localhost$1"; }
 
-            # Mounts as in deploy/docker-compose.yml: the app sees backups/ read-only, except
-            # requests/, which belongs to its user (uid 1000).
-            b=$RUNNER_TEMP/backups
-            mkdir -p "$b/requests"
-            sudo chown 1000:1000 "$b/requests"
-            backup=(--network carehub-ci -v carehub-ci-files:/data/files -v "$b:/backups"
-              -v "$PWD/deploy/backup.sh:/opt/carehub/backup.sh:ro"
-              -e PGHOST=ci-db -e PGUSER=carehub -e PGPASSWORD=ci-only -e PGDATABASE=carehub
-              --entrypoint bash postgres:17 /opt/carehub/backup.sh)
+            sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin carehub
+            uid=$(id -u carehub) gid=$(id -g carehub)
+            sudo CAREHUB_TAILSCALE_IP=127.0.0.1 ./deploy/install.sh carehub.localhost || fail 'install.sh failed'
+            sudo test -f deploy/.env && [[ $(sudo stat -c '%a %U' deploy/.env) == '600 root' ]] \
+              || fail 'install.sh should create deploy/.env, mode 600, owned by root'
+            sudo grep -qx 'CAREHUB_PUBLIC_URL=https://carehub.localhost' deploy/.env || fail 'CAREHUB_PUBLIC_URL is not set'
+            ! sudo grep -q change-me deploy/.env || fail 'deploy/.env still has a change-me placeholder'
+            [[ $(sudo stat -c '%a %u:%g' "$data/postgres") == "700 $uid:$gid" ]] || fail "$data/postgres should be mode 700, owned by carehub"
+            sudo sed -i 's/^BACKUP_AT=.*/BACKUP_AT=23:59/' deploy/.env # no scheduled backup during the test
+            sudo ./deploy/up.sh --no-build || fail 'up.sh failed'
 
-            docker network create carehub-ci
-            docker run -d --name ci-db --network carehub-ci \
-              -e POSTGRES_USER=carehub -e POSTGRES_DB=carehub -e POSTGRES_PASSWORD=ci-only \
-              --health-cmd 'pg_isready -h 127.0.0.1 -U carehub -d carehub' --health-interval 2s postgres:17
-            wait_healthy ci-db
-            docker run -d --name ci-app --network carehub-ci --init -p 127.0.0.1:3000:3000 \
-              -v carehub-ci-files:/data/files -v "$b:/data/backups:ro" -v "$b/requests:/data/backups/requests" \
-              -e DATABASE_URL=postgres://carehub:ci-only@ci-db:5432/carehub \
-              -e SESSION_SECRET="$(openssl rand -hex 32)" \
-              -e CAREHUB_PUBLIC_URL=http://127.0.0.1:3000 -e COOKIE_SECURE=false carehub:ci
-            wait_healthy ci-app
-
-            curl -fsS -o health.json http://127.0.0.1:3000/api/health || fail 'GET /api/health failed'
+            https /api/health > health.json || fail 'GET /api/health through Caddy failed'
             cat health.json; echo
-            jq -e --arg v "$VERSION" '.status == "ok" and .version == $v' health.json >/dev/null \
-              || fail "GET /api/health should report status ok and version $VERSION"
-            curl -fsS -D page.headers -o page.html http://127.0.0.1:3000/ || fail 'GET / failed'
+            jq -e --arg v "sha-${HEAD_SHA::7}" '.status == "ok" and .version == $v' health.json >/dev/null \
+              || fail "GET /api/health should report status ok and version sha-${HEAD_SHA::7}"
+            curl -fsS --insecure --resolve carehub.localhost:443:127.0.0.1 -D page.headers -o page.html https://carehub.localhost/ \
+              || fail 'GET / failed'
             grep -qi '^content-type: text/html' page.headers || fail 'GET / did not return HTML'
             grep -q '<title>Care Hub' page.html || fail 'GET / is not the Care Hub page'
-            echo "GET /api/health and GET / work."
+            sudo docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' carehub-app:local | grep -q '^CAREHUB_BUILD_DATE=20' \
+              || fail 'the image has no CAREHUB_BUILD_DATE'
+            echo "GET /api/health and GET / work through Caddy."
+
+            # Tailnet only: Caddy answers only on the Tailscale address, the app and db on no port.
+            other=$(hostname -I | awk '{print $1}')
+            if https /api/health "$other" >/dev/null 2>&1; then fail "Caddy answers on $other too"; fi
+            for s in app db caddy backup; do
+              c=$(dc ps -q "$s")
+              [[ -n $c ]] || fail "$s is not running"
+              [[ $(sudo docker inspect -f '{{.Config.User}}' "$c") == "$uid:$gid" ]] || fail "$s doesn't run as carehub ($uid:$gid)"
+              [[ $(dc exec -T "$s" id -u) == "$uid" ]] || fail "$s's processes don't run as $uid"
+              dc exec -T "$s" grep -q 'NoNewPrivs:[[:space:]]*1' /proc/1/status || fail "$s can gain privileges"
+              ! sudo docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$c" | grep -q docker.sock \
+                || fail "$s has the Docker socket"
+              ports=$(sudo docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostIp}} {{end}}{{end}}' "$c")
+              if [[ $s == caddy ]]; then
+                [[ $ports == '127.0.0.1 127.0.0.1 127.0.0.1 ' ]] || fail "caddy's ports should be on 127.0.0.1 only, not: $ports"
+              else
+                [[ -z $ports ]] || fail "$s publishes ports: $ports"
+              fi
+            done
+            # PostgreSQL wants a password on every connection, also on its own socket.
+            [[ $(sql "SELECT count(*) FROM pg_hba_file_rules WHERE auth_method <> 'scram-sha-256'") == 0 ]] \
+              || fail 'pg_hba.conf has rules without scram-sha-256'
+            if dc exec -T backup env -u PGPASSWORD psql -X -w -c 'SELECT 1' >/dev/null 2>&1; then
+              fail 'PostgreSQL accepts a connection without a password'
+            fi
+            if dc exec -T db env -u PGPASSWORD psql -X -w -U carehub -d carehub -c 'SELECT 1' >/dev/null 2>&1; then
+              fail 'PostgreSQL accepts a local connection without a password'
+            fi
+            echo "Every service runs as $uid:$gid with no-new-privileges, only Caddy publishes ports, on 127.0.0.1."
 
             # Some data, then a backup asked for the way the Status page will ask for one.
             sql 'CREATE TABLE ci_probe (id int); INSERT INTO ci_probe VALUES (1), (2);'
-            docker exec -u node ci-app sh -c 'echo ci > /data/files/ci-probe.txt' \
-              || fail 'the app cannot write to /data/files'
-            docker exec -u node ci-app touch /data/backups/requests/now \
-              || fail 'the app cannot ask for a backup in /data/backups/requests'
-            docker run -d --name ci-backup --init -e BACKUP_AT=23:59 "${backup[@]}" schedule
-            for _ in $(seq 30); do [[ -e $b/status.json ]] && break; sleep 2; done
-            docker logs ci-backup 2>&1
-            [[ -e $b/status.json ]] || fail 'the requested backup did not finish within 60 seconds'
-            [[ ! -e $b/requests/now ]] || fail 'backup.sh did not remove requests/now'
-            docker exec -u node ci-app cat /data/backups/status.json > status.json \
-              || fail 'the app cannot read /data/backups/status.json'
+            dc exec -T app sh -c 'echo ci > /data/files/ci-probe.txt' || fail 'the app cannot write to /data/files'
+            dc exec -T app touch /data/backups/requests/now || fail 'the app cannot ask for a backup'
+            for _ in $(seq 30); do sudo test -e "$st/status.json" && break; sleep 2; done
+            dc logs backup
+            sudo test -e "$st/status.json" || fail 'the requested backup did not finish within 60 seconds'
+            ! sudo test -e "$st/requests/now" || fail 'backup.sh did not remove requests/now'
+            dc exec -T app cat /data/backups/status.json > status.json || fail 'the app cannot read /data/backups/status.json'
             jq . status.json
             jq -e '.ok and .restoreTest.ok and .dbBytes > 0 and .filesBytes > 0
               and (.restoreTest.details | test(" [1-9][0-9]* rows"))' status.json >/dev/null \
               || fail 'the backup failed or its restore test did not check out'
             stamp=$(jq -r '.startedAt | gsub("[-:]"; "")' status.json)
-            cmp -s status.json "$b/runs/$stamp.json" || fail "runs/$stamp.json should match status.json"
-            [[ -f $b/carehub-$stamp.sha256 ]] || fail "backup $stamp has no checksum file"
-            # The app sees the backup files but must not be able to read them.
-            for f in db.dump files.tar.gz; do
-              if docker exec -u node ci-app cat "/data/backups/carehub-$stamp.$f" >/dev/null 2>&1; then
-                fail "the app can read carehub-$stamp.$f"
-              fi
-            done
+            sudo cmp -s "$st/status.json" "$st/runs/$stamp.json" || fail "runs/$stamp.json should match status.json"
+            sudo test -f "$data/backups/carehub-$stamp.sha256" || fail "backup $stamp has no checksum file"
+            seen=$(dc exec -T app ls -A /data/backups | tr '\n' ' ')
+            echo "The app sees in /data/backups: $seen"
+            [[ $seen != *carehub-* ]] || fail 'the app can see the backup files'
 
             # A second request within 60 minutes of the last backup is dropped.
-            docker exec -u node ci-app touch /data/backups/requests/now
-            for _ in $(seq 25); do [[ -e $b/requests/now ]] || break; sleep 2; done
-            docker logs --tail 1 ci-backup 2>&1
-            [[ ! -e $b/requests/now ]] || fail 'backup.sh did not pick up the second request'
-            runs=("$b"/runs/*.json)
-            (( ${#runs[@]} == 1 )) || fail 'backup.sh ran a second backup within 60 minutes'
-            docker stop ci-backup >/dev/null
+            dc exec -T app touch /data/backups/requests/now
+            for _ in $(seq 25); do sudo test -e "$st/requests/now" || break; sleep 2; done
+            dc logs --tail 1 backup
+            ! sudo test -e "$st/requests/now" || fail 'backup.sh did not pick up the second request'
+            [[ $(sudo find "$st/runs" -name '*.json' | wc -l) == 1 ]] || fail 'backup.sh ran a second backup within 60 minutes'
 
-            # Lose the data, then put the backup back with the app stopped, as restore.sh does.
+            # Lose the data, then put the backup back with restore.sh.
             sql 'DROP TABLE ci_probe;'
-            docker exec ci-app rm /data/files/ci-probe.txt
-            docker stop ci-app >/dev/null
-            docker run --rm "${backup[@]}" restore "$stamp" --confirmed \
-              || fail "the restore of $stamp failed (exit $?)"
-            docker start ci-app >/dev/null
-            wait_healthy ci-app
-            [[ $(sql 'SELECT count(*) FROM ci_probe;') == 2 ]] \
-              || fail 'the restore did not bring back the table ci_probe'
-            [[ $(docker exec ci-app cat /data/files/ci-probe.txt) == ci ]] \
-              || fail 'the restore did not bring back the uploaded file'
-            ls "$b"/pre-restore-*.db.dump >/dev/null || fail 'the restore did not save the data it replaced'
-            echo "The requested backup checked out, and restoring it brought back the table and the file."
+            dc exec -T app rm /data/files/ci-probe.txt
+            sudo ./deploy/restore.sh "$stamp" --confirmed --no-build || fail "restore.sh $stamp failed"
+            [[ $(sql 'SELECT count(*) FROM ci_probe;') == 2 ]] || fail 'the restore did not bring back the table ci_probe'
+            [[ $(dc exec -T app cat /data/files/ci-probe.txt) == ci ]] || fail 'the restore did not bring back the uploaded file'
+            sudo find "$data/backups" -maxdepth 1 -name 'pre-restore-*.db.dump' | grep -q . \
+              || fail 'the restore did not save the data it replaced'
+            echo "The requested backup checked out, and restore.sh brought back the table and the file."
           } 2>&1 | tee "$RUNNER_TEMP/ci-logs/smoke.log"
-
-      # The publish job pushes exactly this tested image.
-      - name: Save the image for the publish job
-        id: save
-        if: steps.plan.outputs.build == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: |
-          {
-            docker save carehub:ci | gzip -1 > "$RUNNER_TEMP/carehub.tar.gz"
-            ls -l "$RUNNER_TEMP/carehub.tar.gz"
-          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/save.log"
-
-      - name: Upload the image
-        id: upload-image
-        if: steps.save.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: image
-          path: ${{ runner.temp }}/carehub.tar.gz
-          retention-days: 1
-          compression-level: 0
-          if-no-files-found: error
-          overwrite: true
 
       # On a pull request, the report job posts these.
       - name: Keep the logs for the report
@@ -312,47 +228,6 @@ jobs:
           path: ${{ runner.temp }}/ci-logs
           retention-days: 1
           overwrite: true
-
-  # On main only, after the image passed: pushes that same image. The only job that may
-  # write packages; it doesn't check out or run code from the repository.
-  publish:
-    name: publish
-    needs: [registry, image]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      packages: write
-    steps:
-      - name: Download the tested image
-        uses: actions/download-artifact@v4
-        with:
-          name: image
-          path: ${{ runner.temp }}/image
-
-      - name: Push
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.image.outputs.tag }}
-          EXISTS: ${{ needs.registry.outputs.exists }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          docker load -i "$RUNNER_TEMP/image/carehub.tar.gz"
-          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
-          tags=()
-          # A commit that has an image already (a run for a version tag) keeps its tags.
-          if [[ $EXISTS != true ]]; then tags+=("$TAG" latest); fi
-          if [[ -n $VERSION ]]; then
-            if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
-              echo "::error::$IMAGE:$VERSION exists already. Version tags are never overwritten."; exit 1
-            fi
-            tags+=("$VERSION")
-          fi
-          for tag in "${tags[@]}"; do
-            docker tag carehub:ci "$IMAGE:$tag"
-            docker push --quiet "$IMAGE:$tag"
-          done
-          echo "Pushed $IMAGE with the tags: ${tags[*]}"
 
   # Posts or updates one comment on the pull request with the result, next to the CI report:
   # agents' tokens can't read check runs. It doesn't check out or run code from the pull request.
@@ -378,7 +253,6 @@ jobs:
         uses: actions/github-script@v7
         env:
           RESULT: ${{ needs.image.result }}
-          BUILT: ${{ needs.image.outputs.build }}
         with:
           script: |
             const fs = require('node:fs');
@@ -397,10 +271,9 @@ jobs:
               const tail = log.split('\n').slice(-120).join('\n').slice(-25000);
               return `<details open>\n<summary><code>${id}</code>: last 120 lines</summary>\n\n\`\`\`\`text\n${tail}\n\`\`\`\`\n\n</details>`;
             };
-            const done = process.env.BUILT === 'true' ? 'built and smoke-tested with a backup and a restore, not pushed' : 'deploy/ validated, no build needed';
             const body = failed.length
               ? [marker, `### ❌ Image failed on ${sha}: ${failed.map((id) => `\`${id}\``).join(', ')}`, `[Run](${run})`, ...failed.map(section)].join('\n\n')
-              : `${marker}\n\n### ✅ Image passed on ${sha}: ${done}\n\n[Run](${run})`;
+              : `${marker}\n\n### ✅ Image passed on ${sha}: built, installed with install.sh and up.sh, backed up and restored with restore.sh\n\n[Run](${run})`;
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
             const old = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker));
             if (old) await github.rest.issues.updateComment({ owner, repo, comment_id: old.id, body });
