@@ -62,12 +62,15 @@ function termQuery(term: SearchTerm): SQL {
   if (!term.prefix || last === undefined) {
     return sql`(phraseto_tsquery('english', ${term.text}) || phraseto_tsquery('simple', ${term.text}))`;
   }
-  // `last` is only letters and digits, so it's safe in to_tsquery's syntax.
+  const before = term.text.slice(0, term.text.lastIndexOf(last));
+  // Postgres reads "qa-17" as "qa" and "-17", so digits after a hyphen keep it. The operand is
+  // only letters and digits, or a hyphen and digits, so it's safe in to_tsquery's syntax.
+  const operand = /^[0-9]+$/.test(last) && before.endsWith('-') ? `-${last}` : last;
   const start = (name: 'english' | 'simple') => {
-    const prefix = sql`to_tsquery(${config(name)}, ${`${last}:*`})`;
+    const prefix = sql`to_tsquery(${config(name)}, ${`${operand}:*`})`;
     return parts.length === 0
       ? prefix
-      : sql`(phraseto_tsquery(${config(name)}, ${parts.join(' ')}) && ${prefix})`;
+      : sql`(phraseto_tsquery(${config(name)}, ${before}) && ${prefix})`;
   };
   return sql`(${start('english')} || ${start('simple')})`;
 }

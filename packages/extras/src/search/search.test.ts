@@ -45,6 +45,7 @@ describe('parseQuery (SR-04)', () => {
       { word: 'qa', prefix: false },
       { word: '17', prefix: true },
     ]);
+    expect(parseQuery('"QA-17"').all).toEqual([[{ text: 'qa-17', phrase: true, prefix: false }]]);
   });
 
   it('finds nothing to search for in excludes, operators or punctuation alone', () => {

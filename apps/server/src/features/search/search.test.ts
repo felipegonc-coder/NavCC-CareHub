@@ -155,6 +155,8 @@ describe.skipIf(!hasDatabase)('search on Postgres', () => {
     expect(qa).toMatchObject({ title: 'Printer jam', kind: 'row', rowIn: 'Tickets' });
     expect(qa?.path).toEqual(['Support', 'Tickets']);
     expect(await titles(sam, { text: 'qa-1' })).toEqual(['Printer jam']);
+    expect(await titles(sam, { text: 'QA-17 ' })).toEqual(['Printer jam']);
+    expect(await titles(sam, { text: '"QA-17"' })).toEqual(['Printer jam']);
     expect(await titles(sam, { text: '-draft' })).toEqual([]);
   });
 
