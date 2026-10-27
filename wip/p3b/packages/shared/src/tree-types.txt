@@ -1,0 +1,22 @@
+/** One entry of GET /api/spaces/:id/tree. Rows and inline databases are never in the tree. */
+export type TreeNodeJson = {
+  id: string;
+  /** Null at the top of the space, and for pages under a page the person can't open. */
+  parentId: string | null;
+  kind: 'page' | 'database';
+  title: string;
+  icon: PageIcon | null;
+  position: string;
+  /** Sub-pages the person can open. Always false for databases (their views aren't pages). */
+  hasChildren: boolean;
+  access: AccessLevel;
+  /** "In a page you can't open" (SB-06). The parent's ID and title are never sent. */
+  pathHidden?: true;
+};
+
+/**
+ * GET /api/spaces/:id/tree: the whole tree the person can open, flat, in sidebar order (depth
+ * first, each level by `position`). Pages under a page they can't open come last at the top.
+ */
+export type PageTreeJson = { nodes: TreeNodeJson[] };
+

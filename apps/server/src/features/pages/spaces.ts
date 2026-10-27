@@ -12,7 +12,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { isUniqueViolation } from '../../db';
 import { getDefaultWorkspace } from '../workspaces';
 import { memberOf, type Executor, type Viewer } from './access';
-import { conflict, invalid, isUuid, notFound, uuidArray } from './http';
+import { conflict, forbidden, invalid, iso, isUuid, json, notFound, uuidArray } from './http';
 
 /** The person asking, in the workspace they're signed in to. */
 export type SpaceViewer = { viewer: Viewer; workspaceId: string; isAdmin: boolean };
@@ -21,9 +21,6 @@ type SpaceRow = Omit<SpaceJson, 'canManage'>;
 
 export const GENERAL_SPACE = 'General';
 
-const iso = (column: string) =>
-  sql.raw(`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`);
-const json = (value: unknown) => (value == null ? null : JSON.stringify(value));
 const nameTaken = () => conflict('There is already a space with that name. Choose another one.');
 
 /** Space members (alias `m`) who are still in the workspace of their space (alias `s`). */
@@ -299,4 +296,39 @@ export async function getPrivateSpaceId(
     WHERE workspace_id = ${inWorkspace} AND kind = 'personal' AND owner_id = ${userId}`);
   if (!rows[0]) throw new Error('The Private section was not saved.');
   return rows[0].id;
+}
+
+export type SpacePlace = {
+  id: string;
+  workspaceId: string;
+  kind: 'open' | 'closed' | 'private' | 'personal';
+  ownerId: string | null;
+  archived: boolean;
+  ownersOnlyTopLevel: boolean;
+  /** The person's place in a team space, or null. */
+  role: 'owner' | 'member' | null;
+  isAdmin: boolean;
+};
+
+/**
+ * A space whose tree the person may see: their own Private section, or a team space they're in
+ * (Admins: any). 404 for a Private team space or another person's section, 403 for the rest.
+ */
+export async function spacePlace(db: Executor, viewer: Viewer, spaceId: unknown) {
+  if (!isUuid(spaceId)) throw notFound();
+  const { rows } = await db.execute<Omit<SpacePlace, 'isAdmin'>>(sql`
+    SELECT s.id, s.workspace_id AS "workspaceId", s.kind, s.owner_id AS "ownerId",
+      s.archived_at IS NOT NULL AS archived, s.owners_only_top_level AS "ownersOnlyTopLevel",
+      (SELECT CASE WHEN bool_or(m.role = 'owner') THEN 'owner' ELSE min(m.role) END
+        FROM space_members m WHERE m.space_id = s.id AND ${memberOf(viewer)}) AS role
+    FROM spaces s WHERE s.id = ${spaceId} AND s.deleted_at IS NULL`);
+  const place = rows[0];
+  const member = place && viewer.memberships.get(place.workspaceId);
+  if (!place || !member || member.kind === 'guest') throw notFound();
+  if (place.kind === 'personal') {
+    if (place.ownerId !== viewer.userId) throw notFound();
+  } else if (!member.isAdmin && place.role === null) {
+    throw place.kind === 'private' ? notFound() : forbidden();
+  }
+  return { ...place, isAdmin: member.isAdmin };
 }
