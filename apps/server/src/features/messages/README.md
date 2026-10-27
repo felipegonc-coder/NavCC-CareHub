@@ -8,10 +8,11 @@ Members only (`requireMember`): guests have just their 🔔 chat (RP-D2). Every 
 
 | Route | Body or query | Answer |
 | --- | --- | --- |
-| `GET /chats` | `?unread=true` (only chats with unread messages), `&limit=` (1–100) | `ChatListResponse`: the person's chats, latest message first, with `unread` and `mentions` counts |
+| `GET /chats` | `?unread=true` (only chats that count toward the badge: unread messages, or unread @mentions when muted), `&limit=` (1–100) | `ChatListResponse`: `viewerId` and the person's chats, latest message first, with `unread` and `mentions` counts |
 | `GET /unread` | | `UnreadResponse` `{ count }`: the Messages part of the sidebar badge (MS-06) |
+| `GET /people` | | `PeopleListResponse`: everyone the person can message (members of the workspace, not guests or removed people), by name |
 | `POST /chats` | `{ userIds, name?, startNew? }` | `NewChatResponse` `{ chatId, existing }`: 201 for a new chat, 200 for an existing one |
-| `GET /chats/:chatId` | | `ChatResponse` |
+| `GET /chats/:chatId` | | `ChatResponse`: `viewerId`, the chat and names |
 | `GET /chats/:chatId/messages` | `?before=` or `?after=` (a `seq`), `&limit=` (1–50, default 50) | `HistoryResponse`: oldest first, with `hasMore` |
 | `POST /chats/:chatId/messages` | `{ clientId, text, pageIds? }` | `MessageResponse`: 201, or 200 for a resend with the same `clientId` |
 | `PATCH /messages/:messageId` | `{ text, pageIds? }` | `MessageResponse` |

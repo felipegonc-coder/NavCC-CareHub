@@ -1,8 +1,8 @@
-import type { PeopleJson } from '@carehub/team-chat';
-import { inArray } from 'drizzle-orm';
+import type { PeopleJson, PersonOptionJson } from '@carehub/team-chat';
+import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
 import { users } from '../auth/schema';
-import { getMembership } from '../workspaces';
+import { getMembership, workspaceMembers } from '../workspaces';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -47,4 +47,34 @@ export async function canBeMessaged(
     if (!isUuid(id) || (await getMembership(db, workspaceId, id))?.kind !== 'member') return false;
   }
   return true;
+}
+
+/** More than any Care Hub team; the picker searches within them. */
+const PEOPLE_LIST_MAX = 2000;
+
+/** Everyone the viewer can message: members of the workspace, not guests or removed people. */
+export async function listPeople(
+  db: Db | Tx,
+  workspaceId: string,
+  viewerId: string,
+): Promise<PersonOptionJson[]> {
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      jobTitle: users.jobTitle,
+      avatarUrl: users.avatarUrl,
+    })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.kind, 'member'),
+        isNull(workspaceMembers.removedAt),
+        ne(workspaceMembers.userId, viewerId),
+      ),
+    )
+    .orderBy(asc(users.name), asc(users.id))
+    .limit(PEOPLE_LIST_MAX);
 }
