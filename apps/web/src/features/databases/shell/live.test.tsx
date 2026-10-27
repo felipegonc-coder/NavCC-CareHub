@@ -1,6 +1,6 @@
 import { MutationObserver, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveEvent } from '../../live';
 import { setLiveClientForTest } from '../../live/client';
 import { createFakeLive, flush } from '../../live/testSource';
@@ -166,6 +166,30 @@ describe('useDatabaseLive', () => {
     expect(invalidated(queryClient)).toEqual([]);
     finish();
     await waitFor(() => expect(invalidated(queryClient)).toContain('meta'));
+  });
+
+  it("shares one reload among the events that come during this tab's writes", async () => {
+    const queryClient = filledCache();
+    show(queryClient);
+    await live.open();
+    const finish = startWrite(queryClient);
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    live.send({ type: 'rows-changed', data: { rowIds: ['row-sink'] } }, liveTopic(DB));
+    live.send({ type: 'rows-changed', data: { rowIds: ['row-heater'] } }, liveTopic(DB));
+    await flush();
+    expect(invalidate).not.toHaveBeenCalled();
+    finish();
+    await waitFor(() =>
+      expect(invalidated(queryClient)).toEqual([
+        'chart',
+        'pick',
+        'query',
+        'row row-heater',
+        'row row-sink',
+      ]),
+    );
+    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
   it('stops following the topic once the database is gone from the screen', async () => {
