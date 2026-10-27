@@ -4,6 +4,7 @@ import { ApiError } from '../api';
 import {
   JOBS_ID,
   jobsDatabase,
+  jobsRows,
   mockClient,
   PROPS,
   queryData,
@@ -231,6 +232,21 @@ describe('Toolbar', () => {
     const panel = await screen.findByRole('dialog', { name: 'Filter' });
     fireEvent.keyDown(panel, { key: 'Escape' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'View options' })).toHaveFocus());
+  });
+
+  it("gives a panel the properties the viewer can see and linked rows' titles", async () => {
+    const client = mockClient();
+    const propertyIds = [PROPS.name, PROPS.status];
+    const rowTitles = { 'row-office': 'Main office' };
+    client.query.mockResolvedValue(queryData(undefined, { propertyIds, rowTitles }));
+    await shown({}, client);
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await screen.findByTestId('probe-panel');
+    expect(panelProbe.props?.propertyIds).toEqual(propertyIds);
+    expect(panelProbe.props?.rowTitles).toEqual(rowTitles);
+    expect(panelProbe.props?.data?.rows.map((row) => row.id)).toEqual(
+      jobsRows().map((row) => row.id),
+    );
   });
 
   it('keeps the sorts a viewer picks in a panel as their own', async () => {

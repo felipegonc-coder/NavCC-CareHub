@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { JOBS_ID, renderWithDatabase, VIEWS } from '../test-utils';
+import { ApiError } from '../api';
+import { JOBS_ID, JOBS_PARENT_ID, mockClient, renderWithDatabase, VIEWS } from '../test-utils';
 import { DatabasePage } from './database-page';
 import { probe } from './test-layout';
 
@@ -16,17 +17,24 @@ function Address() {
   return <output data-testid="address">{pathname + search}</output>;
 }
 
-function show(route: string) {
+function show(route: string, client = mockClient()) {
   return renderWithDatabase(
     <>
       <DatabasePage page={{ id: JOBS_ID }} />
       <Address />
     </>,
-    { route },
+    { route, client },
   );
 }
 
 const address = () => screen.getByTestId('address').textContent;
+
+/** Opens "…" from the keyboard (Radix menus open on Enter) and picks Delete. */
+async function pickDelete() {
+  fireEvent.keyDown(await screen.findByRole('button', { name: 'More actions' }), { key: 'Enter' });
+  const menu = await screen.findByRole('menu');
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Delete' }));
+}
 
 beforeEach(() => {
   probe.props = null;
@@ -57,5 +65,35 @@ describe('DatabasePage', () => {
     expect(screen.getByRole('tab', { name: 'By status', selected: true })).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'All jobs' }));
     await waitFor(() => expect(address()).toBe(`/p/${JOBS_ID}?comment=c-1&v=${VIEWS.table}`));
+  });
+
+  it('Delete moves the page to Trash and goes to the page it was in', async () => {
+    const { client } = show(`/p/${JOBS_ID}?v=${VIEWS.board}`);
+    await pickDelete();
+    await waitFor(() => expect(address()).toBe(`/p/${JOBS_PARENT_ID}`));
+    expect(client.getPage).toHaveBeenCalledWith(JOBS_ID);
+    expect(client.trashPage).toHaveBeenCalledWith(JOBS_ID);
+  });
+
+  it('goes Home after Delete when the page was at the top of a space', async () => {
+    const client = mockClient();
+    client.getPage.mockResolvedValue({ id: JOBS_ID, kind: 'database', parentId: null });
+    show(`/p/${JOBS_ID}`, client);
+    await pickDelete();
+    await waitFor(() => expect(address()).toBe('/'));
+    expect(client.trashPage).toHaveBeenCalledWith(JOBS_ID);
+  });
+
+  it('stays on the page and says why when Delete is refused', async () => {
+    const client = mockClient();
+    client.trashPage.mockRejectedValue(
+      new ApiError(403, 'forbidden', "You don't have access to this."),
+    );
+    show(`/p/${JOBS_ID}`, client);
+    await pickDelete();
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent("You don't have access to this."),
+    );
+    expect(address()).toBe(`/p/${JOBS_ID}`);
   });
 });

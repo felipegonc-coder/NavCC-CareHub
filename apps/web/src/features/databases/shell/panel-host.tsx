@@ -12,14 +12,9 @@ import { ErrorBoundary } from './boundary';
 export interface Panels {
   /** The panel showing, if any. */
   open: PanelName | null;
-  /** The filter bar's chip it shows under (chips.ts); null: under the toolbar, or as a dialog. */
-  chip: string | null;
-  /**
-   * Shows a panel, under `chip` when a chip opened it. When it closes, focus goes back to `opener`
-   * (else to what had focus).
-   */
-  show(panel: PanelName, opener?: HTMLElement | null, chip?: string): void;
-  /** A toolbar button: shows its panel, or closes it when it's showing under the toolbar. */
+  /** Shows a panel; when it closes, focus goes back to `opener` (else to what had focus). */
+  show(panel: PanelName, opener?: HTMLElement | null): void;
+  /** A panel's button: shows the panel, or closes it when it's showing. */
   toggle(panel: PanelName, opener: HTMLElement): void;
   /** Closes the panel and gives focus back to what opened it (Esc, Close, the panel's own close). */
   close(): void;
@@ -35,7 +30,6 @@ export interface Panels {
 interface Shown {
   viewId: Id;
   panel: PanelName;
-  chip: string | null;
 }
 
 export function usePanels(viewId: Id): Panels {
@@ -43,16 +37,14 @@ export function usePanels(viewId: Id): Panels {
   const opener = useRef<HTMLElement | null>(null);
   const giveBack = useRef(false);
   // Another view starts with its panels closed.
-  const current = shown?.viewId === viewId ? shown : null;
-  const open = current?.panel ?? null;
-  const chip = current?.chip ?? null;
+  const open = shown?.viewId === viewId ? shown.panel : null;
 
   const show = useCallback(
-    (panel: PanelName, from?: HTMLElement | null, at?: string) => {
+    (panel: PanelName, from?: HTMLElement | null) => {
       const focused = document.activeElement;
       opener.current = from ?? (focused instanceof HTMLElement ? focused : null);
       giveBack.current = false;
-      setShown({ viewId, panel, chip: at ?? null });
+      setShown({ viewId, panel });
     },
     [viewId],
   );
@@ -76,14 +68,13 @@ export function usePanels(viewId: Id): Panels {
   }, []);
 
   const toggle = useCallback(
-    (panel: PanelName, from: HTMLElement) =>
-      open === panel && chip === null ? close() : show(panel, from),
-    [open, chip, close, show],
+    (panel: PanelName, from: HTMLElement) => (open === panel ? close() : show(panel, from)),
+    [open, close, show],
   );
 
   return useMemo(
-    () => ({ open, chip, show, toggle, close, dismiss, closeAutoFocus }),
-    [open, chip, show, toggle, close, dismiss, closeAutoFocus],
+    () => ({ open, show, toggle, close, dismiss, closeAutoFocus }),
+    [open, show, toggle, close, dismiss, closeAutoFocus],
   );
 }
 
