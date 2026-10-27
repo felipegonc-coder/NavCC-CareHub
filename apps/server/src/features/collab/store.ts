@@ -179,7 +179,7 @@ export async function setPageContent(
   by: string | null = null,
 ): Promise<void> {
   if (!isRecord(doc) || doc.type !== 'doc' || !Array.isArray(doc.content)) {
-    throw new HttpError(400, 'invalid_content', 'This page content can’t be read.');
+    throw new HttpError(400, 'invalid', 'This page content can’t be read.');
   }
   const info = pageSchemaInfo();
   const blocks = doc.content.flatMap((block: unknown) => cleanContent(block, info) ?? []);

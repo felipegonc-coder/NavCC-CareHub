@@ -112,7 +112,7 @@ describe.skipIf(!hasDatabase)('page content for other features', { timeout: 30_0
     });
     expect(await getPageMarkdown(test.db, target)).toBe('## Rota\n\nSam covers Ward B\n');
     const invalid = test.db.transaction((tx) => setPageContent(tx, target, [text('Rota')]));
-    await expect(invalid).rejects.toMatchObject({ statusCode: 400, code: 'invalid_content' });
+    await expect(invalid).rejects.toMatchObject({ statusCode: 400, code: 'invalid' });
   });
 
   it('moves text_updated_at only when the text changes', async () => {
