@@ -35,4 +35,24 @@ describe('starter templates', () => {
       }
     }
   });
+
+  it('only link to their own pages, never to themselves', () => {
+    for (const starter of STARTERS) {
+      const pages = pagesOf(starter.page);
+      pages.forEach((page, key) => {
+        for (const [, linked] of page.markdown.matchAll(/\/p\/\{\{template-page:(\d+)\}\}/g)) {
+          expect(Number(linked)).toBeLessThan(pages.length);
+          expect(Number(linked)).not.toBe(key);
+        }
+        expect(page.markdown.replace(/\/p\/\{\{template-page:\d+\}\}/g, '')).not.toMatch(/\{\{/);
+      });
+    }
+  });
+
+  it('cover every Care Hub category that needs no database', () => {
+    const used = new Set(STARTERS.map((starter) => starter.category));
+    for (const category of ['Meetings', 'Projects', 'Knowledge', 'Team', 'Support']) {
+      expect(used.has(category)).toBe(true);
+    }
+  });
 });
