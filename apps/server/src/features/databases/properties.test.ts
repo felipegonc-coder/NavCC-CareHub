@@ -24,6 +24,7 @@ import {
   planDuplicate,
   planEdit,
   planRestore,
+  planUndoType,
   type NewPropertyInput,
 } from './properties';
 import type { DatabaseRecord, DeletedProperty } from './record';
@@ -258,8 +259,28 @@ describe('planEdit', () => {
     expect(() => planEdit(record, name.id, { config: defaultConfig('text') }, new Map())).toThrow(
       PROPERTY_MESSAGES.oneName,
     );
-    const id = planEdit(record, cost.id, { config: defaultConfig('unique_id') }, new Map());
-    expect(id.numberRows).toBe(true);
+  });
+
+  it('never turns a property into a Formula, Rollup, ID or Button', () => {
+    const record = jobs();
+    const notes = named(record, 'Notes');
+    const rollup: PropertyConfig = {
+      type: 'rollup',
+      relationPropertyId: 'client',
+      targetPropertyId: 'name',
+      aggregate: 'count_all',
+      number: null,
+    };
+    for (const config of [
+      defaultConfig('formula'),
+      rollup,
+      defaultConfig('unique_id'),
+      defaultConfig('button'),
+    ]) {
+      expect(() => planEdit(record, notes.id, { config }, new Map())).toThrow(
+        PROPERTY_MESSAGES.addOnly,
+      );
+    }
   });
 
   it('keeps the type of a property a row access rule uses', () => {
@@ -357,6 +378,81 @@ describe('planEdit', () => {
     expect(() => planEdit(record, first.id, { config: loop }, new Map())).toThrow(
       PROPERTY_MESSAGES.loop,
     );
+  });
+});
+
+describe('planUndoType', () => {
+  it('brings the property back as it was, numbering a name taken since', () => {
+    const record = jobs();
+    const notes = named(record, 'Notes');
+    const plan = planEdit(record, notes.id, { config: defaultConfig('number') }, new Map());
+    const changed = after(record, plan.changes);
+    const renamed = after(
+      changed,
+      planEdit(changed, notes.id, { name: 'Cost' }, new Map()).changes,
+    );
+    const withNew = after(renamed, { properties: [...renamed.properties, text('Notes')] });
+    const undo = planUndoType(withNew, { property: plan.before, settings: {} }, new Map());
+    expect(undo.property).toEqual({ ...notes, name: 'Notes 2' });
+    expect(undo.partner).toBeNull();
+    expect(undo.changes.properties?.find((p) => p.id === notes.id)).toEqual(undo.property);
+  });
+
+  it('refuses once the property is gone', () => {
+    const record = jobs();
+    const notes = named(record, 'Notes');
+    const gone = after(record, planDelete(record, notes.id).changes);
+    expect(() => planUndoType(gone, { property: notes, settings: {} }, new Map())).toThrow(
+      PROPERTY_MESSAGES.cantUndo,
+    );
+  });
+
+  it('links a two-way partner back, with the sub-items and pin the change turned off', () => {
+    const base = jobs();
+    const same = add(base, { name: 'Parent item', config: twoWay(JOBS) });
+    const record = after(base, same.changes);
+    const children = named(record, 'Parent item 2');
+    const status = named(record, 'Status');
+    const withSubItems: DatabaseRecord = {
+      ...record,
+      subItems: { parentPropertyId: same.property.id, childrenPropertyId: children.id },
+      rowPageLayout: {
+        pinned: [children.id, status.id],
+        properties: 'in_page',
+        comments: 'full',
+        backlinks: 'list',
+      },
+    };
+    const plan = planEdit(withSubItems, children.id, { config: defaultConfig('text') }, new Map());
+    const changed = after(withSubItems, plan.changes);
+    expect(changed.subItems).toBeNull();
+    expect(changed.rowPageLayout?.pinned).toEqual([status.id]);
+
+    const undo = planUndoType(
+      changed,
+      { property: plan.before, settings: plan.turnedOff },
+      new Map(),
+    );
+    expect(undo.property).toEqual(children);
+    const parent = undo.changes.properties?.find((p) => p.id === same.property.id);
+    expect(parent?.config).toMatchObject({ twoWayPropertyId: children.id });
+    expect(undo.changes.subItems).toEqual(withSubItems.subItems);
+    expect(undo.changes.rowPageLayout?.pinned).toEqual([children.id, status.id]);
+  });
+
+  it("comes back one-way when the other database's side can't link back", () => {
+    const base = jobs();
+    const other = add(base, { name: 'Client', config: twoWay(CLIENTS) }, relatedClients());
+    const record = after(base, other.changes);
+    const plan = planEdit(record, other.property.id, { config: defaultConfig('text') }, new Map());
+    const changed = after(record, plan.changes);
+    const kept = { property: plan.before, settings: {} };
+    const back = planUndoType(changed, kept, relatedClients(), () => true);
+    expect(back.partner).toEqual({ databaseId: CLIENTS, propertyId: other.partner?.id });
+    expect(back.property.config).toMatchObject({ twoWayPropertyId: other.partner?.id });
+    const lone = planUndoType(changed, kept, relatedClients());
+    expect(lone.partner).toBeNull();
+    expect(lone.property.config).toMatchObject({ type: 'relation', twoWayPropertyId: null });
   });
 });
 

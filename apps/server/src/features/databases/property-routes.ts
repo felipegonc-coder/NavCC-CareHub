@@ -1,7 +1,8 @@
 // Property routes (decision 0200; Databases spec 3.4): add, change (a new config.type changes the
-// type), delete (kept 30 days with its values), restore and duplicate. Each is a settings write: it
-// sends `version`, locks the database's row and answers like GET /:id with the new version; a type
-// change, or options taken out, also says how many values were cleared.
+// type, and can be undone for 10 minutes), delete (kept 30 days with its values), restore and
+// duplicate. Each is a settings write: it sends `version`, locks the database's row (and the other
+// database of a two-way relation, in id order) and answers like GET /:id with the new version; a
+// type change, or options taken out, also says how many values were cleared.
 import {
   LIMITS,
   findProperty,
@@ -29,6 +30,7 @@ import { getAccessForPages } from '../pages';
 import { DATABASE_MESSAGES, forbidden, invalid, invalidRequest, notFound } from './errors';
 import { accept, allow, answerFor, databasePage, signedIn, versionOf } from './http';
 import {
+  PROPERTY_MESSAGES,
   addToViews,
   clearedOptions,
   freeName,
@@ -38,24 +40,29 @@ import {
   planDuplicate,
   planEdit,
   planRestore,
+  planUndoType,
+  waitsForPartner,
 } from './properties';
 import type { DatabaseRecord, DeletedProperty } from './record';
 import { newPropertyRequest, propertyChangeRequest, versionRequest } from './requests';
 import {
   changeDatabase,
   copyPropertyValues,
+  keepTypeChange,
   loadDatabase,
   loadEveryRow,
   loadMembers,
   loadPageTitles,
   loadPropertyViewer,
   loadRelatedDatabases,
+  loadTypeChange,
   loadViewer,
   lockDatabase,
   numberRows,
   putPropertyValues,
   saveSettings,
   takePropertyValues,
+  takeTypeChange,
   writeCells,
   type CellWrite,
 } from './store';
@@ -79,6 +86,34 @@ const propertyIdOf = (request: FastifyRequest): string => {
   if (typeof params.pid !== 'string') throw notFound();
   return params.pid;
 };
+
+const changeIdOf = (request: FastifyRequest): string => {
+  const params = request.params as { changeId?: unknown };
+  if (typeof params.changeId !== 'string') throw notFound();
+  return params.changeId;
+};
+
+/** The other database of a two-way relation, to lock with this one; none for anything else. */
+const partnerDatabase = (prop: Property | undefined, databaseId: Id): Id[] =>
+  prop?.config.type === 'relation' &&
+  prop.config.twoWayPropertyId !== null &&
+  prop.config.targetDatabaseId !== databaseId
+    ? [prop.config.targetDatabaseId]
+    : [];
+
+/** Row id → value of one property, for the rows that have one. */
+const valuesOf = (rows: readonly Row[], propertyId: Id): Record<string, unknown> =>
+  Object.fromEntries(
+    rows.filter((r) => hasValue(r, propertyId)).map((r) => [r.id, r.values[propertyId]]),
+  );
+
+/** The kept property with its access as it is now (for someone who can't set property access). */
+function withAccessOf(kept: Property, now: Property | undefined): Property {
+  const property: Property = { ...kept };
+  delete property.access;
+  if (now?.access) property.access = now.access;
+  return property;
+}
 
 /** The other database, locked for this settings write; null when it's gone. */
 async function lockOther(tx: Tx, id: Id): Promise<DatabaseRecord | null> {
@@ -188,8 +223,8 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
   }
 
   /** ID numbers for the rows that have none, oldest first, after every number given so far. */
-  async function numberEveryRow(tx: Tx, current: DatabaseRecord, rows?: readonly Row[]) {
-    const all = rows ?? (await loadEveryRow(tx, current.id));
+  async function numberEveryRow(tx: Tx, current: DatabaseRecord) {
+    const all = await loadEveryRow(tx, current.id);
     await numberRows(tx, current.id, numberExistingRows(all, current.nextUniqueNumber - 1));
   }
 
@@ -251,29 +286,39 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
     const page = databasePage(request);
     const user = signedIn(request);
     const { version, ...input } = accept(parseRequest(newPropertyRequest, request.body));
-    const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
-      allow('edit_properties', page.level, current.locked);
-      if (input.access) allow('set_property_access', page.level, current.locked);
-      const config = input.config;
-      const twoWay = config.type === 'relation' && config.twoWayPropertyId !== null;
-      const target =
-        config.type === 'relation' && config.targetDatabaseId !== current.id
-          ? await relationTarget(tx, user.id, current, config.targetDatabaseId, twoWay)
-          : null;
-      const related = await loadRelatedDatabases(tx, current.properties);
-      if (target) related.set(target.id, target.properties);
-      const plan = planAdd(current, input, related);
-      if (plan.partner && target) {
-        const partner = { ...plan.partner, name: freeName(target.properties, plan.partner.name) };
-        const properties = [...target.properties, partner];
-        if (properties.length > LIMITS.properties) {
-          throw invalid(DATABASE_MESSAGES.tooManyProperties);
+    const alsoLock =
+      input.config.type === 'relation' && input.config.twoWayPropertyId !== null
+        ? [input.config.targetDatabaseId]
+        : [];
+    const record = await changeDatabase(
+      app.db,
+      page.id,
+      version,
+      async (current, tx) => {
+        allow('edit_properties', page.level, current.locked);
+        if (input.access) allow('set_property_access', page.level, current.locked);
+        const config = input.config;
+        const twoWay = config.type === 'relation' && config.twoWayPropertyId !== null;
+        const target =
+          config.type === 'relation' && config.targetDatabaseId !== current.id
+            ? await relationTarget(tx, user.id, current, config.targetDatabaseId, twoWay)
+            : null;
+        const related = await loadRelatedDatabases(tx, current.properties);
+        if (target) related.set(target.id, target.properties);
+        const plan = planAdd(current, input, related);
+        if (plan.partner && target) {
+          const partner = { ...plan.partner, name: freeName(target.properties, plan.partner.name) };
+          const properties = [...target.properties, partner];
+          if (properties.length > LIMITS.properties) {
+            throw invalid(DATABASE_MESSAGES.tooManyProperties);
+          }
+          await saveSettings(tx, target, { properties, views: addToViews(target.views, partner) });
         }
-        await saveSettings(tx, target, { properties, views: addToViews(target.views, partner) });
-      }
-      if (plan.property.config.type === 'unique_id') await numberEveryRow(tx, current);
-      return plan.changes;
-    });
+        if (plan.property.config.type === 'unique_id') await numberEveryRow(tx, current);
+        return plan.changes;
+      },
+      { alsoLock },
+    );
     return answerFor(app.db, request, record, page.level);
   });
 
@@ -286,43 +331,66 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
       const user = signedIn(request);
       const propertyId = propertyIdOf(request);
       const { version, ...input } = accept(parseRequest(propertyChangeRequest, request.body));
+      // A two-way relation that changes type leaves its partner one-way: lock both, in id order.
+      const seen = input.config === undefined ? null : await loadDatabase(app.db, page.id);
+      const alsoLock = partnerDatabase(
+        seen ? findProperty(seen.properties, propertyId) : undefined,
+        page.id,
+      );
       let cleared: number | undefined;
-      const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
-        const { access, ...rest } = input;
-        if (Object.values(rest).some((v) => v !== undefined)) {
-          allow('edit_properties', page.level, current.locked);
-        }
-        if (access !== undefined) allow('set_property_access', page.level, current.locked);
-        await seenProperty(user.id, current, propertyId);
-        const related = await loadRelatedDatabases(tx, current.properties);
-        const plan = planEdit(current, propertyId, input, related);
-        if (plan.conversion) {
-          const rows = await loadEveryRow(tx, current.id);
-          const { ctx, findUser } = await conversionContext(user.id, current, plan.before, rows);
-          const result = planConversion(plan.before, plan.property.config, rows, ctx, {
-            findUser,
-          });
-          plan.property.config = result.config;
-          const cells: CellWrite[] = rows
-            .filter((row) => hasValue(row, propertyId) || result.values.has(row.id))
-            .map((row) => ({ rowId: row.id, propertyId, value: result.values.get(row.id) }));
-          await writeCells(tx, [current.id], cells);
-          cleared = result.cleared;
-          if (plan.numberRows) await numberEveryRow(tx, current, rows);
-          if (plan.partner) await partnerOneWay(tx, plan.partner);
-        } else if (plan.removedOptionIds.length > 0 && isOptionProperty(plan.before)) {
-          const cells = clearedOptions(
-            await loadEveryRow(tx, current.id),
-            plan.before,
-            plan.removedOptionIds,
-          );
-          await writeCells(tx, [current.id], cells);
-          cleared = cells.length;
-        }
-        return plan.changes;
-      });
+      let typeChange: { id: string; undoUntil: string } | undefined;
+      const record = await changeDatabase(
+        app.db,
+        page.id,
+        version,
+        async (current, tx) => {
+          const { access, ...rest } = input;
+          if (Object.values(rest).some((v) => v !== undefined)) {
+            allow('edit_properties', page.level, current.locked);
+          }
+          if (access !== undefined) allow('set_property_access', page.level, current.locked);
+          await seenProperty(user.id, current, propertyId);
+          const related = await loadRelatedDatabases(tx, current.properties);
+          const plan = planEdit(current, propertyId, input, related);
+          if (plan.conversion) {
+            const rows = await loadEveryRow(tx, current.id);
+            const { ctx, findUser } = await conversionContext(user.id, current, plan.before, rows);
+            const result = planConversion(plan.before, plan.property.config, rows, ctx, {
+              findUser,
+            });
+            plan.property.config = result.config;
+            const cells: CellWrite[] = rows
+              .filter((row) => hasValue(row, propertyId) || result.values.has(row.id))
+              .map((row) => ({ rowId: row.id, propertyId, value: result.values.get(row.id) }));
+            await writeCells(tx, [current.id], cells);
+            cleared = result.cleared;
+            if (plan.partner) await partnerOneWay(tx, plan.partner);
+            typeChange = await keepTypeChange(tx, current.id, {
+              propertyId,
+              changedBy: user.id,
+              property: plan.before,
+              values: valuesOf(rows, propertyId),
+              settings: plan.turnedOff,
+            });
+          } else if (plan.removedOptionIds.length > 0 && isOptionProperty(plan.before)) {
+            const cells = clearedOptions(
+              await loadEveryRow(tx, current.id),
+              plan.before,
+              plan.removedOptionIds,
+            );
+            await writeCells(tx, [current.id], cells);
+            cleared = cells.length;
+          }
+          return plan.changes;
+        },
+        { alsoLock },
+      );
       const body = await answerFor(app.db, request, record, page.level);
-      return cleared === undefined ? body : { ...body, cleared };
+      return {
+        ...body,
+        ...(cleared === undefined ? {} : { cleared }),
+        ...(typeChange ? { typeChange } : {}),
+      };
     },
   );
 
@@ -336,23 +404,34 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
       const propertyId = propertyIdOf(request);
       const version = versionOf(request);
       const now = new Date();
-      const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
-        allow('edit_properties', page.level, current.locked);
-        await seenProperty(user.id, current, propertyId);
-        const plan = planDelete(current, propertyId);
-        if (plan.partner) await deletePartner(tx, user.id, plan.partner, now);
-        const deleted: DeletedProperty[] = [];
-        for (const id of plan.deletedIds) {
-          const property = findProperty(current.properties, id);
-          if (!property) continue;
-          const values = await takePropertyValues(tx, current.id, id);
-          deleted.push({ property, deletedAt: now.toISOString(), values });
-        }
-        return {
-          ...plan.changes,
-          deletedProperties: [...liveDeleted(current.deletedProperties, now), ...deleted],
-        };
-      });
+      const seen = await loadDatabase(app.db, page.id);
+      const alsoLock = partnerDatabase(
+        seen ? findProperty(seen.properties, propertyId) : undefined,
+        page.id,
+      );
+      const record = await changeDatabase(
+        app.db,
+        page.id,
+        version,
+        async (current, tx) => {
+          allow('edit_properties', page.level, current.locked);
+          await seenProperty(user.id, current, propertyId);
+          const plan = planDelete(current, propertyId);
+          if (plan.partner) await deletePartner(tx, user.id, plan.partner, now);
+          const deleted: DeletedProperty[] = [];
+          for (const id of plan.deletedIds) {
+            const property = findProperty(current.properties, id);
+            if (!property) continue;
+            const values = await takePropertyValues(tx, current.id, id);
+            deleted.push({ property, deletedAt: now.toISOString(), values });
+          }
+          return {
+            ...plan.changes,
+            deletedProperties: [...liveDeleted(current.deletedProperties, now), ...deleted],
+          };
+        },
+        { alsoLock },
+      );
       return answerFor(app.db, request, record, page.level);
     },
   );
@@ -367,25 +446,102 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
       const propertyId = propertyIdOf(request);
       const { version } = accept(parseRequest(versionRequest, request.body));
       const now = new Date();
-      const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
-        allow('edit_properties', page.level, current.locked);
-        const entry = current.deletedProperties.find((d) => d.property.id === propertyId);
-        const viewer = await loadPropertyViewer(app.db, user.id, current.workspaceId);
-        if (!entry || !canSeeProperty(entry.property, viewer)) throw notFound();
-        const other = await restorableOther(tx, user.id, current, propertyId, now);
-        const plan = planRestore(current, propertyId, now, () => other !== null);
-        for (const d of plan.restored) {
-          await putPropertyValues(tx, current.id, d.property.id, d.values);
-        }
-        if (plan.partner && other) {
-          const back = planRestore(other, plan.partner.propertyId, now, () => true);
-          for (const d of back.restored) {
-            await putPropertyValues(tx, other.id, d.property.id, d.values);
+      const seen = await loadDatabase(app.db, page.id);
+      const alsoLock = partnerDatabase(
+        seen?.deletedProperties.find((d) => d.property.id === propertyId)?.property,
+        page.id,
+      );
+      const record = await changeDatabase(
+        app.db,
+        page.id,
+        version,
+        async (current, tx) => {
+          allow('edit_properties', page.level, current.locked);
+          const entry = current.deletedProperties.find((d) => d.property.id === propertyId);
+          const viewer = await loadPropertyViewer(app.db, user.id, current.workspaceId);
+          if (!entry || !canSeeProperty(entry.property, viewer)) throw notFound();
+          const other = await restorableOther(tx, user.id, current, propertyId, now);
+          const plan = planRestore(current, propertyId, now, () => other !== null);
+          for (const d of plan.restored) {
+            await putPropertyValues(tx, current.id, d.property.id, d.values);
           }
-          await saveSettings(tx, other, back.changes);
-        }
-        return plan.changes;
-      });
+          if (plan.partner && other) {
+            const back = planRestore(other, plan.partner.propertyId, now, () => true);
+            for (const d of back.restored) {
+              await putPropertyValues(tx, other.id, d.property.id, d.values);
+            }
+            await saveSettings(tx, other, back.changes);
+          }
+          return plan.changes;
+        },
+        { alsoLock },
+      );
+      return answerFor(app.db, request, record, page.level);
+    },
+  );
+
+  // Undo a type change: within 10 minutes, by the person who made it, the property's newest. The
+  // property, every row's value and the settings the change turned off come back as they were.
+  app.post(
+    '/:id/type-changes/:changeId/undo',
+    { preHandler: app.requirePageAccess('edit') },
+    async (request) => {
+      const page = databasePage(request);
+      const user = signedIn(request);
+      const changeId = changeIdOf(request);
+      const { version } = accept(parseRequest(versionRequest, request.body));
+      const kept = await loadTypeChange(app.db, page.id, changeId);
+      if (!kept) throw invalid(PROPERTY_MESSAGES.cantUndo);
+      const alsoLock = partnerDatabase(kept.property, page.id);
+      const record = await changeDatabase(
+        app.db,
+        page.id,
+        version,
+        async (current, tx) => {
+          allow('edit_properties', page.level, current.locked);
+          const change = await takeTypeChange(tx, current.id, changeId, user.id);
+          if (!change) throw invalid(PROPERTY_MESSAGES.cantUndo);
+          const propertyId = change.propertyId;
+          const live = findProperty(current.properties, propertyId);
+          if (live) await seenProperty(user.id, current, propertyId);
+          const property = can('set_property_access', page.level, { locked: current.locked })
+            ? change.property
+            : withAccessOf(change.property, live);
+          const other = alsoLock[0] ? await lockOther(tx, alsoLock[0]) : null;
+          const level = other ? await levelOn(tx, user.id, other.id) : 'none';
+          const related = await loadRelatedDatabases(tx, [...current.properties, property]);
+          const plan = planUndoType(
+            current,
+            { property, settings: change.settings },
+            related,
+            (link) =>
+              other !== null &&
+              waitsForPartner(
+                findProperty(other.properties, link.propertyId),
+                current.id,
+                propertyId,
+              ) &&
+              can('edit_properties', level, { locked: other.locked }),
+          );
+          const rows = await loadEveryRow(tx, current.id);
+          const cells: CellWrite[] = rows
+            .filter((row) => hasValue(row, propertyId) || change.values[row.id] !== undefined)
+            .map((row) => ({ rowId: row.id, propertyId, value: change.values[row.id] }));
+          await writeCells(tx, [current.id], cells);
+          if (plan.property.config.type === 'unique_id') await numberEveryRow(tx, current);
+          const link = plan.partner;
+          if (link && other) {
+            const properties = other.properties.map((p): Property =>
+              p.id === link.propertyId && p.config.type === 'relation'
+                ? { ...p, config: { ...p.config, twoWayPropertyId: propertyId } }
+                : p,
+            );
+            await saveSettings(tx, other, { properties });
+          }
+          return plan.changes;
+        },
+        { alsoLock },
+      );
       return answerFor(app.db, request, record, page.level);
     },
   );

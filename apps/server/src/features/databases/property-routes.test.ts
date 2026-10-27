@@ -1,6 +1,7 @@
 // Property routes on a real database (decision 0200; Databases spec 3.4): add, change the type with
-// the cleared count, take options out, delete and restore with values, duplicate, two-way relations
-// across two databases, ID numbers, Lock structure and hidden properties. Fictional people only.
+// the cleared count and undo it, take options out, delete and restore with values, duplicate,
+// two-way relations across two databases, ID numbers, Lock structure and hidden properties.
+// Fictional people only.
 import { defaultConfig, type Property } from '@carehub/databases';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,7 +14,10 @@ type Answer = {
   views: { properties: { propertyId: string }[] }[];
   deletedProperties?: { property: Property; deletedAt: string }[];
   cleared?: number;
+  typeChange?: { id: string; undoUntil: string };
 };
+
+const CANT_UNDO = { error: { code: 'invalid', message: "This change can't be undone anymore." } };
 
 const LOCKED = {
   error: {
@@ -43,6 +47,8 @@ describe.skipIf(!hasDatabase)('property routes', () => {
     ws.send(who, 'POST', url(jobs, `/properties/${pid}/restore`), { version: at });
   const duplicateProperty = (who: TestUser, pid: string, at: number) =>
     ws.send(who, 'POST', url(jobs, `/properties/${pid}/duplicate`), { version: at });
+  const undoTypeChange = (who: TestUser, changeId: string) =>
+    ws.send(who, 'POST', url(jobs, `/type-changes/${changeId}/undo`), { version });
   const read = async (who: TestUser, id = jobs): Promise<Answer> =>
     (await ws.send(who, 'GET', url(id))).json();
   const named = (answer: Answer, name: string): Property | undefined =>
@@ -146,6 +152,21 @@ describe.skipIf(!hasDatabase)('property routes', () => {
     expect(named(body, 'Notes')?.config.type).toBe('number');
     expect(await valuesOf(rows[0]!)).toEqual({ [notes.id]: '42' });
     expect(await valuesOf(rows[1]!)).toEqual({});
+    const until = Date.parse(body.typeChange?.undoUntil ?? '') - Date.now();
+    expect(until).toBeGreaterThan(9 * 60_000);
+    expect(until).toBeLessThanOrEqual(10 * 60_000);
+
+    const formula = await changeProperty(people.avery, notes.id, {
+      version,
+      config: { type: 'formula', expression: '1 + 1', resultKind: null, number: null },
+    });
+    expect(formula.statusCode).toBe(400);
+    expect(formula.json()).toEqual({
+      error: {
+        code: 'invalid',
+        message: 'Formulas, rollups, IDs and buttons can only be added as new properties.',
+      },
+    });
 
     const title = named(body, 'Name')!;
     const name = await changeProperty(people.avery, title.id, {
@@ -158,6 +179,39 @@ describe.skipIf(!hasDatabase)('property routes', () => {
     const renamed = await changeProperty(people.avery, notes.id, { version, name: 'Price' });
     expect(named(took(renamed.json()), 'Price')?.id).toBe(notes.id);
     expect(renamed.json().cleared).toBeUndefined();
+  });
+
+  it('undoes a type change for the person who made it, with every value as it was', async () => {
+    const added = await addProperty(people.avery, {
+      version,
+      name: 'Callout fee',
+      config: defaultConfig('text'),
+    });
+    const fee = named(took(added.json()), 'Callout fee')!;
+    const night = await ws.addRow(jobs, 'Night callout', { [fee.id]: [{ text: 'about 80' }] });
+    const weekend = await ws.addRow(jobs, 'Weekend callout', { [fee.id]: [{ text: '95' }] });
+    const res = await changeProperty(people.avery, fee.id, {
+      version,
+      config: defaultConfig('number'),
+    });
+    expect(res.statusCode).toBe(200);
+    const change = took(res.json()).typeChange!;
+    expect(await valuesOf(night)).toEqual({});
+    expect(await valuesOf(weekend)).toEqual({ [fee.id]: '95' });
+
+    expect((await undoTypeChange(people.jordan, change.id)).statusCode).toBe(403);
+    const someoneElse = await undoTypeChange(people.admin, change.id);
+    expect(someoneElse.statusCode).toBe(400);
+    expect(someoneElse.json()).toEqual(CANT_UNDO);
+
+    const res2 = await undoTypeChange(people.avery, change.id);
+    expect(res2.statusCode).toBe(200);
+    const undone = took(res2.json());
+    expect(named(undone, 'Callout fee')).toEqual(fee);
+    expect(undone.deletedProperties).toEqual([]);
+    expect(await valuesOf(night)).toEqual({ [fee.id]: [{ text: 'about 80' }] });
+    expect(await valuesOf(weekend)).toEqual({ [fee.id]: [{ text: '95' }] });
+    expect((await undoTypeChange(people.avery, change.id)).json()).toEqual(CANT_UNDO);
   });
 
   it('duplicates a property next to it, with its values', async () => {
@@ -270,6 +324,23 @@ describe.skipIf(!hasDatabase)('property routes', () => {
     expect(named(took(back.json()), 'Client')?.config).toMatchObject({
       twoWayPropertyId: partner?.id,
     });
+    expect(named(await read(people.avery, clients), 'Jobs')?.config).toMatchObject({
+      twoWayPropertyId: client.id,
+    });
+
+    // Relation to Text leaves the other side one-way; Undo links both sides again.
+    const toText = await changeProperty(people.avery, client.id, {
+      version,
+      config: defaultConfig('text'),
+    });
+    expect(toText.statusCode).toBe(200);
+    const change = took(toText.json()).typeChange!;
+    expect(named(await read(people.avery, clients), 'Jobs')?.config).toMatchObject({
+      twoWayPropertyId: null,
+    });
+    const undone = await undoTypeChange(people.avery, change.id);
+    expect(undone.statusCode).toBe(200);
+    expect(named(took(undone.json()), 'Client')?.config).toEqual(client.config);
     expect(named(await read(people.avery, clients), 'Jobs')?.config).toMatchObject({
       twoWayPropertyId: client.id,
     });

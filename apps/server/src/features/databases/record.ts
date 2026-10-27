@@ -43,6 +43,25 @@ export interface DatabaseSettings {
   deletedProperties: DeletedProperty[];
 }
 
+/** Settings a type change turned off, as they were before it (kept with it for Undo). */
+export type TypeChangeSettings = Partial<
+  Pick<DatabaseSettings, 'subItems' | 'dependencies' | 'rowPageLayout'>
+>;
+
+/** A type change kept 10 minutes so Undo can put things back exactly (db_type_changes). */
+export interface TypeChange {
+  id: string;
+  propertyId: Id;
+  changedBy: string;
+  /** ISO time of the change. */
+  changedAt: string;
+  /** The property as it was before the change. */
+  property: Property;
+  /** Row id → its value before the change, for the rows that had one. */
+  values: Record<string, unknown>;
+  settings: TypeChangeSettings;
+}
+
 /** One database: its settings, its page's title, icon and place, and its version. */
 export interface DatabaseRecord extends DatabaseSettings {
   /** The database page's id. */
