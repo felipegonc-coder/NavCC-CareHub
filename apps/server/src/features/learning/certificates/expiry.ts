@@ -2,34 +2,30 @@ import {
   addDays,
   certificateNotice,
   certificateNoticeDue,
-  recertificationDueDate,
   type CertificateNoticeKind,
   type CertificateRecord,
   type IsoDate,
   type SentCertificateNotice,
 } from '@carehub/learning';
-import { and, asc, eq, inArray, isNotNull, isNull, lte, not, or, sql } from 'drizzle-orm';
-import type { Db, Tx } from '../../../db';
+import { and, asc, eq, inArray, isNotNull, lte, not, or, sql } from 'drizzle-orm';
+import type { Db } from '../../../db';
 import { users } from '../../auth/schema';
 import { sendNotice } from '../../notices';
-import { assignForRecertification, type Recertification } from '../assignments';
 import { canSeeCourse } from '../courses/access';
-import { startRecertificationRun } from '../progress/service';
 import { isLearningEnabled } from '../public';
 import {
   learningCertificateNotices as notices,
   learningCertificates as certificates,
 } from './schema';
-import { dayIn, recordOf, type CertificateRow } from './service';
+import { dayIn, recordOf } from './service';
 
-// The certificate jobs (docs/learning/api.md, Jobs): re-certification, which assigns a course
-// again before its certificate expires, and the expiry heads-up, which tells each holder when their
-// current certificate is about to expire and when it has. Each happens once per certificate.
+// The certificate expiry heads-up (docs/learning/api.md, Jobs): tells each holder when their
+// current certificate is about to expire and when it has. Each notice goes out once.
 
 /** How many days before the expiry day the heads-up goes out. */
 export const CERTIFICATE_HEADS_UP_DAYS = 30;
 
-/** The name of the periodic task that runs the certificate jobs (`runCertificateJobs`). */
+/** The name of the periodic task that runs `sendCertificateNotices`. */
 export const CERTIFICATE_NOTICES_TASK = 'learning.certificate-notices';
 
 // Only the certificate from a learner's latest finish of a course counts: a retake replaced the
@@ -142,92 +138,4 @@ export async function sendCertificateNotices(db: Db, now = new Date()): Promise<
   }
   if (failure !== null) throw failure;
   return count;
-}
-
-/** Assigns a course again for re-certification: assignments' `assignForRecertification`. */
-export type Reassign = (tx: Tx, input: Recertification) => Promise<string | null>;
-
-/** Assigns the course again and starts the holder's next run, in one transaction, once. */
-async function renew(
-  db: Db,
-  cert: CertificateRow,
-  when: { today: IsoDate; dueDate: IsoDate; now: Date },
-  reassign: Reassign,
-): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const [open] = await tx
-      .select({ id: certificates.id })
-      .from(certificates)
-      .where(and(eq(certificates.id, cert.id), isNull(certificates.reassignedOn)))
-      .for('update');
-    if (!open) return false;
-    const { workspaceId, learnerId, courseId } = cert;
-    const input = { workspaceId, courseId, userId: learnerId, dueDate: when.dueDate };
-    if ((await reassign(tx, input)) === null) return false;
-    const note = `Re-certification: the certificate runs out on ${cert.expiresOn ?? when.dueDate}.`;
-    await startRecertificationRun(tx, { workspaceId, learnerId, courseId }, note, when.now);
-    await tx
-      .update(certificates)
-      .set({ reassignedOn: when.today })
-      .where(eq(certificates.id, cert.id));
-    return true;
-  });
-}
-
-/**
- * Re-certification (PRD, phase 3): from CERTIFICATE_HEADS_UP_DAYS days before a learner's current
- * certificate of a course expires, on their own calendar day, assigns the course to them again,
- * due on the expiry day, or today once that has passed (`recertificationDueDate`). In the same
- * transaction their next run starts (`startRecertificationRun`), so the assignment stays open
- * until they finish the course again. Once per certificate (`reassigned_on`). While nothing can be
- * assigned (Learning off, the course not live) the certificate waits for the next run. A failure
- * doesn't stop the others; the first is thrown at the end. Returns how many were reassigned.
- */
-export async function reassignExpiringCertificates(
-  db: Db,
-  now = new Date(),
-  reassign: Reassign = assignForRecertification,
-): Promise<number> {
-  // A day of slack, as for the notices: the holder's day can be ahead of UTC.
-  const soon = addDays(dayIn(now, 'UTC'), CERTIFICATE_HEADS_UP_DAYS + 1);
-  const rows = await db
-    .select({ certificate: certificates, timeZone: users.timeZone })
-    .from(certificates)
-    .leftJoin(users, eq(users.id, certificates.learnerId))
-    .where(
-      and(
-        isNotNull(certificates.expiresOn),
-        lte(certificates.expiresOn, soon),
-        isNull(certificates.reassignedOn),
-        isCurrent,
-      ),
-    )
-    .orderBy(asc(certificates.expiresOn), asc(certificates.id));
-
-  let count = 0;
-  let failure: unknown = null;
-  for (const { certificate, timeZone } of rows) {
-    const today = dayIn(now, timeZone);
-    const dueDate = recertificationDueDate(certificate, today, CERTIFICATE_HEADS_UP_DAYS);
-    if (dueDate === null) continue;
-    try {
-      if (await renew(db, certificate, { today, dueDate, now }, reassign)) count += 1;
-    } catch (error) {
-      failure ??= error;
-    }
-  }
-  if (failure !== null) throw failure;
-  return count;
-}
-
-/**
- * The hourly certificate jobs: re-certification first, so an assignment is there when its
- * heads-up goes out, then the expiry notices. Each runs even when the other fails; the first
- * failure is thrown at the end.
- */
-export async function runCertificateJobs(db: Db, now = new Date()): Promise<void> {
-  const failures: unknown[] = [];
-  await reassignExpiringCertificates(db, now).catch((error: unknown) => failures.push(error));
-  await sendCertificateNotices(db, now).catch((error: unknown) => failures.push(error));
-  if (failures.length > 0) throw failures[0];
 }
