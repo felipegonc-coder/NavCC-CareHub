@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import type { CurrentUser } from '@carehub/shared';
-import type { AutomationView } from '@carehub/team-automations/api';
+import type { AutomationView, TryNowResponse } from '@carehub/team-automations/api';
 import { MAX_AUTOMATIONS, type Action, type Trigger } from '@carehub/team-automations/automation';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { errorHandler } from '../../core/errors';
+import { getJob } from '../jobs';
 import { createMemoryAutomationStore } from './domain/memoryStore';
 import type { AutomationStore } from './domain/types';
 import automationsRoutes from './routes';
@@ -233,6 +235,55 @@ describe('/api/automations for an Admin', () => {
   });
 });
 
+describe('Try it now', () => {
+  it('queues a test run for the presser, and one run per click for everyone (AU-04)', async () => {
+    await build();
+    const created = await create();
+    const url = `/api/automations/${created.id}/try`;
+    const toMe = await call({ method: 'POST', url, headers: avery, payload: {} });
+    expect(toMe.statusCode).toBe(202);
+    expect(await getJob((toMe.json() as TryNowResponse).jobId)).toMatchObject({
+      kind: 'automations.run',
+      ownerUserId: ids.avery,
+      payload: { automationId: created.id, kind: 'test', startedBy: ids.avery, plannedFor: null },
+    });
+    const clicks: string[] = [];
+    for (let click = 0; click < 2; click += 1) {
+      const everyone = await call({
+        method: 'POST',
+        url,
+        headers: avery,
+        payload: { to: 'everyone' },
+      });
+      expect(everyone.statusCode).toBe(202);
+      clicks.push((everyone.json() as TryNowResponse).jobId);
+    }
+    expect(new Set(clicks).size).toBe(2);
+    for (const jobId of clicks) {
+      expect(await getJob(jobId)).toMatchObject({ payload: { kind: 'manual' } });
+    }
+  });
+
+  it('answers 404 for an unknown automation and 400 for an unknown choice', async () => {
+    await build();
+    const created = await create();
+    const unknown = await call({
+      method: 'POST',
+      url: `/api/automations/${randomUUID()}/try`,
+      headers: avery,
+      payload: {},
+    });
+    expect(unknown.statusCode).toBe(404);
+    const wrong = await call({
+      method: 'POST',
+      url: `/api/automations/${created.id}/try`,
+      headers: avery,
+      payload: { to: 'nobody' },
+    });
+    expect(wrong.statusCode).toBe(400);
+  });
+});
+
 describe('/api/automations errors', () => {
   it('is for Admins only', async () => {
     await build();
@@ -245,6 +296,7 @@ describe('/api/automations errors', () => {
       { method: 'PATCH', url, payload: { name: 'Mine now' } },
       { method: 'DELETE', url },
       { method: 'GET', url: `${url}/runs` },
+      { method: 'POST', url: `${url}/try`, payload: {} },
     ];
     for (const request of requests) {
       const signedOut = await call(request);

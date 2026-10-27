@@ -1,9 +1,18 @@
-import type { AutomationView, RunView } from '@carehub/team-automations/api';
+import type { AutomationView, RunView, TryNowResponse } from '@carehub/team-automations/api';
+import { tryNowInput } from '@carehub/team-automations/validate';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { httpError } from '../../core/errors';
-import { sqlRunnerFor } from '../jobs';
+import { registerJobHandler, registerPeriodicTask, scheduleJob, sqlRunnerFor } from '../jobs';
+import { sendNotice } from '../notices';
 import type { Automation, AutomationStore, Run } from './domain/types';
+import {
+  createAutomationRunner,
+  RUN_ATTEMPTS,
+  RUN_JOB,
+  SCHEDULER_EVERY_MS,
+  SCHEDULER_TASK,
+} from './running';
 import { createAutomationsService, type Caller } from './service';
 import { createPostgresAutomationStore } from './store';
 
@@ -61,10 +70,26 @@ export function toRunView(run: Run): RunView {
   };
 }
 
-/** Settings → Automations, for Admins only (AU-D1). Anyone else gets 403 (AU-09). */
+/**
+ * Settings → Automations, for Admins only (AU-D1). Anyone else gets 403 (AU-09). Also starts
+ * running them: the scheduler task every minute, and each run as an `automations.run` job.
+ */
 const automationsRoutes: FastifyPluginAsync<AutomationsRoutesOptions> = async (app, options) => {
   const store = options.store ?? createPostgresAutomationStore(sqlRunnerFor(app.db));
   const service = createAutomationsService({ store, now: options.now });
+  const runner = createAutomationRunner({
+    store,
+    scheduleJob,
+    sendNotice,
+    performers: {},
+    log: app.log,
+    now: options.now,
+  });
+  registerJobHandler(RUN_JOB, runner.runJob, {
+    maxAttempts: RUN_ATTEMPTS,
+    onFailed: runner.jobFailed,
+  });
+  registerPeriodicTask(SCHEDULER_TASK, SCHEDULER_EVERY_MS, runner.tick);
   const getMember =
     options.getMember ??
     ((request: FastifyRequest) => (request as { member?: AutomationsMember | null }).member);
@@ -103,6 +128,17 @@ const automationsRoutes: FastifyPluginAsync<AutomationsRoutesOptions> = async (a
   app.get('/:id/runs', async (request) => {
     const runs = await service.runs(admin(request), id(request));
     return { runs: runs.map(toRunView) };
+  });
+
+  // Try it now: a test run that messages only the presser, or Send to everyone now (AU-04).
+  app.post('/:id/try', async (request, reply) => {
+    const caller = admin(request);
+    const { to } = tryNowInput.parse(request.body ?? {});
+    const automation = await service.get(caller, id(request));
+    const kind = to === 'me' ? 'test' : 'manual';
+    const { jobId } = await runner.queueRun(automation, { kind, startedBy: caller.userId });
+    const answer: TryNowResponse = { jobId };
+    return reply.code(202).send(answer);
   });
 };
 

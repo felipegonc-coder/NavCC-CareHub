@@ -153,6 +153,13 @@ export function createMemoryAutomationStore(): AutomationStore {
       return { run: copy(run), created: true };
     },
 
+    async saveSteps(runId, steps, recipients) {
+      const run = runs.get(runId);
+      if (!run || run.result !== null) return false;
+      Object.assign(run, { steps: copy(steps), recipients });
+      return true;
+    },
+
     async finishRun(runId, outcome, now) {
       const run = runs.get(runId);
       if (!run || run.result !== null) return null;

@@ -118,6 +118,8 @@ export interface AutomationStore {
   countHourlyRun(id: string, now: Date): Promise<number>;
   /** Adds a run, or returns the one with the same key. Null when the automation is gone. */
   startRun(input: NewRun): Promise<{ run: Run; created: boolean } | null>;
+  /** Saves the steps a running run has done so far, so a retry carries on after them. */
+  saveSteps(runId: string, steps: RunStep[], recipients: number): Promise<boolean>;
   /** Null when the run is gone or already finished. Keeps the latest RUNS_KEPT runs. */
   finishRun(runId: string, outcome: RunOutcome, now: Date): Promise<Run | null>;
   /** The kept runs, newest first. */

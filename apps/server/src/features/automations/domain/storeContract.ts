@@ -259,6 +259,19 @@ export function describeAutomationStoreContract(
       expect((await store.list(workspaceId))[0]?.lastRun).toEqual({ result: 'missed', at: at(70) });
     });
 
+    it('saves the steps of a running run, not of a finished one', async () => {
+      const { store, create, start } = await setUp();
+      const created = await create();
+      const { run: started } = await start(run(created.id));
+      expect(await store.saveSteps(started.id, sent.steps, 12)).toBe(true);
+      const { run: again, created: isNew } = await start(run(created.id));
+      expect(isNew).toBe(false);
+      expect(again).toEqual({ ...started, steps: sent.steps, recipients: 12 });
+      await store.finishRun(started.id, missed, at(1));
+      expect(await store.saveSteps(started.id, sent.steps, 12)).toBe(false);
+      expect(await store.saveSteps(randomUUID(), sent.steps, 12)).toBe(false);
+    });
+
     it(`keeps the latest ${RUNS_KEPT} runs, newest first`, async () => {
       const { store, workspaceId, create, start } = await setUp();
       const created = await create();
