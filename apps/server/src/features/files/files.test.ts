@@ -19,6 +19,7 @@ import { deleteFiles, getFiles, registerFileScope, removeDeletedFiles } from './
 import type { RemoteOptions } from './remote';
 import { files } from './schema';
 import { FILE_CSP } from './serve';
+import { cleanUpFiles } from './service';
 
 // Copies from other websites reach only public addresses; here they may also reach the test's own
 // website on 127.0.0.1 (remote.test.ts checks the guard itself).
@@ -37,6 +38,7 @@ vi.mock('./remote', async (importOriginal: () => Promise<unknown>) => {
 });
 
 const MB = 1024 * 1024;
+const HOUR = 60 * 60 * 1000;
 const PNG = Buffer.concat([
   Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
   Buffer.alloc(16),
@@ -473,6 +475,25 @@ describe.skipIf(!hasDatabase)('files', () => {
       ]);
       expect((await copy(editor, photo())).statusCode).toBe(201);
     });
+  });
+
+  it('removes deleted files from the disk a day later, in the hourly clean-up (DS-02)', async () => {
+    const old = (await upload(editor, 'Fictional, deleted yesterday.', 'old.txt')).json();
+    const recent = (await upload(editor, 'Fictional, deleted just now.', 'recent.txt')).json();
+    const oldPath = await storedPath(old.id);
+    const recentPath = await storedPath(recent.id);
+    await deleteFiles(testApp.db, [old.id, recent.id]);
+    const yesterday = new Date(Date.now() - 25 * HOUR);
+    await testApp.db.update(files).set({ deletedAt: yesterday }).where(eq(files.id, old.id));
+
+    expect(await cleanUpFiles(testApp.db, { root: filesDir })).toEqual({ removed: 1 });
+    expect(await exists(oldPath)).toBe(false);
+    expect(await exists(recentPath)).toBe(true);
+    const left = await testApp.db
+      .select({ id: files.id })
+      .from(files)
+      .where(eq(files.id, recent.id));
+    expect(left).toHaveLength(1);
   });
 
   it('creates the files table exactly as the Drizzle definition describes it', async () => {
