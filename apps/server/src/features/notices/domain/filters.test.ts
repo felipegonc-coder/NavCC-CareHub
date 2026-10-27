@@ -21,6 +21,7 @@ const chipOf: Record<NoticeKind, NoticeFilter | null> = {
   import: null,
   export: null,
   review: null,
+  form_response: null,
 };
 
 describe('notice filters', () => {
