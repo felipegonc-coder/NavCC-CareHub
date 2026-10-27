@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HeaderTargetContext } from '../shell/header-context';
+import { pagesKeys } from './api';
 import { PageScreen } from './PageScreen';
 
 const { api, toast, Refused, editor, slots, remind } = vi.hoisted(() => {
@@ -100,6 +101,7 @@ const sam = { id: 'sam', name: 'Sam Ortiz' };
 const support = { id: 'support', kind: 'space', title: 'Support', icon: null };
 const space = { id: 'support', kind: 'open', name: 'Support', icon: null };
 const policies = { id: 'policies', kind: 'page', title: 'Policies', icon: null };
+const mine = { id: 'me', kind: 'space', title: 'Private', icon: null };
 
 // Fictional pages, as the server sends them.
 const refunds = (more: Record<string, unknown> = {}) => ({
@@ -303,6 +305,49 @@ describe('PageScreen', () => {
     fireEvent.keyDown(title, { key: 'Enter' });
     expect(editor.commands.focus).toHaveBeenCalledWith('start');
     expect(screen.queryByText(HINT)).not.toBeInTheDocument();
+  });
+
+  it('offers "Add to:" on a page made with New page, and moves it where the person picks', async () => {
+    pages.set(
+      'draft',
+      refunds({ id: 'draft', title: '', spaceId: 'me', parentId: null, path: [mine] }),
+    );
+    api.post.mockImplementation(async (path, body) => {
+      if (path === '/api/pages/draft/move') {
+        pages.set('draft', { ...pages.get('draft'), ...(body as object), path: [support] });
+      }
+      return null;
+    });
+    open('draft', { focusTitle: true, addTo: true });
+    expect(await titleField()).toHaveFocus();
+    fireEvent.click(await screen.findByRole('button', { name: 'Add to: Private' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add “Untitled” to' });
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^Support/ }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/pages/draft/move', {
+        spaceId: 'support',
+        parentId: null,
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Add to: Private' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('leaves "Add to:" out of pages elsewhere, and for someone who may not move the page', async () => {
+    pages.set('notes', refunds({ id: 'notes', spaceId: 'me', parentId: null, path: [mine] }));
+    pages.set('shared', { ...pages.get('notes'), id: 'shared', access: 'edit' });
+    for (const id of ['refunds', 'shared']) {
+      const queryClient = open(id, { addTo: true });
+      await titleField();
+      await waitFor(() =>
+        expect(queryClient.getQueryState(pagesKeys.spaces)?.status).toBe('success'),
+      );
+      expect(screen.queryByRole('button', { name: /^Add to/ })).not.toBeInTheDocument();
+      cleanup();
+    }
+    open('notes', { addTo: true });
+    expect(await screen.findByRole('button', { name: 'Add to: Private' })).toBeInTheDocument();
   });
 
   it('starts a new page with a database view from the hint', async () => {
