@@ -8,14 +8,16 @@ import {
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, hasDatabase, type TestApp } from '../../../testing';
+import { jobRunner } from '../../jobs';
 import { seedCourse } from '../courses/service';
+import { learningToday } from '../day';
 import { errorReply } from '../errors';
 import { learningProgress } from '../progress/schema';
 import { isLearningEnabled } from '../public';
 import learningRoutes from '../routes';
-import { sendReminders } from './reminders';
+import { REMINDERS_TASK } from './reminders';
 import assignmentsRoutes from './routes';
-import { boundAssignmentSources, createAssignments, todayIn } from './service';
+import { boundAssignmentSources, createAssignments } from './service';
 import { assignmentStore } from './store';
 import { memoryReminderSources, memorySources, only } from './testing';
 
@@ -260,7 +262,7 @@ describe.skipIf(!hasDatabase)('Learning assignments API on Postgres', () => {
   });
 
   it('assigns a published course and reads progress from the progress tables', async () => {
-    // Published by the courses server (B1); the progress row is the one B3's progress server keeps.
+    // Published by the courses server; the progress row is the one the progress server keeps.
     await seedCourse(server.db, { userId: PEOPLE.trainer.id, workspaceId }, calls);
     const assign = { target: { type: 'course', id: calls.id }, people: [PEOPLE.tara.id] };
     const made = await call('trainer', 'POST', '/assignments', assign);
@@ -335,10 +337,14 @@ describe('Learning assignment notices', () => {
     expect(memory.store.rows).toHaveLength(2);
     expect(memory.notices).toHaveLength(1);
 
-    // The reminders job sends the one that didn't go out.
+    // The reminders job sends the one that didn't go out. It runs here as the jobs runner's test
+    // hook runs it, as of the time it is given: at night in Denver nothing goes out, at midday it
+    // does.
     memory.outbox.failing = false;
-    const { today } = todayIn(undefined, new Date());
-    expect(await sendReminders(memory.sources, new Date(`${today}T18:00:00Z`))).toBe(1);
+    const at = (time: string) => ({ now: new Date(`${learningToday()}T${time}:00Z`) });
+    expect(await jobRunner.runPeriodicTask(REMINDERS_TASK, at('08:00'))).toBe(true);
+    expect(memory.notices).toHaveLength(1);
+    expect(await jobRunner.runPeriodicTask(REMINDERS_TASK, at('18:00'))).toBe(true);
     expect(memory.notices.map((notice) => notice.userId)).toEqual([PEOPLE.tara.id, stranger]);
   });
 });
@@ -350,10 +356,7 @@ describe('Learning test hooks', () => {
   const callOff = caller(() => off);
   const call = caller(() => on);
   const otherWorkspace = randomUUID();
-  // Mid-morning today in Care Hub's time zone, and the night before.
-  const { today } = todayIn(undefined, new Date());
-  const now = `${today}T18:00:00Z`;
-  const night = `${today}T08:00:00Z`;
+  const today = learningToday();
   const assignIn = async (workspace: string, courseId: string) =>
     only(
       await createAssignments(
@@ -400,29 +403,8 @@ describe('Learning test hooks', () => {
 
   it('are not there without CAREHUB_TEST_HOOKS=1', async () => {
     const backdate = { dueDate: addDays(today, -1) };
-    expect((await callOff('trainer', 'POST', '/test/reminders', { now })).statusCode).toBe(404);
     const url = `/test/assignments/${randomUUID()}`;
     expect((await callOff('trainer', 'POST', url, backdate)).statusCode).toBe(404);
-  });
-
-  it("run the reminders job at a given time for the caller's workspace only", async () => {
-    await assignIn(workspaceId, calls.id);
-    await assignIn(otherWorkspace, calls.id);
-
-    expect((await call(null, 'POST', '/test/reminders', { now })).json()).toEqual(SIGNED_OUT);
-    expect((await call('tara', 'POST', '/test/reminders', { now })).json()).toEqual(FORBIDDEN);
-    expect((await call('trainer', 'POST', '/test/reminders', { now: 'soon' })).statusCode).toBe(
-      400,
-    );
-    const run = async (at: string) =>
-      (await call('trainer', 'POST', '/test/reminders', { now: at })).json();
-    expect(await run(night)).toEqual({ sent: 0 });
-    expect(await run(now)).toEqual({ sent: 1 });
-    expect(await run(now)).toEqual({ sent: 0 });
-    expect(memory.notices.map((notice) => [notice.workspaceId, notice.userId])).toEqual([
-      [workspaceId, PEOPLE.tara.id],
-    ]);
-    expect(memory.log.filter((row) => row.workspaceId === otherWorkspace)).toEqual([]);
   });
 
   it("move a due date into the past in the caller's workspace only", async () => {

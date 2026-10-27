@@ -20,7 +20,8 @@ test.describe('Design kit: menus', () => {
 
   test('DK-14 the Page actions menu works with the keyboard', async ({ page }) => {
     await openOverlays(page);
-    const opener = page.getByRole('button', { name: 'Page actions' });
+    // While the menu is open, Radix hides the page behind it from screen readers (#255).
+    const opener = page.getByRole('button', { name: 'Page actions', includeHidden: true });
     const menu = page.getByRole('menu', { name: 'Page actions' });
     const item = (name: string) => menu.getByRole('menuitem', { name });
 

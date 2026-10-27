@@ -1,25 +1,32 @@
 /**
- * One worksheet as the table of cell text CSV parsing gives (spec 3.7), so the CSV import plan
- * does the rest (matching columns, types, preview, problems). Shared and inline strings, numbers,
- * TRUE and FALSE, errors as their text (#N/A), formulas as their saved results, dates as ISO
- * text, and "" for empty cells. Cells keep their columns (A and C give ["a", "", "c"]). Empty rows
- * above the first row with a value are left out, so that row is the header; skippedRows counts
- * them and withExcelRowNumbers adds them back to the import's row numbers, so problems name
- * Excel's rows. Empty rows further down stay (as []); empty cells after a row's last value and
- * empty rows after the last one are left out, like the end of a CSV file.
+ * One worksheet as the table of cell text CSV parsing gives (spec 3.7), so the CSV import plan does
+ * the rest (matching columns, types, preview, problems). Shared and inline strings, numbers, TRUE
+ * and FALSE, errors as their text (#N/A), formulas as their saved results, dates as ISO text, and
+ * "" for empty cells. Cells keep their columns (A and C give ["a", "", "c"]). Up to 20,000 empty
+ * rows above the first row with a value are left out, so that row is the header; skippedRows counts
+ * them and withExcelRowNumbers adds them back to the import's row numbers, so problems name Excel's
+ * rows. Empty rows further down stay (as []); empty cells after a row's last value and empty rows
+ * after the last one are left out, like the end of a CSV file. Values are clipped and a sheet's
+ * text and cells are capped as they're read (XLSX_LIMITS), so a small file can't make an import
+ * read more than a 10 MB CSV file would.
  */
 import type { ImportResult } from '../csv/importer';
 import { checkCsvLimits } from '../csv/parse';
 import { LIMITS } from '../types';
 import { numberText, serialText, type DateStyle } from './numfmt';
 import {
+  appendRaw,
   cleanCellText,
+  clipCellText,
   failureMessage,
   listSheets,
   noSuchSheet,
   openXlsx,
   readPart,
   RichText,
+  XLSX_ERRORS,
+  XLSX_LIMITS,
+  XlsxFailure,
   type XlsxFile,
   type XlsxSheet,
 } from './workbook';
@@ -33,6 +40,9 @@ import type { InflateRaw } from './zip';
 const MAX_ROWS = LIMITS.csvRows + 2;
 /** Columns kept: one more than allowed, so checkCsvLimits sees too many. */
 const MAX_COLUMNS = LIMITS.csvColumns + 1;
+/** Empty rows allowed above the first row with a value; past them the sheet has too many rows. */
+const MAX_SKIPPED_ROWS = LIMITS.csvRows;
+/** Excel's last row; a sheet with rows past it (even empty ones) has too many rows. */
 const EXCEL_ROWS = 1_048_576;
 const EXCEL_COLUMNS = 16_384;
 
@@ -91,6 +101,11 @@ interface SheetRows {
   skippedRows: number;
 }
 
+/**
+ * Reads the cells of <sheetData>. Throws XlsxFailure once the cells read, empty or not and above
+ * the first row with a value or not, pass XLSX_LIMITS.sheetCells, or their text (each value
+ * clipped, each use of a shared string counted) passes XLSX_LIMITS.sheetText.
+ */
 function sheetTable(xml: string, file: XlsxFile): SheetRows {
   const table: string[][] = [];
   let row: string[] = [];
@@ -101,32 +116,38 @@ function sheetTable(xml: string, file: XlsxFile): SheetRows {
   let cell: Cell | null = null;
   let inValue = false;
   let inData = false;
-  /** Puts the finished row in place; false once a row is past MAX_ROWS (the table is then padded to it). */
+  let cells = 0;
+  let text = 0;
+  const done = (): SheetRows => ({ table, skippedRows: Math.max(first, 0) });
+  /** The table padded to MAX_ROWS, so checkCsvLimits gives the too-many-rows message. */
+  const tooManyRows = (): SheetRows => {
+    while (table.length < MAX_ROWS) table.push([]);
+    return done();
+  };
+  /** Puts the finished row in place; false once a row is past MAX_ROWS. */
   const endRow = (): boolean => {
     if (first < 0 && row.some((v) => v.trim())) first = rowIndex;
     if (first >= 0 && row.length) {
       const at = rowIndex - first;
-      if (at >= MAX_ROWS) {
-        while (table.length < MAX_ROWS) table.push([]);
-        return false;
-      }
+      if (at >= MAX_ROWS) return false;
       while (table.length < at) table.push([]);
       table[at] = row;
     }
     row = [];
     return true;
   };
-  const done = (): SheetRows => ({ table, skippedRows: Math.max(first, 0) });
   const endCell = (c: Cell): void => {
-    const text = cellText(c, file);
-    if (!text) return;
+    const value = clipCellText(cellText(c, file));
+    if (!value) return;
+    text += value.length;
+    if (text > XLSX_LIMITS.sheetText) throw new XlsxFailure(XLSX_ERRORS.tooMuchText);
     const at = Math.min(col, MAX_COLUMNS - 1);
     while (row.length < at) row.push('');
-    row[at] = text;
+    row[at] = value;
   };
   for (const tok of xmlTokens(xml)) {
     if (tok.kind === 'text') {
-      if (inValue && cell) cell.value = (cell.value ?? '') + tok.text;
+      if (inValue && cell) cell.value = appendRaw(cell.value ?? '', tok.text);
       else cell?.inline?.take(tok);
     } else if (!inData) {
       inData = tok.kind === 'open' && tok.name === 'sheetData' && !tok.selfClosing;
@@ -135,7 +156,7 @@ function sheetTable(xml: string, file: XlsxFile): SheetRows {
       else if (tok.name === 'c' && cell) {
         endCell(cell);
         cell = null;
-      } else if (tok.name === 'row' && !endRow()) return done();
+      } else if (tok.name === 'row' && !endRow()) return tooManyRows();
       else if (tok.name === 'sheetData') break;
       else cell?.inline?.take(tok);
     } else if (tok.name === 'row') {
@@ -143,8 +164,12 @@ function sheetTable(xml: string, file: XlsxFile): SheetRows {
       const r = Number(tok.attrs.get('r'));
       rowIndex = Number.isInteger(r) && r > rowIndex + 1 && r <= EXCEL_ROWS ? r - 1 : rowIndex + 1;
       col = -1;
-      if (tok.selfClosing && !endRow()) return done();
+      if (rowIndex >= EXCEL_ROWS || (first < 0 && rowIndex > MAX_SKIPPED_ROWS)) {
+        return tooManyRows();
+      }
+      if (tok.selfClosing && !endRow()) return tooManyRows();
     } else if (tok.name === 'c') {
+      if (++cells > XLSX_LIMITS.sheetCells) throw new XlsxFailure(XLSX_ERRORS.tooManyCells);
       col = columnIndex(tok.attrs.get('r') ?? '') ?? col + 1;
       const style = file.styles[Number(tok.attrs.get('s') ?? 0)] ?? null;
       cell = { type: tok.attrs.get('t') ?? 'n', style, value: null, inline: null };

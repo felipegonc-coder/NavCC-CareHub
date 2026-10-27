@@ -67,6 +67,9 @@ export const shadows = {
 /** `max-w-page` (the reading column), `w-sidebar`, `max-w-dialog`, `max-w-toast`. */
 export const widths = { page: '48rem', sidebar: '16rem', dialog: '32rem', toast: '24rem' } as const;
 
+/** `max-h-sheet`: how tall a bottom sheet can grow on a phone before it scrolls. */
+export const heights = { sheet: '85dvh' } as const;
+
 /** `grid-cols-control`: a checkbox or switch, then its label (`Field` with `inline`). */
 export const gridColumns = { control: 'auto 1fr' } as const;
 
@@ -107,5 +110,6 @@ export function scaleVariables(): Record<string, string> {
     variables[`--ch-shadow-${name}`] = value;
   }
   for (const [name, value] of Object.entries(widths)) variables[`--ch-${name}-width`] = value;
+  for (const [name, value] of Object.entries(heights)) variables[`--ch-${name}-height`] = value;
   return variables;
 }
