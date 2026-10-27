@@ -2,6 +2,7 @@ import {
   deleteLesson,
   duplicateLesson,
   insertLesson,
+  moveLesson,
   moveLessonBy,
   newLesson,
   renameCourse,
@@ -12,6 +13,7 @@ import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { lessonPath } from '../labels';
 import { TitleField } from './parts';
+import { SortableList, useSortableItem } from './sortable';
 import type { EditorActions } from './types';
 
 const moveClasses = 'aria-disabled:text-faint';
@@ -26,8 +28,18 @@ function LessonRow(
   },
 ) {
   const { lesson, index, count, selected, edit, remove, select } = props;
+  const item = useSortableItem(lesson.id, `Reorder ${lesson.title}`);
   return (
-    <li className={cn('flex items-center gap-1 rounded', selected && 'bg-fill')}>
+    <li
+      ref={item.ref}
+      style={item.style}
+      className={cn(
+        'flex items-center gap-1 rounded',
+        selected && 'bg-fill',
+        item.dragging && 'shadow-menu',
+      )}
+    >
+      {item.handle}
       <Link
         to={lessonPath(props.courseId, lesson.id)}
         replace
@@ -87,13 +99,16 @@ export type OutlineProps = EditorActions & {
   lessonId: Id | null;
 };
 
-/** The course title and the lessons: select, add, move up or down, duplicate and delete. */
+/** The course title and the lessons: select, add, reorder (drag or move buttons), duplicate and delete. */
 export function Outline(props: OutlineProps) {
   const { course, lessonId, edit } = props;
   const add = (kind: Lesson['kind']) => {
     const lesson = newLesson(course, kind);
     edit((c) => insertLesson(c, lesson), { select: { lessonId: lesson.id } });
   };
+  const ids = course.lessons.map((lesson) => lesson.id);
+  const title = (id: string) =>
+    course.lessons.find((lesson) => lesson.id === id)?.title ?? 'Lesson';
   return (
     <div className="flex flex-col gap-4 border-b border-border p-4 md:w-sidebar md:shrink-0 md:border-b-0 md:border-r">
       <TitleField
@@ -106,19 +121,25 @@ export function Outline(props: OutlineProps) {
         {course.lessons.length === 0 ? (
           <p className="text-small text-muted">No lessons yet. Add one to start.</p>
         ) : (
-          <ol className="flex flex-col gap-1">
-            {course.lessons.map((lesson, index) => (
-              <LessonRow
-                key={lesson.id}
-                {...props}
-                courseId={course.id}
-                lesson={lesson}
-                index={index}
-                count={course.lessons.length}
-                selected={lesson.id === lessonId}
-              />
-            ))}
-          </ol>
+          <SortableList
+            ids={ids}
+            name={title}
+            onMove={(id, to) => edit((c) => moveLesson(c, id, to))}
+          >
+            <ol className="flex flex-col gap-1">
+              {course.lessons.map((lesson, index) => (
+                <LessonRow
+                  key={lesson.id}
+                  {...props}
+                  courseId={course.id}
+                  lesson={lesson}
+                  index={index}
+                  count={course.lessons.length}
+                  selected={lesson.id === lessonId}
+                />
+              ))}
+            </ol>
+          </SortableList>
         )}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="secondary" onClick={() => add('content')}>

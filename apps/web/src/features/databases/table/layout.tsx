@@ -133,6 +133,7 @@ function asQueryRow(row: Row): QueryRow {
     values: row.values,
     computed: {},
     hiddenLinks: {},
+    color: { row: null, cells: {} },
     createdAt: row.createdAt,
     createdBy: row.createdBy,
     editedAt: row.editedAt,
