@@ -125,9 +125,15 @@ Next free slots, in order:
 - **db-buttons** `src/buttons.ts`, `src/repeat.ts`: button steps (checks before running, variables, value edits, Undo window, run log) and repeating template schedules (next run in a time zone, titles like "Weekly huddle – Oct 26", missed runs within 24 hours).
 - **db-xlsx** `src/xlsx/`: reading .xlsx files (pick a sheet, formula cells as their results) into the CSV import plan; the zip inflater is passed in by the server.
 
-## Wave 2: server (after the skeleton)
+## Wave 2: server (as soon as a working copy of main and the core APIs are there)
 
-Parts: **db-server-schema** (migrations, databases, properties incl. type change and deleted-property restore, views, lock, templates, access rules), **db-server-rows** (rows CRUD, duplicate, bulk edit, row history, two-way sync, IDs, Person notices, events), **db-server-query** (query engine with the per-database row cache, access, formulas and rollups, totals, group counts, search, paging, chart data, calendar and timeline APIs, live topic), **db-server-csv** (preview, import and export jobs, undo import), **forms-server** (form by link, submit, limits, anonymous with nothing stored about the sender, forms anyone on the network can fill in (no sign-in, 30 a minute), closing date and response cap, notify, link change). Date reminders and repeating templates run as Team tools jobs.
+Felipe's bar for Friday is "everything": a working basic version of every feature on main before any one is polished. Storage, routes and rights: [decision 0200](../decisions/0200-databases-storage-and-api.md).
+
+- **db-server-schema**: migrations and Drizzle tables, DatabaseMeta for the viewer (property access applied), databases, properties (type changes, deleted-property restore), views, templates, access rules, lock, version conflicts, live `schema-changed`, share-link guard, seed data.
+- **db-server-rows**: rows (create with prefill and templates, edit, bulk edit, trash, restore, duplicate), value checks, two-way relations, ID numbers, manual order, row history, Person notices, events, live `rows-changed`, `api.ts` for Team tools, the row access resolver, `pages.kindChanged`, search text.
+- **db-server-query**: query and chart routes on the view engine, a row cache per database, formulas and rollups (with loop guards and time budgets, big queries off the main thread), relation titles and the relation picker.
+- **db-server-jobs**: CSV and Excel import and export jobs (with Undo import), buttons (press and Undo), applying templates, repeating templates, date reminders.
+- **forms-server**: the form by link, submit (only mapped, shown questions), the gate (closed, full, one response), anonymous with nothing stored about the sender, notices, Change link. The public route for forms anyone can fill in waits for the security reviewer.
 
 Interfaces from other lanes (build against these; wire up when they're on main):
 
@@ -137,6 +143,17 @@ Interfaces from other lanes (build against these; wire up when they're on main):
 - Analytics: `recordActivity({ workspaceId, userId, pageId, kind: 'view' })` from `apps/server/src/features/analytics/index.ts` when a database or row opens (never for anonymous form submits).
 - We provide (in `apps/server/src/features/databases/api.ts`): `listDatedRows`, `listDateSources`, `setRowDate`, `listViewRows`, `createRow`; and in `events.ts`: `onDatabaseEvent(handler)` with rowCreated, rowUpdated, rowDeleted, formResponseCreated (responderUserId null when anonymous), fired after commit.
 
-## Wave 3: web
+## Wave 3: web (as soon as the web skeleton, design kit and slots are on main)
 
-Parts: **db-web-shell** (database page and inline block, tabs, toolbar, states, linked views, data hooks, live, "Changed for you only"), **db-web-table** (grid, resize, freeze, reorder, selection, keyboard, copy and paste, undo, totals footer), **db-web-cells** (every cell editor, phone bottom sheet, property menu and type settings), **db-web-board** (board with sub-groups, list, gallery, dnd-kit), **db-web-calendar-timeline**, **db-web-chart** (Recharts), **db-web-filters** (filter, sort, group, properties panel, search), **db-web-row-page** (peek and full page, properties, templates, history), **db-web-csv** (import and export dialogs), **forms-web** (builder and fill screen), **db-web-formula** (formula editor, rollup settings, row access rules).
+Every colour, font, size and spacing comes from the design kit tokens; no one-off styles (Felipe restyles later). Use the test hooks in [decision 0200](../decisions/0200-databases-storage-and-api.md#web) so the Testing lane's flows can find things.
+
+- **db-web-shell**: database page and inline block (`nodeViews.database`, `packages/editor/src/lanes/databases.ts`), view tabs or dropdown, toolbar (New with templates, filter and sort chips, search, Share with Row access and Property access), empty, loading, blocked and error states, live refetch, "Changed for you only", the API client and data hooks.
+- **db-web-table**: the grid (resize, freeze, reorder, wrap, selection, keyboard, copy and paste, undo), totals footer, sub-items rows.
+- **db-web-cells**: every cell editor, the property menu, type settings and options.
+- **db-web-board**: board (dnd-kit, sub-groups, column colours, header calculation), list and gallery with card previews.
+- **db-web-calendar-timeline**: calendar (month, week, weekends) and timeline (scales, bars, dependencies arrows, table).
+- **db-web-chart**: chart with every option (Recharts), dashboard tiles, feed.
+- **db-web-row-page**: side, center and full page; pinned properties, panel, comments and backlinks settings; templates (Start with, editing banner); buttons (press, confirm, Undo); history.
+- **db-web-filters**: filter, sort, group and property panels, advanced filter, conditional colour, view settings (load limit, show title, wrap, open pages in).
+- **forms-web**: the form builder and its settings, and the fill screen at `/forms/:code`.
+- **db-web-formula-import**: the formula editor, rollup settings, row access rules, property access, CSV and Excel import and export dialogs.

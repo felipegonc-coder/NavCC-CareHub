@@ -1,8 +1,9 @@
-// Finds an event's video meeting link in the places calendars put it. Join shows for zoom.us,
-// meet.google.com, teams.microsoft.com and teams.live.com addresses (Calendar spec, Events).
-// Used for iCalendar events and by the Google client.
+// Finds an event's video meeting link in the places calendars put it. Join shows for Zoom
+// (zoom.us, zoomgov.com), Google Meet (meet.google.com), Teams (teams.microsoft.com,
+// teams.live.com, teams.cloud.microsoft, teams.microsoft.us) and Webex (webex.com) addresses
+// (Calendar spec, Events). Used for iCalendar events and by the Google client.
 
-export type VideoProvider = 'zoom' | 'google-meet' | 'teams';
+export type VideoProvider = 'zoom' | 'google-meet' | 'teams' | 'webex';
 
 export interface VideoLink {
   url: string;
@@ -53,8 +54,13 @@ export function videoLinkFromUrl(raw: string, depth = 0): VideoLink | undefined 
   return { url: url.href, provider };
 }
 
+const TEAMS_HOSTS = new Set(['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft']);
+
+/** The host is the domain or one of its subdomains. */
+const within = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`);
+
 function providerOf(host: string, path: string): VideoProvider | undefined {
-  if (host === 'zoom.us' || host.endsWith('.zoom.us')) {
+  if (within(host, 'zoom.us') || within(host, 'zoomgov.com')) {
     return /^\/(j|my|s|w|wc\/join|wc\/\d+)\/[\w.-]+/i.test(path) ? 'zoom' : undefined;
   }
   if (host === 'meet.google.com') {
@@ -62,8 +68,13 @@ function providerOf(host: string, path: string): VideoProvider | undefined {
       ? 'google-meet'
       : undefined;
   }
-  if (host === 'teams.microsoft.com' || host === 'teams.live.com') {
+  if (TEAMS_HOSTS.has(host) || within(host, 'teams.microsoft.us')) {
     return /^\/(l\/meetup-join|meet|l\/meet)\/./i.test(path) ? 'teams' : undefined;
+  }
+  if (host.endsWith('.webex.com')) {
+    return /^\/(([\w-]+\/)?j\.php$|meet\/[\w.-]+|wbxmjs\/joinservice\/.)/i.test(path)
+      ? 'webex'
+      : undefined;
   }
   return undefined;
 }

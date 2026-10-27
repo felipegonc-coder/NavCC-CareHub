@@ -3,7 +3,13 @@
  * validateValue checks a stored value from a request; parseTyped reads what someone typed or pasted
  * into a cell; formatValue and formatComputed give the text a cell shows and CSV export writes.
  */
-import { formatDateValue, isCalendarDate, isInstant, isValidDateValue } from './dates';
+import {
+  formatDateValue,
+  isCalendarDate,
+  isInstant,
+  isValidDateValue,
+  isValidTimeZone,
+} from './dates';
 import {
   fitsNumberLimits,
   formatDecimal,
@@ -17,7 +23,7 @@ import { newId } from './ids';
 import {
   fromPlainText,
   isRichTextEmpty,
-  isSafeLink,
+  isSafeWebLink,
   normalizeRichText,
   plainText,
   richTextLength,
@@ -29,6 +35,8 @@ import {
   type ChecklistItem,
   type ComputedValue,
   type ConfigOf,
+  type DateFormat,
+  type DateReminder,
   type DateValue,
   type EvalContext,
   type FileRef,
@@ -37,6 +45,7 @@ import {
   type Property,
   type RichText,
   type SelectOption,
+  type TimeFormat,
   type Viewer,
 } from './types';
 
@@ -136,7 +145,7 @@ export function validateValue(prop: Property, input: unknown): ValueResult {
     case 'checkbox':
       return typeof input === 'boolean' ? ok(input) : fail(M.invalid);
     case 'url':
-      return validateString(input, M.url, normalizeUrl);
+      return validateUrl(input);
     case 'email':
       return validateString(input, M.email, normalizeEmail);
     case 'phone':
@@ -180,7 +189,8 @@ function validateOptionIds(input: unknown, options: readonly SelectOption[]): Va
 
 function validateDate(input: unknown): ValueResult {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return fail(M.date);
-  const { start, end = null, hasTime } = input as Record<string, unknown>;
+  const fields = input as Record<string, unknown>;
+  const { start, end = null, hasTime, timeZone = null, reminder = null } = fields;
   if (typeof hasTime !== 'boolean') return fail(M.date);
   const read = (s: unknown): string | null => {
     if (hasTime) return isInstant(s) ? new Date(Date.parse(s)).toISOString() : null;
@@ -191,7 +201,39 @@ function validateDate(input: unknown): ValueResult {
   if (a === null || (end !== null && b === null)) return fail(M.date);
   if (b !== null && b < a) return fail(M.dateOrder);
   const value: DateValue = { start: a, end: b === a ? null : b, hasTime };
+  if (timeZone !== null) {
+    // Only for dates with a time. Checked by shape: the list of zones differs between systems.
+    if (!hasTime || !isZoneName(timeZone)) return fail(M.invalid);
+    value.timeZone = timeZone;
+  }
+  if (reminder !== null) {
+    const r = readReminder(reminder, hasTime);
+    if (!r) return fail(M.invalid);
+    value.reminder = r;
+  }
   return ok(value);
+}
+
+/** The shape of an IANA time zone name: "America/Chicago", "Etc/GMT+5", "UTC". */
+const ZONE_NAME = /^[A-Za-z][\w+-]*(?:\/[\w+-]+){0,2}$/;
+const isZoneName = (z: unknown): z is string =>
+  typeof z === 'string' && z.length <= 64 && ZONE_NAME.test(z);
+
+type MinutesBefore = Extract<DateReminder, { minutesBefore: number }>['minutesBefore'];
+type DaysBefore = Extract<DateReminder, { daysBefore: number }>['daysBefore'];
+const MINUTES_BEFORE: readonly MinutesBefore[] = [0, 5, 10, 15, 30, 60, 120, 1440, 2880];
+const DAYS_BEFORE: readonly DaysBefore[] = [0, 1, 2, 7];
+
+/** Dates with a time remind some minutes before the start; dates without one, some days before. */
+function readReminder(r: unknown, hasTime: boolean): DateReminder | null {
+  if (typeof r !== 'object' || r === null || Array.isArray(r)) return null;
+  const { minutesBefore, daysBefore } = r as Record<string, unknown>;
+  if (hasTime) {
+    const m = MINUTES_BEFORE.find((x) => x === minutesBefore);
+    return m !== undefined && daysBefore === undefined ? { minutesBefore: m } : null;
+  }
+  const d = DAYS_BEFORE.find((x) => x === daysBefore);
+  return d !== undefined && minutesBefore === undefined ? { daysBefore: d } : null;
 }
 
 function validateString(
@@ -208,13 +250,25 @@ function validateString(
 
 const SCHEME = /^[a-z][a-z\d+.-]*:/i;
 
-/** Adds "https://" when there's no scheme; keeps only http and https links of up to 2,000 characters. */
-function normalizeUrl(s: string): string | null {
+/**
+ * A link as typed, trimmed: "bluepine.example" gets "https://", then it must pass isSafeWebLink
+ * (http and https only, no user name before the host, no spaces or control characters, up to
+ * 2,000 characters). Nothing else is cleaned up, so "java\tscript:" or "//evil.example" is refused.
+ */
+function normalizeUrl(typed: string): string | null {
+  const s = typed.trim();
   const scheme = SCHEME.exec(s);
   // "localhost:3000" is a host and a port, not a scheme.
   const hasScheme = scheme !== null && !/^\d/.test(s.slice(scheme[0].length));
-  const url = s.startsWith('//') ? `https:${s}` : hasScheme ? s : `https://${s}`;
-  return url.length <= LIMITS.url && isSafeLink(url) ? url : null;
+  const url = hasScheme ? s : `https://${s}`;
+  return s !== '' && isSafeWebLink(url) ? url : null;
+}
+
+function validateUrl(input: unknown): ValueResult {
+  if (typeof input !== 'string') return fail(M.url);
+  if (!input.trim()) return ok(null);
+  const url = normalizeUrl(input);
+  return url === null ? fail(M.url) : ok(url);
 }
 
 const EMAIL_LOCAL = /^[\p{L}\p{N}!#$%&'*+=?^_`{|}~.-]+$/u;
@@ -287,9 +341,24 @@ function validateItems<T extends { id: Id }>(
 
 const isId = (v: unknown): v is Id => typeof v === 'string' && v !== '';
 
-function readFile({ id, name, size, mime }: Partial<Record<string, unknown>>): FileRef | string {
+function readFile(f: Partial<Record<string, unknown>>): FileRef | string {
+  const { id, name, size, mime, url = null } = f;
+  if (!isId(id)) return M.invalid;
+  if (url !== null) {
+    // A web link instead of an upload: no size or type of its own; the link is its name if unnamed.
+    const link = typeof url === 'string' ? normalizeUrl(url) : null;
+    if (link === null) return M.url;
+    if (name !== undefined && typeof name !== 'string') return M.invalid;
+    return {
+      id,
+      name: (name === undefined ? '' : oneLine(name)) || link,
+      size: 0,
+      mime: '',
+      url: link,
+    };
+  }
   const sizeOk = typeof size === 'number' && Number.isSafeInteger(size) && size >= 0;
-  return isId(id) && typeof name === 'string' && typeof mime === 'string' && sizeOk
+  return typeof name === 'string' && typeof mime === 'string' && sizeOk
     ? { id, name: oneLine(name), size, mime: mime.trim() }
     : M.invalid;
 }
@@ -458,8 +527,8 @@ export interface FormatOptions {
   forExport?: boolean;
 }
 
-/** An EvalContext that can also tell removed members apart ("Avery Lin (removed)" in cells). */
-export type FormatContext = EvalContext & { isRemovedUser?: (id: Id) => boolean };
+/** The same as EvalContext, which now has isRemovedUser. Kept for existing imports. */
+export type FormatContext = EvalContext;
 
 /** "1 row you can't open", "3 rows you can't open". */
 export function hiddenRowsText(n: number): string {
@@ -483,7 +552,7 @@ const isObject = (v: ReadValue): v is Exclude<ReadValue, unknown[]> & object =>
 export function formatValue(
   prop: Property,
   value: ReadValue,
-  ctx: FormatContext,
+  ctx: EvalContext,
   opts: FormatOptions = {},
 ): string {
   const c = prop.config;
@@ -508,11 +577,12 @@ export function formatValue(
     case 'edited_time': {
       if (!isObject(value) || !isValidDateValue(value)) return '';
       const format = exp && c.format === 'relative' ? 'full' : c.format;
-      return formatDateValue(value, { format, timeFormat: c.timeFormat, viewer: ctx.viewer });
+      return dateText(value, format, c.timeFormat, ctx.viewer);
     }
     case 'checkbox':
       return exp ? (value === true ? 'Yes' : 'No') : '';
     case 'url':
+      return typeof value === 'string' && isSafeWebLink(value) ? value : '';
     case 'email':
     case 'phone':
       return typeof value === 'string' ? value : '';
@@ -539,6 +609,44 @@ export function formatValue(
   }
 }
 
+/** One short-name formatter per time zone ("EDT", "GMT+2"). */
+const zoneNameFormats = new Map<string, Intl.DateTimeFormat>();
+
+function zoneName(instant: string, timeZone: string): string {
+  let f = zoneNameFormats.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' });
+    zoneNameFormats.set(timeZone, f);
+  }
+  const part = f.formatToParts(Date.parse(instant)).find((x) => x.type === 'timeZoneName');
+  return part?.value ?? timeZone;
+}
+
+/**
+ * A date as shown. A date with a time and a fixed time zone shows in that zone with the zone's short
+ * name next to the time ("Oct 26, 2026 11:00 AM EDT"; a range names it once at the end unless the
+ * start and end differ, as across a clock change); other dates show in the viewer's zone.
+ */
+function dateText(
+  v: DateValue,
+  format: DateFormat,
+  timeFormat: TimeFormat,
+  viewer: Viewer,
+): string {
+  const zone = v.hasTime ? v.timeZone : undefined;
+  if (zone === undefined || !isValidTimeZone(zone)) {
+    return formatDateValue(v, { format, timeFormat, viewer });
+  }
+  const opts = { format, timeFormat, viewer: { ...viewer, timeZone: zone } };
+  if (timeFormat === 'hidden') return formatDateValue(v, opts);
+  const a = zoneName(v.start, zone);
+  const b = v.end === null ? a : zoneName(v.end, zone);
+  if (v.end === null || a === b) return `${formatDateValue(v, opts)} ${a}`;
+  const one = (start: string, name: string): string =>
+    `${formatDateValue({ start, end: null, hasTime: true }, opts)} ${name}`;
+  return `${one(v.start, a)} → ${one(v.end, b)}`;
+}
+
 /** A canonical decimal in a number format; an unusable currency code falls back to a plain number. */
 function decimalText(
   d: string,
@@ -551,12 +659,12 @@ function decimalText(
   }
 }
 
-function personName(id: Id, ctx: FormatContext, exp: boolean): string | undefined {
+function personName(id: Id, ctx: EvalContext, exp: boolean): string | undefined {
   const name = ctx.userName(id);
   return name !== undefined && !exp && ctx.isRemovedUser?.(id) ? `${name} (removed)` : name;
 }
 
-const peopleText = (ids: readonly Id[], ctx: FormatContext, exp: boolean): string =>
+const peopleText = (ids: readonly Id[], ctx: EvalContext, exp: boolean): string =>
   ids
     .map((id) => personName(id, ctx, exp))
     .filter(isText)
@@ -587,61 +695,64 @@ function checklistText(items: readonly ChecklistItem[], exp: boolean): string {
 
 /**
  * The text of a formula or rollup result. Numbers use `number` (null: a plain number such as
- * "1234.5"); dates the full format in the viewer's time zone; people their names; pages their
- * titles ("1 row you can't open" when hidden); lists their items joined with ", "; errors their
- * message. A checkbox result shows "" in cells (a box is drawn), else "Yes" or "No".
+ * "1234.5"); dates the full format in the viewer's time zone (or the date's fixed zone); people
+ * their names; pages their titles (rows the viewer can't open are counted: "1 row you can't open");
+ * lists their items joined with ", ", at most 100 in cells, then "+12 more" (export writes every
+ * item); errors their message. A checkbox result shows "" in cells (a box is drawn), else "Yes"
+ * or "No".
  */
 export function formatComputed(
   value: ComputedValue,
   number: NumberDisplay | null,
-  ctx: FormatContext,
+  ctx: EvalContext,
   opts: FormatOptions = {},
 ): string {
   const exp = opts.forExport === true;
   if (value.kind === 'boolean' && !exp) return '';
-  const parts: string[] = [];
-  let hidden = 0;
+  /** Each item's text; null for a row the viewer can't open. */
+  const items: (string | null)[] = [];
   const add = (v: ComputedValue): void => {
     switch (v.kind) {
       case 'empty':
         return;
       case 'text':
-        if (v.value) parts.push(v.value);
+        if (v.value) items.push(v.value);
         return;
       case 'number': {
         const d = numberToDecimal(v.value);
-        if (d !== null) parts.push(number ? decimalText(d, number) : decimalText(d, PLAIN));
+        if (d !== null) items.push(decimalText(d, number ?? PLAIN));
         return;
       }
       case 'boolean':
-        parts.push(v.value ? 'Yes' : 'No');
+        items.push(v.value ? 'Yes' : 'No');
         return;
       case 'date':
-        if (isValidDateValue(v.value)) {
-          parts.push(formatDateValue(v.value, { format: 'full', viewer: ctx.viewer }));
-        }
+        if (isValidDateValue(v.value)) items.push(dateText(v.value, 'full', 'viewer', ctx.viewer));
         return;
       case 'person': {
         const name = personName(v.value, ctx, exp);
-        if (name) parts.push(name);
+        if (name) items.push(name);
         return;
       }
       case 'page': {
         const title = ctx.rowTitle?.(v.value);
-        if (title === undefined) hidden++;
-        else parts.push(title || 'Untitled');
+        items.push(title === undefined ? null : title || 'Untitled');
         return;
       }
       case 'list':
         for (const item of v.value) add(item);
         return;
       case 'error':
-        parts.push(v.message);
+        items.push(v.message);
         return;
     }
   };
   add(value);
+  const shown = exp ? items : items.slice(0, LIMITS.formulaListShown);
+  const parts = shown.filter((t): t is string => t !== null);
+  const hidden = shown.length - parts.length;
   if (hidden) parts.push(hiddenRowsText(hidden));
+  if (items.length > shown.length) parts.push(`+${items.length - shown.length} more`);
   return parts.join(', ');
 }
 
