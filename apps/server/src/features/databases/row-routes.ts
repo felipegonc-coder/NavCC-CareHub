@@ -66,7 +66,7 @@ export default async function rowRoutes(app: FastifyInstance) {
   async function actorOf(request: FastifyRequest, record: DatabaseRecord): Promise<Actor> {
     const user = signedIn(request);
     const propertyViewer = await loadPropertyViewer(app.db, user.id, record.workspaceId);
-    return { viewer: viewerOf(user), propertyViewer, source: 'user' };
+    return { userId: user.id, viewer: viewerOf(user), propertyViewer, source: 'user' };
   }
 
   /** The row as the person may see it now. */

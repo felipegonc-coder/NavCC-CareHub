@@ -56,6 +56,8 @@ export const LIVE_ROW_IDS = 40;
 
 /** Who is writing. */
 export interface Actor {
+  /** null: an anonymous form answer (adding a row only). */
+  userId: string | null;
   /** Their settings, for presets such as Today and Me. */
   viewer: Viewer;
   /** For property access lists. */
@@ -73,6 +75,22 @@ export interface RowEffects {
 }
 
 const noEffects = (): RowEffects => ({ events: [], live: new Map(), added: [] });
+
+/** Several writes' effects as one (one live nudge per database). */
+export function mergeEffects(list: readonly RowEffects[]): RowEffects {
+  const out = noEffects();
+  for (const effects of list) {
+    out.events.push(...effects.events);
+    out.added.push(...effects.added);
+    for (const [databaseId, entry] of effects.live) {
+      const into = out.live.get(databaseId) ?? { rowIds: new Set<string>(), ruled: entry.ruled };
+      for (const id of entry.rowIds) into.rowIds.add(id);
+      into.ruled ||= entry.ruled;
+      out.live.set(databaseId, into);
+    }
+  }
+  return out;
+}
 
 function touch(effects: RowEffects, record: DatabaseRecord, rowIds: readonly string[]) {
   const entry = effects.live.get(record.id) ?? {
@@ -252,11 +270,12 @@ async function liveRowsOf(db: Executor, databaseId: string, ids: readonly string
 
 /**
  * 400 unless every link sent is a row of the relation's database, not in Trash, that the person
- * can open (they only ever see those). `selfId` is a new row linking to itself.
+ * can open (they only ever see those). `userId` null: a form answer, whose links the forms server
+ * checked against the respondent. `selfId` is a new row linking to itself.
  */
 async function checkSentLinks(
   db: Executor,
-  userId: string,
+  userId: string | null,
   record: DatabaseRecord,
   values: Readonly<Record<Id, unknown>>,
   selfId?: string,
@@ -272,11 +291,11 @@ async function checkSentLinks(
   }
   const all = [...byTarget.values()].flatMap((ids) => [...ids]);
   if (all.length === 0) return;
-  const levels = await getAccessForPages(db, userId, all);
+  const levels = userId === null ? null : await getAccessForPages(db, userId, all);
   for (const [target, ids] of byTarget) {
     const live = await liveRowsOf(db, target, [...ids]);
     for (const id of ids) {
-      if (!live.has(id) || !atLeast(levels.get(id), 'view')) throw invalidRequest();
+      if (!live.has(id) || (levels && !atLeast(levels.get(id), 'view'))) throw invalidRequest();
     }
   }
 }
@@ -311,7 +330,7 @@ async function noteSaved(
   actor: Actor,
   skipRowId?: string,
 ): Promise<void> {
-  const actorId = actor.viewer.userId;
+  const actorId = actor.userId;
   for (const { row, changes } of saved) {
     const record = await databases(row.databaseId);
     if (!record) continue;
@@ -357,6 +376,17 @@ export interface NewRow {
   groupKey?: string;
 }
 
+/** What api.ts adds to a new row. */
+export interface NewRowExtras {
+  /** The form (view id) and response that made it, for its event; the form is kept on the row. */
+  formId?: string;
+  responseId?: string;
+  /** The import that made it (db_rows.import_id, for undoing the import). */
+  importId?: string;
+  /** An ID number taken already (createRows takes them all at once); left out: one is taken. */
+  uniqueNumber?: number | null;
+}
+
 /**
  * Adds a row for someone with `access` on the database: the values they send over the template's
  * presets, the view's filter prefill and the group's value; an ID number when the database has an
@@ -368,6 +398,7 @@ export async function addRow(
   input: NewRow,
   actor: Actor,
   access: AccessLevel,
+  extras: NewRowExtras = {},
 ): Promise<{ rowId: string; effects: RowEffects }> {
   const locked = { locked: record.locked };
   if (!can('add_rows', access, locked)) throw forbidden();
@@ -413,7 +444,8 @@ export async function addRow(
     if (!named.ok) throw invalid(named.error);
     title = typeof named.value === 'string' ? named.value : '';
   }
-  await checkSentLinks(db, viewer.userId, record, sent.checked.values, rowId);
+  const linker = actor.source === 'form' ? null : actor.userId;
+  await checkSentLinks(db, linker, record, sent.checked.values, rowId);
   const values: Record<Id, unknown> = {
     ...(await withoutGoneLinks(db, record, preset.values, rowId)),
   };
@@ -423,8 +455,11 @@ export async function addRow(
   }
 
   const numbered = record.properties.some((p) => p.config.type === 'unique_id');
-  const [uniqueNumber = null] = numbered ? await takeUniqueNumbers(db, record.id, 1) : [];
-  const actorId = viewer.userId;
+  const uniqueNumber =
+    extras.uniqueNumber !== undefined
+      ? extras.uniqueNumber
+      : ((numbered ? await takeUniqueNumbers(db, record.id, 1) : [])[0] ?? null);
+  const actorId = actor.userId;
   const effects = noEffects();
   const databases = databaseCache(db, record);
   const saved = await db.transaction(async (tx) => {
@@ -444,6 +479,8 @@ export async function addRow(
       uniqueNumber,
       createdBy: actorId,
       editedBy: actorId,
+      formViewId: extras.formId ?? null,
+      importId: extras.importId ?? null,
     });
     const writes = rowWrites(tx, actorId);
     const row: LockedRow = {
@@ -470,6 +507,8 @@ export async function addRow(
       rowId,
       actorId,
       source: actor.source,
+      ...(extras.formId === undefined ? {} : { formId: extras.formId }),
+      ...(extras.responseId === undefined ? {} : { responseId: extras.responseId }),
     },
   });
   touch(effects, record, [rowId]);
@@ -507,7 +546,8 @@ export async function changeRows(
   actor: Actor,
 ): Promise<{ rowIds: string[]; effects: RowEffects }> {
   const ids = [...new Set(rowIds)];
-  const userId = actor.viewer.userId;
+  const userId = actor.userId;
+  if (userId === null) throw forbidden();
   const [rows, levels] = await Promise.all([
     loadRows(db, record.id, ids),
     getAccessForPages(db, userId, ids),
