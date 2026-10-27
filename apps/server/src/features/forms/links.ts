@@ -1,7 +1,7 @@
 // Form link codes (decision 0200). forms_links keeps one live code per form, written in the same
 // transaction as the form: the databases feature's view and database writes keep a new form's
-// code, and "Change link" here revokes it and keeps the new one. A link is looked up only there,
-// so a code that isn't live answers 404 at once, without reading any database.
+// code, and "Change link" here revokes it and keeps the new one. Codes are looked up only there,
+// by primary key, never in the views.
 import { randomBytes } from 'node:crypto';
 import type { FormDefinition, View } from '@carehub/databases';
 import { sql } from 'drizzle-orm';
@@ -18,11 +18,13 @@ const CODE_FORMAT = /^[A-Za-z0-9_-]{16,64}$/;
 export const isLinkCode = (value: unknown): value is string =>
   typeof value === 'string' && CODE_FORMAT.test(value);
 
-/** The form a live code opens. */
+/** The form a code opens. */
 export interface FormLink {
   code: string;
   databaseId: string;
   viewId: string;
+  /** Not live any more: Change link replaced it, or its form was deleted. */
+  revoked: boolean;
 }
 
 /** A form view: a view with layout 'form' and its form. */
@@ -34,13 +36,15 @@ export function formViewOf(record: DatabaseRecord, viewId: string): FormView | n
   return view && view.layout === 'form' && view.form ? (view as FormView) : null;
 }
 
-/** The form this code opens, or null when it isn't a live code (unknown, or revoked). */
+/** The form this code opens (live or revoked), or null when it was never a code. */
 export async function findLink(db: Executor, code: string): Promise<FormLink | null> {
   if (!isLinkCode(code)) return null;
-  const found = await db.execute<{ database_id: string; view_id: string }>(sql`
-    SELECT database_id, view_id FROM forms_links WHERE code = ${code} AND revoked_at IS NULL`);
+  const found = await db.execute<{ database_id: string; view_id: string; revoked: boolean }>(sql`
+    SELECT database_id, view_id, revoked_at IS NOT NULL AS revoked
+    FROM forms_links WHERE code = ${code}`);
   const row = found.rows[0];
-  return row ? { code, databaseId: row.database_id, viewId: row.view_id } : null;
+  if (!row) return null;
+  return { code, databaseId: row.database_id, viewId: row.view_id, revoked: row.revoked };
 }
 
 /**

@@ -1,7 +1,8 @@
 // Form routes on a real database (decision 0200, Forms spec v2): the fill screen by link code for
 // members with and without access to the database, guests and people outside the workspace; every
-// gate with its words; codes that aren't live; mention titles; and Change link. Responses
-// are made directly here (the submit route comes in the next forms pull request). Fictional people only.
+// gate with its words; codes that aren't live; mention titles; Change link; and logs that never
+// hold a code. Responses are made directly here (the submit route comes in the next forms pull
+// request). Fictional people only.
 import {
   defaultConfig,
   defaultView,
@@ -34,6 +35,12 @@ const MEMBERS_ONLY = {
 };
 const NOT_ACCEPTING = { state: 'not_accepting', message: "This form isn't accepting responses." };
 const OPEN = { state: 'open', message: null };
+const LINK_CHANGED = {
+  error: {
+    code: 'not_found',
+    message: 'This form link has changed. Ask the person who sent it for the new one.',
+  },
+};
 
 describe.skipIf(!hasDatabase)('form routes', () => {
   let close: () => Promise<void>;
@@ -52,6 +59,7 @@ describe.skipIf(!hasDatabase)('form routes', () => {
   const details = newProperty('Details', defaultConfig('text'));
   const photos = newProperty('Photos', defaultConfig('files'));
   let rows = 0;
+  const logs: string[] = [];
 
   /** A workspace member with this role; in the Operations space (access to the database) or not. */
   async function member(role: keyof typeof PERMISSIONS, who: string, inSpace: boolean) {
@@ -127,7 +135,9 @@ describe.skipIf(!hasDatabase)('form routes', () => {
   const gateOf = async (who: TestUser, code: string) => (await open(who, code)).json().gate;
 
   beforeAll(async () => {
-    ({ app, db, close } = await createTestApp());
+    ({ app, db, close } = await createTestApp({
+      logger: { level: 'trace', stream: { write: (line: string) => void logs.push(line) } },
+    }));
     // Stand-ins for the roles pull request's tables (decision 0007 names) until it lands.
     await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
@@ -330,12 +340,14 @@ describe.skipIf(!hasDatabase)('form routes', () => {
       linkCode: changed.linkCode,
       linkChangedAt: changed.linkChangedAt,
     });
-    // The old code stops working at once.
-    expect((await open(people.jordan, code)).json()).toEqual(NOT_FOUND);
+    // The old code stops working at once, and says so.
+    const old = await open(people.jordan, code);
+    expect(old.statusCode).toBe(410);
+    expect(old.json()).toEqual(LINK_CHANGED);
     expect(await gateOf(people.jordan, changed.linkCode)).toEqual(OPEN);
 
     const again = (await changeLink(people.morgan, viewId)).json();
-    expect((await open(people.jordan, changed.linkCode)).statusCode).toBe(404);
+    expect((await open(people.jordan, changed.linkCode)).json()).toEqual(LINK_CHANGED);
     expect(await gateOf(people.jordan, again.linkCode)).toEqual(OPEN);
     const links = await db.execute<{ code: string; live: boolean }>(sql`
       SELECT code, revoked_at IS NULL AS live FROM forms_links
@@ -348,5 +360,54 @@ describe.skipIf(!hasDatabase)('form routes', () => {
       ]),
     );
     expect(links.rows.filter((l) => l.live)).toHaveLength(1);
+  });
+
+  it('answers 404 for a replaced code once its database is in Trash or its form is deleted', async () => {
+    const { viewId, code } = await addForm();
+    expect((await changeLink(people.morgan, viewId)).statusCode).toBe(200);
+    expect((await open(people.jordan, code)).statusCode).toBe(410);
+    // The 410 says nothing else: no form, no workspace. Signed out, it's still 401.
+    expect(JSON.stringify((await open(people.jordan, code)).json())).not.toMatch(/Service|Blue/);
+    expect((await app.inject({ method: 'GET', url: `/api/forms/${code}` })).statusCode).toBe(401);
+    await db.execute(sql`UPDATE pages SET deleted_at = now() WHERE id = ${databaseId}`);
+    try {
+      expect((await open(people.jordan, code)).json()).toEqual(NOT_FOUND);
+    } finally {
+      await db.execute(sql`UPDATE pages SET deleted_at = NULL WHERE id = ${databaseId}`);
+    }
+    await settings((current) => ({ views: current.views.filter((v) => v.id !== viewId) }));
+    expect((await open(people.jordan, code)).json()).toEqual(NOT_FOUND);
+  });
+
+  it('never logs a code, and logs a failed request with its route and error only', async () => {
+    const { viewId, code } = await addForm();
+    expect((await open(people.jordan, code)).statusCode).toBe(200);
+    const changed = (await changeLink(people.morgan, viewId)).json();
+    expect((await open(people.jordan, code)).statusCode).toBe(410);
+    expect((await open(people.jordan, 'n0SuchCodeAnywhere00b')).statusCode).toBe(404);
+    // A query that fails: drizzle's error lists the values it was sent, the code among them.
+    await db.execute(sql`ALTER TABLE forms_links RENAME TO forms_links_away`);
+    let failed: Awaited<ReturnType<typeof open>>;
+    try {
+      failed = await open(people.jordan, changed.linkCode);
+    } finally {
+      await db.execute(sql`ALTER TABLE forms_links_away RENAME TO forms_links`);
+    }
+    expect(failed.statusCode).toBe(500);
+    const text = logs.join('\n');
+    for (const secret of [code, changed.linkCode, 'n0SuchCodeAnywhere00b']) {
+      expect(text).not.toContain(secret);
+    }
+    const failures = logs
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((entry) => entry.msg === 'forms: a request failed');
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      level: 50,
+      route: '/api/forms/:code',
+      error: { sqlState: '42P01', stack: expect.stringContaining('at ') },
+    });
+    expect(failures[0]).not.toHaveProperty('req');
+    expect(JSON.stringify(failures[0])).not.toContain(people.jordan.id);
   });
 });

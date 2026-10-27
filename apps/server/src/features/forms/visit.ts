@@ -56,6 +56,24 @@ export function gateOf(visit: Visit): FormGate {
   });
 }
 
+/**
+ * What a code that Change link replaced shows: the package's link_changed words. formGate
+ * compares the code first, so nothing else about the visit is read; any other state means the
+ * code is still the form's.
+ */
+export function replacedCodeGate(form: FormDefinition, code: string): FormGate {
+  return formGate(form, {
+    linkCode: code,
+    visitor: 'signed_out',
+    canEdit: false,
+    inTrash: false,
+    responseCount: 0,
+    respondedAt: null,
+    workspaceName: '',
+    now: new Date(),
+  });
+}
+
 /** A signed-in person's visit, read with `db` (a submit passes its transaction). */
 export async function visitFor(
   db: Executor,
