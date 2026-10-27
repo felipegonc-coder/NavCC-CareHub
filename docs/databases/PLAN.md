@@ -1,16 +1,16 @@
 # Databases and Forms: plan and parts
 
-Goal: databases and forms match Notion option for option by **Fri Oct 30** (last PR open that day; anything not merged by Oct 31 is dropped). Core first, then depth. Every merge leaves `main` working. Read [README.md](README.md) (clean room, folders, toolkit) and [additions.md](additions.md) first.
+Goal: databases and forms match Notion option for option by **Fri Oct 30** (last PR open that day; anything not merged by Oct 31 is dropped). Core first, then depth. Every merge leaves `main` working. Read [README.md](README.md) (clean room, folders, toolkit) first. The v2 specs win over [additions.md](additions.md) (see its header).
 
 ## Waves
 
-| Wave | When | What | Needs |
-| --- | --- | --- | --- |
-| 0 | Oct 26 | Foundation in `packages/databases` (contract, dates, decimals, rich text, text, rows, schema, parse-text, computed) | Done locally; first PR once the main lead's skeleton is on main |
-| 1 | Oct 26–27 | Pure logic in `packages/databases` (8 parts below) | Nothing |
-| 1b | Oct 27 | `schemas.ts` (zod for every shape in types.ts), chart data, formula library | A free slot |
-| 2 | Oct 27–28 | Server: schema and CRUD, rows, query engine, CSV jobs, forms | Skeleton, pages API, access resolver |
-| 3 | Oct 28–30 | Web: shell, table, cells, board/list/gallery, calendar/timeline, chart, filter UI, row page, CSV dialogs, forms, formula editor | Web skeleton, design kit, wave 2 APIs |
+| Wave | When      | What                                                                                                                                                                   | Needs                                                         |
+| ---- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 0    | Oct 26    | Foundation in `packages/databases` (contract, dates, decimals, rich text, text, rows, schema, parse-text, computed)                                                    | Merged (#6); v2 contract and safe links in #21                |
+| 1    | Oct 26–27 | Pure logic in `packages/databases` (8 parts below)                                                                                                                     | CSV merged (#18); values approved (#19); the rest in progress |
+| 1b   | Oct 27    | Request schemas, chart data, sub-items and dependencies (running); then formula library, conditional color, buttons and repeating templates, view engine, Excel import | A free slot                                                   |
+| 2    | Oct 27–28 | Server: schema and CRUD, rows, query engine, CSV jobs, forms                                                                                                           | Skeleton, pages API, access resolver                          |
+| 3    | Oct 28–30 | Web: shell, table, cells, board/list/gallery, calendar/timeline, chart, filter UI, row page, CSV dialogs, forms, formula editor                                        | Web skeleton, design kit, wave 2 APIs                         |
 
 ## Rules for every part
 
@@ -20,7 +20,7 @@ Goal: databases and forms match Notion option for option by **Fri Oct 30** (last
 - Tests next to the code (`*.test.ts`, Vitest style: `import { describe, it, expect } from 'vitest'`). Cover every rule in your part and every message text. Run `/data/toolkit/bin/test.sh packages/databases/src/<your files>` and `/data/toolkit/bin/typecheck.sh` from anywhere; both must pass.
 - Size: aim for under ~600 lines of non-test code. If it won't fit, finish the core and list what's left.
 - Fictional data only (Avery Lin, Jordan Park, Blue Pine Plumbing). No secrets.
-- Don't push to GitHub and don't open PRs until the lead says so. When done, end with: files, exports, test count, anything left or unclear.
+- When tests and the type check pass, open your own PR from a `feat/db-*` branch off main (the brief says how), read the CI comment once, fix, and stop. The lead merges. End with: the PR number, files, exports, test count, anything left or unclear.
 - Exact user-facing text from the specs (and this page) must match word for word.
 
 ## Wave 1 parts
@@ -28,6 +28,7 @@ Goal: databases and forms match Notion option for option by **Fri Oct 30** (last
 ### W1-1 db-values: `src/values.ts`, `src/convert.ts`, `src/options.ts`
 
 Checking, reading and showing values (spec 3.4, 3.6; additions 10–11).
+
 - `type ValueResult = { ok: true; value: unknown; newOptions?: SelectOption[] } | { ok: false; error: string }` (value `null` means empty).
 - `validateValue(prop, input: unknown): ValueResult`: for stored types only (title is a string). Checks shape and limits, normalizes (trim; canonical decimal; `https://` added to links; only http and https; email `name@domain`; phone characters; option ids exist; date valid and end ≥ start; single person or relation; file and checklist limits; text through `sanitizeRichText`). The server runs it on every write. Messages: "Enter a number.", "Enter a date.", "The end date can't be before the start date.", "Enter a web address.", "Enter an email address like name@example.com.", "Enter a phone number.", "That option doesn't exist.", "This property allows one person only.", "This relation allows one row only.", "Up to 100 values.", "Up to 20 files.", "Up to 500 linked rows.", "Up to 100 items.", "Items can be up to 500 characters.", "Text can be up to 10,000 characters.", "Names can be up to 2,000 characters.".
 - `parseTyped(prop, text, viewer): ValueResult`: what someone typed into a cell. Numbers via `parseNumberText` (a Percent property reads "45" as 0.45 and "45%" as 0.45); dates via `parseDateText` (`dayFirst` when the property format is `dmy`); checkbox words; Select and Multi-select by option name ignoring case, creating missing options (`newOptions`, next color in `OPTION_COLORS` order skipping default) and splitting multi-select on commas; Status by name only (no new options).
@@ -39,6 +40,7 @@ Checking, reading and showing values (spec 3.4, 3.6; additions 10–11).
 ### W1-2 db-filter: `src/filter.ts`, `src/search.ts`
 
 Filters and search (spec 3.2, 3.4; additions 2, 10, 11).
+
 - `filterOpsFor(prop): FilterOp[]` by type (formula and rollup by `computedKind`; ID as number) and `filterOpLabel(op, prop): string` ("Is", "Is not", "Contains", "Does not contain", "Starts with", "Ends with", "=", "≠", ">", "<", "≥", "≤", "Is any of"…; dates "Is before", "Is on or after", "Is within"…; "Is ticked"; "All done").
 - `matchesFilter(row, filter: FilterGroup | null, ctx: EvalContext): boolean`. Text ops ignore case and accents (`textIncludes`, `textEquals`); numbers compare exactly (`compareDecimal`; computed numbers as numbers); select/status by option ids (`group_is` by status group); multi-select, person and relation `contains_any`/`contains_all`/`does_not_contain` (person values may contain `ME` = `ctx.viewer.userId`); dates through `resolveDateRef`/`resolveDateWindow` in the viewer's time zone and week start — a date with an end matches `within` and `between` if any of its days is inside; all other conditions use the start day; checkbox; checklist `all_done`/`not_all_done` (need at least one item); `is_empty`/`is_not_empty` for all. A condition with no value yet matches everything (it's being set up).
 - `validateFilter(filter, properties): string | null` (up to 3 layers, 50 conditions, op allowed for the type, value shape), `pruneFilter(filter, properties): FilterGroup | null` (drops conditions on deleted properties or no-longer-valid ops), `countConditions`.
@@ -48,6 +50,7 @@ Filters and search (spec 3.2, 3.4; additions 2, 10, 11).
 ### W1-3 db-sort-group: `src/sort.ts`, `src/group.ts`, `src/order.ts`
 
 Sorting, grouping and manual order (spec 3.2–3.4; additions 11).
+
 - `compareForSort(prop, a: ReadValue, b: ReadValue, ctx): number` and `sortRows(rows, sorts, ctx, manualOrder?: Id[]): Row[]` (stable; empties last in both directions; by type as in the spec's "Sorts by" column: text via `compareText`, select and status by option order, multi-select by first value's option order, dates by start (calendar dates at the viewer's midnight), checkbox unticked first, people by first person's name, checklist by share done, ID by number, formula and rollup by result kind (lists by first item); ties by manual order, then created time, then id. With no sorts: manual order, missing rows last oldest first).
 - `group.ts`: `interface RowGroup { key: string; label: string; color?: OptionColor; rows: Row[]; hidden: boolean; collapsedKey: string }`, `groupKeysOf(row, grouping, ctx): string[]` (a row with several values is in each group), `groupRows(rows, grouping, ctx, opts?: { includeEmptyGroups?: boolean }): RowGroup[]`. Keys: option id, `EMPTY_GROUP` ("No value", first), checkbox "true"/"false" (labels "Checked"/"Unchecked"), user id, dates by day "2026-10-26", week (start day by viewer week start, label "Week of Oct 25, 2026"), month "2026-10" ("October 2026"), year; relative buckets Today, Tomorrow, Yesterday, Next 7 days, Past 7 days, Next 30 days, Past 30 days, then months; status by option or by group; text exact or first letter ("#" for non-letters); number ranges ("0–10"). Order: manual (`order`, new groups at the end) or by value. Boards list every option even with no rows unless `hideEmpty`. Sub-groups: the same function applied inside each group.
 - `groupMovePatch(row, grouping, fromKey, toKey, ctx): { propertyId: Id; value: unknown } | null` (select, status, person, checkbox set; multi-select replaces the value dragged from; to "No value" clears it; date groups can't be moved: null) and `valueForGroup(grouping, key, ctx)` for "+ New" in a column.
@@ -56,6 +59,7 @@ Sorting, grouping and manual order (spec 3.2–3.4; additions 11).
 ### W1-4 db-aggregate: `src/aggregate.ts`, `src/rollup.ts`
 
 Column totals and rollups (additions 3–4).
+
 - `aggregatesFor(prop, opts?: { rollup?: boolean }): Aggregate[]` (show original and show unique only for rollups; numbers, dates and checkboxes add their own; Name offers counts only).
 - `aggregateValues(values: ReadValue[], agg, prop, ctx): ComputedValue` (number maths exact via decimal.ts, then a number; percents as 0–1; earliest/latest/date range as dates; median of an even count is the mean of the middle two; empty input gives empty for maths and 0 for counts).
 - `aggregateLabel(agg): string` ("Count all", "Count values", "Count unique values", "Count empty", "Count not empty", "Percent empty", "Percent not empty", "Sum", "Average", "Median", "Min", "Max", "Range", "Earliest date", "Latest date", "Date range", "Checked", "Unchecked", "Percent checked", "Percent unchecked", "Show original", "Show unique values") and `formatAggregate(result, agg, prop, ctx): string` ("Sum 12,340", "Percent empty 33.3%", "Date range Oct 1 → Oct 26, 2026"; short label text used in the footer).
@@ -65,6 +69,7 @@ Column totals and rollups (additions 3–4).
 ### W1-5 db-formula: `src/formula/` (engine)
 
 The formula language of additions section 2: everything except the long function library (wave 1b adds the rest to the registry).
+
 - Files: `lexer.ts`, `parser.ts` (AST with source positions), `names.ts`, `check.ts` (static types), `evaluate.ts`, `registry.ts`, `functions/core.ts`, `index.ts`.
 - `toStoredFormula(source, properties): { ok: true; expression: string } | { ok: false; error: FormulaError }` (names → ids, matching names ignoring case and spaces), `toDisplayFormula(expression, properties): string` (ids → names; deleted ones shown by their old name if given).
 - `compileFormula(expression, schema: FormulaSchema): { ok: true; kind: FormulaType; run(row: Row, ctx: FormulaContext): ComputedValue } | { ok: false; error: FormulaError }` where `FormulaError = { message: string; start: number; end: number }`, `FormulaSchema = { properties: readonly Property[]; related(relationPropertyId: Id): FormulaSchema | null; kindOf(prop: Property): FormulaType | null }` and `FormulaContext` extends `EvalContext` with `page(id: Id): { row: Row; ctx: FormulaContext } | null` (null when the viewer can't open it) and `userEmail(id): string | undefined`.
@@ -77,6 +82,7 @@ The formula language of additions section 2: everything except the long function
 ### W1-6 db-csv: `src/csv/`
 
 CSV import and export file handling (spec 3.7–3.8).
+
 - `decode.ts`: `decodeCsvBytes(bytes: Uint8Array): string` (UTF-8 with or without BOM; invalid UTF-8 → Windows-1252).
 - `parse.ts`: `detectSeparator(text): ',' | ';' | '\t'`, `parseCsv(text, separator): string[][]` (quotes with commas, doubled quotes and line breaks; CRLF or LF; trailing empty line ignored) and `checkCsvLimits(table, bytes)` ("This file is larger than 10 MB.", "This file has more than 20,000 rows.", "This file has more than 200 columns.").
 - `write.ts`: `writeCsv(rows: string[][]): string` (BOM, commas, CRLF, quotes when needed), `protectCell(text)` (leading apostrophe for =, +, - and @; numbers that are plain negatives stay as they are only if the cell is a Number column — take a flag), `exportFileName(database, view | null, date: CalendarDate)` → "QA reviews – Open – 2026-10-26.csv" ("Everything" uses just the database name).
@@ -88,6 +94,7 @@ CSV import and export file handling (spec 3.7–3.8).
 ### W1-7 forms-logic: `src/forms/`
 
 Form rules (Forms spec; additions 8).
+
 - `questions.ts`: `questionKind(prop, question?): 'short' | 'long' | 'number' | 'radio' | 'checkboxes' | 'dropdown' | 'multi_dropdown' | 'date' | 'checkbox' | 'link' | 'email' | 'phone' | 'person' | 'files' | 'relation' | null` (null: not offered: Status, Checklist, created and edited, ID, formula, rollup, button; Files also null for anonymous forms), `addableProperties(def, properties, anonymous)`, `validateFormDefinition(def, properties): string | null` (100 questions, 10 conditions, descriptions up to 2,000 characters, no logic on the first question, conditions only on earlier questions).
 - `logic.ts`: `conditionOps(prop): FormConditionOp[]` (exactly the Forms spec list per type), `visibleQuestions(def, answers, properties, viewer): Set<Id>` (in order; a hidden question counts as empty for later ones), `canMoveQuestion(def, from, to, properties)` → "'Reason' depends on 'Category', so it must stay below it.", `pruneLogic(def, properties): { def; changed: Id[] }` (conditions on deleted properties or options are removed and `logicChanged` set).
 - `submit.ts`: `checkSubmission(def, properties, answers: Record<Id, unknown>, opts: { validate(prop, value): { ok: true; value: unknown } | { ok: false; error: string }; respondentName: string | null; anonymous: boolean; seenQuestionIds?: Id[] }): { ok: true; title: string; values: Record<Id, unknown> } | { ok: false; errors: Record<Id, string>; summary: string; formChanged: boolean }`. Drops answers to hidden or removed questions; Required only for visible questions ("Answer this question."; a required checkbox "Tick this box to continue."); summary "2 questions need answers"; a new required question the person never saw → `formChanged` with "This form changed. Please answer the new question."; unasked properties get defaults (Status default option, checkbox unticked); title from the Name answer, else "Response from Avery Lin", or "Anonymous response".
@@ -96,22 +103,34 @@ Form rules (Forms spec; additions 8).
 ### W1-8 db-access: `src/access.ts`, `src/relations.ts`, `src/templates.ts`, `src/unique-id.ts`
 
 Who can do what, relations, templates and IDs (spec 3.4–3.5, 5; additions 6, 7, 10).
+
 - `access.ts`: `maxAccess(...levels)`, `ruleAccess(row, rules, userId, properties): AccessLevel` (Person and Created by values), `rowAccess({ database, direct, rule }): AccessLevel`, `databaseViewerAccess(level, rules): AccessLevel | 'rows_only'`, `type DbAction` (view, comment, edit_rows, add_rows, import, export, edit_views, edit_properties, edit_forms, manage_templates, lock, share, delete_database, set_row_rules, submit_form, toggle_responses, change_form_link) and `can(action, access, opts: { locked: boolean; rowsOnly?: boolean }): boolean` (the spec's permission tables; rows-only people can't add rows or change views), `validateRules(rules, properties): string | null` (Person or Created by only; up to 10), `losesOwnAccess(before, after, ...)` for "You'll lose access to this row.".
 - `relations.ts`: `linkDiff(before: Id[], after: Id[])`, `twoWayWrites(sourceRowId, diff, partner: Property<ConfigOf<'relation'>>, readPartner(rowId): Id[]): { rowId: Id; value: Id[] }[]` (respects "one row only" on the other side by replacing), `remapForDuplicate(values, idMap, sameDatabaseRelationIds, twoWayToOthers)` (inside the same database point to copies; two-way to others become one-way), `visibleLinks(ids, canOpen): { visible: Id[]; hiddenCount: number }`, `hiddenRowsLabel(n)` ("1 row you can't open", "3 rows you can't open").
 - `templates.ts`: `resolveTemplateValues(template, properties, viewer): Record<Id, unknown>` (`{ dynamic: 'today' }` → viewer's date; `'now'` → this moment with time; `ME` → viewer), `newRowValues({ properties, template, filterPrefill, groupValue, viewer })` (group value beats filter prefill beats template; Status default and checkbox unticked when nothing else), `validateTemplate(template, properties)`.
 - `unique-id.ts`: `formatUniqueId(prefix, n)` ("QA-12" or "12"), `uniqueIdSearchKeys(prefix, n)`, `nextUniqueNumbers(existingMax, count)`, `numberExistingRows(rows)` (oldest first).
 
-## Wave 1b parts (next free slots)
+## Wave 1b parts
 
-- **db-schemas** `src/schemas.ts`: zod 4 schemas for every API shape in `types.ts` (Property and every config, stored values per type, View and options, FilterGroup with 3 layers, Sort, Grouping, FormDefinition, RowAccessRule, RowTemplate), with the same limits, used by the server to check requests.
-- **db-chart** `src/chart.ts`: chart data from rows (categories by option, person, checkbox, created/edited by, or date bucket; values count/sum/average/median/min/max; split by top 10 + "Other"; at most 50 categories + "Other"; empty dates as 0; order; cumulative; colors from options else a fixed readable set) and the "View as table" numbers.
-- **db-formula-lib** `src/formula/functions/{text,dates,lists,people}.ts`: the rest of the function list in additions section 2 on the W1-5 registry.
+Running (Oct 27 from 00:08 UTC):
+
+- **db-schemas** `src/schemas/`: zod 4 schemas for every request shape in `types.ts` with the same limits; `open_link` and URL values must pass `isSafeWebLink` (#12); `parseRequest` with fixed messages.
+- **db-chart** `src/chart.ts`: chart data with every v2 chart option (categories, date buckets incl. quarter, values, split top 10 + "Other", 50 categories + "Other", order, cumulative, palettes, reference line, "View as table").
+- **db-hierarchy** `src/hierarchy.ts`, `src/dependencies.ts`: sub-items (nested, flattened, parents only; 10 levels; loops refused) and dependencies (loops refused; Shift or Don't shift).
+
+Next free slots, in order:
+
+- **db-formula-lib** `src/formula/functions/`: the rest of the Formulas spec's functions on the W1-5 registry, patterns on `re2js` (#13, needs the security reviewer's OK for the dependency), and fixtures up to 200 (FX-01).
+- **db-engine** `src/engine/`: the view query used by the server and the web: access and property access stripping, formulas and rollups, filter, search, sort, group, sub-items, totals, paging, "This view uses a property you can't see." (after W1-2, W1-3, W1-4 and W1-8 merge).
+- **db-color** `src/color.ts`: conditional color (10 rules per view, first row rule wins, cell beats row) and the option color palette with 4.5:1 checks in light and dark.
+- **db-buttons** `src/buttons.ts`, `src/repeat.ts`: button steps (checks before running, variables, value edits, Undo window, run log) and repeating template schedules (next run in a time zone, titles like "Weekly huddle – Oct 26", missed runs within 24 hours).
+- **db-xlsx** `src/xlsx/`: reading .xlsx files (pick a sheet, formula cells as their results) into the CSV import plan; the zip inflater is passed in by the server.
 
 ## Wave 2: server (after the skeleton)
 
-Parts: **db-server-schema** (migrations, databases, properties incl. type change and deleted-property restore, views, lock, templates, access rules), **db-server-rows** (rows CRUD, duplicate, bulk edit, row history, two-way sync, IDs, Person notices, events), **db-server-query** (query engine with the per-database row cache, access, formulas and rollups, totals, group counts, search, paging, chart data, calendar and timeline APIs, live topic), **db-server-csv** (preview, import and export jobs, undo import), **forms-server** (form by link, submit, limits, respondents list, anonymous, notify, link change).
+Parts: **db-server-schema** (migrations, databases, properties incl. type change and deleted-property restore, views, lock, templates, access rules), **db-server-rows** (rows CRUD, duplicate, bulk edit, row history, two-way sync, IDs, Person notices, events), **db-server-query** (query engine with the per-database row cache, access, formulas and rollups, totals, group counts, search, paging, chart data, calendar and timeline APIs, live topic), **db-server-csv** (preview, import and export jobs, undo import), **forms-server** (form by link, submit, limits, anonymous with nothing stored about the sender, forms anyone on the network can fill in (no sign-in, 30 a minute), closing date and response cap, notify, link change). Date reminders and repeating templates run as Team tools jobs.
 
 Interfaces from other lanes (build against these; wire up when they're on main):
+
 - Notices: `sendNotice({ workspaceId, userId, kind: 'alert', sender: 'Databases' | 'Forms', icon?, title, text?, card?: { type: 'page', pageId }, buttons?, groupKey? })` from `apps/server/src/features/notices/index.ts`. Forms: first response without groupKey, then `forms:<formId>`. Generic title and text; only the card shows a page title.
 - Live: `publishTopic(topic, { type, data? })`, `publishToUsers(userIds, event)`, `registerTopic('db:', canSubscribe)` from `apps/server/src/features/live/index.ts`; web `useLiveTopic(topic, handler)` from `apps/web/src/features/live/index.ts`. Publish `{ type: 'rows-changed', data: { rowIds } }` on `db:<databaseId>` after commit (no rowIds when the database has row rules). Handle `{ type: 'live-reconnected' }` by refetching.
 - Jobs: `registerJobHandler(kind, handler, options)`, `scheduleJob({ kind, payload, key, workspaceId, ownerUserId })`, `JobError` from `apps/server/src/features/jobs/index.ts`; web `useJob(jobId)`. Kinds `databases.csv-import` and `databases.csv-export`, keyed by upload id, idempotent.
