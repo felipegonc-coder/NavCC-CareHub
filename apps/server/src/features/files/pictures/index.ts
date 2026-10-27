@@ -1,6 +1,9 @@
 import { PictureError, type CleanedPicture, type CleanerResult, type PictureFile } from './bytes';
+import { cleanGif } from './gif';
+import { cleanHeif } from './heif';
 import { cleanJpeg } from './jpeg';
 import { cleanPng } from './png';
+import { cleanWebp } from './webp';
 
 export { PictureError, type CleanedPicture, type Piece } from './bytes';
 
@@ -10,6 +13,11 @@ const MAX_SIDE = 2 ** 31 - 1;
 const CLEANERS: Readonly<Record<string, (file: PictureFile) => Promise<CleanerResult>>> = {
   'image/jpeg': cleanJpeg,
   'image/png': cleanPng,
+  'image/gif': cleanGif,
+  'image/webp': cleanWebp,
+  'image/heic': cleanHeif,
+  'image/heif': cleanHeif,
+  'image/avif': cleanHeif,
 };
 
 /**

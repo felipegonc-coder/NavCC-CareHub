@@ -84,3 +84,10 @@ export function pieceList(size: number) {
     },
   };
 }
+
+/** How long the new file is. */
+export const piecesLength = (pieces: readonly Piece[]): number =>
+  pieces.reduce(
+    (total, piece) => total + (Buffer.isBuffer(piece) ? piece.length : piece.end - piece.start),
+    0,
+  );

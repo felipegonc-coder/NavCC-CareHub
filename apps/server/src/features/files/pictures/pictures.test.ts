@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cleanPicture, PictureError, type Piece } from './index';
-import { DETAIL, sampleJpeg, samplePng } from './testing';
+import { DETAIL, sampleGif, sampleHeic, sampleJpeg, samplePng, sampleWebp } from './testing';
 
 const clean = (mimeType: string, file: Buffer) =>
   cleanPicture(mimeType, {
@@ -20,6 +20,9 @@ const rebuild = (file: Buffer, pieces: readonly Piece[] | null) =>
 const SAMPLES = [
   { mimeType: 'image/jpeg', ...sampleJpeg() },
   { mimeType: 'image/png', ...samplePng() },
+  { mimeType: 'image/webp', ...sampleWebp() },
+  { mimeType: 'image/gif', ...sampleGif() },
+  { mimeType: 'image/heic', ...sampleHeic() },
 ];
 
 describe('cleanPicture', () => {
