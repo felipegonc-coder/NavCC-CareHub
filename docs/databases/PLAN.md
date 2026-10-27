@@ -133,7 +133,8 @@ Felipe's bar for Friday is "everything": a working basic version of every featur
 - **db-server-schema**: migrations and Drizzle tables, DatabaseMeta for the viewer (property access applied), databases, properties (type changes, deleted-property restore), views, templates, access rules, lock, version conflicts, live `schema-changed`, share-link guard, seed data.
 - **db-server-rows**: rows (create with prefill and templates, edit, bulk edit, trash, restore, duplicate), value checks, two-way relations, ID numbers, manual order, row history, Person notices, events, live `rows-changed`, `api.ts` for Team tools, the row access resolver, `page.kindChanged`, search text.
 - **db-server-query**: query and chart routes on the view engine, a row cache per database, formulas and rollups (with loop guards and time budgets, big queries off the main thread), relation titles and the relation picker.
-- **db-server-jobs**: CSV and Excel import and export jobs (with Undo import), buttons (press and Undo), applying templates, repeating templates, date reminders.
+- **db-server-import-export** (W2-4): CSV and Excel import and export jobs (with Undo import), parsing in a worker with memory and time limits.
+- **db-server-automations** (W2-6): buttons (press and Undo), date reminders, applying templates, repeating templates.
 - **forms-server**: the form by link, submit (only mapped, shown questions), the gate (closed, full, one response), anonymous with nothing stored about the sender, notices, Change link. Forms anyone can fill in (public routes) and anonymous uploads, both off by default per form, under the security reviewer's conditions in decision 0200.
 
 Interfaces from other lanes (build against these; wire up when they're on main):
