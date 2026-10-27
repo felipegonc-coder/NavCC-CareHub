@@ -159,7 +159,7 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
     await runJobsAt(reminder.dueAt);
     const click = (value: string, userId = avery.id) => ({
       noticeId: randomUUID(),
-      workspaceId: STAND_IN_WORKSPACE_ID,
+      workspaceId: avery.workspaceId,
       userId,
       action: 'reminders.snooze',
       value,
