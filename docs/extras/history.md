@@ -44,9 +44,17 @@ What happened on a page, for its Updates panel (HT-08). An entry (`history_updat
 - **Live:** the list refreshes on `history.versions`, `history.restored` and after a reconnect.
 - The menu item shows for everyone who can open the page, since the page menu doesn't know the person's access yet; without Can edit the window says "You don't have access to this." Default: hide it once `SlotPage` carries the access (page model, #49).
 
+## The Updates panel (web)
+
+- **Opens** from the page menu ("Updates", on every page, row and database) and with `openUpdates` (below). The 🕘 in the top bar waits for a top-bar slot (core). Going to another screen closes it; on phones it fills the screen.
+- **Lists** what happened, newest first, 50 at a time ("Show older updates"), grouped per person and hour under the name and the newest time ("Sam Ortiz · Today, 3:12 PM"). Each line reads whole for screen readers: "Sam Ortiz edited · 3 changes", "renamed the page from “Refunds” to “Refund steps”", "moved the page from a page you can't open to Policies", "changed Status: Open → Done", "restored a version from Oct 20, 3:00 PM". Someone without a name (an automation, or a person no longer known) shows as "Someone". The wording is in `updateText` and `groupUpdates` (`@carehub/extras/history`).
+- **Show changes** (only on edits, only with Can edit) closes the panel and opens Version history on that version.
+- **States:** "Nothing has happened on this page yet."; no access (403) and not found (404) without any page details.
+
 ## For other web features (`apps/web/src/features/history/index.ts`)
 
 - `openVersionHistory({ id, title }, versionId?)` opens Version history, on that version if given; for example Updates' Show changes.
+- `openUpdates({ id, title })` opens the Updates panel, for the top bar's 🕘.
 - `saveVersionBefore(pageId, 'replace' | 'accept_all')` saves a version right before the editor's Replace all or Accept all suggestions changes the page (HT-02). Wait for it, then make the change. It gives the saved version, or null when the page keeps no versions (404, also while the server's stand-ins below aren't bound). When it throws, leave the page as it is and show the error's message.
 
 ## For other features (`apps/server/src/features/history/index.ts`)
