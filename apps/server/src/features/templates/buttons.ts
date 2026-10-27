@@ -76,6 +76,7 @@ const copyOf = (row: ButtonRow) => ({
 /**
  * The button for this page: its own, or, on a page copied with Duplicate (whose block still has
  * the first page's button ID), a copy of its own made now, for someone who can open the first page.
+ * A page whose content doesn't hold the block gets no copy.
  */
 async function buttonFor(
   db: Db | Tx,
@@ -97,6 +98,9 @@ async function buttonFor(
   const [copy] = await ownCopy();
   if (copy) return copy;
   if (!row.pageId) throw notFound();
+  if (!buttonIdsIn(await core().markdown(db, pageId)).includes(row.id.toLowerCase())) {
+    throw notFound();
+  }
   const levels = await core().levels(db, viewer.userId, [row.pageId]);
   if (!atLeast(levels.get(row.pageId) ?? 'none', 'view')) throw notFound();
   const [made] = await db
@@ -170,6 +174,16 @@ export async function getButton(
   return respond(db, row, found, pageId);
 }
 
+/** A step that messages Everyone or roles, as text to compare; null for other steps. */
+function broadStep(action: ButtonAction): string | null {
+  if (action.kind !== 'send_message' || (!action.to.everyone && !action.to.roleIds.length)) {
+    return null;
+  }
+  const { to } = action;
+  const sorted = [to.roleIds, to.groupIds, to.userIds].map((ids) => [...ids].sort());
+  return JSON.stringify([action.message, action.card, to.everyone, ...sorted]);
+}
+
 /**
  * Checks the settings for this person and keeps the names the sentence shows: each database or
  * page as they see it (they must be able to open it).
@@ -181,17 +195,21 @@ async function prepareSettings(
   previous: ButtonRow | null,
 ): Promise<{ settings: ButtonSettings; setByAdmin: boolean }> {
   const settings = buttonSettingsSchema.parse(input);
-  const audiences = (list: readonly ButtonAction[]) =>
-    list.flatMap((action) =>
-      action.kind === 'send_message' && (action.to.everyone || action.to.roleIds.length)
-        ? [JSON.stringify([action.to.everyone, [...action.to.roleIds].sort()])]
-        : [],
-    );
-  // Someone who isn't an Admin may change a button an Admin set up, as long as it reaches no
-  // more of Everyone or the roles than before.
-  const kept = new Set(previous?.setByAdmin ? audiences(previous.actions) : []);
-  const widens = audiences(settings.actions).some((audience) => !kept.has(audience));
-  const problem = settingsProblem(settings, { isAdmin: viewer.isAdmin || !widens });
+  const broad = settings.actions.flatMap((action) => broadStep(action) ?? []);
+  // Someone who isn't an Admin may change a button an Admin set up, but its steps that message
+  // Everyone or roles stay exactly as the Admin left them (they may be removed, not added).
+  const adminSteps =
+    !viewer.isAdmin && previous?.setByAdmin
+      ? previous.actions.flatMap((action) => broadStep(action) ?? [])
+      : null;
+  if (adminSteps) {
+    for (const step of broad) {
+      const at = adminSteps.indexOf(step);
+      if (at < 0) throw refuse(BUTTON_MESSAGES.adminStepsOnly);
+      adminSteps.splice(at, 1);
+    }
+  }
+  const problem = settingsProblem(settings, { isAdmin: viewer.isAdmin || adminSteps !== null });
   if (problem) throw httpError(400, 'invalid', problem);
   for (const action of settings.actions) {
     if (action.kind !== 'add_row' && action.kind !== 'edit_rows' && action.kind !== 'open_page') {
@@ -215,10 +233,9 @@ async function prepareSettings(
     }
     action.names = { ...action.names, target: target.page.title || 'Untitled' };
   }
-  const anyAudience = audiences(settings.actions).length > 0;
   return {
     settings,
-    setByAdmin: anyAudience && (viewer.isAdmin || Boolean(previous?.setByAdmin)),
+    setByAdmin: broad.length > 0 && (viewer.isAdmin || Boolean(previous?.setByAdmin)),
   };
 }
 

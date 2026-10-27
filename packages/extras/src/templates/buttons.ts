@@ -57,6 +57,7 @@ export const BUTTON_MESSAGES = {
   tooManyPeople: `A message can go to up to ${BUTTON_LIMITS.people} people.`,
   noOne: 'No one to send the message to.',
   adminsOnly: 'Only Admins can send messages to Everyone or to roles.',
+  adminStepsOnly: 'Only Admins can change a step that messages Everyone or roles.',
   noEarlierRow: 'Add a row in an earlier step to open it.',
   badLink: 'Links must start with http:// or https://.',
   undoGone: "This can't be undone anymore.",
