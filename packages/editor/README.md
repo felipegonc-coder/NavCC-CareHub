@@ -10,7 +10,8 @@ import { BlockEditor } from '@carehub/editor';
 
 - Works on a local `Y.Doc` alone. Give the collab provider of the same doc (Hocuspocus or
   y-websocket; anything with `awareness`) and the `user` to show carets and selections with names.
-- `BlockEditor` imports its own content styles, built on the `@carehub/ui` color tokens.
+- `BlockEditor` imports its own content styles, built on the `@carehub/ui` tokens for colors,
+  sizes and type (`--ch-*`).
 - `@carehub/editor/schema` has the page schema with no UI (no DOM, no React) for the server.
 
 ## Props
@@ -158,8 +159,10 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
 ## Document format
 
 - The blocks live in the `Y.Doc` XML fragment `default`.
-- Nodes: `doc`, `paragraph`, `hardBreak`, `text` (core); `heading` (`level` 1-3) in `text`;
-  `bulletList`, `orderedList` (`start`), `listItem`, `taskList`, `taskItem` (`checked`) in `lists`;
+- Nodes: `doc`, `paragraph`, `hardBreak`, `text` (core); `heading` (`level` 1-3, drawn as `<h2>`
+  to `<h4>` with `data-level`, because the page title is the `<h1>`) in `text`; `bulletList`,
+  `orderedList` (`start`; `type`: `1`, `a`, `i`, or null to follow the depth), `listItem`,
+  `taskList`, `taskItem` (`checked`) in `lists`;
   `blockquote` and `horizontalRule` in `callout`; `codeBlock` (`language`) in `code`; plus the
   lane nodes.
 - Marks: `bold`, `italic`, `underline`, `strike`, `code`, `link` (`href`, `target`, `rel`).
@@ -175,10 +178,13 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
 
 ## Keyboard
 
-- Markdown shortcuts: `#`, `##`, `###`, `-`, `*` or `+`, `1.`, `---`, and `**bold**`, `*italic*`,
-  `` `code` ``. The rest of the spec's shortcuts come with their block groups.
-- Ctrl/Cmd + B, I, U, Shift+S (strike), E (code). Ctrl/Cmd + Z undoes only your own changes
-  (Yjs undo); Shift+Z or Y redoes. Tab and Shift+Tab indent and outdent list items.
+- Markdown shortcuts at the start of a block, then a space: `#`, `##`, `###`, `-`, `*` or `+`,
+  `1.`, `a.` (letters), `i.` (Roman numerals) and `"` (quote). Without a space: `[]` (to-do),
+  `---` (divider) and three backticks (code). Also `**bold**`, `*italic*` and `` `code` ``. `>`
+  makes a quote until the toggle list lands; `$$` comes with the math group.
+- Ctrl/Cmd + B, I, U, Shift+S (strike), E (code). Ctrl/Cmd + Z right after a shortcut turns it
+  back into what you typed; otherwise it undoes only your own changes (Yjs undo). Shift+Z or Y
+  redoes. Tab and Shift+Tab indent and outdent list items.
 - Ctrl/Cmd + K edits the link of the selected text (or of the link the cursor is in). Anywhere
   else it's left to the app's command menu, which should skip key events already
   `defaultPrevented`. Alt+F10 moves focus into the selection toolbar.
