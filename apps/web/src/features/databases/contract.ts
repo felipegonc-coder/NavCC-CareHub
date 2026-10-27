@@ -250,6 +250,10 @@ export interface PanelProps {
   actions: ViewActions;
   /** Can edit, Lock structure off and online: changes to the view are saved for everyone. */
   canEditViews: boolean;
+  /** From the view's answer: the properties the viewer can see, in database order. */
+  propertyIds?: readonly Id[];
+  /** From the view's answer: the titles of the rows its rows link to. */
+  rowTitles?: Readonly<Record<Id, string>>;
   /** Closes the panel and gives focus back to its button. Esc and presses outside close it too. */
   close(): void;
 }

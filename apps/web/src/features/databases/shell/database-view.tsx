@@ -222,6 +222,9 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
     viewer,
     actions,
     canEditViews: online && canEditViews(meta),
+    // Absent until the view's rows have loaded, and while the view is blocked.
+    propertyIds: result.data?.propertyIds,
+    rowTitles: result.data?.rowTitles,
   };
   const dialog = panels.open !== null && DIALOG_PANELS.has(panels.open) ? panels.open : null;
 
