@@ -35,8 +35,15 @@ export interface FixtureEntry {
   method?: number;
   crc?: number;
   size?: number;
+  compressedSize?: number;
   /** CRC and sizes in a data descriptor after the data (flag bit 3), zero in the local header. */
   dataDescriptor?: boolean;
+  /** Overrides in the local header only, so that it disagrees with the central directory. */
+  local?: { name?: string; method?: number; crc?: number; size?: number };
+  /** Where the central directory says the local header is, instead of where it was written. */
+  offset?: number;
+  /** Writes only the central directory record (with `offset`, entries can share bytes). */
+  centralOnly?: boolean;
 }
 
 /** Little-endian fields [offset, 2 or 4 bytes, value] in a buffer of `length` bytes. */
@@ -73,24 +80,26 @@ export function zipFile(entries: readonly FixtureEntry[]): Uint8Array {
     const flags = (e.flags ?? 0) | 0x800 | (e.dataDescriptor ? 8 : 0);
     const crc = e.crc ?? crc32(data);
     const size = e.size ?? data.length;
+    const packed = e.compressedSize ?? body.length;
     const inHeader = (v: number) => (e.dataDescriptor ? 0 : v);
-    const local = record(30 + name.length, [
+    const localName = e.local?.name === undefined ? name : utf8(e.local.name);
+    const header = record(30 + localName.length, [
       [0, 4, 0x04034b50],
       [4, 2, 20],
       [6, 2, flags],
-      [8, 2, method],
-      [14, 4, inHeader(crc)],
-      [18, 4, inHeader(body.length)],
-      [22, 4, inHeader(size)],
-      [26, 2, name.length],
+      [8, 2, e.local?.method ?? method],
+      [14, 4, inHeader(e.local?.crc ?? crc)],
+      [18, 4, inHeader(packed)],
+      [22, 4, inHeader(e.local?.size ?? size)],
+      [26, 2, localName.length],
     ]);
-    local.set(name, 30);
+    header.set(localName, 30);
     const descriptor = e.dataDescriptor
       ? [
           record(16, [
             [0, 4, 0x08074b50],
             [4, 4, crc],
-            [8, 4, body.length],
+            [8, 4, packed],
             [12, 4, size],
           ]),
         ]
@@ -102,15 +111,16 @@ export function zipFile(entries: readonly FixtureEntry[]): Uint8Array {
       [8, 2, flags],
       [10, 2, method],
       [16, 4, crc],
-      [20, 4, body.length],
+      [20, 4, packed],
       [24, 4, size],
       [28, 2, name.length],
-      [42, 4, offset],
+      [42, 4, e.offset ?? offset],
     ]);
     cd.set(name, 46);
-    parts.push(local, body, ...descriptor);
     central.push(cd);
-    offset += local.length + body.length + (descriptor[0]?.length ?? 0);
+    if (e.centralOnly) continue;
+    parts.push(header, body, ...descriptor);
+    offset += header.length + body.length + (descriptor[0]?.length ?? 0);
   }
   const directory = concat(central);
   const end = record(22, [
@@ -135,8 +145,8 @@ export interface FixtureSheet {
   name: string;
   /** The inside of <sheetData>. */
   rows?: string;
-  /** A whole worksheet part instead. */
-  xml?: string;
+  /** A whole worksheet part instead (bytes for big ones). */
+  xml?: string | Uint8Array;
   state?: 'hidden' | 'veryHidden';
   /** A chart sheet (no cells). */
   chart?: boolean;
@@ -182,7 +192,7 @@ export function xlsxFile(book: FixtureWorkbook): Uint8Array {
     .map((id) => `<xf numFmtId="${id}" fontId="0" xfId="0"/>`)
     .join('');
   const strings = (book.strings ?? []).map((s) => `<si><t xml:space="preserve">${esc(s)}</t></si>`);
-  const parts: [string, string][] = [
+  const parts: [string, string | Uint8Array][] = [
     [
       '[Content_Types].xml',
       `${HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>`,
@@ -204,7 +214,7 @@ export function xlsxFile(book: FixtureWorkbook): Uint8Array {
       `${HEAD}<styleSheet xmlns="${MAIN}"><numFmts>${numFmts}</numFmts><cellStyleXfs count="1"><xf numFmtId="14"/></cellStyleXfs><cellXfs>${xfs}</cellXfs><dxfs count="1"><dxf><numFmt numFmtId="164" formatCode="0.00"/></dxf></dxfs></styleSheet>`,
     ],
     ['xl/sharedStrings.xml', `${HEAD}<sst xmlns="${MAIN}">${book.sst ?? strings.join('')}</sst>`],
-    ...book.sheets.map((s, k): [string, string] => [
+    ...book.sheets.map((s, k): [string, string | Uint8Array] => [
       `xl/${kind(s)}s/sheet${k + 1}.xml`,
       s.xml ??
         `${HEAD}<${kind(s)} xmlns="${MAIN}" xmlns:r="${DOC}"><dimension ref="A1"/><sheetData>${s.rows ?? ''}</sheetData><pageMargins left="0.7"/></${kind(s)}>`,
