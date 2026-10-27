@@ -1,6 +1,6 @@
 import type { CalendarSettings, SettingsPatch } from '@carehub/team-calendar-api';
 import { and, eq, sql } from 'drizzle-orm';
-import type { Db } from '../../../db';
+import type { Db, Tx } from '../../../db';
 import { calSettings } from '../schema';
 import { settingsOf } from './model';
 
@@ -8,7 +8,7 @@ import { settingsOf } from './model';
 export type SettingsOwner = { id: string; workspaceId: string };
 
 /** The person's Calendar settings, with the defaults for anything they never changed. */
-export async function getSettings(db: Db, owner: SettingsOwner): Promise<CalendarSettings> {
+export async function getSettings(db: Db | Tx, owner: SettingsOwner): Promise<CalendarSettings> {
   const [row] = await db
     .select({ settings: calSettings.settings })
     .from(calSettings)

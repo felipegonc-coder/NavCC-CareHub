@@ -11,17 +11,22 @@ import {
 } from '@carehub/team-calendar-api';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
+import { registerNoticeCardResolver } from '../notices';
+import { registerEventLookup } from '../reminders';
 import {
   createEvent,
   deleteEvent,
   duplicateEvent,
   editEvent,
+  eventCards,
   getEvent,
   listItems,
   listUpcoming,
+  onNoticeError,
   replyToEvent,
   type Viewer,
 } from './events/service';
+import { lookupStart } from './events/reminders';
 import { changeLayer, listLayers } from './layers/service';
 import { changeSettings, getSettings } from './settings/service';
 
@@ -30,7 +35,8 @@ function viewerOf(request: FastifyRequest): Viewer {
   const { user, member } = request;
   if (!user) throw httpError(401, 'signed_out');
   if (!member) throw httpError(403, 'forbidden');
-  return { id: user.id, workspaceId: member.workspaceId, timeZone: user.timeZone };
+  const { id, name, timeZone, use24h } = user;
+  return { id, workspaceId: member.workspaceId, name, timeZone, use24h };
 }
 
 type EventParams = { Params: { eventId: string } };
@@ -117,6 +123,16 @@ async function careHubCalendar(app: FastifyInstance) {
 
 /** Calendar routes under /api/calendar. */
 export default async function calendarRoutes(app: FastifyInstance) {
+  // Remind me in the event panel asks Calendar when an event starts, and the 🔔 Care Hub chat
+  // asks what the event cards under Calendar's notices show.
+  registerEventLookup(lookupStart);
+  registerNoticeCardResolver('event', eventCards);
+  onNoticeError((error) => app.log.error({ err: error }, "A Calendar notice wasn't sent"));
+  app.addHook('onClose', async () => {
+    registerEventLookup(null);
+    registerNoticeCardResolver('event', null);
+  });
+
   // A plugin of its own, so its guard doesn't apply to the routes registered after it.
   await app.register(careHubCalendar);
 
