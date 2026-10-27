@@ -9,6 +9,10 @@ export const routes: RouteObject[] = [
 
   // feature: shell
   { path: 'design', lazy: () => import('./features/design/route') },
+  {
+    lazy: () => import('./features/shell/layout'),
+    children: [{ path: '*', lazy: () => import('./features/shell/not-found') }],
+  },
 
   // feature: auth
 

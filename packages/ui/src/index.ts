@@ -2,6 +2,7 @@ export { cssVariables, darkTokens, hexToChannels, lightTokens, tokenNames } from
 export type { TokenName, TokenSet } from './tokens';
 export { cn } from './lib/cn';
 export { useMediaQuery } from './lib/use-media-query';
+export { usePageTitle } from './lib/use-page-title';
 
 export { applyTheme, DARK_QUERY, isTheme, THEME_STORAGE_KEY, useTheme } from './theme/theme';
 export type { ResolvedTheme, Theme, ThemeContextValue } from './theme/theme';
@@ -26,6 +27,8 @@ export * from './components/logo';
 export * from './components/misc';
 export * from './components/popover';
 export * from './components/select';
+export * from './components/sheet';
+export * from './components/sidebar';
 export * from './components/spinner';
 export * from './components/switch';
 export * from './components/tabs';
