@@ -5,16 +5,16 @@ import {
   createUser,
   hasDatabase,
   injectAs,
+  type CreateUserOptions,
   type TestApp,
   type TestUser,
 } from '../../testing';
+import { addMember } from '../workspaces';
 import meetingsRoutes from './routes';
 import { NOTES_PARENT_TITLE, registerMeetingEventLookup } from './service';
 import { createMemoryPages } from './testing';
 import type { MeetingEvent } from './types';
 
-const WORKSPACE = '0b0e5a2c-7d3f-4c1a-9e8b-5f6a7b8c9d0e';
-type Member = { workspaceId: string; roleId: string | null; permissions: ReadonlySet<string> };
 type View = { notes: { id: string; pageId: string } };
 
 describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
@@ -26,41 +26,23 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
   let morgan: TestUser;
   let outsider: TestUser;
   const pages = createMemoryPages();
-  const members = new Map<string, Member>();
   let events: MeetingEvent[] = [];
 
   beforeAll(async () => {
     test = await createTestApp({
       routes: async (app) => {
-        await app.register(async (scope) => {
-          // Stand-in for core's `request.member` until createUser makes memberships (accounts 1b).
-          scope.addHook('preHandler', async (request) => {
-            const member = request.user ? members.get(request.user.id) : undefined;
-            if (member) Object.assign(request, { member });
-          });
-          await scope.register(meetingsRoutes, { prefix: '/api/meetings', pages: pages.service });
-        });
+        await app.register(meetingsRoutes, { prefix: '/api/meetings', pages: pages.service });
       },
     });
-    const person = (name: string, email: string) => createUser(test.db, { name, email });
+    // Editors by default, so with the Create permission. Casey comments only, Jordan is outside.
+    const person = (name: string, email: string, options: CreateUserOptions = {}) =>
+      createUser(test.db, { name, email, ...options });
     avery = await person('Avery Lin', 'avery.lin@example.com');
     sam = await person('Sam Ortiz', 'sam.ortiz@example.com');
     riley = await person('Riley Chen', 'riley.chen@example.com');
-    casey = await person('Casey Nguyen', 'casey.nguyen@example.com');
+    casey = await person('Casey Nguyen', 'casey.nguyen@example.com', { role: 'commenter' });
     morgan = await person('Morgan Lee', 'morgan.lee@example.com');
-    outsider = await person('Jordan Patel', 'jordan.patel@example.com');
-    const editor = {
-      workspaceId: WORKSPACE,
-      roleId: 'editor',
-      permissions: new Set(['pages.create']),
-    };
-    for (const user of [avery, sam, riley, morgan]) members.set(user.id, editor);
-    const commenter = {
-      workspaceId: WORKSPACE,
-      roleId: 'commenter',
-      permissions: new Set<string>(),
-    };
-    members.set(casey.id, commenter);
+    outsider = await person('Jordan Patel', 'jordan.patel@example.com', { role: null });
     const meeting = (eventId: string, title: string): MeetingEvent => ({
       eventId,
       occurrence: null,
@@ -80,7 +62,7 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
       { ...meeting('weekly-stand-up', 'Weekly stand-up'), occurrence: '2026-11-02T09:30' },
     ];
     registerMeetingEventLookup(async (_db, { workspaceId, eventId, occurrence }) => {
-      if (workspaceId !== WORKSPACE) return null;
+      if (workspaceId !== avery.workspaceId) return null;
       const found = events.find(
         (e) => e.eventId === eventId && (e.occurrence ?? undefined) === occurrence,
       );
@@ -107,7 +89,7 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
     );
     expect(saved).toEqual([
       {
-        workspace_id: WORKSPACE,
+        workspace_id: avery.workspaceId,
         page_id: made.pageId,
         event_id: 'team-huddle',
         occurrence_key: '',
@@ -178,7 +160,7 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
     }
   });
 
-  it('is 403 for people not invited, and for making notes without the Create permission', async () => {
+  it('is 403 for people not invited, guests, and making notes without the Create permission', async () => {
     const forbidden = { error: { code: 'forbidden', message: "You don't have access to this." } };
     const notInvited = await takeNotes(morgan, { eventId: 'team-huddle' });
     expect(notInvited.statusCode).toBe(403);
@@ -186,6 +168,11 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
     expect((await takeNotes(outsider, { eventId: 'team-huddle' })).statusCode).toBe(403);
     expect((await takeNotes(casey, { eventId: 'qa-review' })).statusCode).toBe(403);
     expect((await takeNotes(casey, { eventId: 'team-huddle' })).statusCode).toBe(200);
+    // A guest gets nothing, even one Calendar lists.
+    await addMember(test.db, { userId: sam.id, kind: 'guest' });
+    expect((await takeNotes(sam, { eventId: 'team-huddle' })).statusCode).toBe(403);
+    await addMember(test.db, { userId: sam.id, role: 'editor' });
+    expect((await takeNotes(sam, { eventId: 'team-huddle' })).statusCode).toBe(200);
   });
 
   it('is 404 for an event Calendar does not find, and 400 for a bad request', async () => {

@@ -11,6 +11,7 @@ meeting notes come next.
   repeats). Take meeting notes in the event panel and Upcoming (MT-01):
   - 201 `{ notes }` when it made the page, 200 `{ notes }` when the occurrence already had one.
     `notes` is `{ id, pageId }`: IDs only, so the web opens `/p/<pageId>`.
+  - Members only: `app.requireMember` answers 403 to guests and people outside the workspace.
   - 403 unless the person is the organizer or an invited member; making the page also needs the
     Create permission (`pages.create`), opening one that's there doesn't. 404 when Calendar
     doesn't find the event or occurrence. 409 until pages are on the server.
@@ -53,9 +54,7 @@ memory pages.
 - Pages and page content: `corePages` is null until features/pages (`createPage`,
   `getPrivateSpaceId`, `getPageAccess`, `grantAccess`) and features/collab
   (`setPageContentFromMarkdown`) are on main, so Take meeting notes answers 409 and makes nothing.
-- The member: `viewerOf` reads core's `request.member`, so everyone gets 403 until core sets it.
-  Then `app.requireMember` takes over its checks.
-- `routes.ts` isn't in `app.ts` yet: its line comes with these pieces, since until then the route
+- `routes.ts` isn't in `app.ts` yet: its line comes with those pieces, since until then the route
   can only answer 403 or 409. The route tests register it themselves.
 
 ## Next
