@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { ScreenMessage } from '../../player/ScreenMessage';
 import { NOT_FOUND, reportProblem } from './data';
 
-// The layout B3's report screens share: the page, a table, the CSV download and load failures.
+// The layout the report screens share: the page, a table, the CSV download and load failures.
 
 /** A report page: the browser tab's title and the page width of the other Learning pages. */
 export function ReportPage({ title, children }: { title: string; children: ReactNode }) {

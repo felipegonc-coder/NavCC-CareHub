@@ -10,6 +10,7 @@ import {
   formatDay,
   formatMinutes,
   formatPercent,
+  personName,
   STATUS_LABELS,
 } from './data';
 import { CELL, CsvLink, HEAD_CELL, None, ReportPage, ReportTable } from './parts';
@@ -47,18 +48,23 @@ export const courseCount = (count: number): string =>
 export function TranscriptView({
   transcript,
   today,
+  timeZone,
 }: {
   transcript: PersonTranscriptResponse;
+  /** Today in the workspace's time zone, for days overdue. */
   today: IsoDate;
+  /** The viewer's profile time zone, for the days courses were started and completed. */
+  timeZone: string;
 }) {
   const { person, rows } = transcript;
+  const name = personName(person.name);
   const finished = rows.filter((row) => FINISHED.has(row.status)).length;
   const late = rows.filter((row) => daysLate(row, today) > 0).length;
   return (
-    <ReportPage title={`${person.name} · Learning record`}>
+    <ReportPage title={`${name} · Learning record`}>
       <div className="flex flex-col gap-2">
         <p className="text-small text-muted">Learning record</p>
-        <h1 className="break-words text-title">{person.name}</h1>
+        <h1 className="break-words text-title">{name}</h1>
         <p className="text-body text-muted">
           {[courseCount(rows.length), `${finished} finished`, late > 0 && `${late} overdue`]
             .filter(Boolean)
@@ -69,7 +75,7 @@ export function TranscriptView({
       {rows.length === 0 ? (
         <p className="text-body text-muted">No courses yet: nothing assigned or started.</p>
       ) : (
-        <ReportTable caption={`Courses of ${person.name}`}>
+        <ReportTable caption={`Courses of ${name}`}>
           <thead>
             <tr>
               {HEADINGS.map((heading) => (
@@ -81,7 +87,7 @@ export function TranscriptView({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <TranscriptLine key={row.courseId} row={row} today={today} />
+              <TranscriptLine key={row.courseId} row={row} today={today} timeZone={timeZone} />
             ))}
           </tbody>
         </ReportTable>
@@ -91,7 +97,15 @@ export function TranscriptView({
 }
 
 /** One course of the record. */
-function TranscriptLine({ row, today }: { row: TranscriptRow; today: IsoDate }) {
+function TranscriptLine({
+  row,
+  today,
+  timeZone,
+}: {
+  row: TranscriptRow;
+  today: IsoDate;
+  timeZone: string;
+}) {
   const late = daysLate(row, today);
   const started = row.status !== 'not_started';
   return (
@@ -111,8 +125,8 @@ function TranscriptLine({ row, today }: { row: TranscriptRow; today: IsoDate }) 
       <td className={CELL}>{formatPercent(row.score) ?? <None />}</td>
       <td className={CELL}>{started ? formatMinutes(row.activeSeconds) : <None />}</td>
       <td className={CELL}>{started ? row.attempts : <None />}</td>
-      <td className={CELL}>{formatDay(row.startedAt) ?? <None />}</td>
-      <td className={CELL}>{formatDay(row.completedAt) ?? <None />}</td>
+      <td className={CELL}>{formatDay(row.startedAt, timeZone) ?? <None />}</td>
+      <td className={CELL}>{formatDay(row.completedAt, timeZone) ?? <None />}</td>
       <td className={CELL}>{formatCalendarDay(row.dueDate) ?? <None />}</td>
       <td className={CELL}>
         {row.certificate ? <CertificateCell certificate={row.certificate} /> : <None />}

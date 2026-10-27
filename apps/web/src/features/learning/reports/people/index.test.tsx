@@ -1,9 +1,17 @@
 import { createCertificateCode, type PersonTranscriptResponse } from '@carehub/learning';
 import { fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LEARNING_DAY_ZONE, useProfileTimeZone } from '../../data/timeZone';
 import { errorReply, jsonReply, renderRoute } from '../../player/test-utils';
 import { formatCalendarDay, formatDay, NOT_FOUND, personReportHref } from './data';
 import { PersonReportScreen } from './index';
+
+// The viewer's profile is on Tokyo time, so days differ from UTC (decision 0317).
+const ZONE = 'Asia/Tokyo';
+vi.mock('../../data/timeZone', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useProfileTimeZone: vi.fn(() => 'Asia/Tokyo'),
+}));
 
 // A fictional learner and her courses, as GET /reports/people/:personId sends them.
 const ADA = '0b6c1f2e-5d4a-4c3b-9a8f-7e6d5c4b3a21';
@@ -74,7 +82,10 @@ function showRecord(...replies: (() => Response)[]) {
 const serverError = () =>
   jsonReply(500, { error: { code: 'server_error', message: 'Care Hub had a problem.' } });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(useProfileTimeZone).mockImplementation(() => ZONE);
+});
 
 describe('Learning record', () => {
   it('shows each course with its status, score, time, dates and certificate', async () => {
@@ -92,14 +103,17 @@ describe('Learning record', () => {
     expect(privacy?.getByText('In progress')).toBeVisible();
     expect(privacy?.getByText(/^\d+ days overdue$/)).toHaveClass('text-danger');
     expect(privacy?.getByText('10 min')).toBeVisible();
-    expect(privacy?.getByText(formatDay('2026-10-20T09:00:00.000Z') ?? '')).toBeVisible();
+    expect(privacy?.getByText(formatDay('2026-10-20T09:00:00.000Z', ZONE) ?? '')).toBeVisible();
     expect(privacy?.getByText(formatCalendarDay('2026-01-15') ?? '')).toBeVisible();
 
     expect(calls?.getByText('Passed')).toHaveClass('text-success');
     expect(calls?.getByText('92%')).toBeVisible();
     expect(calls?.getByText('1 h 5 min')).toBeVisible();
     expect(calls?.getByText('2')).toBeVisible();
-    expect(calls?.getByText(formatDay('2026-10-03T16:00:00.000Z') ?? '')).toBeVisible();
+    // 16:00 UTC on 3 October is already 4 October in Tokyo.
+    const completed = formatDay('2026-10-03T16:00:00.000Z', ZONE);
+    expect(completed).not.toBe(formatDay('2026-10-03T16:00:00.000Z', 'UTC'));
+    expect(calls?.getByText(completed ?? '')).toBeVisible();
     expect(calls?.getByRole('link', { name: CODE })).toHaveAttribute(
       'href',
       '/learning/certificates/cert-calls-ada',
@@ -108,6 +122,16 @@ describe('Learning record', () => {
 
     expect(escalations?.getByText('Not started')).toBeVisible();
     expect(escalations?.getAllByText('None')).toHaveLength(7);
+  });
+
+  it('shows days in the Learning day zone while the profile loads', async () => {
+    vi.mocked(useProfileTimeZone).mockImplementation(() => undefined);
+    showRecord(() => jsonReply(200, RECORD));
+    const [, , calls] = (await screen.findAllByRole('row')).map((line) => within(line));
+    // 16:00 UTC on 3 October is still 3 October in Denver, but 4 October in Tokyo.
+    const completed = formatDay('2026-10-03T16:00:00.000Z', LEARNING_DAY_ZONE);
+    expect(completed).not.toBe(formatDay('2026-10-03T16:00:00.000Z', ZONE));
+    expect(calls?.getByText(completed ?? '')).toBeVisible();
   });
 
   it('says when the person has no courses yet', async () => {

@@ -1,7 +1,8 @@
 import { IdSchema, type Id } from '@carehub/learning';
 import { useParams } from 'react-router';
+import { LEARNING_DAY_ZONE, useProfileTimeZone } from '../../data/timeZone';
 import { ScreenLoading } from '../../player/ScreenMessage';
-import { browserToday, usePersonTranscript } from './data';
+import { learningToday, usePersonTranscript } from './data';
 import { ReportFailed, ReportNotFound } from './parts';
 import { TranscriptView } from './Transcript';
 
@@ -17,8 +18,13 @@ export function PersonReportScreen() {
 
 function PersonReport({ personId }: { personId: Id }) {
   const transcript = usePersonTranscript(personId);
-  if (transcript.data)
-    return <TranscriptView transcript={transcript.data} today={browserToday()} />;
+  // The profile's zone, or the Learning day zone while /auth/me loads (decision 0317).
+  const timeZone = useProfileTimeZone() ?? LEARNING_DAY_ZONE;
+  if (transcript.data) {
+    return (
+      <TranscriptView transcript={transcript.data} today={learningToday()} timeZone={timeZone} />
+    );
+  }
   if (!transcript.error) return <ScreenLoading label="Loading the learning record" />;
   return (
     <ReportFailed

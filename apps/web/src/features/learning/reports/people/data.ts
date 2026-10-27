@@ -9,13 +9,14 @@ import {
 } from '@carehub/learning';
 import { useQuery } from '@tanstack/react-query';
 import { api, apiPath, LEARNING_API, LearningApiError, withQuery } from '../../data';
+import { LEARNING_DAY_ZONE } from '../../data/timeZone';
 import { retryOnce } from '../../player/data';
 
-// B3's reports (docs/learning/api.md): a person's learning record, GET /reports/people/:personId,
-// and what the team view and the path report share with it: their links, CSV downloads, and how
-// statuses, days, minutes and failures read.
+// The person, team and path reports (docs/learning/api.md): a person's learning record, GET
+// /reports/people/:personId, and what the team view and the path report share with it: their
+// links, CSV downloads, and how statuses, days, minutes and failures read.
 
-/** The cache key of B3's report calls. */
+/** The cache key of the person, team and path report calls. */
 export const reportsKey = ['learning', 'reports'] as const;
 
 /** A person's learning record: "/learning/reports/people/<personId>". */
@@ -25,6 +26,9 @@ export const personReportHref = (personId: Id): string =>
 /** The team view, over every course or one: "/learning/reports/team?courseId=<courseId>". */
 export const teamReportHref = (courseId?: Id): string =>
   withQuery('/learning/reports/team', { courseId });
+
+/** A person's name as the reports show it: "Unknown person" when the report has none. */
+export const personName = (name: string): string => name.trim() || 'Unknown person';
 
 /** A learning path's report: "/learning/reports/paths/<pathId>". */
 export const pathReportHref = (pathId: Id): string =>
@@ -60,12 +64,21 @@ export const STATUS_LABELS: Record<CourseStatus, string> = {
 };
 
 const DAY: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' };
-const localDay = new Intl.DateTimeFormat(undefined, DAY);
 const calendarDay = new Intl.DateTimeFormat(undefined, { ...DAY, timeZone: 'UTC' });
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
 
-/** The day something happened, in the browser's time zone: "12 Oct 2026". */
-export const formatDay = (at: IsoDateTime | null | undefined): string | null =>
-  at ? localDay.format(new Date(at)) : null;
+/**
+ * The day something happened, in the viewer's profile time zone (decision 0317): "12 Oct 2026".
+ */
+export function formatDay(at: IsoDateTime | null | undefined, timeZone: string): string | null {
+  if (!at) return null;
+  let format = dayFormats.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat(undefined, { ...DAY, timeZone });
+    dayFormats.set(timeZone, format);
+  }
+  return format.format(new Date(at));
+}
 
 /** A calendar day such as a due date, the same everywhere: "12 Oct 2026". */
 export const formatCalendarDay = (day: IsoDate | null | undefined): string | null =>
@@ -83,9 +96,9 @@ export function formatMinutes(seconds: number): string {
 export const formatPercent = (value: number | null): string | null =>
   value === null ? null : `${Math.round(value)}%`;
 
-/** Today in the browser's time zone, for days overdue. */
-export const browserToday = (now = new Date()): IsoDate =>
-  isoDateInTimeZone(now.toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
+/** Today in `LEARNING_DAY_ZONE` (decision 0317), for days overdue: the same day for everyone. */
+export const learningToday = (now = new Date()): IsoDate =>
+  isoDateInTimeZone(now.toISOString(), LEARNING_DAY_ZONE);
 
 /** Days past the due date of an unfinished course on `today`, or 0. */
 export function daysLate(
