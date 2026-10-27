@@ -1,10 +1,12 @@
 import {
   checkPublishable,
+  LIMITS,
   type BankDraw,
   type Course,
   type Id,
   type Lesson,
   type PublishProblem,
+  type QuizLesson,
 } from '../format/index';
 import type { QuestionBank } from './bank';
 import { idAllocator, lessonName } from './internal';
@@ -169,4 +171,41 @@ export function stripBankSnapshots(course: Course): Course {
       : lesson,
   );
   return { ...course, lessons };
+}
+
+const drawCount = (count: number) => Math.min(Math.max(Math.round(count), 1), LIMITS.bankDrawCount);
+
+/**
+ * Adds a draw of `count` questions (rounded to 1..50) from a bank to a quiz draft. A quiz has at most 10 draws and
+ * one per bank, so otherwise it comes back unchanged.
+ */
+export function addBankDraw(lesson: QuizLesson, bankId: Id, count = 1): QuizLesson {
+  const draws = lesson.bankDraws ?? [];
+  if (draws.length >= LIMITS.bankDraws || draws.some((draw) => draw.bankId === bankId))
+    return lesson;
+  const value = Number.isFinite(count) ? drawCount(count) : 1;
+  return { ...lesson, bankDraws: [...draws, { bankId, count: value }] };
+}
+
+/** Sets how many questions the draw from a bank takes each attempt, rounded to 1..50. */
+export function setBankDrawCount(lesson: QuizLesson, bankId: Id, count: number): QuizLesson {
+  const draws = lesson.bankDraws ?? [];
+  const index = draws.findIndex((draw) => draw.bankId === bankId);
+  const draw = draws[index];
+  if (!draw || !Number.isFinite(count) || draw.count === drawCount(count)) return lesson;
+  const bankDraws = draws.map((item, i) =>
+    i === index ? { ...item, count: drawCount(count) } : item,
+  );
+  return { ...lesson, bankDraws };
+}
+
+/** Removes the draw from a bank. A quiz left without draws has no `bankDraws` at all. */
+export function removeBankDraw(lesson: QuizLesson, bankId: Id): QuizLesson {
+  const draws = lesson.bankDraws ?? [];
+  const bankDraws = draws.filter((draw) => draw.bankId !== bankId);
+  if (bankDraws.length === draws.length) return lesson;
+  if (bankDraws.length > 0) return { ...lesson, bankDraws };
+  const next = { ...lesson };
+  delete next.bankDraws;
+  return next;
 }

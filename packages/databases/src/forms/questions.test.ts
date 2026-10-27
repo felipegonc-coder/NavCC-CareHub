@@ -395,7 +395,11 @@ describe('validateFormDefinition', () => {
     ).toBe(message);
     expect(
       validateFormDefinition(form([q(name)], { ...single, audience: 'anyone' }), properties),
-    ).toBe(message);
+    ).toBe("Forms anyone can fill in can't limit responses per person.");
+    const anyoneAnonymous = form([q(name)], { ...single, audience: 'anyone', anonymous: true });
+    expect(validateFormDefinition(anyoneAnonymous, properties)).toBe(
+      "Forms anyone can fill in can't limit responses per person.",
+    );
     expect(validateFormDefinition(form([q(name)], single), properties)).toBeNull();
   });
   it('refuses Person and Relation questions when anyone can respond (FM-18)', () => {

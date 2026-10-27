@@ -5,7 +5,9 @@ import { useFieldControlProps } from './field-context';
 
 export function Input({ className, ...props }: ComponentProps<'input'>) {
   const field = useFieldControlProps(props);
-  return <input className={cn(controlClasses, 'h-9', className)} {...props} {...field} />;
+  return (
+    <input className={cn(controlClasses, 'h-9 max-md:h-11', className)} {...props} {...field} />
+  );
 }
 
 export function Textarea({ className, ...props }: ComponentProps<'textarea'>) {
