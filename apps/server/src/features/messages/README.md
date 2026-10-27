@@ -16,11 +16,19 @@ Members only (`requireMember`): guests have just their 🔔 chat (RP-D2). Every 
 | `POST /chats/:chatId/messages` | `{ clientId, text, pageIds? }` | `MessageResponse`: 201, or 200 for a resend with the same `clientId` |
 | `PATCH /messages/:messageId` | `{ text, pageIds? }` | `MessageResponse` |
 | `DELETE /messages/:messageId` | | 204, also when it was already deleted |
+| `POST /chats/:chatId/read` | `{ seq }`: the newest message on screen | `ReadResponse` `{ lastReadSeq, unread, mentions }` |
+| `POST /chats/:chatId/unread` | | `ReadResponse`: Mark as unread |
+| `PATCH /chats/:chatId` | `{ muted?, name? }` | `ChatResponse` |
+| `POST /chats/:chatId/members` | `{ userIds }` | `ChatResponse` |
+| `DELETE /chats/:chatId/members/:userId` | | Leaving (your own ID): 204. Removing someone: `ChatResponse` |
 
 - **New chats:** one person opens the pair's only direct chat. Two or more start a group (3 to 50 people, name up to 100 characters), unless a group with exactly these people exists and `startNew` isn't set ("Open existing chat"). Guests, people outside the workspace and removed people can't be picked (400).
 - **Sending:** text up to 4,000 characters, checked here too (MS-14). `clientId` is a UUID made in the browser: a resend after a dropped connection answers with the message saved the first time (MS-08). A `clientId` already used in another chat is a 409. A direct chat with someone removed from the workspace takes no new messages (409). Files come in a later part (400 for now).
 - **Editing and deleting:** only the sender (MS-05). Deleting erases the text, mentions and cards from the database; "This message was deleted" stays in their place.
 - **Order:** each chat numbers its messages 1, 2, 3, … (`seq`) in the order the server saves them.
+- **Read markers** only move forward, up to the chat's latest message. Mark as unread moves yours back to just before the newest message from someone else.
+- **Groups:** anyone in a group can rename it (a blank name removes the name) and add people (up to 50), who can then read its earlier messages. Only the person who started it, or who took over, can remove people. Anyone can leave; when the starter leaves, the longest-standing member takes over. Each change adds a system line ("Sam Ortiz renamed the group"). Asking for a change that's already made (a resend) answers with the chat as it is. Direct chats can't be renamed or left, and people can't be added to them (400).
+- **Live updates:** every change nudges the open tabs of the people in the chat with `messages-changed` `{ chatId }`; they fetch the chat again.
 - **Unread:** messages from others after the person's read marker (`lastReadSeq`), not system lines or deleted messages. Sending marks the chat read up to your message. The badge counts unread messages in unmuted chats and @mentions in muted ones; the 🔔 chat adds its notices on the web.
 
 Request and answer types are in `@carehub/team-chat` (`api.ts`).
