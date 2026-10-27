@@ -3,7 +3,7 @@ import { act, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useEntryActions } from './actions';
+import { useEntryActions, type MoveHost } from './actions';
 import { pagesKeys } from './api';
 import type { TreeNode } from './types';
 
@@ -13,6 +13,7 @@ const { api, toast, Refused } = vi.hoisted(() => {
     constructor(
       readonly status: number,
       message: string,
+      readonly details?: unknown,
     ) {
       super(message);
     }
@@ -50,6 +51,8 @@ function Opened() {
   return <p>Opened {useParams().pageId}</p>;
 }
 
+const host = { confirmMove: vi.fn<MoveHost['confirmMove']>() };
+
 function setup() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -66,7 +69,7 @@ function setup() {
       </MemoryRouter>
     </QueryClientProvider>
   );
-  const { result } = renderHook(() => useEntryActions(), { wrapper });
+  const { result } = renderHook(() => useEntryActions(host), { wrapper });
   const titles = () =>
     queryClient.getQueryData<TreeNode[]>(pagesKeys.tree('general'))?.map((page) => page.title);
   return { queryClient, result, titles };
@@ -143,5 +146,54 @@ describe('useEntryActions', () => {
       expect(toast).toHaveBeenCalledWith({ title: 'Link copied', variant: 'success' }),
     );
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/p/a1`);
+  });
+
+  it('moves a page at once, and back if the server refuses', async () => {
+    const { queryClient, result, titles } = setup();
+    let refuse: (error: unknown) => void = () => undefined;
+    api.post.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)));
+    act(() => result.current.move(onboarding, { spaceId: 'general', parentId: 'b1' }));
+    await waitFor(() => expect(titles()).toEqual(['Rota', 'Onboarding', 'Week one']));
+    expect(queryClient.getQueryData(pagesKeys.tree('general'))).toContainEqual(
+      expect.objectContaining({ id: 'a1', parentId: 'b1' }),
+    );
+    expect(api.post).toHaveBeenCalledWith('/api/pages/a1/move', {
+      spaceId: 'general',
+      parentId: 'b1',
+    });
+    refuse(new Refused(400, "That page can't hold sub-pages."));
+    await waitFor(() => expect(titles()).toEqual(['Onboarding', 'Week one', 'Rota']));
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Couldn't move the page.", variant: 'danger' }),
+    );
+  });
+
+  it('asks before a move that changes who can open the page', async () => {
+    const { result } = setup();
+    const change = { losing: [{ id: 'u1', name: 'Ana Silva' }], gaining: [] };
+    api.post.mockRejectedValueOnce(new Refused(409, 'Access would change.', change));
+    host.confirmMove.mockResolvedValueOnce(true);
+    act(() => result.current.move(onboarding, { spaceId: 'care', parentId: null }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenLastCalledWith('/api/pages/a1/move', {
+        spaceId: 'care',
+        parentId: null,
+        confirmAccessChange: true,
+      }),
+    );
+    expect(host.confirmMove).toHaveBeenCalledWith(onboarding, {
+      losing: ['Ana Silva'],
+      gaining: [],
+    });
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('leaves the page where it was when the person says no', async () => {
+    const { result } = setup();
+    api.post.mockRejectedValueOnce(new Refused(409, 'Access would change.', {}));
+    host.confirmMove.mockResolvedValueOnce(false);
+    act(() => result.current.move(onboarding, { spaceId: 'care', parentId: null }));
+    await waitFor(() => expect(host.confirmMove).toHaveBeenCalled());
+    expect(api.post).toHaveBeenCalledTimes(1);
   });
 });
