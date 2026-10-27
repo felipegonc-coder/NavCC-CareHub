@@ -154,6 +154,7 @@ export async function listConnections(db: DbOrTx, ownerId: string): Promise<Conn
     .where(eq(connections.ownerId, ownerId))
     .orderBy(asc(connections.createdAt), asc(connections.id));
   if (rows.length === 0) return [];
+  const ids = rows.map((row) => row.id);
   const list = await db
     .select({
       connectionId: calendars.connectionId,
@@ -164,12 +165,7 @@ export async function listConnections(db: DbOrTx, ownerId: string): Promise<Conn
       truncated: calendars.truncated,
     })
     .from(calendars)
-    .where(
-      inArray(
-        calendars.connectionId,
-        rows.map((row) => row.id),
-      ),
-    )
+    .where(inArray(calendars.connectionId, ids))
     .orderBy(asc(calendars.name), asc(calendars.id));
   const byConnection = new Map<string, CalendarView[]>();
   for (const { connectionId, ...calendar } of list) {
@@ -180,29 +176,6 @@ export async function listConnections(db: DbOrTx, ownerId: string): Promise<Conn
     account: maskAccount(row.account),
     calendars: byConnection.get(row.id) ?? [],
   }));
-}
-
-export type ConnectionRow = typeof connections.$inferSelect;
-export type CalendarRow = typeof calendars.$inferSelect;
-
-/** One connection with its sealed secret and calendars, or undefined (not theirs, or gone). */
-export async function loadConnection(
-  db: DbOrTx,
-  id: string,
-  ownerId?: string,
-): Promise<{ connection: ConnectionRow; calendars: CalendarRow[] } | undefined> {
-  const owned = ownerId === undefined ? undefined : eq(connections.ownerId, ownerId);
-  const [connection] = await db
-    .select()
-    .from(connections)
-    .where(and(eq(connections.id, id), owned));
-  if (!connection) return undefined;
-  const list = await db
-    .select()
-    .from(calendars)
-    .where(eq(calendars.connectionId, id))
-    .orderBy(asc(calendars.name), asc(calendars.id));
-  return { connection, calendars: list };
 }
 
 /** Removes a connection with its calendars and events. Returns what was removed, for revoking. */

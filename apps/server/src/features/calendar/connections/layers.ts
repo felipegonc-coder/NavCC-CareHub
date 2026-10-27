@@ -1,8 +1,10 @@
-// Connected calendars as layers on the calendar (Calendar spec, Layers and Connections). The
-// calendar's layer routes list these with the person's other layers and pass changes here.
-// Only the owner sees or changes them; admins never do (RP-D1).
-import { and, asc, eq } from 'drizzle-orm';
+// Connected calendars as layers on the calendar, and their copied events for range reads
+// (Calendar spec, Layers and Connections). The calendar's routes list these with the person's
+// other layers and events and pass layer changes here. Only the owner sees or changes them;
+// admins never do (RP-D1). The events are read-only.
+import { and, asc, eq, gt, isNull, lt, or } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
+import type { ExternalEvent } from '../sync/types';
 import {
   type ConnectionKind,
   type ConnectionStatus,
@@ -120,4 +122,46 @@ export async function setConnectedLayer(
     }
     return toLayer({ ...before, color, shown, truncated: hide ? false : before.truncated });
   });
+}
+
+export interface SyncedEventRow {
+  layerId: string;
+  calendarId: string;
+  connectionId: string;
+  remoteId: string;
+  event: ExternalEvent;
+  /** The event's page in Google Calendar (CA-17), or null. */
+  htmlLink: string | null;
+}
+
+/**
+ * Copied events on the person's shown connected calendars that may have occurrences in
+ * [from, to): single events, series, and changed or cancelled occurrences of a series (same uid,
+ * `recurrenceId` set). Expand series to occurrences with the reader's expandSeries.
+ */
+export async function listSyncedEvents(
+  db: DbOrTx,
+  input: { ownerId: string; from: Date; to: Date },
+): Promise<SyncedEventRow[]> {
+  const rows = await db
+    .select({
+      calendarId: syncedEvents.calendarId,
+      connectionId: calendars.connectionId,
+      remoteId: syncedEvents.remoteId,
+      event: syncedEvents.event,
+      htmlLink: syncedEvents.htmlLink,
+    })
+    .from(syncedEvents)
+    .innerJoin(calendars, eq(calendars.id, syncedEvents.calendarId))
+    .innerJoin(connections, eq(connections.id, calendars.connectionId))
+    .where(
+      and(
+        eq(connections.ownerId, input.ownerId),
+        eq(calendars.shown, true),
+        lt(syncedEvents.startsAt, input.to),
+        or(isNull(syncedEvents.endsAt), gt(syncedEvents.endsAt, input.from)),
+      ),
+    )
+    .orderBy(asc(syncedEvents.startsAt), asc(syncedEvents.calendarId), asc(syncedEvents.remoteId));
+  return rows.map((row) => ({ layerId: connectedLayerId(row.calendarId), ...row }));
 }

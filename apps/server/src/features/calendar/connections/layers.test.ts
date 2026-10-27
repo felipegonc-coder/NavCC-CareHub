@@ -13,6 +13,7 @@ import {
   calendarIdOfLayer,
   connectedLayerId,
   listConnectedLayers,
+  listSyncedEvents,
   setConnectedLayer,
 } from './layers';
 import {
@@ -128,5 +129,33 @@ describe.skipIf(!hasDatabase)('connected calendar layers', () => {
       .from(connections)
       .where(eq(connections.id, connectionId));
     expect(connection?.nextSyncAt.toISOString()).toBe(now.toISOString());
+  });
+
+  it('reads copied events on shown calendars that may show in a range, for the owner only', async () => {
+    const week = { from: new Date('2026-11-01T00:00:00Z'), to: new Date('2026-11-08T00:00:00Z') };
+    const inside = await insertTestEvent(db, ownId, 'inside');
+    await insertTestEvent(db, ownId, 'before', {
+      startsAt: '2026-10-20T16:00:00.000Z',
+      endsAt: '2026-10-20T17:00:00.000Z',
+    });
+    const series = await insertTestEvent(db, ownId, 'weekly', {
+      startsAt: '2026-01-05T15:00:00.000Z',
+      endsAt: null,
+    });
+    // Family is hidden, so its copies (if any were left) don't show.
+    await insertTestEvent(db, familyId, 'family');
+
+    const rows = await listSyncedEvents(db, { ownerId: avery.id, ...week });
+    expect(rows.map((row) => row.remoteId)).toEqual(['weekly', 'inside']);
+    expect(rows[1]).toEqual({
+      layerId: `connected:${ownId}`,
+      calendarId: ownId,
+      connectionId,
+      remoteId: 'inside',
+      event: inside,
+      htmlLink: null,
+    });
+    expect(rows[0]?.event).toEqual(series);
+    expect(await listSyncedEvents(db, { ownerId: sam.id, ...week })).toEqual([]);
   });
 });

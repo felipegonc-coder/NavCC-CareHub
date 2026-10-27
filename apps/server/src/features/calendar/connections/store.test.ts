@@ -18,7 +18,6 @@ import {
   MAX_CONNECTIONS,
   createConnection,
   listConnections,
-  loadConnection,
   maskAccount,
   nextColors,
   removeConnection,
@@ -55,6 +54,9 @@ describe.skipIf(!hasDatabase)('calendar connections store', () => {
     await testApp?.close();
   });
 
+  const connectionIds = async (ownerId: string) =>
+    (await listConnections(db, ownerId)).map((view) => view.id);
+
   it('adds a connection with its calendars and lists it without the secret', async () => {
     const input = testGoogleConnection(avery.id);
     await createConnection(db, input);
@@ -88,17 +90,6 @@ describe.skipIf(!hasDatabase)('calendar connections store', () => {
     expect(views[1]?.calendars).toMatchObject([{ name: 'Soccer', color: 'green' }]);
   });
 
-  it('loads a connection with its secret for its owner only', async () => {
-    const input = testLinkConnection(avery.id, 'Clinic');
-    await createConnection(db, input);
-    expect(await loadConnection(db, input.id, sam.id)).toBeUndefined();
-    const loaded = await loadConnection(db, input.id, avery.id);
-    expect(loaded?.connection).toMatchObject({ id: input.id, secret: TEST_SEALED_SECRET });
-    expect(loaded?.calendars).toMatchObject([{ remoteId: '', name: 'Clinic', shown: true }]);
-    // The sync engine loads without an owner.
-    expect((await loadConnection(db, input.id))?.connection.ownerId).toBe(avery.id);
-  });
-
   it('allows 10 connections per person, also when two are added at once', async () => {
     const jordan = await createUser(db, { name: 'Jordan Lee', email: 'jordan.lee@example.com' });
     for (let i = 1; i < MAX_CONNECTIONS; i += 1) {
@@ -125,7 +116,7 @@ describe.skipIf(!hasDatabase)('calendar connections store', () => {
     await insertTestEvent(db, calendar!.id);
 
     expect(await removeConnection(db, avery.id, input.id)).toBeUndefined();
-    expect(await loadConnection(db, input.id)).toBeDefined();
+    expect(await connectionIds(sam.id)).toContain(input.id);
 
     expect(await removeConnection(db, sam.id, input.id)).toEqual({
       id: input.id,
@@ -133,7 +124,7 @@ describe.skipIf(!hasDatabase)('calendar connections store', () => {
       account: 'sam.ortiz@example.com',
       secret: TEST_SEALED_SECRET,
     });
-    expect(await loadConnection(db, input.id)).toBeUndefined();
+    expect(await connectionIds(sam.id)).not.toContain(input.id);
     const left = await db
       .select({ remoteId: syncedEvents.remoteId })
       .from(syncedEvents)
@@ -145,6 +136,6 @@ describe.skipIf(!hasDatabase)('calendar connections store', () => {
     const input = testLinkConnection(sam.id, 'Plain');
     input.secret = 'https://calendar.example.com/private.ics';
     await expect(createConnection(db, input)).rejects.toThrow();
-    expect(await loadConnection(db, input.id)).toBeUndefined();
+    expect(await connectionIds(sam.id)).not.toContain(input.id);
   });
 });
