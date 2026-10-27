@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LINK_CREDENTIALS_MESSAGE,
   LINK_SCHEME_MESSAGE,
   connectProblemMessage,
   connectionPatchSchema,
@@ -26,17 +27,34 @@ describe('linkConnectSchema', () => {
     }
   });
 
-  it('lets http:// through for the server to check against its test origins', () => {
-    expect(
-      problems(linkConnectSchema.safeParse({ ...link, url: 'http://127.0.0.1:4599/a.ics' })),
-    ).toEqual([]);
-  });
-
   it("turns down other links with the link reader's sentence", () => {
-    for (const url of ['ftp://calendar.example.com/a.ics', 'calendar.example.com', 'https://']) {
+    for (const url of [
+      'http://calendar.example.com/a.ics',
+      'ftp://calendar.example.com/a.ics',
+      'calendar.example.com',
+      'https://',
+    ]) {
       expect(problems(linkConnectSchema.safeParse({ ...link, url }))).toEqual([
         LINK_SCHEME_MESSAGE,
       ]);
+    }
+  });
+
+  it('turns down a user name or password in the link, but not an @ further on', () => {
+    for (const url of [
+      'https://ann:secret@calendar.example.com/a.ics',
+      'webcal://ann@calendar.example.com/a.ics',
+      'https://:secret@calendar.example.com/a.ics',
+    ]) {
+      expect(problems(linkConnectSchema.safeParse({ ...link, url }))).toEqual([
+        LINK_CREDENTIALS_MESSAGE,
+      ]);
+    }
+    for (const url of [
+      'https://calendar.example.com/a.ics?owner=ann@example.com',
+      'webcal://calendar.example.com/ann@example.com.ics',
+    ]) {
+      expect(problems(linkConnectSchema.safeParse({ ...link, url }))).toEqual([]);
     }
   });
 
