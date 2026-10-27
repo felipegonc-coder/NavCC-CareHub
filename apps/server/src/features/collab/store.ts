@@ -2,11 +2,23 @@ import { eq } from 'drizzle-orm';
 import * as Y from 'yjs';
 import type { Db, Tx } from '../../db';
 import { pageSchemaInfo } from './check';
+import { fitToSchema, fromMarkdown, toMarkdown } from './markdown';
 import { pageDocs } from './schema';
-import { countBlocks, readContent, toText } from './ydoc';
+import { countBlocks, readContent, replaceContent, toText, type PageNode } from './ydoc';
 
 /** Pages longer than this are refused (Pages and blocks, limits). */
 export const MAX_BLOCKS = 20_000;
+
+/** A write that would take a page past MAX_BLOCKS. Routes answer 413 with this message. */
+export class PageTooLongError extends Error {
+  readonly statusCode = 413;
+  readonly code = 'too_large';
+
+  constructor() {
+    super('This page is too long. Move some of it into a sub-page.');
+    this.name = 'PageTooLongError';
+  }
+}
 
 /**
  * Origin of changes the server merges into a live document from the database. Hocuspocus sends
@@ -24,14 +36,18 @@ export function setLiveDocs(find: (pageId: string) => Y.Doc | undefined): void {
 }
 
 export interface DerivedCopies {
+  markdown: string;
   text: string;
   blockCount: number;
 }
 
 export function deriveCopies(doc: Y.Doc): DerivedCopies {
+  const info = pageSchemaInfo();
+  const content = readContent(doc);
   return {
-    text: toText(readContent(doc)),
-    blockCount: countBlocks(doc, pageSchemaInfo().inline),
+    markdown: toMarkdown(content, info),
+    text: toText(content),
+    blockCount: countBlocks(doc, info.inline),
   };
 }
 
@@ -105,10 +121,88 @@ export async function mergeStored(db: Db, pageId: string): Promise<void> {
 /** The page's text for search, one block per line (decision 0007, section 4.2). */
 export async function getPageText(db: Db | Tx, pageId: string): Promise<string> {
   const doc = liveDoc(pageId);
-  if (doc) return toText(readContent(doc));
+  return doc ? toText(readContent(doc)) : storedCopy(db, pageId, 'text');
+}
+
+/** The page as Markdown, for export (decision 0007, section 4.2). */
+export async function getPageMarkdown(db: Db | Tx, pageId: string): Promise<string> {
+  const doc = liveDoc(pageId);
+  return doc ? toMarkdown(readContent(doc), pageSchemaInfo()) : storedCopy(db, pageId, 'markdown');
+}
+
+async function storedCopy(db: Db | Tx, pageId: string, copy: 'markdown' | 'text'): Promise<string> {
   const [row] = await db
-    .select({ text: pageDocs.text })
+    .select({ value: pageDocs[copy] })
     .from(pageDocs)
     .where(eq(pageDocs.pageId, pageId));
-  return row?.text ?? '';
+  return row?.value ?? '';
+}
+
+/**
+ * Replaces the page's content with Markdown, for imports and templates. Anything the page schema
+ * doesn't allow becomes plain text. Throws PageTooLongError past MAX_BLOCKS. After the
+ * transaction commits, emit `page.updated` so open editors get the change.
+ */
+export async function setPageContentFromMarkdown(
+  tx: Tx,
+  pageId: string,
+  markdown: string,
+  by: string | null = null,
+): Promise<void> {
+  await writeContent(tx, pageId, fitToSchema(fromMarkdown(markdown, pageSchemaInfo())), by);
+}
+
+/**
+ * Replaces one page's content with a copy of another's, unsaved edits included (duplicates,
+ * templates). Same rules as setPageContentFromMarkdown.
+ */
+export async function copyPageContent(
+  tx: Tx,
+  fromPageId: string,
+  toPageId: string,
+  by: string | null = null,
+): Promise<void> {
+  const live = liveDoc(fromPageId);
+  const content = live ? readContent(live) : await withStoredDoc(tx, fromPageId, readContent);
+  await writeContent(tx, toPageId, content, by);
+}
+
+async function withStoredDoc<T>(db: Db | Tx, pageId: string, use: (doc: Y.Doc) => T): Promise<T> {
+  const state = await loadState(db, pageId);
+  const doc = new Y.Doc();
+  try {
+    if (state && state.length > 0) Y.applyUpdate(doc, state);
+    return use(doc);
+  } finally {
+    doc.destroy();
+  }
+}
+
+/**
+ * Writes new content as ordinary changes on top of the stored and live document, so it merges
+ * with edits in progress. Works on a copy: a rollback leaves open editors untouched, and the
+ * collab server merges the stored result on `page.updated`.
+ */
+async function writeContent(
+  tx: Tx,
+  pageId: string,
+  content: readonly PageNode[],
+  by: string | null,
+): Promise<void> {
+  const stored = await lockRow(tx, pageId);
+  const doc = new Y.Doc();
+  try {
+    if (stored.state.length > 0) Y.applyUpdate(doc, stored.state);
+    const live = liveDoc(pageId);
+    if (live) Y.applyUpdate(doc, Y.encodeStateAsUpdate(live));
+    replaceContent(doc, content);
+    const copies = deriveCopies(doc);
+    if (copies.blockCount > MAX_BLOCKS) throw new PageTooLongError();
+    await tx
+      .update(pageDocs)
+      .set(changes(doc, copies, stored, by))
+      .where(eq(pageDocs.pageId, pageId));
+  } finally {
+    doc.destroy();
+  }
 }
