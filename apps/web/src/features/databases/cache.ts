@@ -131,7 +131,8 @@ export interface CachePlace {
   toSubGroupKey?: string;
 }
 
-function findRow(data: ViewQueryData, rowId: Id): QueryRow | undefined {
+/** A loaded row, wherever it shows (rows, groups or sub-groups). */
+export function findQueryRow(data: ViewQueryData, rowId: Id): QueryRow | undefined {
   const lists = [
     data.rows,
     ...(data.groups ?? []).flatMap((g) => [g.rows, ...(g.subGroups ?? []).map((s) => s.rows)]),
@@ -188,7 +189,7 @@ function putIn(
  * the end). Leaves the answer alone when the row or the place isn't loaded.
  */
 export function moveInCache(data: ViewQueryData, rowId: Id, place: CachePlace): ViewQueryData {
-  const row = findRow(data, rowId);
+  const row = findQueryRow(data, rowId);
   if (!row) return data;
   if (!data.groups) {
     const rest = data.rows.filter((r) => r.id !== rowId);
