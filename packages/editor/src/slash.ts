@@ -140,7 +140,10 @@ export class SlashMenuStore {
     this.set({
       query: props.query,
       items: props.items,
-      index: previous?.query === props.query ? Math.min(previous.index, props.items.length - 1) : 0,
+      index:
+        previous?.query === props.query
+          ? Math.max(0, Math.min(previous.index, props.items.length - 1))
+          : 0,
       rect: props.clientRect?.() ?? null,
     });
   }

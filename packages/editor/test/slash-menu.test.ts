@@ -175,9 +175,16 @@ describe('"/" menu', () => {
     editor.commands.setTextSelection(5);
     await flush();
     expect(store.getSnapshot()).toBeNull();
-    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    let codeEnd = 0;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'codeBlock') codeEnd = pos + node.nodeSize - 1;
+    });
+    editor.commands.setTextSelection(codeEnd);
+    await flush();
+    expect(store.getSnapshot()).toBeNull();
     typeText(editor, ' /');
     await flush();
+    expect(editor.state.doc.child(1).textContent).toBe('a /b /');
     expect(store.getSnapshot()).toBeNull();
   });
 
