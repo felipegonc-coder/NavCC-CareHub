@@ -45,6 +45,12 @@ const RATIO = { from: 1024 * 1024, max: 200 };
 
 const inflate = (bytes: Uint8Array, max: number) => inflateRawSync(bytes, { maxOutputLength: max });
 
+/** zlib and the zip reader hand back Buffers: importers and the job get plain Uint8Arrays. */
+const plain = (bytes: Uint8Array): Uint8Array =>
+  bytes.constructor === Uint8Array
+    ? bytes
+    : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
 /** A zip as importers read it. Names are only compared, never used as paths. */
 export function openZip(bytes: Uint8Array): ImportZip {
   const read = readZip(bytes);
@@ -61,7 +67,7 @@ export function openZip(bytes: Uint8Array): ImportZip {
     if (!entry) throw new ImportFileError('the zip is damaged');
     const result = readZipEntry(read.zip, entry, inflate);
     if (!result.ok) throw new ImportFileError(ZIP_REASONS[result.problem]);
-    return result.bytes;
+    return plain(result.bytes);
   };
   return {
     names: [...entries.keys()],
@@ -127,7 +133,7 @@ export async function readUpload(request: ReadRequest): Promise<ReadResult> {
       problems.push({ file: file.name, what: 'Refused', why: "Programs can't be imported." });
     } else {
       kept.push({ key: file.key, name: file.name });
-      files.push(bytes);
+      files.push(plain(bytes));
     }
   }
   return { plan: { ...plan, files: kept, problems }, files };

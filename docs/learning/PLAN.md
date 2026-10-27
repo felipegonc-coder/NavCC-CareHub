@@ -1,11 +1,11 @@
-# Learning lane plan (Care Hub rebuild)
+# Learning plan (technical)
 
 Written from the spec. No code copied from AppFlowy or the old Care Hub.
 
-Spec: the rebuild plan pages, the Learning PRD and the Learning feature tracker (behaviour only; every
-tracker row counts as not built). Rulebook: "Builder rules and tech". Format contract: `course-format.md`.
+How the Learning code is laid out and how its parts fit together. Format contract: `course-format.md`. Endpoints:
+`api.md`. Choices: `decisions.md`. What is on main: `STATUS.md`.
 
-## Lane (agreed with the main lead; AGENTS.md section 5 is the source of truth)
+## Paths (AGENTS.md section 5 is the source of truth)
 
 | Path | What |
 |---|---|
@@ -16,46 +16,38 @@ tracker row counts as not built). Rulebook: "Builder rules and tech". Format con
 | `tests/e2e/learning/**` | Playwright + axe checks for Learning screens; register screens in `tests/e2e/screens.ts`. |
 | `docs/learning/**` | This plan, the format contract, STATUS.md. |
 
-Mount points (pre-approved one-line edits): replace only the `// feature: learning` line in `apps/server/src/app.ts`
-and `apps/web/src/routes.tsx`; add `"@carehub/learning": "*"` to `apps/web/package.json` and `apps/server/package.json`.
-The sidebar Learning item comes from the design-kit AppShell. Never touch `package-lock.json` (a bot regenerates it);
-add dependencies only to our own package.json. Anything else at root level goes through the main lead.
-CI on every PR push (install from cache, type check, lint, Vitest, licence check) is the only place React code
-gets type-checked: nobody's computer has network. Browser tests, axe and screenshots run only when a PR has the `e2e`
-label (add it with issue_write once the screens are ready; at most 2 runs per PR without asking the main lead) and
-nightly on main; put the result and the screenshot-comment link in the PR body. PRs stay under about 600 lines of
-non-test code (tests, fixtures and docs don't count). One GitHub account is shared by every agent: push complete
-batches in few commits, never poll in a loop, back off on rate-limit errors. Push work in progress to a feat/* branch with no open PR at least every 3 hours (branch
-pushes run no CI), so no work lives only on one computer; never push half-done work to a branch with an open PR. Tracker: Care Hub rebuild tracker, Learning lane rows.
+Mount points: the `// feature: learning` lines in `apps/server/src/app.ts` and `apps/web/src/routes.tsx`, and
+`"@carehub/learning": "*"` in `apps/web/package.json` and `apps/server/package.json`. The sidebar Learning item comes
+from the design-kit AppShell.
 
-## `packages/learning` layout and ownership
+## `packages/learning` layout
 
-Dependencies: B2 and B4 use only `format`/`util`; B3 also uses B2's scoring. Merge order: B1 → B2 → B3; every other module any time after B1.
-Each module has its own `index.ts`; the package `index.ts` re-exports them all and is created once, with
-stub modules, by the format PR, so later PRs never edit a shared file.
+Dependencies: `questions`/`quiz`/`scenario` and `reports`/`delivery` use only `format`/`util`; `progress`/`certificates`/`paths`
+also use the scoring in `questions` and `quiz`. Each module has its own `index.ts`; the package `index.ts` re-exports
+them all.
 
-| Module | Owner | Contents |
-|---|---|---|
-| `format/` | B1 | zod schemas (contract in `course-format.md`, incl. `QuestionResponse` and `CourseStatus`), migrations, publish checks, presets, ids, rich-text helpers |
-| `util/` | B1 | seeded random (`mulberry32`, `shuffle`, `sample`), calendar-day helpers (`addDays`, `addMonths`, `daysBetween` on `YYYY-MM-DD`) |
-| `fixtures/` | B1 | fictional sample courses + one learning path, all passing `parseCourse` and `checkPublishable` |
-| `questions/`, `quiz/`, `scenario/` | B2 | scoring for the 8 question types, quiz attempts, scenario branching |
-| `progress/`, `certificates/`, `paths/` | B3 | progress events, learner state, gating, completion, resume, certificates, learning paths |
-| `reports/`, `delivery/` | B4 | report numbers, CSV, due dates, reminders, My learning buckets, catalog search |
-| `api/`, `reviews/` | B1 | request/response schemas for course, catalog and review endpoints, error shape; review comments export, review-due dates |
-| `player/` | B5 | player view logic: outline states, navigation, link targets, search inside a course, labels, text size |
-| `authoring/` | B8 | pure editing logic, undo/redo, block catalog, paste-to-blocks, rich text to editor JSON and back |
-| `banks/` | B9 | question banks, bank draws at publish, CSV question import, survey summaries |
-| `media/` | B10 | file kinds and size limits, crop maths, caption (WebVTT) checks, embed allow-list |
+| Module | Contents |
+|---|---|
+| `format/` | zod schemas (contract in `course-format.md`, incl. `QuestionResponse` and `CourseStatus`), migrations, publish checks, presets, ids, rich-text helpers |
+| `util/` | seeded random (`mulberry32`, `shuffle`, `sample`), calendar-day helpers (`addDays`, `addMonths`, `daysBetween` on `YYYY-MM-DD`), the Learning day (`LEARNING_DAY_ZONE`, `learningToday`, `profileZone`; 0317) |
+| `fixtures/` | fictional sample courses + one learning path, all passing `parseCourse` and `checkPublishable` |
+| `questions/`, `quiz/`, `scenario/` | scoring for the 8 question types, quiz attempts, scenario branching |
+| `progress/`, `certificates/`, `paths/` | progress events, learner state, gating, completion, resume, certificates, learning paths |
+| `reports/`, `delivery/` | report numbers, CSV, due dates, reminders, My learning buckets, catalog search |
+| `api/`, `reviews/` | request/response schemas for course, catalog and review endpoints, error shape; review comments export, review-due dates |
+| `player/` | player view logic: outline states, navigation, link targets, search inside a course, labels, text size |
+| `authoring/` | pure editing logic, undo/redo, block catalog, paste-to-blocks, rich text to editor JSON and back |
+| `banks/` | question banks, bank draws at publish, CSV question import, survey summaries |
+| `media/` | file kinds and size limits, crop maths, caption (WebVTT) checks, embed allow-list |
 
-Every module owner also keeps the zod request/response schemas for its own endpoints in its module (`<module>/api.ts`).
+Each module keeps the zod request/response schemas for its own endpoints in `<module>/api.ts`.
 
 Pure functions only: no clocks (pass `now` / `today`), no randomness without a seed, no I/O.
 The server re-runs the same functions, so it never trusts a score sent by a browser.
 
-## Module contracts (sketch; builders refine names, not meaning)
+## Module contracts (sketch)
 
-### B2 · questions / quiz / scenario
+### questions / quiz / scenario
 
 ```ts
 // QuestionResponse and CourseStatus come from format (see course-format.md).
@@ -80,7 +72,7 @@ scenarioResult(block, state): { score; maxScore; passed: boolean | null; ending;
 scenarioMaxScore(block)   // best path score over the scene graph
 ```
 
-### B3 · progress / certificates / paths
+### progress / certificates / paths
 
 ```ts
 type ProgressEvent = { id: Id; at: IsoDateTime } & (          // id = client uuid, for de-duplication
@@ -114,7 +106,7 @@ certificateStatus(cert, today, headsUpDays = 30): "valid" | "expiring_soon" | "e
 pathProgress(path, statusByCourse): { completed; total; percent; nextCourseId; status; lockedCourseIds }
 ```
 
-### B4 · reports / delivery
+### reports / delivery
 
 ```ts
 // Inputs are plain rows, so reports depend only on format (no imports from progress or quiz).
@@ -140,29 +132,11 @@ myLearning(enrollments, assignments, catalog, today): { continue; assigned; over
 searchCatalog(courses, query, topic?)  // listed and published only; accent- and case-insensitive
 ```
 
-## Builders and tracks (v2, Oct 26: every non-Later PRD feature live by Oct 31)
+## Scope
 
-Up to 8 builders at once, each keeping one track to the end. Dates are when each PR should be open.
-Last PR open Oct 30; anything not ready by Oct 31 is dropped; `docs/learning/STATUS.md` by Oct 30.
+Every non-Later PRD feature. Order of work and styling: decision 0301.
 
-**Order of work (Felipe, Oct 27):** his bar is "everything" (Notion parity, but better). Get a basic working version of
-every feature onto main before polishing any one. All colours, fonts, sizes and spacing come from design-kit tokens,
-with no one-off styles, because Felipe restyles Care Hub himself later.
-
-| Builder | Track |
-|---|---|
-| B1 Format, base, courses, reviews | 1 scaffold, schemas, parse (Oct 27) · 2 publish checks, fixtures, JSON schema (Oct 27) · 3 web and server base: `data/` HTTP client with the offline event queue, `routes.tsx` with every route below lazy-loading each area's `index.tsx` (stubs), server `index.ts` mounting every area router (stubs), the two mount lines (Oct 27–28) · 4 courses server: tables, Studio course API (draft save with revision check, publish = new live version, versions, roll back, duplicate, archive), catalog, examples, block templates (Oct 28) · 5 reviews: share a draft by link, comments on blocks, export comments as CSV, review-due reminders for authors (Oct 29) |
-| B2 Questions, quizzes, scenarios | 1 scoring (Oct 27) · 2 quiz and scenario logic, incl. survey mode and bank draws (Oct 27) · 3 answer inputs for the 8 types + knowledge check block (Oct 28) · 4 quiz lesson view: intro, attempt, results, review, retry, survey mode (Oct 28–29) · 5 scenario block view + scenario editor (Oct 29) |
-| B3 Progress, certificates, paths | 1 progress and completion logic (Oct 27) · 2 certificates and paths logic (Oct 27) · 3 progress server: events, state, resume, server-side re-scoring and completion, reset and mark complete, course-changed notices and retake (Oct 28) · 4 certificates: issue, my certificates, printable page, expiry and re-certification (Oct 29) · 5 paths: API, path page, path builder, auto-assign by team (Oct 29) · 6 reports: person transcript, team view for managers, path report (Oct 30) |
-| B4 Delivery and reports | 1 reports and delivery logic (Oct 27) · 2 assignments server: people and groups, due dates, calendar items, reminders job (Oct 28) · 3 assign screens (Oct 29) · 4 reports server + overview, course report (question analysis, drop-off), overdue list, CSV export, reset and mark-complete screens (Oct 29–30) |
-| B5 Player and My learning | 1 player logic (Oct 27) · 2 player shell: outline sidebar (open, closed, hidden), navigation, text blocks, continue block (Oct 28) · 3 gating and settings: continue, minimum time, lesson order, acknowledgement, links to lessons and blocks, search inside a course, renamed labels, bigger text (Oct 28–29) · 4 My learning, catalog, course start page with cover layouts (Oct 29) · 5 resume, offline, phone polish (Oct 30) |
-| B8 Studio | 1 authoring logic (Oct 27) · 2 course list (new from a type or an example, duplicate, archive), outline, lesson canvas, block picker, drag and keyboard reorder (Oct 28) · 3 course settings, preview as computer or phone, publish, versions and roll back, undo and redo (Oct 29) · 4 text block editors on the editor's RichTextField (Oct 29) · 5 paste text into tidy blocks, block templates (Oct 30) |
-| B9 Question authoring | 1 banks, CSV import and survey logic (Oct 27) · 2 question editors for the 8 types with feedback, knowledge check editor (Oct 28) · 3 quiz lesson editor: settings, pool, bank draws, survey mode (Oct 29) · 4 banks server, bank screens, spreadsheet import (Oct 29) · 5 survey results (Oct 30) |
-| B10 Media and interactive blocks | 1 media logic (Oct 27) · 2 media server (upload, serve, limits) + MediaPicker and ImageField with crop (Oct 28) · 3 media blocks, view and edit: image and layouts, gallery, labeled graphic, video and audio with captions and transcript, file, embed (Oct 29) · 4 interactive blocks, view and edit: accordion, tabs, timeline, process, flashcards, sorting, button (Oct 29–30) |
-
-Merge order: B1.1 first; then any package PR; B1.3 before any web or server PR; B1.4 before other server PRs.
-
-### Format additions (optional fields, no formatVersion bump; B1 adds them in PR 1)
+### Format additions (optional fields, no formatVersion bump)
 Every field marked "Later" in course-format.md is now in scope. New:
 - `QuizSettings.mode?: "graded" | "survey"` (default graded). Survey: single and multiple choice only, no right
   answers needed, no score or pass mark, one submission; it counts as done when submitted and never for requireQuizPass.
@@ -173,57 +147,57 @@ Every field marked "Later" in course-format.md is now in scope. New:
 - `Course.coverLayout?: "banner" | "split" | "full"` (default banner): how the start page shows the cover picture.
 
 ### Web folders (`apps/web/src/features/learning/`)
-| Folder | Owner |
+| Folder | Area |
 |---|---|
-| `routes.tsx`, `data/`, `review/` | B1 |
-| `home/`, `catalog/`, `course/`, `player/`, `blocks/registry.tsx`, `blocks/text/` | B5 |
-| `questions/`, `quiz/`, `scenario/`, `blocks/questions/`, `studio/editors/scenario/` | B2 |
-| `certificates/`, `paths/`, `studio/paths/`, `reports/people/`, `reports/team/`, `reports/paths/` | B3 |
-| `assign/`, `reports/` (the rest) | B4 |
-| `studio/` (the rest), `studio/editors/registry.tsx`, `studio/editors/text/` | B8 |
-| `studio/quiz/`, `studio/banks/`, `studio/editors/questions/` | B9 |
-| `media/`, `blocks/media/`, `blocks/interactive/`, `studio/editors/media/`, `studio/editors/interactive/` | B10 |
+| `routes.tsx`, `data/`, `review/` |
+| `home/`, `catalog/`, `course/`, `player/`, `blocks/registry.tsx`, `blocks/text/` |
+| `questions/`, `quiz/`, `scenario/`, `blocks/questions/`, `studio/editors/scenario/` |
+| `certificates/`, `paths/`, `studio/paths/`, `reports/people/`, `reports/team/`, `reports/paths/` |
+| `assign/`, `reports/` (the rest) | Assignments and reports |
+| `studio/` (the rest), `studio/editors/registry.tsx`, `studio/editors/text/` |
+| `studio/quiz/`, `studio/banks/`, `studio/editors/questions/` |
+| `media/`, `blocks/media/`, `blocks/interactive/`, `studio/editors/media/`, `studio/editors/interactive/` |
 
-Routes (B1 creates them all in PR 3, each lazy-loading the owner's `index.tsx` stub, so nobody edits routes.tsx later):
-`/learning` home, `/learning/catalog`, `/learning/courses/:courseId` start page, `.../lessons/:lessonId` player (B5);
-`/learning/paths/:pathId`, `/learning/certificates`, `/learning/certificates/:certificateId` (B3);
-`/learning/studio`, `/learning/studio/courses/:courseId`, `.../preview` (B8); `/learning/studio/paths[/:pathId]` (B3);
-`/learning/studio/banks[/:bankId]` (B9); `/learning/assign` (B4); `/learning/reports`, `/learning/reports/courses/:courseId`,
-`/learning/reports/overdue` (B4); `/learning/reports/people/:personId`, `/learning/reports/team`,
-`/learning/reports/paths/:pathId` (B3); `/learning/review` with the token in the fragment (B1, 0309).
+Routes (all in `routes.tsx`, each lazy-loading its area's `index.tsx`):
+`/learning` home, `/learning/catalog`, `/learning/courses/:courseId` start page, `.../lessons/:lessonId` player;
+`/learning/paths/:pathId`, `/learning/certificates`, `/learning/certificates/:certificateId`;
+`/learning/studio`, `/learning/studio/courses/:courseId`, `.../preview`; `/learning/studio/paths[/:pathId]`;
+`/learning/studio/banks[/:bankId]`; `/learning/assign`; `/learning/reports`, `/learning/reports/courses/:courseId`,
+`/learning/reports/overdue`; `/learning/reports/people/:personId`, `/learning/reports/team`,
+`/learning/reports/paths/:pathId`; `/learning/review` with the token in the fragment (0309).
 
 ### Shared web contracts
-- Block views (B5 owns `blocks/registry.tsx`; creates empty family files that their owners fill):
+- Block views (`blocks/registry.tsx`, with one family file per group of block types):
   `type BlockViewProps<B> = { block: B; lesson: ContentLesson; course: PlayerCourse; mode: "learn" | "preview" | "review";
   state: LearnerCourseState; emit(e: NewProgressEvent): void; go(link: Link): void }` and
   `blockViews: { [T in Block["type"]]?: (p: BlockViewProps<Extract<Block, { type: T }>>) => JSX.Element }`.
-  Families: text and continue (B5), media and interactive (B10), knowledge_check and scenario (B2). Unknown types
+  Families: text and continue, media and interactive, knowledge_check and scenario. Unknown types
   render a plain "This block can't be shown yet" note. `PlayerCourse` is `Course | LearnerCourse` (0314, #204): the
   learner view in the player (quiz lessons have `questionCount`, no questions), the full draft in preview. Block views
   use `course` only for links and labels.
-- Block editors (B8 owns `studio/editors/registry.tsx`; same pattern): `type BlockEditorProps<B> = { block: B;
-  onChange(next: B): void; course: Course; lessonId: Id }`. Families: text and continue (B8), media and interactive
-  (B10), knowledge_check (B9), scenario (B2).
-- Quiz: B2 exports `QuizLessonView({ course, lesson, state, emit, go })` (`go(link)` follows links in prompts and
-  feedback, as in `BlockViewProps`; right answers per 0316); B9 exports `QuizLessonEditor({ lesson, onChange })`;
-  B5 and B8 mount them.
-- Media (B10): `MediaPicker`, `ImageField({ value: Image | undefined; onChange })` and `useMediaUrl(ref: MediaRef)`.
-- Rich text: one adapter, `RichTextInput` (B8, `studio/editors/text/RichTextInput.tsx`), props `{ value, onChange,
+- Block editors (`studio/editors/registry.tsx`, same pattern): `type BlockEditorProps<B> = { block: B;
+  onChange(next: B): void; course: Course; lessonId: Id }`. Families: text and continue, media and interactive,
+  knowledge_check, scenario.
+- Quiz: `quiz/` exports `QuizLessonView({ course, lesson, state, emit, go })` (`go(link)` follows links in prompts
+  and feedback, as in `BlockViewProps`; right answers per 0316); `studio/quiz/` exports
+  `QuizLessonEditor({ lesson, onChange })`. The player and the Studio lesson editor mount them.
+- Media: `MediaPicker`, `ImageField({ value: Image | undefined; onChange })` and `useMediaUrl(ref: MediaRef)`.
+- Rich text: one adapter, `RichTextInput` (`studio/editors/text/RichTextInput.tsx`), props `{ value, onChange,
   ariaLabel, placeholder?, singleLine?, marks?, course?, id?, ariaDescribedBy?, autoFocus?, readOnly? }`; it wraps the
-  editor's RichTextField and the authoring converter and is a plain text area until the editor lands (Oct 28). Everyone
-  edits rich text through it. Editor family files (B8 creates them empty): `studio/editors/media/index.tsx`
-  (`mediaEditors`), `interactive/index.tsx` (`interactiveEditors`) for B10, `questions/index.tsx` (`questionEditors`)
-  for B9, `scenario/index.tsx` (`scenarioEditors`) for B2.
-- Data: B1's `data/http.ts` (`api<T>(method, path, body?, schema)`, typed errors, the offline event queue);
-  each owner writes the calls and TanStack Query hooks for its own endpoints in its own folder.
+  editor's RichTextField and the authoring converter and is a plain text area until the editor lands. Everyone
+  edits rich text through it. Editor family files: `studio/editors/media/index.tsx` (`mediaEditors`),
+  `interactive/index.tsx` (`interactiveEditors`), `questions/index.tsx` (`questionEditors`) and `scenario/index.tsx`
+  (`scenarioEditors`).
+- Data: `data/http.ts` (`api<T>(method, path, body?, schema)`, typed errors, the offline event queue);
+  each area writes the calls and TanStack Query hooks for its own endpoints in its own folder.
 
 ### Server (`apps/server/src/features/learning/`)
-B1 creates `index.ts` mounting one router per area (stubs) and owns `courses/` and `reviews/`; B3 `progress/`,
-`certificates/`, `paths/`; B4 `assignments/`, `reports/` (B3 adds its report routes in its own routers); B9 `banks/`;
-B10 `media/`. Publish hooks (stubs by B1, filled by the owners): `banks/publish.ts`
-`resolveBankDraws(db, workspaceId, course)` (B9; it throws `cannotPublish(problems)` from `errors.ts` itself, listing
-every bank problem by title, and returns the course with bank snapshots) and `progress/on-publish.ts` `onCoursePublished(db, { courseId, version, notify })`
-(B3). B1 also stubs `public.ts` (isLearningEnabled, listLearningDueDates, listMyLearning for Team tools' Calendar and Home; B4 fills it). Each owner writes its own migration `YYYYMMDDHHMM_learning_<area>.sql`. Endpoints: `api.md`.
+`index.ts` mounts one router per area: `courses/`, `reviews/`, `progress/`, `certificates/`, `paths/`,
+`assignments/`, `reports/` (the person, team and path reports sit in the progress, certificates and paths routers),
+`banks/` and `media/`. Publish hooks: `banks/publish.ts` `resolveBankDraws(db, workspaceId, course)` (it throws `cannotPublish(problems)` from `errors.ts` itself, listing
+every bank problem by title, and returns the course with bank snapshots) and `progress/on-publish.ts` `onCoursePublished(db, { courseId, version, notify })`.
+`public.ts` gives Team tools' Calendar and Home `isLearningEnabled`, `listLearningDueDates` and `listMyLearning`. Each
+area has its own migration `YYYYMMDDHHMM_learning_<area>.sql`. Endpoints: `api.md`.
 
 ### Learning help (Claude, 0315)
 Writing help in blocks, summaries and key points, quiz questions from a lesson, and a first draft of a course. Studio
@@ -231,16 +205,14 @@ only (`learning.author`, plus `claude.use`). Calls Extras' shared client on the 
 `isClaudeFeatureOn` from `apps/server/src/features/claude/index.ts`; feature keys, error reasons and messages from
 `@carehub/extras/claude`) with the feature key `learning_help`: off until an admin switches it on, and every button is
 hidden while it's off. The server loads the course text itself by id; see 0315 for the rules.
-Owner: to be named. Paths: `packages/learning/src/help/`, `apps/server/src/features/learning/help/`,
-`apps/web/src/features/learning/studio/help/`. B8 and B9 give it a place for its buttons (rich text toolbar, lesson
+Paths: `packages/learning/src/help/`, `apps/server/src/features/learning/help/`,
+`apps/web/src/features/learning/studio/help/`. Studio gives it a place for its buttons (rich text toolbar, lesson
 editor, New course, quiz editor).
 
 ## Every Learning PR
 
 - Says: "Written from the spec. No code copied from AppFlowy or the old Care Hub."
-- Only touches the lane paths above (never package-lock.json).
+- Only touches the Learning paths above (never package-lock.json).
 - Vitest tests for logic; Playwright + axe and light/dark, desktop/phone screenshots for screens.
 - Styles only through design-kit tokens and @carehub/ui components: no hard-coded colours, fonts, sizes or spacing.
 - Type check, lint and license check pass in CI. Fictional data only. No secrets. Claude features stay off until an admin switches them on.
-- Updates its Learning row in the Care Hub rebuild tracker.
-- The Learning lead reviews and squash-merges with `expectedHeadSha`.

@@ -6,7 +6,7 @@ Spec: [search.md](../plan/specs/search.md) (checks SR-01 to SR-16). Folders: `ap
 
 `search_entries` has one row per page, database and row: where it is (workspace, space, parent pages), title, icon, block text (one block per line, as in `page_docs.text`), text other features add, who made and edited it and when, archived and Trash. Access is never copied into it: every search checks it again (spec 3.3).
 
-- **Folding.** Postgres can't drop accents without an extension, so the server folds text with `fold()` from `@carehub/extras/search` (lowercase, accents removed, "ß" as "ss") before it builds the index, and folds what people type the same way. "goncalves" finds "Gonçalves".
+- **Folding.** Postgres can't drop accents without an extension, so the server folds text with `fold()` from `@carehub/extras/search` (lowercase, accents removed, "ß" as "ss") before it builds the index, and folds what people type the same way. "assuncao" finds "Assunção".
 - **Words.** `doc_tsv` holds the English word forms and the plain words of the title (weight A), headings (weight B, from `page_docs.markdown` once #198 fills it) and text. English forms make "refunds" find "refund"; plain words keep stop words ("it", "about") and IDs like "QA-17" searchable.
 - **Limits.** Up to 200,000 characters of text and of added text per page.
 
@@ -33,6 +33,13 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 - **Access first.** Postgres finds up to 2,000 matches; their access is checked before anything is counted, ranked or shown, and only pages with Can view or more are kept (up to 1,000). Paths leave out parent pages the person can't open. An `in` filter for a space or page the person can't open finds nothing from it. Share-link visitors and people outside the workspace get 403.
 - **Best match** (`best`): exact title, then title starting with the words, then all words in the title, then headings, then text. Within each, boosts reorder: other features' boosts (`registerSearchBoost`, each kept between -2 and 2), +1 for ✓ Verified, +1 when edited in the last 7 days, -2 when archived. Ties go to the most recent edit.
 - **Results:** title with the matching words as ranges, icon, path, a snippet of up to 160 characters from the block with the most matching words, created and edited (with the editor's name), "Row in" the database, ✓ Verified and Archived.
+
+## The search window (`apps/web/src/features/search`)
+
+- **Opening it:** Ctrl+K or Ctrl+P (⌘ on a Mac) on any screen, through the shell's `overlays` slot, or **Search** at the top of the sidebar (`sidebarSections`). When the editor has already used Ctrl+K (a link, with text selected), the window stays shut. `openSearch()` in `open.ts` opens it too.
+- **Results:** `POST /api/search/query` 80 ms after typing stops, 20 at a time as you scroll or move down. The previous results stay while new ones load, and grey rows show after 150 ms if there were none. The first result is selected.
+- **Keys:** it's a combobox. ↑ and ↓ move through every list, Enter opens the page, Ctrl+Enter opens it in a new tab, and Esc closes the window and puts the focus back where it was. Commands from the `commands` slot that match the text come first, under "Actions".
+- **Not yet:** Recent and Recent searches before typing, the filter chips and sort, Did you mean and Search in Trash, and Shift+Enter for the side panel (once the page view has one).
 
 ## For other features (`apps/server/src/features/search/index.ts`)
 
