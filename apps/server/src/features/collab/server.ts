@@ -14,6 +14,16 @@ import { readMessageHead } from './protocol';
 import { MERGE_ORIGIN, loadState, mergeStored, saveDoc, setLiveDocs } from './store';
 import { isRecord } from './ydoc';
 
+declare module '../../core/events' {
+  interface CareHubEvents {
+    /**
+     * A live page was saved, after the commit. `userIds`: who changed it since the save before
+     * (empty if no one did). Other features read the content with getPageContent.
+     */
+    'page.contentSaved': { pageId: string; userIds: string[] };
+  }
+}
+
 const PING_MS = 2_000;
 /** Hocuspocus drops a socket that sends nothing, not even a pong, for this long. */
 const TIMEOUT_MS = 6_000;
@@ -136,6 +146,8 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
   const events = app.events as unknown as Events;
   const info = pageSchemaInfo();
   const sizes = new WeakMap<Y.Doc, PageSize>();
+  /** Who changed each open page since its last save. */
+  const editors = new WeakMap<Y.Doc, Set<string>>();
   const sockets = new Set<Socket>();
   const socketsPerUser = new Map<string, number>();
 
@@ -169,6 +181,12 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
 
     async afterLoadDocument({ document }) {
       sizes.set(document, pageSize(document, info));
+      const edited = new Set<string>();
+      editors.set(document, edited);
+      document.on('update', (_update: Uint8Array, origin: unknown) => {
+        const connection = originConnection(origin);
+        if (connection) edited.add(contextOf(connection).socket.userId);
+      });
     },
 
     async beforeHandleMessage({ connection, document, update }) {
@@ -191,13 +209,21 @@ export function startCollabServer(app: FastifyInstance, options: CollabServerOpt
     async onStoreDocument({ document, documentName, lastContext }) {
       const by = (lastContext as Partial<CollabContext> | undefined)?.socket?.userId ?? null;
       const size = sizes.get(document);
-      const copies = await store(documentName, document, by);
+      // Changes accepted while saving count for the next save.
+      const edited = editors.get(document);
+      const userIds = [...(edited ?? [])];
+      edited?.clear();
+      const copies = await store(documentName, document, by).catch((error: unknown) => {
+        for (const id of userIds) edited?.add(id);
+        throw error;
+      });
       if (!copies) return;
       // Changes accepted while saving raised the size; it stays an upper bound then.
       if (size && sizes.get(document) === size) {
         sizes.set(document, { ...size, blocks: copies.blockCount });
       }
       events.emit('page.updated', { pageId: documentName, by, content: true, source: 'collab' });
+      events.emit('page.contentSaved', { pageId: documentName, userIds });
     },
   });
   setLiveDocs((pageId) => hocuspocus.documents.get(pageId));

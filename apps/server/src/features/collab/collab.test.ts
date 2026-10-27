@@ -8,7 +8,7 @@ import { WebSocket } from 'ws';
 import * as Y from 'yjs';
 import { createTestApp, createUser, hasDatabase } from '../../testing';
 import { SESSION_COOKIE } from '../auth';
-import { getPageText } from './index';
+import { getPageText, setPageContentFromMarkdown } from './index';
 import { MessageType, SyncStep } from './protocol';
 import { CloseCode } from './server';
 import { pageFragment, readContent } from './ydoc';
@@ -416,5 +416,35 @@ describe.skipIf(!hasDatabase)('live co-editing', { timeout: 30_000 }, () => {
     expect(await upgradeStatus(null)).toBe(401);
     expect(await upgradeStatus('owner-token', 'https://elsewhere.example')).toBe(403);
     expect(await upgradeStatus('owner-token')).toBe(101);
+  });
+
+  // Near the end: this replaces the page's content.
+  it('shows open editors what other features write to the page', async () => {
+    const owner = await TestClient.connect('owner-token');
+    await waitFor(() => owner.synced);
+    const markdown = '# Rota\n\nSam covers Ward B.\n';
+    await test.db.transaction((tx) => setPageContentFromMarkdown(tx, pageId, markdown));
+    emit('page.updated', { pageId, by: null, content: true, source: 'templates' });
+    await waitFor(() => owner.text().includes('Sam covers Ward B.'));
+    expect(readContent(owner.doc)[0]).toMatchObject({ type: 'heading' });
+    expect(owner.text()).not.toContain('Refunds go out on Fridays');
+    owner.close();
+  });
+
+  it('tells other features who edited the page, after the save commits', async () => {
+    const teammateId = people.teammate?.id ?? '';
+    const saves: Array<{ pageId: string; userIds: string[]; stored: string }> = [];
+    const off = test.app.events.on('page.contentSaved', async (payload) => {
+      saves.push({ ...payload, stored: await storedText() });
+    });
+    const teammate = await TestClient.connect('teammate-token');
+    await waitFor(() => teammate.synced && teammate.access?.readOnly === false);
+    teammate.edit((fragment) => fragment.insert(0, [paragraph('Saved by Sam')]));
+    await waitFor(() => saves.some((save) => save.userIds.includes(teammateId)), 15_000);
+    off();
+    teammate.close();
+    const save = saves.find((each) => each.userIds.includes(teammateId));
+    expect(save).toMatchObject({ pageId, userIds: [teammateId] });
+    expect(save?.stored).toContain('Saved by Sam');
   });
 });
