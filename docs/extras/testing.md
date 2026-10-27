@@ -48,7 +48,7 @@ The tests never reach Claude. The server is pointed at a local stub:
 - **CL-01:** with the switches off, `GET /__requests` stays empty whatever the test does.
 - **CL-10 (leak test):** the fictional key must never appear in the server output, any API answer, any page or the web bundle.
 
-The two environment lines for the browser-test workflow are a `.github/` change, so the main lead adds them after the security reviewer's OK.
+The browser-test workflow needs these two environment lines. They go in `.github/`, outside this change.
 
 ### Writing help (CL-06 to CL-08)
 
