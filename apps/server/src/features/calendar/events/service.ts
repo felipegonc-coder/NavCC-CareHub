@@ -26,6 +26,7 @@ import {
   type EventRecord,
 } from './store';
 import { upcomingOf } from './upcoming';
+import { YEARS_MESSAGE, scheduleInYears } from './years';
 
 /** The signed-in member, as Calendar needs them. */
 export type Viewer = { id: string; workspaceId: string; timeZone: string };
@@ -38,8 +39,7 @@ function inRange<T>(make: () => T): T {
   try {
     return make();
   } catch (error) {
-    if (error instanceof RangeError)
-      throw httpError(400, 'invalid', 'Pick a date between years 1 and 9999.');
+    if (error instanceof RangeError) throw httpError(400, 'invalid', YEARS_MESSAGE);
     throw error;
   }
 }
@@ -102,8 +102,9 @@ export async function getEvent(db: Db, viewer: Viewer, eventId: string): Promise
   return eventJson(event, viewer.id, await profilesOf(db, peopleIds(event)));
 }
 
-/** A repeating schedule must make sense to team-repeat. */
+/** Times must be in Calendar's years, and a repeating schedule must make sense to team-repeat. */
 export function checkSchedule(schedule: Schedule): void {
+  if (!scheduleInYears(schedule)) throw httpError(400, 'invalid', YEARS_MESSAGE);
   const series = seriesOf(schedule);
   const problems = series ? checkSeries(series) : [];
   if (problems.length > 0) throw httpError(400, 'invalid', problems[0], problems);
