@@ -2,7 +2,7 @@
 // links every 15, and on Calendar open when the last look is over a minute old. Only reads:
 // nothing is ever written to Google or to a link. When a Google sign-in stops working, the
 // connection says "Google needs you to sign in again" and the person gets one 🔔 notice (CA-12).
-import { z } from 'zod';
+import type { z } from 'zod';
 import type { SendNotice } from '../../notices';
 import {
   type GoogleCalendarClient,
@@ -10,7 +10,7 @@ import {
   createGoogleCalendarClient,
   directTransport,
 } from '../sync/google/client';
-import { type FetchLike, TransportError } from '../sync/google/http';
+import type { FetchLike } from '../sync/google/http';
 import { fromGoogleEvent } from '../sync/google/map';
 import {
   GOOGLE_SIGN_IN_MESSAGES,
@@ -18,8 +18,6 @@ import {
   type GoogleTokens,
   tokensNeedRefresh,
 } from '../sync/google/oauth';
-import type { ExternalEvent, ExternalTime } from '../sync/types';
-import type { SyncCursor } from './schema';
 import {
   type SecretBox,
   SecretError,
@@ -27,6 +25,28 @@ import {
   openJson,
   sealJson,
 } from './secrets';
+import {
+  AT_ONCE,
+  FAILURES_SHOWN,
+  FRESH_MS,
+  FULL_READ_EVERY_MS,
+  GOOGLE_EVERY_MS,
+  LINK_EVERY_MS,
+  LINK_UNREADABLE,
+  MAX_WAIT_MS,
+  NOT_SUPPORTED,
+  PER_RUN,
+  RECONNECT_MESSAGE,
+  type ReadCalendarLink,
+  SIGN_IN_UNREADABLE,
+  SyncFailure,
+  classify,
+  googleTokensSchema,
+  linkEventId,
+  linkSecretSchema,
+  monthsFrom,
+  plain,
+} from './sync-rules';
 import type {
   SyncCalendar,
   SyncConnection,
@@ -35,58 +55,7 @@ import type {
   SyncedEventInput,
 } from './sync-store';
 
-export const GOOGLE_EVERY_MS = 5 * 60_000;
-export const LINK_EVERY_MS = 15 * 60_000;
-/** On Calendar open, connections read less than this long ago are left alone. */
-export const FRESH_MS = 60_000;
-/** Google: a full read at least weekly keeps the copies to the window. */
-const FULL_READ_EVERY_MS = 7 * 86_400_000;
-const MAX_WAIT_MS = 6 * 3_600_000;
-/** Failures in a row before the layer shows the problem. */
-const FAILURES_SHOWN = 3;
-const PER_RUN = 25;
-const AT_ONCE = 4;
-
-export const RECONNECT_MESSAGE = 'Google needs you to sign in again.';
-const SIGN_IN_UNREADABLE = "Care Hub can't open this connection's saved sign-in. Connect it again.";
-const LINK_UNREADABLE = "Care Hub can't open this saved calendar link. Remove it and add it again.";
-const NOT_SUPPORTED = "Care Hub can't read this kind of calendar yet.";
-const UNKNOWN = 'Something went wrong reading this calendar. Care Hub will try again shortly.';
-/** A layer's message is a plain sentence: never a link, which may be private (CA-11). */
-const plain = (message: string) =>
-  message && message.length <= 300 && !/[a-z][a-z\d+.-]*:\/\/|webcal:|www\./i.test(message)
-    ? message
-    : UNKNOWN;
-
-export const googleTokensSchema: z.ZodType<GoogleTokens> = z.object({
-  accessToken: z.string().min(1),
-  refreshToken: z.string().min(1),
-  expiresAt: z.string(),
-  scopes: z.array(z.string()),
-  refreshTokenExpiresAt: z.string().optional(),
-});
-/** What a private link connection seals: the link as the person entered it. */
-export const linkSecretSchema = z.object({ url: z.string().min(1) });
 const NO_CHANGES = { upserts: [], removed: [] };
-
-/** The iCalendar reader's readCalendarLink, as agreed with its owner. */
-export type LinkReadResult =
-  /** The cursor, when given, carries fresh validators: keep it. */
-  | { status: 'not-modified'; cursor?: SyncCursor }
-  | {
-      status: 'ok';
-      events: ExternalEvent[];
-      cursor: SyncCursor;
-      /** False when the reader stopped early: keep what came and delete nothing. */
-      complete: boolean;
-      calendar: { name?: string; timeZone?: string };
-      warnings: string[];
-    };
-export type ReadCalendarLink = (
-  link: string,
-  cursor: SyncCursor | undefined,
-  options: { ownAddresses: string[]; signal?: AbortSignal; window?: { start: Date; end: Date } },
-) => Promise<LinkReadResult>;
 
 export interface CalendarSyncDeps {
   store: SyncStore;
@@ -104,62 +73,6 @@ export interface CalendarSyncDeps {
   now?: () => Date;
   log?: (message: string, error: unknown) => void;
 }
-
-type FailureKind = 'reconnect' | 'temporary' | 'broken';
-
-class SyncFailure extends Error {
-  constructor(
-    readonly kind: FailureKind,
-    message: string,
-    readonly retryAfterMs?: number,
-  ) {
-    super(message);
-    this.name = 'SyncFailure';
-  }
-}
-
-/** Errors from the link reader: FetchLinkError (with `retryable`) and IcalParseError. */
-const isReaderError = (error: unknown): error is Error & { retryable?: unknown; code?: unknown } =>
-  error instanceof Error && (error.name === 'FetchLinkError' || error.name === 'IcalParseError');
-
-function classify(error: unknown): SyncFailure {
-  if (error instanceof SyncFailure) return error;
-  if (error instanceof GoogleCalendarError) {
-    if (error.kind === 'unauthorized' || error.kind === 'forbidden') {
-      return new SyncFailure('reconnect', RECONNECT_MESSAGE);
-    }
-    const kind = error.kind === 'not-configured' ? 'broken' : 'temporary';
-    return new SyncFailure(kind, error.message, error.retryAfterMs);
-  }
-  if (error instanceof TransportError) {
-    return new SyncFailure(error.retryable ? 'temporary' : 'broken', error.message);
-  }
-  if (isReaderError(error)) {
-    // Too complex to read in time may pass, so it backs off like a failed fetch.
-    const retry = error.retryable === true || error.code === 'too-complex';
-    return new SyncFailure(retry ? 'temporary' : 'broken', error.message);
-  }
-  return new SyncFailure('temporary', UNKNOWN);
-}
-
-const monthsFrom = (date: Date, months: number) => {
-  const shifted = new Date(date);
-  shifted.setUTCMonth(shifted.getUTCMonth() + months);
-  return shifted;
-};
-
-const timeKey = (time: ExternalTime) =>
-  time.kind === 'date'
-    ? time.date
-    : time.kind === 'utc'
-      ? time.instant
-      : time.kind === 'zoned'
-        ? `${time.dateTime} ${time.timeZone}`
-        : time.dateTime;
-
-/** A link event's id: its uid, and the occurrence it changes. */
-export const linkEventId = (event: ExternalEvent) =>
-  event.recurrenceId ? `${event.uid}#${timeKey(event.recurrenceId)}` : event.uid;
 
 export function createCalendarSync(deps: CalendarSyncDeps) {
   const { store } = deps;

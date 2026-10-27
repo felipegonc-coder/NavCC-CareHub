@@ -9,15 +9,14 @@ import {
 import type { ExternalEvent } from '../sync/types';
 import { createMemorySyncStore } from './memory-sync-store';
 import { type SecretBox, connectionSecretContext, sealJson, secretBoxFrom } from './secrets';
+import { createCalendarSync } from './sync';
 import {
   GOOGLE_EVERY_MS,
   LINK_EVERY_MS,
   type LinkReadResult,
   RECONNECT_MESSAGE,
   type ReadCalendarLink,
-  createCalendarSync,
-  linkEventId,
-} from './sync';
+} from './sync-rules';
 
 const REDIRECT = googleRedirectUri('https://carehub.example.org/');
 const AVERY = 'user-avery';
@@ -459,14 +458,6 @@ describe('private link sync', () => {
     await t.sync.runDue();
     expect(t.memory.connection(id)).toMatchObject({ status: 'error', failures: 1 });
     expect(t.memory.connection(id)?.nextSyncAt.getTime()).toBe(t.google.now().getTime() + 60_000);
-  });
-
-  it('gives each changed occurrence its own id', () => {
-    expect(linkEventId(lesson)).toBe('lesson-1@school.example.org');
-    const recurrenceId = { kind: 'utc', instant: '2026-11-02T15:00:00Z' } as const;
-    expect(linkEventId({ ...lesson, recurrenceId })).toBe(
-      'lesson-1@school.example.org#2026-11-02T15:00:00Z',
-    );
   });
 });
 
