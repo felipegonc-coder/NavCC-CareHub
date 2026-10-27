@@ -9,10 +9,8 @@ import {
 import { describe, expect, it } from 'vitest';
 import type { ReportGroup, RowsQuery } from '../reports/rows';
 import {
-  learningToday,
   personTranscript,
   personTranscriptCsv,
-  profileZone,
   teamGroupId,
   teamReport,
   teamReportCsv,
@@ -259,18 +257,6 @@ describe('teamReport', () => {
       'Voice',
       'Weekend',
       '',
-    ]);
-  });
-});
-
-describe('days and zones', () => {
-  it('reads today in Denver, and falls back to Denver for unknown profile zones', () => {
-    expect(learningToday(new Date('2026-10-28T05:59:00.000Z'))).toBe('2026-10-27');
-    expect(learningToday(new Date('2026-10-28T06:00:00.000Z'))).toBe('2026-10-28');
-    expect([profileZone('Asia/Tokyo'), profileZone('Not/A_Zone'), profileZone(null)]).toEqual([
-      'Asia/Tokyo',
-      'America/Denver',
-      'America/Denver',
     ]);
   });
 });

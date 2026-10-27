@@ -4,9 +4,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, createUser, hasDatabase, type TestApp } from '../../../testing';
 import learningRoutes from '../routes';
 
-// The person and team report routes, over HTTP. Core doesn't put the workspace member on requests
-// yet (accounts 1b), so this app does it from the x-test-person header, the way core's sessions
-// will. Groups and managers aren't on main yet either, so nobody has a team. Fictional people only.
+// The person and team report routes, over HTTP. This app puts the workspace member on requests
+// from the x-test-person header, as core's sessions do, so each person has exactly the permissions
+// named here. Groups and managers aren't on main yet, so nobody has a team. Fictional people only.
 const workspaceId = randomUUID();
 const ROLES = {
   learner: { roleId: 'role-viewer', permissions: [] as string[] },

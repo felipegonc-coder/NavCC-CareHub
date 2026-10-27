@@ -13,9 +13,8 @@ import { listCourseStates, type CourseStateRow } from '../progress/service';
 
 // Report rows (docs/learning/api.md): one EnrollmentRow per person and course, read by every
 // report. A person is enrolled in a course when it is assigned to them now, directly or through a
-// group, or when they have started it. Groups and managers come from core's workspace members
-// (0007 section 4.3, Oct 29): until those are on main, there are no groups and nobody manages
-// anyone.
+// group, or when they have started it. Groups and managers come from core (0007 section 4.3):
+// until they are on main, there are no groups and nobody manages anyone.
 
 /** A group reports can show, with its members now. */
 export type ReportGroup = { id: string; name: string; memberIds: readonly string[] };

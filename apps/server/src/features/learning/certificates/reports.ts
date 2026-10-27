@@ -1,6 +1,7 @@
 import {
+  learningToday,
   LIMITS,
-  isoDateInTimeZone,
+  profileZone,
   teamMembers,
   teamView,
   teamViewCsv,
@@ -8,11 +9,9 @@ import {
   transcriptRows,
   type CertificateRecord,
   type EnrollmentRow,
-  type IsoDate,
   type TeamViewResponse,
   type TranscriptRow,
 } from '@carehub/learning';
-import { DEFAULT_TIME_ZONE } from '@carehub/shared';
 import { and, eq } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
 import { users } from '../../auth/schema';
@@ -54,21 +53,6 @@ export type PersonTranscript = { person: { id: string; name: string }; rows: Tra
 
 /** The id of a manager's team in the team view, which isn't a workspace group. */
 export const teamGroupId = (managerId: string): string => `team-${managerId}`;
-
-/** Today in the Learning day zone (decision 0317). */
-export const learningToday = (now: Date): IsoDate =>
-  isoDateInTimeZone(now.toISOString(), DEFAULT_TIME_ZONE);
-
-/** `timeZone` when it is a known IANA zone, otherwise Care Hub's default zone. */
-export function profileZone(timeZone: string | null | undefined): string {
-  if (!timeZone) return DEFAULT_TIME_ZONE;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone });
-    return timeZone;
-  } catch {
-    return DEFAULT_TIME_ZONE;
-  }
-}
 
 const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
 const byText = (a: string, b: string) => collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
