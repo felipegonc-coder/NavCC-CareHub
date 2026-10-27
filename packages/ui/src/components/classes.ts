@@ -47,4 +47,4 @@ export const surfaceClasses =
 
 /** One row in a menu or list. Keyboard focus keeps its outline, drawn inside the row. */
 export const menuItemClasses =
-  'relative flex cursor-default select-none items-center gap-2 rounded px-2 py-1.5 text-small max-md:min-h-11 focus-visible:outline-offset-[-2px] data-[disabled]:pointer-events-none data-[highlighted]:bg-fill-hover data-[disabled]:text-faint [&_svg]:size-4 [&_svg]:shrink-0';
+  'relative flex cursor-default select-none items-center gap-2 rounded px-2 py-1.5 text-small max-md:min-h-11 focus-visible:outline-offset-inset data-[disabled]:pointer-events-none data-[highlighted]:bg-fill-hover data-[disabled]:text-faint [&_svg]:size-4 [&_svg]:shrink-0';
