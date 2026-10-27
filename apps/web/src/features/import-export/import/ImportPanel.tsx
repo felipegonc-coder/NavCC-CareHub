@@ -64,7 +64,8 @@ function downloadProblems(view: ImportView) {
   link.href = url;
   link.download = `${view.fileName.replace(/\.[^.]+$/, '')} problems.csv`;
   link.click();
-  URL.revokeObjectURL(url);
+  // Not at once: Safari can cancel a download whose address is already revoked.
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 function Problems({ view }: { view: ImportView }) {

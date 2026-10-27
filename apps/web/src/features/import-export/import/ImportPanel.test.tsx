@@ -164,18 +164,21 @@ describe('the progress panel', () => {
       made.push(blob);
       return 'blob:problems';
     };
-    URL.revokeObjectURL = () => undefined;
+    const revoked: string[] = [];
+    URL.revokeObjectURL = (url: string) => void revoked.push(url);
     HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
       saved.push(`${this.download} ${this.getAttribute('href')}`);
     };
     fireEvent.click(within(panel()).getByRole('button', { name: 'Download as CSV' }));
     expect(saved).toEqual(['notion-export problems.csv blob:problems']);
+    expect(revoked).toEqual([]);
     const text = await new Promise<string>((resolve) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
       reader.readAsText(made[0] as Blob);
     });
     expect(text).toBe(problemsCsv(problems));
+    await waitFor(() => expect(revoked).toEqual(['blob:problems']), { timeout: 3_000 });
 
     expect(within(panel()).getByRole('link', { name: 'Open' })).toHaveAttribute(
       'href',
