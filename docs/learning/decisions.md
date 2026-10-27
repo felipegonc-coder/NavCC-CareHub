@@ -118,12 +118,19 @@ Adds to 0302 (B2, #192).
 
 ## 0315 · Learning help uses the shared Claude client
 Learning help (writing help in blocks, summaries and key points, quiz questions from a lesson, a first draft of a
-course) calls Extras' `askClaude` and `isClaudeFeatureOn` from `@carehub/extras/claude` with the feature key
-`learning_help` (workspace setting `claude.learning_help`). The whole Care Hub has one key, one monthly cap, one usage
-log and one admin page (Settings → Claude).
+course) calls Extras' shared Claude client on the server: `askClaude`, `askClaudeJson` and `isClaudeFeatureOn` from
+`apps/server/src/features/claude/index.ts`, with feature keys, error reasons and messages from `@carehub/extras/claude`.
+Its feature key is `learning_help` (workspace setting `claude.learning_help`). The whole Care Hub has one key, one
+monthly cap, one usage log split by feature, and one admin page (Settings → Claude).
 - Off by default. While it's off, Learning shows no Claude buttons.
-- Authors only (`learning.author`), in Studio.
+- Authors only (`learning.author`), in Studio. The shared client also needs `claude.use`.
+- The server loads the course text itself, by course, lesson and block id, after Learning's own access check, and
+  passes it as `documents`. It never sends text the browser says came from a course, so Studio saves the draft first.
 - Only course content is sent: titles, lesson and block text. Never learner names, emails, answers, scores or
   progress.
-- Claude's reply is checked with Learning's own schemas before it reaches the editor, and nothing is saved until the
-  author accepts it.
+- Summaries, key points, quiz questions and course drafts use `askClaudeJson` with Learning's own zod schemas, then
+  the normal course checks. The reply is untrusted text: no raw HTML, links go through `safeHref`, and nothing is
+  saved until the author accepts it.
+- A `ClaudeError` is answered with `CLAUDE_ERRORS[reason]`: its status, code and plain words, plus
+  `details: { reason }`.
+- The security reviewer reviews every Learning help PR.
