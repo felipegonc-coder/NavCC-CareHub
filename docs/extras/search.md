@@ -6,7 +6,7 @@ Spec: [search.md](../plan/specs/search.md) (checks SR-01 to SR-16). Folders: `ap
 
 `search_entries` has one row per page, database and row: where it is (workspace, space, parent pages), title, icon, block text (one block per line, as in `page_docs.text`), text other features add, who made and edited it and when, archived and Trash. Access is never copied into it: every search checks it again (spec 3.3).
 
-- **Folding.** Postgres can't drop accents without an extension, so the server folds text with `fold()` from `@carehub/extras/search` (lowercase, accents removed, "ß" as "ss") before it builds the index, and folds what people type the same way. "goncalves" finds "Gonçalves".
+- **Folding.** Postgres can't drop accents without an extension, so the server folds text with `fold()` from `@carehub/extras/search` (lowercase, accents removed, "ß" as "ss") before it builds the index, and folds what people type the same way. "assuncao" finds "Assunção".
 - **Words.** `doc_tsv` holds the English word forms and the plain words of the title (weight A), headings (weight B, from `page_docs.markdown` once #198 fills it) and text. English forms make "refunds" find "refund"; plain words keep stop words ("it", "about") and IDs like "QA-17" searchable.
 - **Limits.** Up to 200,000 characters of text and of added text per page.
 
@@ -75,6 +75,6 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 
 Tests bind fakes with `bindSearchPages` and `bindSearchMember`.
 
-## Agreed with other lanes
+## With other features
 
-- **Search in Trash** (the window's No results): Search goes to `/trash?q=<text>`, and S2's Trash opens as a dialog named "Trash" with its search box filled from `q` (agreed with the Extras lead on 2026-10-27, for S2 to match).
+- **Search in Trash** (the window's No results): Search goes to `/trash?q=<text>`, and S2's Trash opens as a dialog named "Trash" with its search box filled from `q`.

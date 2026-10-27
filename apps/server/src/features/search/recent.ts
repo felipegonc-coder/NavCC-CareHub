@@ -71,7 +71,8 @@ export const openedRecently: SearchBoost = async (db, { userId, pageIds }) => {
   return new Map(rows.map((row) => [row.page_id, { boost: 1 }]));
 };
 
-type RecentRow = { id: string; text: string; filters: unknown; searched_at: Date };
+// Timestamps from db.execute come back as text (Drizzle's node-postgres driver), or as Dates.
+type RecentRow = { id: string; text: string; filters: unknown; searched_at: Date | string };
 
 export async function recentSearches(db: Db | Tx, searcher: Searcher): Promise<RecentSearch[]> {
   const { rows } = await db.execute<RecentRow>(sql`
@@ -82,7 +83,7 @@ export async function recentSearches(db: Db | Tx, searcher: Searcher): Promise<R
     id: row.id,
     text: row.text,
     filters: searchFiltersSchema.catch({}).parse(row.filters),
-    searchedAt: row.searched_at.toISOString(),
+    searchedAt: new Date(row.searched_at).toISOString(),
   }));
 }
 
