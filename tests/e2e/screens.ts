@@ -42,4 +42,6 @@ export const screens: Screen[] = [
   ...(await import('./forms/screens.js')).screens, // feature: forms
 
   ...(await import('./team/screens.js')).screens, // feature: team
+
+  ...(await import('./extras/screens.js')).screens, // feature: extras
 ];

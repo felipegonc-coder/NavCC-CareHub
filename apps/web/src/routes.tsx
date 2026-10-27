@@ -24,6 +24,19 @@ import { HomePage } from './HomePage'; // placeholder until the home line takes 
 // feature: settings
 
 // feature: search
+import { routes as searchRoutes } from './features/search/routes';
+
+// feature: history
+import { routes as historyRoutes } from './features/history/routes';
+
+// feature: templates
+import { routes as templatesRoutes } from './features/templates/routes';
+
+// feature: import-export
+import { routes as importExportRoutes } from './features/import-export/routes';
+
+// feature: knowledge
+import { routes as knowledgeRoutes } from './features/knowledge/routes';
 
 // feature: learning
 import { routes as learningRoutes } from './features/learning/routes';
@@ -45,6 +58,7 @@ import { routes as learningRoutes } from './features/learning/routes';
 // feature: notifications
 
 // feature: claude
+import { routes as claudeRoutes } from './features/claude/routes';
 
 /** Signed out, without the app shell: sign-in, set password, /status, the design kit gallery. */
 export const publicRoutes: RouteObject[] = [
@@ -68,6 +82,19 @@ export const appRoutes: RouteObject[] = [
   // feature: settings
 
   // feature: search
+  ...searchRoutes,
+
+  // feature: history
+  ...historyRoutes,
+
+  // feature: templates
+  ...templatesRoutes,
+
+  // feature: import-export
+  ...importExportRoutes,
+
+  // feature: knowledge
+  ...knowledgeRoutes,
 
   // feature: learning
   ...learningRoutes,
@@ -89,6 +116,7 @@ export const appRoutes: RouteObject[] = [
   // feature: notifications
 
   // feature: claude
+  ...claudeRoutes,
 ];
 
 export const routes: RouteObject[] = [
