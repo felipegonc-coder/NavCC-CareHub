@@ -1,0 +1,354 @@
+name: Image
+
+# Builds the Docker image and tests the deploy the way a server runs it: install.sh,
+# carehub-firewall.service, up.sh, a backup asked for like the Status page does, and restore.sh
+# (docs/decisions/0003-image-and-deploy.md). Nothing is published: the server builds its
+# own image. It runs only on request:
+# - by hand: Actions > Image > Run workflow;
+# - on a pull request when the "image" label is added.
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+# A newer run for the same ref and label cancels the older one.
+concurrency:
+  group: image-${{ github.ref }}-${{ github.event.label.name || 'run' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  image:
+    name: image
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'image'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        id: checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # Each run step keeps its output in $RUNNER_TEMP/ci-logs/<step id>.log for the report.
+      - name: Validate deploy files
+        id: validate
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-logs"
+          {
+            fail() { echo "::error::$*"; exit 1; }
+            config=$RUNNER_TEMP/compose.json
+            check() { jq -e "$1" "$config" >/dev/null || fail "$2"; }
+            cp deploy/.env.example deploy/.env
+            docker compose -f deploy/docker-compose.yml config --quiet
+            docker compose -f deploy/docker-compose.yml config --format json > "$config"
+            rm deploy/.env
+            # Tailnet only: nothing but Caddy publishes ports, and only on CAREHUB_TAILSCALE_IP.
+            check '[.services | to_entries[] | select(.value.ports) | .key] == ["caddy"]' 'only caddy may publish ports'
+            check '[.services.caddy.ports[].host_ip] | length > 0 and all(. == "100.64.0.1")' \
+              'caddy may publish ports only on CAREHUB_TAILSCALE_IP'
+            # Every service: a numeric user that isn't root, no-new-privileges, no Docker socket.
+            check '[.services[] | (.user // "" | test("^[1-9][0-9]*:[0-9]+$"))
+              and ((.security_opt // []) | index("no-new-privileges:true") != null)] | all' \
+              'every service needs a numeric user other than root, and no-new-privileges'
+            check '[.services[].volumes // [] | .[].source // "" | test("docker\\.sock|^/(var/)?run$")] | any | not' \
+              'no service may mount the Docker socket'
+            # PostgreSQL asks for a password (scram-sha-256) on every connection.
+            check '.services.db.environment | .POSTGRES_HOST_AUTH_METHOD == "scram-sha-256"
+              and (.POSTGRES_INITDB_ARGS | test("--auth-local=scram-sha-256") and test("--auth-host=scram-sha-256"))' \
+              'PostgreSQL must use scram-sha-256 for local and host connections'
+            # Base images pinned by digest.
+            check '[.services[] | select(.build == null) | .image | test("@sha256:[0-9a-f]{64}$")] | all' \
+              'every pulled image must be pinned by digest (@sha256:...)'
+            if grep -E '^FROM ' Dockerfile | grep -vE '@sha256:[0-9a-f]{64}( |$)'; then
+              fail 'every FROM in the Dockerfile must be pinned by digest (@sha256:...)'
+            fi
+            # No capabilities (Caddy keeps NET_BIND_SERVICE in its bounding set only so that its
+            # binary starts), read-only app and caddy, and Caddy kept away from PostgreSQL.
+            check '[.services[] | .cap_drop == ["ALL"]] | all' 'every service needs cap_drop: [ALL]'
+            check '[.services | to_entries[] | select(.value.cap_add) | [.key, .value.cap_add]] == [["caddy", ["NET_BIND_SERVICE"]]]' \
+              'only caddy may add a capability, and only NET_BIND_SERVICE'
+            check '.services.app.read_only and .services.caddy.read_only' 'app and caddy need read_only: true'
+            check '.networks.back.internal and ([.services | to_entries[] | [.key, (.value.networks | keys)]] | sort
+              == [["app", ["back", "front"]], ["backup", ["back"]], ["caddy", ["front"]], ["db", ["back"]]])' \
+              'caddy belongs on front, db and backup on back (internal), the app on both'
+            # The app gets its own settings only: its own role, never the superuser's password.
+            check '.services.app | (has("env_file") | not) and (.environment | has("POSTGRES_PASSWORD") | not)
+              and (.environment.DATABASE_URL | startswith("postgres://carehub:"))' \
+              'the app must not get .env or POSTGRES_PASSWORD, and must connect as carehub'
+            check '.services.app.environment.TRUST_PROXY == .services.caddy.networks.front.ipv4_address' \
+              "TRUST_PROXY must be caddy's fixed address"
+            echo "docker-compose.yml and the Dockerfile follow the deploy rules."
+            command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
+            shellcheck -S warning deploy/*.sh
+            echo "shellcheck found no warnings."
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/validate.log"
+
+      # docker buildx reads the Actions cache URL and token from ACTIONS_* variables, which only
+      # JavaScript actions get. They go to the Build step only, never to the steps that run the
+      # pull request's scripts.
+      - name: Read the Actions cache settings
+        id: cache-env
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const vars = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.startsWith('ACTIONS_')));
+            if (vars.ACTIONS_RUNTIME_TOKEN) core.setSecret(vars.ACTIONS_RUNTIME_TOKEN);
+            core.setOutput('json', JSON.stringify(vars));
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The same image up.sh builds on the server, with the Actions cache.
+      - name: Build
+        id: build
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CACHE_ENV: ${{ steps.cache-env.outputs.json }}
+        run: |
+          {
+            while IFS= read -r line; do export "${line%%=*}=${line#*=}"; done \
+              < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$CACHE_ENV")
+            unset CACHE_ENV
+            docker buildx build --load --tag carehub-app:local \
+              --build-arg "CAREHUB_VERSION=sha-${HEAD_SHA::7}" \
+              --build-arg "CAREHUB_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --cache-from type=gha,scope=image \
+              --cache-to type=gha,scope=image,mode=max,ignore-error=true \
+              --progress plain .
+            docker image ls carehub-app:local
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/build.log"
+
+      # As on a server (deploy/README.md), with 127.0.0.1 for the Tailscale address.
+      - name: Smoke test
+        id: smoke
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            data=/srv/carehub st=/srv/carehub/backups/status
+            dc() { (cd deploy && sudo docker compose "$@"); }
+            fail() { dc ps -a || true; dc logs --tail 40 || true; echo "::error::$*"; exit 1; }
+            sql() { dc exec -T backup psql -X -q -t -A -v ON_ERROR_STOP=1 -c "$1"; }
+            https() { curl -fsS --max-time 10 --insecure --resolve "carehub.localhost:443:${2:-127.0.0.1}" "https://carehub.localhost$1"; }
+            # Tables that don't belong to the app's role carehub.
+            others="SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND tableowner <> 'carehub'"
+            owner="SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'carehub'"
+
+            sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin carehub
+            uid=$(id -u carehub) gid=$(id -g carehub)
+            sudo CAREHUB_TAILSCALE_IP=127.0.0.1 bash deploy/install.sh carehub.localhost || fail 'install.sh failed'
+            sudo test -f deploy/.env && [[ $(sudo stat -c '%a %U' deploy/.env) == '600 root' ]] \
+              || fail 'install.sh should create deploy/.env, mode 600, owned by root'
+            sudo grep -qx 'CAREHUB_PUBLIC_URL=https://carehub.localhost' deploy/.env || fail 'CAREHUB_PUBLIC_URL is not set'
+            ! sudo grep -q change-me deploy/.env || fail 'deploy/.env still has a change-me placeholder'
+            [[ $(sudo stat -c '%a %u:%g' "$data/postgres") == "700 $uid:$gid" ]] || fail "$data/postgres should be mode 700, owned by carehub"
+            sudo sed -i 's/^BACKUP_AT=.*/BACKUP_AT=23:59/' deploy/.env # no scheduled backup during the test
+
+            # carehub-firewall.service as in deploy/README.md: it adds its DOCKER-USER rule, removes it
+            # when stopped and adds it again.
+            sed 's/@TAILSCALE_IP@/127.0.0.1/g' deploy/carehub-firewall.service \
+              | sudo tee /etc/systemd/system/carehub-firewall.service >/dev/null
+            sudo systemctl daemon-reload
+            sudo systemctl enable --now carehub-firewall.service || fail 'carehub-firewall.service did not start'
+            rule=(DOCKER-USER -m conntrack --ctdir ORIGINAL --ctorigdst 127.0.0.1 ! -i tailscale0 -j DROP)
+            sudo iptables -C "${rule[@]}" || fail 'carehub-firewall.service did not add its rule'
+            sudo systemctl stop carehub-firewall.service
+            if sudo iptables -C "${rule[@]}" 2>/dev/null; then fail 'stopping carehub-firewall.service left its rule'; fi
+            sudo systemctl start carehub-firewall.service
+            sudo iptables -C "${rule[@]}" || fail 'carehub-firewall.service did not add its rule again'
+            sudo iptables -S DOCKER-USER
+
+            sudo bash deploy/up.sh --no-build 2>&1 | tee up.log || fail 'up.sh failed'
+            ! grep -q DOCKER-USER up.log || fail 'up.sh says the DOCKER-USER rule is missing'
+
+            https /api/health > health.json || fail 'GET /api/health through Caddy failed'
+            cat health.json; echo
+            jq -e --arg v "sha-${HEAD_SHA::7}" '.status == "ok" and .version == $v' health.json >/dev/null \
+              || fail "GET /api/health should report status ok and version sha-${HEAD_SHA::7}"
+            curl -fsS --insecure --resolve carehub.localhost:443:127.0.0.1 -D page.headers -o page.html https://carehub.localhost/ \
+              || fail 'GET / failed'
+            grep -qi '^content-type: text/html' page.headers || fail 'GET / did not return HTML'
+            grep -q '<title>Care Hub' page.html || fail 'GET / is not the Care Hub page'
+            sudo docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' carehub-app:local | grep -q '^CAREHUB_BUILD_DATE=20' \
+              || fail 'the image has no CAREHUB_BUILD_DATE'
+            echo "GET /api/health and GET / work through Caddy."
+
+            # Tailnet only: Caddy answers only on the Tailscale address, the app and db on no port.
+            other=$(hostname -I | awk '{print $1}')
+            if https /api/health "$other" >/dev/null 2>&1; then fail "Caddy answers on $other too"; fi
+            for s in app db caddy backup; do
+              c=$(dc ps -q "$s")
+              [[ -n $c ]] || fail "$s is not running"
+              [[ $(sudo docker inspect -f '{{.Config.User}}' "$c") == "$uid:$gid" ]] || fail "$s doesn't run as carehub ($uid:$gid)"
+              [[ $(dc exec -T "$s" id -u) == "$uid" ]] || fail "$s's processes don't run as $uid"
+              dc exec -T "$s" grep -q 'NoNewPrivs:[[:space:]]*1' /proc/1/status || fail "$s can gain privileges"
+              ! sudo docker inspect -f '{{range .Mounts}}{{println .Source}}{{end}}' "$c" | grep -q docker.sock \
+                || fail "$s has the Docker socket"
+              ports=$(sudo docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostIp}} {{end}}{{end}}' "$c")
+              if [[ $s == caddy ]]; then
+                [[ $ports == '127.0.0.1 127.0.0.1 127.0.0.1 ' ]] || fail "caddy's ports should be on 127.0.0.1 only, not: $ports"
+              else
+                [[ -z $ports ]] || fail "$s publishes ports: $ports"
+              fi
+              # Capability bounding set, networks and read-only root file system.
+              pid=$(sudo docker inspect -f '{{.State.Pid}}' "$c")
+              got="$(sudo awk '/^CapBnd:/ {print $2}' "/proc/$pid/status") $(sudo docker inspect -f \
+                '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}{{.HostConfig.ReadonlyRootfs}}' "$c")"
+              case $s in
+                app) want='0000000000000000 carehub_back carehub_front true' ;;
+                caddy) want='0000000000000400 carehub_front true' ;; # NET_BIND_SERVICE
+                *) want='0000000000000000 carehub_back false' ;;
+              esac
+              [[ $got == "$want" ]] || fail "$s: capability bounding set, networks and read-only should be '$want', not '$got'"
+            done
+            echo "caddy's effective capabilities: $(sudo awk '/^CapEff:/ {print $2}' "/proc/$(sudo docker inspect -f '{{.State.Pid}}' "$(dc ps -q caddy)")/status")"
+            # PostgreSQL wants a password on every connection, also on its own socket.
+            [[ $(sql "SELECT count(*) FROM pg_hba_file_rules WHERE auth_method <> 'scram-sha-256'") == 0 ]] \
+              || fail 'pg_hba.conf has rules without scram-sha-256'
+            if dc exec -T backup env -u PGPASSWORD psql -X -w -c 'SELECT 1' >/dev/null 2>&1; then
+              fail 'PostgreSQL accepts a connection without a password'
+            fi
+            for u in postgres carehub; do
+              if dc exec -T db psql -X -w -U "$u" -d carehub -c 'SELECT 1' >/dev/null 2>&1; then
+                fail "PostgreSQL lets $u connect on its socket without a password"
+              fi
+            done
+            echo "Every service runs as $uid:$gid with no-new-privileges, only Caddy publishes ports, on 127.0.0.1."
+
+            # The app connects as its own role, which owns the database and its tables and can't do more.
+            [[ $(sql "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls FROM pg_roles WHERE rolname = 'carehub'") == 'f|f|f|f|f' ]] \
+              || fail 'the role carehub must exist and must not be a superuser or create databases or roles'
+            [[ $(sql "$owner") == carehub ]] || fail 'the database carehub should belong to the role carehub'
+            [[ $(sql "$others") == 0 && $(sql "SELECT count(*) FROM pg_tables WHERE tableowner = 'carehub'") -gt 0 ]] \
+              || fail "the app's tables (from its migrations) should belong to carehub"
+            app_env=$(sudo docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$(dc ps -q app)")
+            pw=$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' deploy/.env)
+            [[ ${#pw} == 48 ]] || fail 'deploy/.env should have a random POSTGRES_PASSWORD'
+            ! grep -q '^POSTGRES_PASSWORD=' <<<"$app_env" || fail 'the app gets POSTGRES_PASSWORD'
+            ! grep -qF -- "$pw" <<<"$app_env" || fail "the app's environment holds the superuser's password"
+            grep -q '^DATABASE_URL=postgres://carehub:' <<<"$app_env" || fail 'the app should connect as carehub'
+            cip=$(sudo docker inspect -f '{{(index .NetworkSettings.Networks "carehub_front").IPAddress}}' "$(dc ps -q caddy)")
+            [[ -n $cip && $(sed -n 's/^TRUST_PROXY=//p' <<<"$app_env") == "$cip" ]] \
+              || fail "TRUST_PROXY should be caddy's address on the front network, $cip"
+            echo "The app connects as carehub (no superuser), and TRUST_PROXY is caddy's address $cip."
+
+            # Some data, then a backup asked for the way the Status page will ask for one.
+            sql 'CREATE TABLE ci_probe (id int); INSERT INTO ci_probe VALUES (1), (2);'
+            dc exec -T app sh -c 'echo ci > /data/files/ci-probe.txt' || fail 'the app cannot write to /data/files'
+            dc exec -T app touch /data/backups/requests/now || fail 'the app cannot ask for a backup'
+            for _ in $(seq 30); do sudo test -e "$st/status.json" && break; sleep 2; done
+            dc logs backup
+            sudo test -e "$st/status.json" || fail 'the requested backup did not finish within 60 seconds'
+            ! sudo test -e "$st/requests/now" || fail 'backup.sh did not remove requests/now'
+            dc exec -T app cat /data/backups/status.json > status.json || fail 'the app cannot read /data/backups/status.json'
+            jq . status.json
+            jq -e '.ok and .restoreTest.ok and .dbBytes > 0 and .filesBytes > 0
+              and (.restoreTest.details | test(" [1-9][0-9]* rows"))' status.json >/dev/null \
+              || fail 'the backup failed or its restore test did not check out'
+            stamp=$(jq -r '.startedAt | gsub("[-:]"; "")' status.json)
+            sudo cmp -s "$st/status.json" "$st/runs/$stamp.json" || fail "runs/$stamp.json should match status.json"
+            sudo test -f "$data/backups/carehub-$stamp.sha256" || fail "backup $stamp has no checksum file"
+            seen=$(dc exec -T app ls -A /data/backups | tr '\n' ' ')
+            echo "The app sees in /data/backups: $seen"
+            [[ $seen != *carehub-* ]] || fail 'the app can see the backup files'
+
+            # A second request within 60 minutes of the last backup is dropped.
+            dc exec -T app touch /data/backups/requests/now
+            for _ in $(seq 25); do sudo test -e "$st/requests/now" || break; sleep 2; done
+            dc logs --tail 1 backup
+            ! sudo test -e "$st/requests/now" || fail 'backup.sh did not pick up the second request'
+            [[ $(sudo find "$st/runs" -name '*.json' | wc -l) == 1 ]] || fail 'backup.sh ran a second backup within 60 minutes'
+
+            # Lose the data, then put the backup back with restore.sh.
+            sql 'DROP TABLE ci_probe;'
+            dc exec -T app rm /data/files/ci-probe.txt
+            sudo bash deploy/restore.sh "$stamp" --confirmed --no-build || fail "restore.sh $stamp failed"
+            [[ $(sql 'SELECT count(*) FROM ci_probe;') == 2 ]] || fail 'the restore did not bring back the table ci_probe'
+            # ci_probe was made by the superuser; restored, it belongs to carehub like everything else.
+            [[ $(sql "$owner") == carehub && $(sql "$others") == 0 ]] \
+              || fail 'after the restore, the database and every table should belong to carehub'
+            [[ $(dc exec -T app cat /data/files/ci-probe.txt) == ci ]] || fail 'the restore did not bring back the uploaded file'
+            sudo find "$data/backups" -maxdepth 1 -name 'pre-restore-*.db.dump' | grep -q . \
+              || fail 'the restore did not save the data it replaced'
+            echo "The requested backup checked out, and restore.sh brought back the table and the file."
+          } 2>&1 | tee "$RUNNER_TEMP/ci-logs/smoke.log"
+
+      # On a pull request, the report job posts these.
+      - name: Keep the logs for the report
+        id: keep-logs
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          STEPS_JSON: ${{ toJSON(steps) }}
+        run: mkdir -p "$RUNNER_TEMP/ci-logs" && printf '%s\n' "$STEPS_JSON" > "$RUNNER_TEMP/ci-logs/steps.json"
+
+      - name: Upload the logs
+        id: upload-logs
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-logs
+          path: ${{ runner.temp }}/ci-logs
+          retention-days: 1
+          overwrite: true
+
+  # Posts or updates one comment on the pull request with the result, next to the CI report:
+  # agents' tokens can't read check runs. It doesn't check out or run code from the pull request.
+  report:
+    name: report
+    needs: image
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.image.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download the logs
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: image-logs
+          path: ci-logs
+
+      - name: Report on the pull request
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          RESULT: ${{ needs.image.result }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const marker = '<!-- carehub-image-report -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const read = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trimEnd() : '');
+            const steps = JSON.parse(read('ci-logs/steps.json') || '{}');
+            const failed = Object.keys(steps).filter((id) => steps[id].outcome === 'failure');
+            if (process.env.RESULT !== 'success' && !failed.length) failed.push('image');
+            const section = (id) => {
+              const log = read(`ci-logs/${id}.log`);
+              if (!log) return `\`${id}\` failed before writing a log; see the [run](${run}).`;
+              const tail = log.split('\n').slice(-120).join('\n').slice(-25000);
+              // A fence longer than any run of backticks in the log, so no log line can end it.
+              const fence = '`'.repeat(Math.max(4, ...(tail.match(/`+/g) || []).map((run) => run.length + 1)));
+              return `<details open>\n<summary><code>${id}</code>: last 120 lines</summary>\n\n${fence}text\n${tail}\n${fence}\n\n</details>`;
+            };
+            const body = failed.length
+              ? [marker, `### ❌ Image failed on ${sha}: ${failed.map((id) => `\`${id}\``).join(', ')}`, `[Run](${run})`, ...failed.map(section)].join('\n\n')
+              : `${marker}\n\n### ✅ Image passed on ${sha}: built, installed with install.sh and up.sh, backed up and restored with restore.sh\n\n[Run](${run})`;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const old = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker));
+            if (old) await github.rest.issues.updateComment({ owner, repo, comment_id: old.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
