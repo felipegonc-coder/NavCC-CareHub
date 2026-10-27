@@ -89,10 +89,16 @@ function versionOf(request: FastifyRequest): number {
   return accept(parseRequest(versionRequest, body)).version;
 }
 
-const paramOf = (request: FastifyRequest, name: 'pid' | 'changeId'): string => {
-  const value = (request.params as Record<string, unknown>)[name];
-  if (typeof value !== 'string') throw notFound();
-  return value;
+const propertyIdOf = (request: FastifyRequest): string => {
+  const params = request.params as { pid?: unknown };
+  if (typeof params.pid !== 'string') throw notFound();
+  return params.pid;
+};
+
+const changeIdOf = (request: FastifyRequest): string => {
+  const params = request.params as { changeId?: unknown };
+  if (typeof params.changeId !== 'string') throw notFound();
+  return params.changeId;
 };
 
 /** The other database of a two-way relation, to lock with this one; none for anything else. */
@@ -331,7 +337,7 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
     async (request) => {
       const page = databasePage(request);
       const user = signedIn(request);
-      const propertyId = paramOf(request, 'pid');
+      const propertyId = propertyIdOf(request);
       const { version, ...input } = accept(parseRequest(propertyChangeRequest, request.body));
       // A two-way relation that changes type leaves its partner one-way: lock both, in id order.
       const seen = input.config === undefined ? null : await loadDatabase(app.db, page.id);
@@ -403,7 +409,7 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
     async (request) => {
       const page = databasePage(request);
       const user = signedIn(request);
-      const propertyId = paramOf(request, 'pid');
+      const propertyId = propertyIdOf(request);
       const version = versionOf(request);
       const now = new Date();
       const seen = await loadDatabase(app.db, page.id);
@@ -445,7 +451,7 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
     async (request) => {
       const page = databasePage(request);
       const user = signedIn(request);
-      const propertyId = paramOf(request, 'pid');
+      const propertyId = propertyIdOf(request);
       const { version } = accept(parseRequest(versionRequest, request.body));
       const now = new Date();
       const seen = await loadDatabase(app.db, page.id);
@@ -490,7 +496,7 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
     async (request) => {
       const page = databasePage(request);
       const user = signedIn(request);
-      const changeId = paramOf(request, 'changeId');
+      const changeId = changeIdOf(request);
       const { version } = accept(parseRequest(versionRequest, request.body));
       const kept = await loadTypeChange(app.db, page.id, changeId);
       if (!kept) throw invalid(PROPERTY_MESSAGES.cantUndo);
@@ -555,7 +561,7 @@ export function registerPropertyRoutes(app: FastifyInstance): void {
     async (request) => {
       const page = databasePage(request);
       const user = signedIn(request);
-      const propertyId = paramOf(request, 'pid');
+      const propertyId = propertyIdOf(request);
       const { version } = accept(parseRequest(versionRequest, request.body));
       const record = await changeDatabase(app.db, page.id, version, async (current, tx) => {
         allow('edit_properties', page.level, current.locked);
