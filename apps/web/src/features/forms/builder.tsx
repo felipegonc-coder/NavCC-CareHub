@@ -13,15 +13,14 @@ import {
 import {
   LIMITS,
   TYPE_LABELS,
-  fromPlainText,
-  plainText,
   type FormDefinition,
   type Id,
   type Property,
 } from '@carehub/databases';
 import { addableProperties } from '@carehub/databases/forms';
 import { problemText } from './api';
-import { CommitInput, CommitTextarea, NativeSelect } from './controls';
+import { CommitInput, NativeSelect } from './controls';
+import { RichTextField } from './rich-editor';
 import {
   NEW_QUESTION_TYPES,
   addQuestion,
@@ -30,6 +29,7 @@ import {
   type NewQuestionType,
 } from './definition';
 import { QuestionCard, cardDomId } from './question-card';
+import { dropEdge, useReorder } from './reorder';
 
 export interface FormBuilderProps {
   def: FormDefinition;
@@ -79,6 +79,7 @@ export function FormBuilder({
   onCreate,
 }: FormBuilderProps) {
   const addRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLOListElement>(null);
   const pendingFocus = useRef<PendingFocus | null>(null);
   const shownDef = useRef(def);
   const chosen = useRef(false);
@@ -148,6 +149,11 @@ export function FormBuilder({
     return moved;
   };
 
+  // A dropped card keeps no focus: it came from the mouse.
+  const reorder = useReorder(listRef, def.questions.length, (from, to) =>
+    move(from, to, null, false),
+  );
+
   const doneCreating = (propertyId: Id | null) => {
     pendingFocus.current = propertyId
       ? toNewQuestion(propertyId, false)
@@ -166,13 +172,12 @@ export function FormBuilder({
           value={def.title}
           onCommit={(title) => onSave({ ...def, title: title.trim() || databaseTitle })}
         />
-        <CommitTextarea
+        <RichTextField
           aria-label="Form description"
           placeholder="Description"
-          rows={2}
           maxLength={LIMITS.formDescription}
-          value={plainText(def.description)}
-          onCommit={(t) => onSave({ ...def, description: fromPlainText(t) })}
+          value={def.description}
+          onCommit={(description) => onSave({ ...def, description })}
         />
       </div>
 
@@ -190,7 +195,7 @@ export function FormBuilder({
           </ul>
         </div>
       ) : (
-        <ol className="flex flex-col gap-3">
+        <ol ref={listRef} className="flex flex-col gap-3">
           {def.questions.map((question, index) => {
             const prop = properties.find((p) => p.id === question.propertyId);
             return prop ? (
@@ -205,6 +210,9 @@ export function FormBuilder({
                 onMove={move}
                 onRemove={remove}
                 onMenuClosed={menuClosed}
+                dragging={reorder.drag?.from === index}
+                dropLine={dropEdge(reorder.drag, index, def.questions.length)}
+                onDragStart={(event) => reorder.start(index, event)}
               />
             ) : null;
           })}
