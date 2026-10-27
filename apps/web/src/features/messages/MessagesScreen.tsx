@@ -7,7 +7,7 @@ import { usePageTitle } from '../../lib/usePageTitle';
 import { NoticesChat } from '../notices';
 import { CARE_HUB_ID } from './chat-info';
 import { ChatHeader } from './ChatHeader';
-import { ChatList } from './ChatList';
+import { ChatsPane } from './ChatSearch';
 import { ChatView, MessagesLoading } from './ChatView';
 import { useChatList, useMessagesLive } from './data';
 import { NewMessageDialog } from './NewMessageDialog';
@@ -56,7 +56,7 @@ export function MessagesScreen() {
               </IconButton>
             )}
           </div>
-          <ChatList activeId={chatId} />
+          <ChatsPane activeId={chatId} />
         </section>
         <section
           aria-label="Chat"

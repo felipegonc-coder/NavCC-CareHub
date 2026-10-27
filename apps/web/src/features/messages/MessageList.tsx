@@ -12,6 +12,9 @@ interface MessageListProps {
   onLoadOlder(): void;
   /** Once true, the list opens at the "New messages" line, or at the newest message. */
   ready: boolean;
+  /** A message to scroll to (once per `focusKey`), instead of the usual place. */
+  focusId: string | null;
+  focusKey: string;
   onAtBottomChange(atBottom: boolean): void;
   empty: ReactNode;
 }
@@ -28,12 +31,15 @@ export function MessageList({
   loadingOlder,
   onLoadOlder,
   ready,
+  focusId,
+  focusKey,
   onAtBottomChange,
   empty,
 }: MessageListProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const positioned = useRef(false);
+  const focused = useRef<string | null>(null);
   /** The first message on screen before older ones load above it, to keep it in place. */
   const anchor = useRef<{ key: string; offset: number } | null>(null);
   const pendingCount = rows.filter((row) => row.kind === 'pending').length;
@@ -72,8 +78,9 @@ export function MessageList({
     measure();
   };
 
-  // After every change: keep the first message in place when older ones arrive, open at the
-  // "New messages" line once, and otherwise follow new messages while at the end.
+  // After every change: keep the first message in place when older ones arrive, scroll to a
+  // message the chat was opened at, open at the "New messages" line once, and otherwise follow
+  // new messages while at the end.
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
@@ -86,6 +93,17 @@ export function MessageList({
       else if (nodes[0] !== node) {
         element.scrollTop = node.offsetTop - saved.offset;
         anchor.current = null;
+        kept = true;
+      }
+    }
+    if (!kept && focusId && focused.current !== focusKey) {
+      const node = Array.from(element.querySelectorAll<HTMLElement>('[data-anchor]')).find(
+        (item) => item.dataset.anchor === focusId,
+      );
+      if (node) {
+        focused.current = focusKey;
+        positioned.current = true;
+        element.scrollTop = node.offsetTop - (element.clientHeight - node.offsetHeight) / 2;
         kept = true;
       }
     }

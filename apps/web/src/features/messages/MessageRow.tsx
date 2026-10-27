@@ -2,6 +2,7 @@ import { Copy, Ellipsis, Pencil, Trash2 } from 'lucide-react';
 import { useRef } from 'react';
 import {
   COPY,
+  findMentions,
   parseMessageText,
   personName,
   safeHref,
@@ -29,6 +30,8 @@ export interface RowContext {
   viewerId: string;
   people: PeopleJson;
   editingId: string | null;
+  /** The message a search result or notification opened the chat at, for 3 seconds. */
+  highlightId: string | null;
   onCopy(message: MessageJson): void;
   onEdit(message: MessageJson): void;
   onDelete(message: MessageJson): void;
@@ -163,6 +166,7 @@ function MessageRow({
         'group relative flex gap-3 px-4 py-1 hover:bg-fill-hover focus-within:bg-fill-hover',
         first && 'mt-2',
         context.editingId === message.id && 'bg-fill',
+        context.highlightId === message.id && 'bg-warning/10',
       )}
     >
       <div className="w-8 shrink-0">{first && <Avatar name={name} size="sm" decorative />}</div>
@@ -209,7 +213,11 @@ function PendingRow({
             pending.status !== 'failed' && 'opacity-60',
           )}
         >
-          {pending.text}
+          {parseMessageText(pending.text, { mentionable: findMentions(pending.text) }).map(
+            (segment, index) => (
+              <Segment key={index} segment={segment} people={context.people} />
+            ),
+          )}
         </p>
         {pending.status === 'sending' && <p className="text-small text-muted">Sending…</p>}
         {pending.status === 'waiting' && (

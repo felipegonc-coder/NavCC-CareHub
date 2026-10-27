@@ -15,6 +15,8 @@ import type {
   HistoryResponse,
   MessageJson,
   MessageResponse,
+  MessageSearchBody,
+  MessageSearchResponse,
   NewChatBody,
   NewChatResponse,
   PeopleListResponse,
@@ -39,6 +41,9 @@ export const messagesKeys = {
   people: ['messages', 'people'] as const,
   chat: (chatId: string) => ['messages', 'chat', chatId] as const,
   history: (chatId: string) => ['messages', 'history', chatId] as const,
+  /** Message searches, refreshed when messages change. */
+  searches: ['messages', 'search'] as const,
+  search: (body: MessageSearchBody) => ['messages', 'search', body] as const,
 };
 
 /** No retries when the answer won't change: not found, no access, bad request. */
@@ -73,6 +78,7 @@ export function applyLiveEvent(client: QueryClient, event: LiveEvent): void {
   const data = event.data as { chatId?: unknown } | undefined;
   void client.invalidateQueries({ queryKey: messagesKeys.chats });
   void client.invalidateQueries({ queryKey: messagesKeys.badge });
+  void client.invalidateQueries({ queryKey: messagesKeys.searches });
   if (typeof data?.chatId === 'string') {
     void client.invalidateQueries({ queryKey: messagesKeys.chat(data.chatId) });
     void client.invalidateQueries({ queryKey: messagesKeys.history(data.chatId) });
@@ -153,6 +159,26 @@ export function historyOf(data: { pages: readonly HistoryResponse[] } | undefine
     messages: pages.flatMap((page) => page.messages),
     people: Object.assign({}, ...pages.map((page) => page.people)) as HistoryResponse['people'],
   };
+}
+
+const NO_SEARCH: MessageSearchBody = { q: '' };
+
+/**
+ * Message search (MS-19): up to 50 messages, newest first, from chats the person is in now. Asks
+ * nothing while `body` is null. The last results stay on screen while the next search runs.
+ */
+export function useMessageSearch(
+  body: MessageSearchBody | null,
+): UseQueryResult<MessageSearchResponse, ApiError> {
+  return useQuery<MessageSearchResponse, ApiError>({
+    queryKey: messagesKeys.search(body ?? NO_SEARCH),
+    queryFn: ({ signal }) =>
+      api.post<MessageSearchResponse>(`${BASE}/search`, body ?? NO_SEARCH, { signal }),
+    enabled: body !== null,
+    placeholderData: (previous) => previous,
+    staleTime: 30_000,
+    retry: retryUnlessRefused,
+  });
 }
 
 export function usePeopleOptions(enabled: boolean) {
@@ -255,6 +281,54 @@ export function useMute(chatId: string) {
     onSuccess: (answer) => {
       client.setQueryData(messagesKeys.chat(chatId), answer);
       changeChat(client, chatId, { muted: answer.chat.muted });
+      refreshCounts(client);
+    },
+  });
+}
+
+/** A group change gives the chat as it is now; its history gets the new system line. */
+function afterGroupChange(client: QueryClient, chatId: string, answer: ChatResponse) {
+  client.setQueryData(messagesKeys.chat(chatId), answer);
+  void client.invalidateQueries({ queryKey: messagesKeys.history(chatId) });
+  void client.invalidateQueries({ queryKey: messagesKeys.chats });
+}
+
+/** Rename a group; a blank name shows the members' names again. */
+export function useRenameChat(chatId: string) {
+  const client = useQueryClient();
+  return useMutation<ChatResponse, ApiError, string | null>({
+    mutationFn: (name) => api.patch<ChatResponse>(chatPath(chatId), { name }),
+    onSuccess: (answer) => afterGroupChange(client, chatId, answer),
+  });
+}
+
+export function useAddPeople(chatId: string) {
+  const client = useQueryClient();
+  return useMutation<ChatResponse, ApiError, string[]>({
+    mutationFn: (userIds) => api.post<ChatResponse>(`${chatPath(chatId)}/members`, { userIds }),
+    onSuccess: (answer) => afterGroupChange(client, chatId, answer),
+  });
+}
+
+/** Only the person who started the group, or took over, can remove people. */
+export function useRemovePerson(chatId: string) {
+  const client = useQueryClient();
+  return useMutation<ChatResponse, ApiError, string>({
+    mutationFn: (userId) =>
+      api.delete<ChatResponse>(`${chatPath(chatId)}/members/${encodeURIComponent(userId)}`),
+    onSuccess: (answer) => afterGroupChange(client, chatId, answer),
+  });
+}
+
+/** Leave a group: it goes from the list straight away (the screen then goes back to the list). */
+export function useLeaveChat(chatId: string, viewerId: string) {
+  const client = useQueryClient();
+  return useMutation<unknown, ApiError, void>({
+    mutationFn: () => api.delete(`${chatPath(chatId)}/members/${encodeURIComponent(viewerId)}`),
+    onSuccess: () => {
+      client.setQueryData<ChatListResponse | null>(messagesKeys.chats, (old) =>
+        old ? { ...old, chats: old.chats.filter((chat) => chat.id !== chatId) } : old,
+      );
       refreshCounts(client);
     },
   });

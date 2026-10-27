@@ -22,3 +22,13 @@ export function useTabVisible(): boolean {
   }, []);
   return visible;
 }
+
+/** The value once it has stayed the same for `ms`, such as search words while someone types. */
+export function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), ms);
+    return () => window.clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
