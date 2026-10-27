@@ -1,6 +1,7 @@
 /** Reading a row's value for any property, with automatic properties (created, edited, ID) filled in. */
 import { isCanonicalDecimal } from './decimal';
 import { isValidDateValue } from './dates';
+import { isSafeWebLink } from './richtext';
 import type {
   ChecklistItem,
   ComputedValue,
@@ -86,7 +87,11 @@ export function readValue(
       return isValidDateValue(raw) ? raw : null;
     case 'checkbox':
       return raw === true;
-    case 'url':
+    case 'url': {
+      // Stored values are checked on write too; reading checks again so an unsafe link never reaches an href (#12).
+      const url = str(raw);
+      return url !== null && isSafeWebLink(url) ? url : null;
+    }
     case 'email':
     case 'phone':
       return str(raw);

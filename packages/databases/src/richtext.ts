@@ -25,13 +25,30 @@ export function isRichTextEmpty(rt: RichText | null | undefined): boolean {
   return !rt || rt.every((s) => s.text === '' && !s.mention);
 }
 
-/** http or https, then a host made of letters, digits, dots, hyphens or IDN characters, an optional port, then anything without spaces. */
-const SAFE_LINK =
-  /^https?:\/\/(?:[^\s/?#@:]+(?::[^\s/?#@]*)?@)?(?:[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*|\[[0-9a-f:.]+\])(?::\d{1,5})?(?:[/?#][^\s]*)?$/iu;
+/**
+ * http or https, then "//", a host (letters, digits, hyphens and dots, or a bracketed IPv6 address),
+ * an optional port, then an optional path, query or fragment. No user name or password before the
+ * host (issue #12), no spaces, control or invisible formatting characters anywhere.
+ */
+const SAFE_WEB_LINK =
+  /^https?:\/\/(?:[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*|\[[0-9a-f:.]+\])(?::\d{1,5})?(?:[/?#][^\s\p{Cc}\p{Cf}]*)?$/iu;
 
-/** Only http and https links are allowed (checked without URL, which the package can't assume). */
+/** Longest link we keep. */
+export const MAX_LINK_LENGTH = 2_000;
+
+/**
+ * True for http and https web addresses only (checked without URL, which the package can't assume).
+ * Use it before a value becomes an href, an "Open a link" target or a stored URL property value.
+ * Anything else (javascript:, data:, vbscript:, //host, relative paths, user names before the host,
+ * leading spaces or tabs, mixed-case schemes hiding script) is refused.
+ */
+export function isSafeWebLink(url: string): boolean {
+  return typeof url === 'string' && url.length <= MAX_LINK_LENGTH && SAFE_WEB_LINK.test(url);
+}
+
+/** Links inside rich text follow the same rule as web links. */
 export function isSafeLink(url: string): boolean {
-  return url.length <= 2_000 && SAFE_LINK.test(url);
+  return isSafeWebLink(url);
 }
 
 const COLORS = new Set<string>(
