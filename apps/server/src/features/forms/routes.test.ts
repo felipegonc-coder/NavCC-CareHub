@@ -1,8 +1,8 @@
 // Form routes on a real database (decision 0200, Forms spec v2): the fill screen by link code for
 // members with and without access to the database, guests and people outside the workspace; every
 // gate with its words; codes that aren't live; mention titles; Change link; and logs that never
-// hold a code. Responses are made directly here (the submit route comes in the next forms pull
-// request). Fictional people only.
+// hold a code. Responses are made directly here; submit.test.ts sends them through the submit
+// route. Fictional people only.
 import {
   defaultConfig,
   defaultView,
