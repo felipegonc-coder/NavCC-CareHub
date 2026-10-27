@@ -15,7 +15,6 @@
 import {
   CHART_PALETTES,
   EMPTY_COLOR,
-  OPTION_CHART_COLORS,
   OTHER_COLOR,
   paletteColor,
   type ChartColor,
@@ -91,6 +90,7 @@ export interface ChartCategory {
   /** Option, person, date… keys; EMPTY_GROUP for "No value", OTHER_KEY for "Other". */
   key: string;
   label: string;
+  /** A design-kit colour (chart-palette.ts), used when display.colorBy is "category". */
   color: ChartColor;
   /** Every series together (cumulative when the chart is). */
   total: ChartPoint;
@@ -100,6 +100,7 @@ export interface ChartSeries {
   /** VALUE_SERIES_KEY when not split; EMPTY_GROUP for "No value", OTHER_KEY for "Other". */
   key: string;
   label: string;
+  /** A design-kit colour (chart-palette.ts), used when display.colorBy is "series". */
   color: ChartColor;
   /** One point for each category, in category order. */
   values: ChartPoint[];
@@ -823,9 +824,9 @@ function filledDates(buckets: readonly Bucket[], axis: Axis, limit: number): Buc
   return out;
 }
 
-/** Color of a regular category or series: its option color, or the palette by position. */
+/** Colour of a regular category or series: its option colour with Auto, else the palette's nth. */
 function colorFor(bucket: Bucket, index: number, palette: ChartPalette): ChartColor {
-  if (palette === 'default' && bucket.color) return OPTION_CHART_COLORS[bucket.color];
+  if (palette === 'default' && bucket.color) return { color: bucket.color };
   return paletteColor(palette, index);
 }
 
@@ -846,8 +847,10 @@ function placeColors(
   [...regular].sort(natural).forEach((b, i) => {
     out.set(b.key, { key: b.key, label: b.label, color: colorFor(b, i, palette) });
   });
-  if (other) out.set(OTHER_KEY, { key: OTHER_KEY, label: 'Other', color: OTHER_COLOR });
-  if (empty) out.set(EMPTY_GROUP, { key: EMPTY_GROUP, label: empty.label, color: EMPTY_COLOR });
+  if (other) out.set(OTHER_KEY, { key: OTHER_KEY, label: 'Other', color: { ...OTHER_COLOR } });
+  if (empty) {
+    out.set(EMPTY_GROUP, { key: EMPTY_GROUP, label: empty.label, color: { ...EMPTY_COLOR } });
+  }
   return out;
 }
 
@@ -1027,7 +1030,7 @@ export function chartData(
     return {
       key,
       label: place?.label ?? key,
-      color: place?.color ?? OTHER_COLOR,
+      color: place?.color ?? { ...OTHER_COLOR },
       total: totals[i] ?? { ...NOTHING, rowIds: [] },
     };
   });
@@ -1036,7 +1039,7 @@ export function chartData(
     return {
       key,
       label: place?.label ?? key,
-      color: place?.color ?? OTHER_COLOR,
+      color: place?.color ?? { ...OTHER_COLOR },
       values: pointsFor((ck) => grid.get(ck)?.get(key) ?? NO_ENTRIES),
     };
   });

@@ -1,123 +1,113 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CHART_BACKGROUNDS,
-  CHART_MIN_CONTRAST,
   CHART_PALETTES,
   EMPTY_COLOR,
-  OPTION_CHART_COLORS,
   OTHER_COLOR,
-  contrastRatio,
-  isReadableChartColor,
   paletteColor,
   paletteColors,
-  relativeLuminance,
   type ChartColor,
 } from './chart-palette';
 import { OPTION_COLORS } from './types';
 
-const named: [string, ChartColor][] = [
-  ...OPTION_COLORS.map((name): [string, ChartColor] => [
-    `option ${name}`,
-    OPTION_CHART_COLORS[name],
-  ]),
+const all: [string, ChartColor][] = [
   ...CHART_PALETTES.flatMap((p) =>
     paletteColors(p).map((color, i): [string, ChartColor] => [`${p} ${i}`, color]),
   ),
   ['other', OTHER_COLOR],
   ['empty', EMPTY_COLOR],
 ];
+const same = (a: ChartColor | undefined, b: ChartColor | undefined): boolean =>
+  a?.color === b?.color && (a?.strength ?? 5) === (b?.strength ?? 5);
 
-describe('chart colors', () => {
-  it('has a chart color for every option color', () => {
-    expect(Object.keys(OPTION_CHART_COLORS).sort()).toEqual([...OPTION_COLORS].sort());
+describe('chart palettes', () => {
+  it.each(all)('%s is a design-kit colour name with a strength from 1 to 5', (_, c) => {
+    expect((OPTION_COLORS as readonly string[]).includes(c.color)).toBe(true);
+    if (c.strength !== undefined) {
+      expect(Number.isInteger(c.strength)).toBe(true);
+      expect(c.strength).toBeGreaterThanOrEqual(1);
+      expect(c.strength).toBeLessThanOrEqual(5);
+    }
+    expect(Object.keys(c).every((k) => k === 'color' || k === 'strength')).toBe(true);
   });
 
-  it.each(named)('%s keeps 3:1 contrast on every background in light and dark', (_, color) => {
-    for (const bg of CHART_BACKGROUNDS.light) {
-      expect(contrastRatio(color.light, bg) ?? 0).toBeGreaterThanOrEqual(CHART_MIN_CONTRAST);
-    }
-    for (const bg of CHART_BACKGROUNDS.dark) {
-      expect(contrastRatio(color.dark, bg) ?? 0).toBeGreaterThanOrEqual(CHART_MIN_CONTRAST);
-    }
-    expect(isReadableChartColor(color)).toBe(true);
+  it('has no hex colours', () => {
+    expect(JSON.stringify(all)).not.toContain('#');
   });
 
-  it('uses six-digit lower-case hex everywhere', () => {
-    for (const [, color] of named) {
-      expect(/^#[0-9a-f]{6}$/.test(color.light)).toBe(true);
-      expect(/^#[0-9a-f]{6}$/.test(color.dark)).toBe(true);
+  it('keeps gray and default for "Other" and "No value", which look different', () => {
+    expect(OTHER_COLOR).toEqual({ color: 'gray' });
+    expect(EMPTY_COLOR).toEqual({ color: 'default', strength: 2 });
+    for (const p of CHART_PALETTES) {
+      for (const c of paletteColors(p)) expect(['gray', 'default']).not.toContain(c.color);
     }
   });
 
-  it('has no repeated colors inside a palette', () => {
+  it('never puts the same colour next to itself, including where a palette repeats', () => {
     for (const p of CHART_PALETTES) {
       const colors = paletteColors(p);
-      expect(new Set(colors.map((x) => x.light)).size).toBe(colors.length);
-      expect(new Set(colors.map((x) => x.dark)).size).toBe(colors.length);
+      colors.forEach((c, i) => {
+        expect(same(c, colors[(i + 1) % colors.length])).toBe(false);
+      });
     }
   });
 
-  it('keeps Other and No value apart from each other', () => {
-    expect(OTHER_COLOR.light).not.toBe(EMPTY_COLOR.light);
-    expect(OTHER_COLOR.dark).not.toBe(EMPTY_COLOR.dark);
+  it('has no repeated colours inside a palette', () => {
+    for (const p of CHART_PALETTES) {
+      const colors = paletteColors(p);
+      const seen = new Set(colors.map((c) => `${c.color}:${c.strength ?? 5}`));
+      expect(seen.size).toBe(colors.length);
+    }
+  });
+
+  it('starts every palette with a solid colour', () => {
+    for (const p of CHART_PALETTES) expect(paletteColors(p)[0]?.strength).toBeUndefined();
+  });
+
+  it('uses one hue for mono, every strength once', () => {
+    const mono = paletteColors('mono');
+    expect(new Set(mono.map((c) => c.color)).size).toBe(1);
+    expect(mono.map((c) => c.strength ?? 5).sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('keeps the colorblind palette to blue and orange, then purple and yellow', () => {
+    const blueSide = ['blue', 'purple'];
+    const colors = paletteColors('colorblind');
+    colors.forEach((c, i) => {
+      const next = colors[(i + 1) % colors.length];
+      expect(blueSide.includes(c.color)).not.toBe(blueSide.includes(next?.color ?? ''));
+    });
   });
 });
 
 describe('paletteColor', () => {
-  it('goes through the palette in order and repeats', () => {
+  it('goes through the sequence in order and repeats', () => {
     const colors = paletteColors('default');
-    expect(colors).toHaveLength(10);
-    expect(paletteColor('default', 0)).toEqual(colors[0]);
-    expect(paletteColor('default', 3)).toEqual(colors[3]);
-    expect(paletteColor('default', 10)).toEqual(colors[0]);
-    expect(paletteColor('default', 23)).toEqual(colors[3]);
-  });
-
-  it('repeats the shorter palettes after their own length', () => {
-    expect(paletteColors('colorblind')).toHaveLength(8);
+    expect(colors).toHaveLength(16);
+    expect(paletteColor('default', 0)).toEqual({ color: 'blue' });
+    expect(paletteColor('default', 1)).toEqual({ color: 'orange' });
+    expect(paletteColor('default', 8)).toEqual({ color: 'blue', strength: 3 });
+    expect(paletteColor('default', 16)).toEqual(colors[0]);
+    expect(paletteColor('mono', 6)).toEqual(paletteColor('mono', 1));
     expect(paletteColor('colorblind', 8)).toEqual(paletteColor('colorblind', 0));
-    expect(paletteColor('mono', 9)).toEqual(paletteColor('mono', 1));
   });
 
-  it('falls back to the default palette and to the first color for odd input', () => {
+  it('gives Colorful the same sequence as Auto', () => {
+    expect(paletteColors('colorful')).toEqual(paletteColors('default'));
+  });
+
+  it('falls back to Auto and to the first colour for odd input', () => {
     const first = paletteColors('default')[0];
     expect(paletteColor(undefined, 0)).toEqual(first);
     expect(paletteColor('neon' as never, 0)).toEqual(first);
     expect(paletteColors('neon' as never)).toEqual(paletteColors('default'));
-    expect(paletteColor('default', -1)).toEqual(paletteColors('default')[9]);
+    expect(paletteColor('default', -1)).toEqual(paletteColors('default')[15]);
     expect(paletteColor('default', Number.NaN)).toEqual(first);
     expect(paletteColor('default', 2.7)).toEqual(paletteColors('default')[2]);
   });
 
-  it('gives each palette its own first color', () => {
-    const firsts = CHART_PALETTES.map((p) => paletteColor(p, 0).light);
-    expect(new Set(firsts).size).toBe(CHART_PALETTES.length);
-  });
-});
-
-describe('contrast maths', () => {
-  it('matches the WCAG reference points', () => {
-    expect(relativeLuminance('#000000')).toBe(0);
-    expect(relativeLuminance('#ffffff')).toBe(1);
-    expect(relativeLuminance('#fff')).toBe(1);
-    expect(contrastRatio('#000000', '#ffffff')).toBe(21);
-    expect(contrastRatio('#ffffff', '#000')).toBe(21);
-    expect(contrastRatio('#777777', '#777777')).toBe(1);
-    // #767676 on white is the well-known 4.54:1 gray.
-    expect((contrastRatio('#767676', '#ffffff') ?? 0).toFixed(2)).toBe('4.54');
-  });
-
-  it('rejects anything that is not a hex color', () => {
-    expect(relativeLuminance('blue')).toBeNull();
-    expect(relativeLuminance('#12345')).toBeNull();
-    expect(relativeLuminance('123456')).toBeNull();
-    expect(contrastRatio('#ffffff', 'red')).toBeNull();
-    expect(isReadableChartColor({ light: 'nope', dark: '#ffffff' })).toBe(false);
-  });
-
-  it('turns down colors that fade into the background', () => {
-    expect(isReadableChartColor({ light: '#d9d9d9', dark: '#5b97e0' })).toBe(false);
-    expect(isReadableChartColor({ light: '#2f73c9', dark: '#2a2a2a' })).toBe(false);
-    expect(isReadableChartColor({ light: '#2f73c9', dark: '#5b97e0' })).toBe(true);
+  it('hands out copies, so changing one leaves the palette alone', () => {
+    const c = paletteColor('mono', 1);
+    c.strength = 5;
+    expect(paletteColor('mono', 1)).toEqual({ color: 'blue', strength: 3 });
   });
 });
