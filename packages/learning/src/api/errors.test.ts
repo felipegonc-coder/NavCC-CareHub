@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { ApiErrorBodySchema, errorForStatus, PublishNotifySchema } from './index';
 
@@ -56,3 +57,14 @@ describe('API error shape', () => {
     expect(PublishNotifySchema.safeParse('everyone').success).toBe(false);
   });
 });
+
+// TEMPORARY probe for PR #79: runs the web tests here so a failure shows in the CI report.
+await import(/* @vite-ignore */ '@testing-library/jest-dom/vitest');
+for (const file of [
+  'apps/web/src/features/learning/routes.test.tsx',
+  'apps/web/src/features/learning/data/http.test.ts',
+  'apps/web/src/features/learning/data/event-queue.test.ts',
+  'apps/web/src/App.test.tsx',
+]) {
+  await import(/* @vite-ignore */ '../../../../' + file);
+}

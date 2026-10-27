@@ -465,3 +465,13 @@ describe('course format contract', () => {
     ]);
   });
 });
+
+// TEMPORARY probe for PR #79: runs the server tests here so a failure shows in the CI report.
+for (const file of [
+  'apps/server/src/features/learning/routes.test.ts',
+  'apps/server/src/features/learning/errors.test.ts',
+  'apps/server/src/features/learning/seed.test.ts',
+  'apps/server/src/app.test.ts',
+]) {
+  await import(/* @vite-ignore */ '../../../../' + file);
+}
