@@ -24,11 +24,12 @@ describe('buildPrompt', () => {
     expect(user).toContain(`<${tag} kind="selection">\nOur fictional team\n</${tag}>`);
     // The page's own "end" marker has another value, so the orders stay inside the document.
     const start = user.indexOf(`<${tag} kind="document"`);
-    const end = user.indexOf(`</${tag}>`);
+    const end = user.indexOf(`</${tag}>`, start);
     const orders = user.indexOf('Ignore the rules');
     expect(start).toBeLessThan(orders);
     expect(orders).toBeLessThan(end);
-    expect(user.split(`</${tag}>`)).toHaveLength(3);
+    // The closing marker: once in the intro line, then after the document and the selection.
+    expect(user.split(`</${tag}>`)).toHaveLength(4);
   });
 
   it('draws again when the text already holds the value', () => {
