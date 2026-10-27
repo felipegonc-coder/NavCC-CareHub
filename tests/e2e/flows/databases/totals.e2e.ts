@@ -13,17 +13,19 @@ import {
 } from './database-api.js';
 import { DatabaseScreen } from './database-page.js';
 
-// Databases and Forms additions, section 4 (column totals): DB-32; Databases spec v2 has the same
-// check as DB-31. Twelve rows match the saved filter and one doesn't; the view loads 10 at a time.
+// Databases spec, "Done means" DB-31: the calculation row's Count all, Sum and Percent empty match
+// the filtered rows, overall and in each group. Twelve rows match the saved filter and one doesn't;
+// the view loads 10 at a time.
 test.describe('Databases: column totals', () => {
   onlyIn('desktop-light');
   needs('signIn', 'pages', 'databases');
 
-  test('DB-32 totals cover every matching row, per group, after a reload', async ({ page }) => {
+  test('DB-31 totals cover every matching row, per group, after a reload', async ({ page }) => {
     test.slow();
     await signInAs(page, 'editor');
     const tag = uniqueName('Fictional QA');
     const database = await makeDatabase(page);
+    const name = nameOf(database);
     const hours = await addProperty(page, database.id, 'Hours', {
       ...config.number(),
       format: 'number_commas',
@@ -32,7 +34,8 @@ test.describe('Databases: column totals', () => {
     const notes = await addProperty(page, database.id, 'Notes', config.text());
     const due = await addProperty(page, database.id, 'Due', config.date());
     const team = await addProperty(page, database.id, 'Team', config.select('North', 'South'));
-    // Rows 0-7 are North with 1,000 hours each, rows 8-11 South with 1,085: 12,340 in all.
+    // Rows 0-7 are North with 1,000 hours each, rows 8-11 South with 1,085: 12,340 in all. Notes
+    // stay empty in 7 of the 12: 5 of the 8 North rows and 2 of the 4 South ones.
     for (let i = 0; i < 12; i++) {
       const north = i < 8;
       await addRow(page, database.id, `${tag} keep ${i + 1}`, {
@@ -51,24 +54,26 @@ test.describe('Databases: column totals', () => {
     });
     const table = tableView(database);
     await updateView(page, database.id, table.id, {
-      filter: filter.all(filter.where(nameOf(database).id, 'contains', `${tag} keep`)),
+      filter: filter.all(filter.where(name.id, 'contains', `${tag} keep`)),
       loadLimit: 10,
     });
     const screen = new DatabaseScreen(page, database.id);
     await screen.open();
 
-    await test.step('Pick Sum, Percent checked, Count empty and Earliest date', async () => {
+    await test.step('Pick a calculation in each column', async () => {
+      await screen.calculate(name.id, 'Count all');
       await screen.calculate(hours.id, 'Sum');
       await screen.calculate(reviewed.id, 'Percent checked');
-      await screen.calculate(notes.id, 'Count empty');
+      await screen.calculate(notes.id, 'Percent empty');
       await screen.calculate(due.id, /^Earliest/);
     });
 
     await test.step('They cover all 12 matching rows, not the 10 loaded', async () => {
       await expect(screen.rows()).toHaveCount(10);
+      await expect(screen.totalsOf(name.id)).toContainText(/\b12\b/);
       await expect(screen.totalsOf(hours.id)).toContainText('12,340');
       await expect(screen.totalsOf(reviewed.id)).toContainText('33.3%');
-      await expect(screen.totalsOf(notes.id)).toContainText(/\b7\b/);
+      await expect(screen.totalsOf(notes.id)).toContainText('58.3%');
       await expect(screen.totalsOf(due.id)).toContainText('Oct 5, 2026');
     });
 
@@ -77,15 +82,17 @@ test.describe('Databases: column totals', () => {
         await page.reload();
         await expect(screen.totalsOf(hours.id)).toContainText('12,340', { timeout: 2_000 });
       }).toPass();
-      await expect(screen.totalsOf(reviewed.id)).toContainText('33.3%');
+      await expect(screen.totalsOf(name.id)).toContainText(/\b12\b/);
+      await expect(screen.totalsOf(notes.id)).toContainText('58.3%');
     });
 
     await test.step('Grouped by Team, each group has its own totals', async () => {
       await updateView(page, database.id, table.id, { grouping: { propertyId: team.id } });
       await page.reload();
+      await expect(screen.totalsOf(name.id)).toContainText([/\b8\b/, /\b4\b/]);
       await expect(screen.totalsOf(hours.id)).toContainText(['8,000', '4,340']);
       await expect(screen.totalsOf(reviewed.id)).toContainText(['25%', '50%']);
-      await expect(screen.totalsOf(notes.id)).toContainText([/\b5\b/, /\b2\b/]);
+      await expect(screen.totalsOf(notes.id)).toContainText(['62.5%', '50%']);
       await expect(screen.totalsOf(due.id)).toContainText(['Oct 5, 2026', 'Oct 12, 2026']);
     });
 
