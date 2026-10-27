@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
+import { UUID } from './layers';
 import {
   type ConnectionKind,
   type ConnectionStatus,
@@ -11,6 +12,7 @@ import {
   LAYER_COLORS,
   calendarConnectionCalendars as calendars,
   calendarConnections as connections,
+  calendarSyncedEvents as syncedEvents,
 } from './schema';
 
 /** Per person (Calendar spec, Limits). */
@@ -193,4 +195,109 @@ export async function removeConnection(db: DbOrTx, ownerId: string, id: string) 
       secret: connections.secret,
     });
   return removed;
+}
+
+/** Renames a connection. False when it isn't the person's. */
+export async function renameConnection(db: DbOrTx, ownerId: string, id: string, label: string) {
+  if (!UUID.test(id)) return false;
+  const rows = await db
+    .update(connections)
+    .set({ label, updatedAt: new Date() })
+    .where(and(eq(connections.id, id), eq(connections.ownerId, ownerId)))
+    .returning({ id: connections.id });
+  return rows.length > 0;
+}
+
+/** After a new sign-in: the new secret, no problem shown, and a sync straight away. */
+export async function reconnectConnection(
+  db: DbOrTx,
+  ownerId: string,
+  id: string,
+  update: { secret: string; account: string | null },
+  now = new Date(),
+) {
+  const rows = await db
+    .update(connections)
+    .set({
+      secret: update.secret,
+      account: update.account,
+      status: 'ok',
+      lastError: null,
+      failures: 0,
+      nextSyncAt: now,
+      updatedAt: now,
+    })
+    .where(and(eq(connections.id, id), eq(connections.ownerId, ownerId)))
+    .returning({ id: connections.id });
+  return rows.length > 0;
+}
+
+/**
+ * Whether Care Hub syncs one of the person's connected calendars (chosen when connecting, and in
+ * Settings). Hiding it drops its copies; showing it reads it in full, straight away. Returns the
+ * calendar's connection, or undefined when the calendar isn't theirs.
+ */
+export async function setCalendarShown(
+  db: Db,
+  ownerId: string,
+  calendarId: string,
+  shown: boolean,
+  now = new Date(),
+): Promise<string | undefined> {
+  if (!UUID.test(calendarId)) return undefined;
+  return db.transaction(async (tx) => {
+    const [before] = await tx
+      .select({ shown: calendars.shown, connectionId: calendars.connectionId })
+      .from(calendars)
+      .innerJoin(connections, eq(connections.id, calendars.connectionId))
+      .where(and(eq(calendars.id, calendarId), eq(connections.ownerId, ownerId)))
+      .for('update', { of: calendars });
+    if (!before) return undefined;
+    if (before.shown === shown) return before.connectionId;
+    const reset = { cursor: null, lastFullSyncAt: null, truncated: false };
+    await tx
+      .update(calendars)
+      .set({ shown, ...reset })
+      .where(eq(calendars.id, calendarId));
+    if (shown) {
+      await tx
+        .update(connections)
+        .set({ nextSyncAt: now, updatedAt: now })
+        .where(eq(connections.id, before.connectionId));
+    } else await tx.delete(syncedEvents).where(eq(syncedEvents.calendarId, calendarId));
+    return before.connectionId;
+  });
+}
+
+/** The person's connection of this kind for this account, so signing in again reconnects it. */
+export async function findConnectionByAccount(
+  db: DbOrTx,
+  input: { ownerId: string; kind: ConnectionKind; account: string },
+): Promise<string | undefined> {
+  const [row] = await db
+    .select({ id: connections.id })
+    .from(connections)
+    .where(
+      and(
+        eq(connections.ownerId, input.ownerId),
+        eq(connections.kind, input.kind),
+        sql`lower(${connections.account}) = lower(${input.account})`,
+      ),
+    )
+    .orderBy(asc(connections.createdAt))
+    .limit(1);
+  return row?.id;
+}
+
+/**
+ * Whether any connection, anyone's, still uses this account. Ending a Google grant ends it for
+ * every connection to that account, so it only ends when none is left.
+ */
+export async function isAccountConnected(db: DbOrTx, kind: ConnectionKind, account: string) {
+  const [row] = await db
+    .select({ id: connections.id })
+    .from(connections)
+    .where(and(eq(connections.kind, kind), sql`lower(${connections.account}) = lower(${account})`))
+    .limit(1);
+  return row !== undefined;
 }

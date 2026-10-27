@@ -12,7 +12,8 @@ import {
 import { users } from '../../auth/schema';
 import type { ExternalEvent } from '../sync/types';
 
-// Mirrors migrations/202610271455_calendar_connections.sql, which is the source of truth.
+// Mirrors migrations/202610271455_calendar_connections.sql and
+// 202610271545_calendar_oauth_states.sql, which are the source of truth.
 
 export const CONNECTION_KINDS = ['google', 'google-bridge', 'icloud', 'link'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
@@ -107,4 +108,25 @@ export const calendarSyncedEvents = pgTable(
     index('cal_synced_events_range_idx').on(table.calendarId, table.startsAt),
     index('cal_synced_events_uid_idx').on(table.calendarId, table.uid),
   ],
+);
+
+/** Google sign-ins in progress (oauth-states.ts). */
+export const calendarOAuthStates = pgTable(
+  'cal_oauth_states',
+  {
+    stateHash: text('state_hash').primaryKey(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** Hash of the signed-in session that started it. */
+    sessionKey: text('session_key').notNull(),
+    workspaceId: uuid('workspace_id'),
+    /** Sealed. */
+    codeVerifier: text('code_verifier').notNull(),
+    connectionId: uuid('connection_id').references(() => calendarConnections.id, {
+      onDelete: 'cascade',
+    }),
+    expiresAt: at('expires_at').notNull(),
+  },
+  (table) => [index('cal_oauth_states_expires_idx').on(table.expiresAt)],
 );
