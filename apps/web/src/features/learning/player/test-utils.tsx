@@ -95,7 +95,8 @@ export function renderPlayer(course: Course, state: LearnerCourseState, lessonId
   return { ...view, emit };
 }
 
-const reply = (status: number, data: unknown) =>
+/** A JSON reply from the fake Learning API. */
+export const jsonReply = (status: number, data: unknown) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 
 const ERRORS: Record<number, { code: string; message: string }> = {
@@ -103,7 +104,8 @@ const ERRORS: Record<number, { code: string; message: string }> = {
   403: { code: 'forbidden', message: "You don't have access to this." },
   404: { code: 'not_found', message: 'This was deleted, or the link is wrong.' },
 };
-const failure = (status: number) => reply(status, { error: ERRORS[status] });
+/** The Learning API's error reply for 400, 403 or 404. */
+export const errorReply = (status: number) => jsonReply(status, { error: ERRORS[status] });
 
 type Call = { method: string; url: string; events: ProgressEvent[] };
 
@@ -127,16 +129,16 @@ export function serveCourse(
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
     calls.push({ method, url, events: body.events ?? [] });
     if (method === 'GET' && url === api) {
-      if (server.course !== 200) return failure(server.course);
-      return reply(200, { course, version: 3 });
+      if (server.course !== 200) return errorReply(server.course);
+      return jsonReply(200, { course, version: 3 });
     }
-    if (method === 'GET' && url === `${api}/progress`) return reply(200, current);
+    if (method === 'GET' && url === `${api}/progress`) return jsonReply(200, current);
     if (method === 'POST' && url === `${api}/events`) {
       if (server.offline) throw new TypeError('Failed to fetch');
       current = withPending(course, current, body.events);
-      return reply(200, { state: current, rejected: [] });
+      return jsonReply(200, { state: current, rejected: [] });
     }
-    return failure(404);
+    return errorReply(404);
   });
   const sent = () => calls.filter((call) => call.method === 'POST').flatMap((call) => call.events);
   return { server, calls, sent };

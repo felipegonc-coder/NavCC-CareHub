@@ -75,10 +75,8 @@ describe('timeLeftLine', () => {
 
 describe('courseFacts', () => {
   it('counts the lessons and gives the time when the course has one', () => {
-    const [first] = inOrder.lessons;
-    expect(courseFacts({ lessons: first ? [first] : [], estimatedMinutes: 1 })).toBe(
-      '1 lesson · About 1 minute',
-    );
-    expect(courseFacts({ lessons: inOrder.lessons })).toBe('4 lessons');
+    expect(courseFacts(1, 1)).toBe('1 lesson · About 1 minute');
+    expect(courseFacts(4)).toBe('4 lessons');
+    expect(courseFacts(4, 20)).toBe('4 lessons · About 20 minutes');
   });
 });

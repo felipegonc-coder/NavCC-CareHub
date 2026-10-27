@@ -78,11 +78,9 @@ export function timeLeftLine(
   return `Almost done: spend ${left} in the lessons to finish the course.`;
 }
 
-/** The course's size in a few words: "4 lessons · About 20 minutes". */
-export function courseFacts(course: Pick<Course, 'lessons' | 'estimatedMinutes'>): string {
-  const count = course.lessons.length;
-  const facts = [count === 1 ? '1 lesson' : `${count} lessons`];
-  const minutes = course.estimatedMinutes;
+/** A course's size in a few words: "4 lessons · About 20 minutes". */
+export function courseFacts(lessonCount: number, minutes?: number): string {
+  const facts = [lessonCount === 1 ? '1 lesson' : `${lessonCount} lessons`];
   if (minutes) facts.push(minutes === 1 ? 'About 1 minute' : `About ${minutes} minutes`);
   return facts.join(' · ');
 }

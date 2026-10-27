@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useId } from 'react';
 import { Link } from 'react-router';
 import { RichTextView } from '../blocks/text/RichTextView';
+import { TopicList } from '../catalog/CourseCard';
 import { Outline } from '../player/Outline';
 import { outlinePercent, ProgressBar } from '../player/ProgressBar';
 import { useFollowLink } from '../player/useFollowLink';
@@ -41,16 +42,10 @@ export function CourseStart({ course, state }: CourseStartProps) {
       <div className="flex flex-col gap-3">
         <h1 className="break-words text-title">{course.title}</h1>
         {course.summary && <p className="text-body text-muted">{course.summary}</p>}
-        <p className="text-small text-muted">{courseFacts(course)}</p>
-        {course.topics && course.topics.length > 0 && (
-          <ul aria-label="Topics" className="flex flex-wrap gap-2">
-            {course.topics.map((topic) => (
-              <li key={topic} className="rounded-sm bg-fill px-2 py-1 text-small text-muted">
-                {topic}
-              </li>
-            ))}
-          </ul>
-        )}
+        <p className="text-small text-muted">
+          {courseFacts(course.lessons.length, course.estimatedMinutes)}
+        </p>
+        {course.topics && <TopicList topics={course.topics} />}
       </div>
       <section
         aria-labelledby={progressId}

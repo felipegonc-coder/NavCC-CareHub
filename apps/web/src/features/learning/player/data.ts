@@ -64,13 +64,13 @@ const EventsReply: ReplySchema<{ state: LearnerCourseState }> = {
 };
 
 /** Tries once more after a dropped connection or a server error; never after a refusal. */
-const retry = (failures: number, error: unknown) => failures < 1 && isRetryable(error);
+export const retryOnce = (failures: number, error: unknown) => failures < 1 && isRetryable(error);
 
 export function useLiveCourse(courseId: Id) {
   return useQuery({
     queryKey: courseKey(courseId),
     queryFn: ({ signal }) => api('GET', coursePath(courseId), LiveCourseReply, { signal }),
-    retry,
+    retry: retryOnce,
   });
 }
 
@@ -78,7 +78,7 @@ export function useLearnerState(courseId: Id) {
   return useQuery({
     queryKey: progressKey(courseId),
     queryFn: ({ signal }) => api('GET', `${coursePath(courseId)}/progress`, StateReply, { signal }),
-    retry,
+    retry: retryOnce,
   });
 }
 
