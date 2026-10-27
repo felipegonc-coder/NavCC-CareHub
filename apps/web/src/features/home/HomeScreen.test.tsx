@@ -1,6 +1,6 @@
 import { DEFAULT_TIME_PREFS } from '@carehub/team-time';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -169,7 +169,7 @@ describe('Upcoming', () => {
     renderHome();
     const region = await screen.findByRole('region', { name: 'Upcoming' });
     await within(region).findByText('Morning rounds');
-    expect(api.server.calls).toEqual(['/api/calendar/upcoming?limit=10']);
+    expect(api.callsTo('/api/calendar/upcoming')).toEqual(['/api/calendar/upcoming?limit=10']);
 
     const [today, tomorrow] = within(region).getAllByRole('list');
     const rows = (list: HTMLElement) =>
@@ -244,5 +244,87 @@ describe('Upcoming', () => {
     expect(alert).toHaveTextContent("Couldn't load upcoming events.");
     fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Care team huddle')).toBeInTheDocument();
+  });
+});
+
+describe('Customize Home', () => {
+  const sections = [
+    listing('upcoming', 'Upcoming', ['Care team huddle']),
+    listing('recent', 'Recent pages', ['Shift handover']),
+  ];
+  const renderHome = () =>
+    render(
+      <Providers>
+        <HomeScreen sections={sections} />
+      </Providers>,
+    );
+  const region = (name: string) => screen.queryByRole('region', { name });
+
+  async function openMenu() {
+    const button = screen.getByRole('button', { name: 'Customize Home' });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.keyDown(button, { key: 'Enter' });
+    return screen.findByRole('menu');
+  }
+  const closeMenu = () =>
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+
+  it('hides a section for this person, and it stays hidden after a reload (HR-06)', async () => {
+    const first = renderHome();
+    await screen.findByRole('region', { name: 'Recent pages' });
+    const menu = await openMenu();
+    expect(within(menu).getByText('Show on Home')).toBeInTheDocument();
+    const recent = within(menu).getByRole('menuitemcheckbox', { name: 'Recent pages' });
+    expect(recent).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(recent);
+    // The menu stays open for the next change.
+    await waitFor(() => expect(recent).toHaveAttribute('aria-checked', 'false'));
+    closeMenu();
+    await waitFor(() => expect(region('Recent pages')).not.toBeInTheDocument());
+    expect(region('Upcoming')).toBeInTheDocument();
+    await waitFor(() => expect(api.server.changes).toEqual([{ hiddenSections: ['recent'] }]));
+
+    first.unmount();
+    renderHome();
+    await screen.findByRole('region', { name: 'Upcoming' });
+    expect(region('Recent pages')).not.toBeInTheDocument();
+  });
+
+  it('shows hidden sections again', async () => {
+    api.server.settings = { hiddenSections: ['upcoming', 'recent'], upcomingFolded: false };
+    renderHome();
+    expect(
+      await screen.findByText('Every section is hidden. Use Customize Home to show them again.'),
+    ).toBeInTheDocument();
+    const menu = await openMenu();
+    fireEvent.click(within(menu).getByRole('menuitemcheckbox', { name: 'Upcoming' }));
+    closeMenu();
+    expect(await screen.findByRole('region', { name: 'Upcoming' })).toBeInTheDocument();
+    await waitFor(() => expect(api.server.changes).toEqual([{ hiddenSections: ['recent'] }]));
+  });
+
+  it('puts a change back and says so when it can’t be saved', async () => {
+    api.server.failChanges = 1;
+    renderHome();
+    await screen.findByRole('region', { name: 'Recent pages' });
+    const menu = await openMenu();
+    fireEvent.click(within(menu).getByRole('menuitemcheckbox', { name: 'Recent pages' }));
+    closeMenu();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Couldn't save that change. Try again.",
+    );
+    expect(region('Recent pages')).toBeInTheDocument();
+  });
+
+  it('follows a change made in another tab', async () => {
+    renderHome();
+    await screen.findByRole('region', { name: 'Recent pages' });
+    await act(() => live.open());
+    api.server.settings = { hiddenSections: ['recent'], upcomingFolded: false };
+    await act(async () => {
+      live.send({ type: 'home-settings-changed' });
+    });
+    await waitFor(() => expect(region('Recent pages')).not.toBeInTheDocument());
+    expect(region('Upcoming')).toBeInTheDocument();
   });
 });
