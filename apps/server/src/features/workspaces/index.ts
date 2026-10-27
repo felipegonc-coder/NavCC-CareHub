@@ -4,9 +4,11 @@ export {
   addMember,
   getCurrentMember,
   getDefaultWorkspace,
+  getMembership,
   memberJson,
   syncDefaultWorkspace,
   type AddMemberInput,
   type CurrentMember,
+  type Member,
 } from './members';
 export { roles, workspaceMembers, workspaces } from './schema';

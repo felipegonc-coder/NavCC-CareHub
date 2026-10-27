@@ -14,10 +14,10 @@ import { roles, workspaceMembers, workspaces } from './schema';
 export const DEFAULT_WORKSPACE_NAME = 'Care Hub';
 
 /**
- * `request.member`: the signed-in person's place in the current workspace. Guests have no role and no
- * permissions (`hasPermission` is false for them); the pages they're given decide what they can do.
+ * Someone's membership of a workspace. Guests have no role and no permissions (`hasPermission` is false
+ * for them); the pages they're given decide what they can do.
  */
-export type CurrentMember =
+export type Member =
   | {
       kind: 'member';
       workspaceId: string;
@@ -35,6 +35,9 @@ export type CurrentMember =
       permissions: ReadonlySet<PermissionKey>;
       isAdmin: false;
     };
+
+/** `request.member`: the signed-in person's membership of the current workspace. */
+export type CurrentMember = Member;
 
 const isPermissionKey = (key: string): key is PermissionKey =>
   (PERMISSION_KEYS as readonly string[]).includes(key);
@@ -64,24 +67,23 @@ export async function getDefaultWorkspace(db: Db | Tx): Promise<WorkspaceSummary
   return row ?? null;
 }
 
-/** The person's membership of the current workspace, or null (not in it, or removed). */
-export async function getCurrentMember(db: Db | Tx, userId: string): Promise<CurrentMember | null> {
-  const [row] = await db
-    .select({
-      workspaceId: workspaceMembers.workspaceId,
-      kind: workspaceMembers.kind,
-      roleId: roles.id,
-      roleName: roles.name,
-      permissions: roles.permissions,
-    })
-    .from(workspaceMembers)
-    .innerJoin(
-      workspaces,
-      and(eq(workspaces.id, workspaceMembers.workspaceId), eq(workspaces.isDefault, true)),
-    )
-    .leftJoin(roles, eq(roles.id, workspaceMembers.roleId))
-    .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.removedAt)))
-    .limit(1);
+const memberColumns = {
+  workspaceId: workspaceMembers.workspaceId,
+  kind: workspaceMembers.kind,
+  roleId: roles.id,
+  roleName: roles.name,
+  permissions: roles.permissions,
+};
+
+interface MemberRow {
+  workspaceId: string;
+  kind: MembershipKind;
+  roleId: string | null;
+  roleName: string | null;
+  permissions: readonly string[] | null;
+}
+
+function toMember(row: MemberRow | undefined): Member | null {
   if (!row) return null;
   const { workspaceId } = row;
   if (row.kind === 'guest') {
@@ -107,8 +109,49 @@ export async function getCurrentMember(db: Db | Tx, userId: string): Promise<Cur
   };
 }
 
+/** The person's membership of the current workspace, or null (not in it, or removed). */
+export async function getCurrentMember(db: Db | Tx, userId: string): Promise<CurrentMember | null> {
+  const [row] = await db
+    .select(memberColumns)
+    .from(workspaceMembers)
+    .innerJoin(
+      workspaces,
+      and(eq(workspaces.id, workspaceMembers.workspaceId), eq(workspaces.isDefault, true)),
+    )
+    .leftJoin(roles, eq(roles.id, workspaceMembers.roleId))
+    .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.removedAt)))
+    .limit(1);
+  return toMember(row);
+}
+
+/**
+ * The person's membership of a workspace, or null when they aren't in it or were removed. Guests come back
+ * with `kind: 'guest'`. For work done for someone outside their own request, such as notices. It looks
+ * only at the membership: a locked account (`users.locked_at`) still counts, so check that yourself
+ * before anything leaves Care Hub (email, push).
+ */
+export async function getMembership(
+  db: Db | Tx,
+  workspaceId: string,
+  userId: string,
+): Promise<Member | null> {
+  const [row] = await db
+    .select(memberColumns)
+    .from(workspaceMembers)
+    .leftJoin(roles, eq(roles.id, workspaceMembers.roleId))
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, userId),
+        isNull(workspaceMembers.removedAt),
+      ),
+    )
+    .limit(1);
+  return toMember(row);
+}
+
 /** `member` in GET /api/auth/me. */
-export const memberJson = (member: CurrentMember): CurrentMemberJson => ({
+export const memberJson = (member: Member): CurrentMemberJson => ({
   ...member,
   permissions: [...member.permissions],
 });
