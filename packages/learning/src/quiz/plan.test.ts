@@ -150,7 +150,7 @@ describe('planAttempt', () => {
   it('shows every question in the listed order when nothing is pooled or shuffled', () => {
     const plan = planAttempt(quiz(everyType), 7, 'att');
     expect(plan.questionIds).toEqual(ids(everyType));
-    expect(Object.keys(plan.optionOrder)).toEqual(['q-order']);
+    expect(Object.keys(plan.optionOrder)).toEqual(['q-match', 'q-drag', 'q-order']);
   });
 
   it("draws poolSize of the lesson's questions, kept in their listed order", () => {
@@ -243,8 +243,12 @@ describe('planAttempt', () => {
     ]);
   });
 
-  it('records choice and matching orders only with shuffleOptions', () => {
-    expect(Object.keys(planAttempt(quiz(everyType), 3, 'att').optionOrder)).toEqual(['q-order']);
+  it('records choice orders only with shuffleOptions, and matching and ordering orders always', () => {
+    expect(Object.keys(planAttempt(quiz(everyType), 3, 'att').optionOrder)).toEqual([
+      'q-match',
+      'q-drag',
+      'q-order',
+    ]);
     const lesson = quiz(everyType, { shuffleOptions: true });
     const singleOrders = new Set<string>();
     for (const seed of SEEDS.slice(0, 50)) {
@@ -266,38 +270,42 @@ describe('planAttempt', () => {
     expect(singleOrders.size).toBeGreaterThan(10);
   });
 
-  it('never shows ordering items, or a shuffled matching list, in the listed order', () => {
-    const lesson = quiz(
-      [ordering('q-order', ['o1', 'o2', 'o3', 'o4']), matching('q-match', ['m1', 'm2', 'm3'])],
-      { shuffleOptions: true },
-    );
-    const orderings = new Set<string>();
-    const matchings = new Set<string>();
-    for (const seed of SEEDS) {
+  it('shuffles ordering items and matching lists uniformly, the listed order included', () => {
+    // A shuffle that avoided the listed order would give away the answer of a 2-item question.
+    const lesson = quiz([
+      ordering('q-order', ['o1', 'o2', 'o3']),
+      matching('q-match', ['m1', 'm2', 'm3']),
+      dragMatching('q-drag', ['d1', 'd2']),
+    ]);
+    const counts = new Map<string, number>();
+    const count = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
+    const seeds = Array.from({ length: 1200 }, (_, i) => i * 7919 + 13);
+    for (const seed of seeds) {
       const { optionOrder } = planAttempt(lesson, seed, 'att');
-      expect(optionOrder['q-order']).not.toEqual(['o1', 'o2', 'o3', 'o4']);
-      expect(optionOrder['q-match']).not.toEqual(['m1', 'm2', 'm3']);
-      orderings.add((optionOrder['q-order'] ?? []).join());
-      matchings.add((optionOrder['q-match'] ?? []).join());
+      count(`order ${(optionOrder['q-order'] ?? []).join()}`);
+      count(`match ${(optionOrder['q-match'] ?? []).join()}`);
+      count(`drag ${(optionOrder['q-drag'] ?? []).join()}`);
     }
-    // Every other order turns up: 23 of the 24 orders of 4 items, 5 of the 6 orders of 3 pairs.
-    expect(orderings.size).toBeGreaterThanOrEqual(20);
-    expect(matchings.size).toBe(5);
+    // 6 orders of 3 items (200 each on average), 2 orders of 2 pairs (600 each on average).
+    expect([...counts.keys()].filter((key) => key.startsWith('order '))).toHaveLength(6);
+    expect([...counts.keys()].filter((key) => key.startsWith('match '))).toHaveLength(6);
+    for (const [key, n] of counts) {
+      const expected = key.startsWith('drag ') ? 600 : 200;
+      expect(Math.abs(n - expected)).toBeLessThan(expected * 0.25);
+    }
+    expect(counts.get('order o1,o2,o3')).toBeGreaterThan(0);
+    expect(counts.get('drag d1,d2')).toBeGreaterThan(0);
   });
 
-  it('swaps 2-item lists and keeps lists of 0 or 1 items as they are', () => {
-    const lesson = quiz(
-      [
-        ordering('two', ['x', 'y']),
-        dragMatching('drag', ['d1', 'd2']),
-        ordering('one', ['only']),
-        ordering('none', []),
-      ],
-      { shuffleOptions: true },
-    );
+  it('keeps lists of 0 or 1 items as they are', () => {
+    const lesson = quiz([
+      ordering('one', ['only']),
+      ordering('none', []),
+      matching('pair', ['p1']),
+    ]);
     for (const seed of SEEDS.slice(0, 20)) {
       const { optionOrder } = planAttempt(lesson, seed, 'att');
-      expect(optionOrder).toEqual({ two: ['y', 'x'], drag: ['d2', 'd1'], one: ['only'], none: [] });
+      expect(optionOrder).toEqual({ one: ['only'], none: [], pair: ['p1'] });
     }
   });
 
@@ -314,7 +322,10 @@ describe('planAttempt', () => {
     const { optionOrder } = planAttempt(quiz([ordering('__proto__', ['o1', 'o2'])]), 1, 'att');
     expect(Object.getPrototypeOf(optionOrder)).toBe(Object.prototype);
     expect(Object.keys(optionOrder)).toEqual(['__proto__']);
-    expect(Object.getOwnPropertyDescriptor(optionOrder, '__proto__')?.value).toEqual(['o2', 'o1']);
+    expect(sorted(Object.getOwnPropertyDescriptor(optionOrder, '__proto__')?.value)).toEqual([
+      'o1',
+      'o2',
+    ]);
   });
 
   it("doesn't change the quiz", () => {
@@ -354,10 +365,8 @@ describe('isPlanFor', () => {
       (plan) => plan.questionIds.splice(drawnIndex(plan), 1, notDrawn(plan)),
     ],
     ['a question listed twice', (plan) => plan.questionIds.push(plan.questionIds[0] ?? '')],
-    [
-      'ordering items put back in order',
-      (plan) => (plan.optionOrder['q-order'] = ['o1', 'o2', 'o3', 'o4']),
-    ],
+    ['ordering items in another order', (plan) => plan.optionOrder['q-order']?.reverse()],
+    ['a matching list in another order', (plan) => plan.optionOrder['q-match']?.reverse()],
     ['options in another order', (plan) => plan.optionOrder['q-single']?.reverse()],
     ['an option id added', (plan) => plan.optionOrder['q-multi']?.push('zz')],
     ['an option order removed', (plan) => delete plan.optionOrder['q-match']],

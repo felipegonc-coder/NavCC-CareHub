@@ -1,11 +1,13 @@
-// Stub screens from the Learning base PR. B5 replaces them; the routes in ../routes.tsx stay as they are.
+import { LoadFailed, ScreenLoading } from '../player/ScreenMessage';
+import { useMyLearning } from './data';
+import { MyLearning } from './MyLearning';
 
-/** `/learning`: continue, assigned, overdue and finished courses. */
+/** `/learning`: the learner's courses (overdue, in progress, assigned, finished), then more. */
 export function MyLearningScreen() {
-  return (
-    <main className="mx-auto max-w-page px-6 py-16">
-      <title>Care Hub · My learning</title>
-      <h1 className="text-title text-fg">My learning</h1>
-    </main>
-  );
+  const mine = useMyLearning();
+  if (!mine.data) {
+    if (!mine.error) return <ScreenLoading label="Loading My learning" />;
+    return <LoadFailed error={mine.error} what="page" retry={() => void mine.refetch()} />;
+  }
+  return <MyLearning learning={mine.data} />;
 }

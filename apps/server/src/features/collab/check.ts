@@ -4,12 +4,22 @@ import { MAX_DEPTH, countBlocks, isRecord, markName } from './ydoc';
 
 /** Pages longer than this are refused (Pages and blocks, limits). */
 export const MAX_BLOCKS = 20_000;
+/** The most a page's Yjs state may take: what's stored plus the changes accepted since. */
+export const MAX_PAGE_BYTES = 16 * 1024 * 1024;
+/** The most text one update may add, and the most it may set in attributes and marks. */
+export const MAX_TEXT_CHARS = 1_000_000;
+export const MAX_ATTRIBUTE_CHARS = 1_000_000;
+/** The longest string an attribute or mark may hold, addresses included. */
+export const MAX_VALUE_CHARS = 8_192;
 
 /** What the page schema allows, read once from `createPageSchema()` (every lane's blocks). */
 export interface SchemaInfo {
   nodes: ReadonlySet<string>;
   marks: ReadonlySet<string>;
   inline: ReadonlySet<string>;
+  /** The attributes each node and mark type defines. No others are accepted. */
+  nodeAttrs: ReadonlyMap<string, ReadonlySet<string>>;
+  markAttrs: ReadonlyMap<string, ReadonlySet<string>>;
   isSafeUrl: (url: string) => boolean;
 }
 
@@ -19,26 +29,45 @@ export function pageSchemaInfo(): SchemaInfo {
   if (cached) return cached;
   const schema = createPageSchema();
   const nodes = Object.values(schema.nodes);
+  const marks = Object.values(schema.marks);
+  const attrs = (type: { name: string; spec: { attrs?: object | null } }) =>
+    [type.name, new Set(Object.keys(type.spec.attrs ?? {}))] as const;
   cached = {
     nodes: new Set(nodes.map((type) => type.name)),
     inline: new Set(nodes.filter((type) => type.isInline).map((type) => type.name)),
-    marks: new Set(Object.values(schema.marks).map((type) => type.name)),
+    marks: new Set(marks.map((type) => type.name)),
+    nodeAttrs: new Map(nodes.map(attrs)),
+    markAttrs: new Map(marks.map(attrs)),
     isSafeUrl: (url) => LINK_OPTIONS.isAllowedUri(url),
   };
   return cached;
 }
 
 /** Attribute names whose values a browser may open or load. */
-const URL_KEYS = new Set(['href', 'src', 'url']);
+export const URL_KEYS: ReadonlySet<string> = new Set(['href', 'src', 'url']);
+/** Attribute names whose values go into CSS: only a colour or a single keyword. */
+const STYLE_KEYS = new Set(['color', 'backgroundColor', 'textAlign', 'style']);
+const STYLE_VALUE = /^(?:#[0-9a-f]{3,8}|[a-z][a-z0-9-]{0,31})$/i;
 /** Node names that can't appear as blocks. */
 const NOT_BLOCKS = new Set(['doc', 'text']);
 
+/** A page's size. Callers keep it between updates as an upper bound: deletes aren't subtracted. */
+export interface PageSize {
+  blocks: number;
+  /** The length of the page's encoded Yjs state. */
+  bytes: number;
+}
+
+export function pageSize(doc: Y.Doc, info: SchemaInfo): PageSize {
+  return { blocks: countBlocks(doc, info.inline), bytes: Y.encodeStateAsUpdate(doc).length };
+}
+
 export type UpdateCheck =
-  { ok: true; blockCount: number } | { ok: false; reason: string; tooLong?: true };
+  { ok: true; size: PageSize } | { ok: false; reason: string; tooLong?: true };
 
 type Where =
   | { kind: 'root'; key: string }
-  | { kind: 'element' }
+  | { kind: 'element'; nodeName: string }
   | { kind: 'text' }
   | { kind: 'gone' }
   | { kind: 'other' };
@@ -54,21 +83,25 @@ interface Position {
 const GONE: Position = { where: { kind: 'gone' }, sub: null, depth: 0 };
 const OTHER: Position = { where: { kind: 'other' }, sub: null, depth: 0 };
 /** Where a chain of new elements too long to follow ends: anything below it is too deep. */
-const TOO_DEEP: Position = { where: { kind: 'element' }, sub: null, depth: MAX_DEPTH };
+const TOO_DEEP: Position = {
+  where: { kind: 'element', nodeName: '' },
+  sub: null,
+  depth: MAX_DEPTH,
+};
 
 /**
  * Checks a Yjs update before the server applies or relays it (issue #14): only the page's
- * blocks, only node and mark types the schema knows, no embeds or binary content, only safe
- * addresses in links and `href`/`src`/`url` attributes, at most MAX_DEPTH levels of blocks and
- * at most MAX_BLOCKS blocks. `blockCount` is the page's count before the update, if the caller
- * keeps one. The result's count is an upper bound (deletes aren't subtracted), so the page is
- * counted again before an update is refused as too long.
+ * blocks, only node and mark types the schema knows with the attributes it defines, no embeds
+ * or binary content, only safe addresses in links and `href`/`src`/`url` attributes, at most
+ * MAX_DEPTH levels of blocks, and limits on the update and the page. `size` is the page's size
+ * before the update, if the caller keeps it; the result's size is the new upper bound. The page
+ * is measured again before an update is refused for taking it past MAX_BLOCKS or MAX_PAGE_BYTES.
  */
 export function checkUpdate(
   update: Uint8Array,
   doc: Y.Doc,
   info: SchemaInfo,
-  blockCount = countBlocks(doc, info.inline),
+  size: PageSize = pageSize(doc, info),
 ): UpdateCheck {
   let structs: ReturnType<typeof Y.decodeUpdate>['structs'];
   try {
@@ -85,8 +118,20 @@ export function checkUpdate(
   }
   const locate = locator(doc, incoming);
   let added = 0;
+  let inserted = false;
+  let textChars = 0;
+  let attributeChars = 0;
   for (const struct of structs) {
     if (!(struct instanceof Y.Item) || struct.content instanceof Y.ContentDeleted) continue;
+    inserted = true;
+    const { content } = struct;
+    if (content instanceof Y.ContentString) textChars += content.str.length;
+    else if (content instanceof Y.ContentAny) attributeChars += jsonLength(content.arr);
+    else if (content instanceof Y.ContentFormat) attributeChars += jsonLength(content.value);
+    if (textChars > MAX_TEXT_CHARS) return { ok: false, reason: 'too much text', tooLong: true };
+    if (attributeChars > MAX_ATTRIBUTE_CHARS) {
+      return { ok: false, reason: 'attributes too long', tooLong: true };
+    }
     const position = locate(struct);
     if (!position) return { ok: false, reason: 'unknown position' };
     const problem = contentProblem(struct.content, position, info);
@@ -96,12 +141,27 @@ export function checkUpdate(
     if (position.depth >= MAX_DEPTH) return { ok: false, reason: 'nested too deeply' };
     if (!info.inline.has(type.nodeName)) added += 1;
   }
-  let after = blockCount + added;
-  if (added > 0 && after > MAX_BLOCKS) {
-    after = blocksAfter(update, doc, info);
-    if (after > MAX_BLOCKS) return { ok: false, reason: 'too many blocks', tooLong: true };
+  let blocks = size.blocks + added;
+  if (added > 0 && blocks > MAX_BLOCKS) {
+    blocks = blocksAfter(update, doc, info);
+    if (blocks > MAX_BLOCKS) return { ok: false, reason: 'too many blocks', tooLong: true };
   }
-  return { ok: true, blockCount: after };
+  // An update can't add more than its own length. Deletes are always let through, so a page
+  // that's too large can still be made smaller.
+  let bytes = size.bytes + update.length;
+  if (inserted && bytes > MAX_PAGE_BYTES) {
+    bytes = Y.encodeStateAsUpdate(doc).length + update.length;
+    if (bytes > MAX_PAGE_BYTES) return { ok: false, reason: 'too large', tooLong: true };
+  }
+  return { ok: true, size: { blocks, bytes } };
+}
+
+function jsonLength(value: unknown): number {
+  try {
+    return JSON.stringify(value ?? null).length;
+  } catch {
+    return 0; // a value JSON can't hold (a BigInt) is refused as unsafe
+  }
 }
 
 /** The page's block count once `update` is applied, counted on a copy. */
@@ -123,6 +183,7 @@ function contentProblem(content: Y.Item['content'], at: Position, info: SchemaIn
   if (sub !== null) {
     if (where.kind !== 'element' || !(content instanceof Y.ContentAny))
       return 'unexpected attribute';
+    if (!info.nodeAttrs.get(where.nodeName)?.has(sub)) return 'unknown attribute';
     return content.arr.every((value) => isSafeValue(sub, value, info, 0))
       ? null
       : 'unsafe attribute';
@@ -145,14 +206,25 @@ function contentProblem(content: Y.Item['content'], at: Position, info: SchemaIn
 }
 
 function isSafeMark(key: string, value: unknown, info: SchemaInfo): boolean {
-  if (!info.marks.has(markName(key))) return false;
+  const attrs = info.markAttrs.get(markName(key));
+  if (!attrs) return false;
   if (value === null) return true;
-  return isRecord(value) && Object.entries(value).every(([k, v]) => isSafeValue(k, v, info, 1));
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(([k, v]) => attrs.has(k) && isSafeValue(k, v, info, 1))
+  );
 }
 
-/** An attribute value: plain JSON, with only safe addresses under `href`, `src` and `url`. */
+/**
+ * An attribute value: plain JSON with strings up to MAX_VALUE_CHARS, only safe addresses under
+ * URL_KEYS and only a colour or a keyword under STYLE_KEYS.
+ */
 export function isSafeValue(key: string, value: unknown, info: SchemaInfo, depth: number): boolean {
-  if (typeof value === 'string') return !URL_KEYS.has(key) || info.isSafeUrl(value);
+  if (typeof value === 'string') {
+    if (value.length > MAX_VALUE_CHARS) return false;
+    if (URL_KEYS.has(key)) return info.isSafeUrl(value);
+    return !STYLE_KEYS.has(key) || STYLE_VALUE.test(value);
+  }
   if (value === null || value === undefined) return true;
   if (typeof value === 'number' || typeof value === 'boolean') return true;
   if (depth >= 8) return false;
@@ -252,7 +324,7 @@ function typeDepth(type: Y.AbstractType<unknown>): number {
 
 function describe(type: unknown, doc: Y.Doc): Where {
   if (type instanceof Y.XmlText) return { kind: 'text' };
-  if (type instanceof Y.XmlElement) return { kind: 'element' };
+  if (type instanceof Y.XmlElement) return { kind: 'element', nodeName: type.nodeName };
   if (type instanceof Y.AbstractType && type._item === null) {
     for (const [key, shared] of doc.share) if (shared === type) return { kind: 'root', key };
   }

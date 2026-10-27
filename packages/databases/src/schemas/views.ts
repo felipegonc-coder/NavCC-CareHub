@@ -158,7 +158,7 @@ export const dashboardOptionsSchema = z.strictObject({
     .refine((list) => isUniqueBy(list, (w) => w.id), 'Each widget once.'),
 }) satisfies z.ZodType<DashboardOptions>;
 
-/** A color rule: rows (or one property) matching the filter get a color other than default. */
+/** A color rule: rows (or one property) matching the filter get one of the 10 option colors. */
 export const colorRuleSchema = z.strictObject({
   id: idSchema,
   filter: filterGroupSchema,
@@ -166,7 +166,7 @@ export const colorRuleSchema = z.strictObject({
     z.strictObject({ kind: z.literal('row') }),
     z.strictObject({ kind: z.literal('property'), propertyId: idSchema }),
   ]),
-  color: z.enum(OPTION_COLORS).exclude(['default']),
+  color: z.enum(OPTION_COLORS),
 }) satisfies z.ZodType<ColorRule>;
 
 /** A view's color rules: up to 10, each id once. */

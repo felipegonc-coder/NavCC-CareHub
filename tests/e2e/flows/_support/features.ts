@@ -10,10 +10,10 @@ export const onMain = {
   designKit: true,
 
   /** Menus, dialogs, popovers, tooltips, toasts and 44 px touch targets on phones (#27). */
-  overlays: false,
+  overlays: true,
 
   /** The app shell: sidebar from the slots, phone menu, top bar and Not found (#34). */
-  appShell: false,
+  appShell: true,
 
   /** The sign-in screens, the seeded people and signInAs in tests/e2e/helpers/auth.ts. */
   signIn: false,

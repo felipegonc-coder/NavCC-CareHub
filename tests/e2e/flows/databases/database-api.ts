@@ -89,6 +89,29 @@ export async function addRow(
   return unwrap<Row>(reply, 'row');
 }
 
+/** Adds a view, for example addView(page, database.id, 'Fictional board', 'board'). */
+export async function addView(
+  page: Page,
+  databaseId: string,
+  name: string,
+  layout: string,
+): Promise<View> {
+  const api = await apiFor(page);
+  const reply = await api.post(`/api/databases/${databaseId}/views`, { name, layout });
+  const made = unwrap<View | Database>(reply, 'view');
+  return 'views' in made ? viewNamed(made, name) : made;
+}
+
+/** Saves changes to a view for everyone, for example its filter, grouping or load limit. */
+export async function updateView(
+  page: Page,
+  databaseId: string,
+  viewId: string,
+  changes: Record<string, unknown>,
+): Promise<void> {
+  await (await apiFor(page)).patch(`/api/databases/${databaseId}/views/${viewId}`, changes);
+}
+
 /** The Name property every database has. */
 export function nameOf(database: Database): Property {
   const name = database.properties.find((p) => p.config.type === 'title');
@@ -101,6 +124,20 @@ export function propertyNamed(database: Database, name: string): Property {
   const property = database.properties.find((p) => p.name === name);
   if (!property) throw new Error(`${database.title} has no property "${name}".`);
   return property;
+}
+
+/** The database's first view: the Table a new database starts with. */
+export function tableView(database: Database): View {
+  const view = database.views[0];
+  if (!view) throw new Error(`${database.title} has no view.`);
+  return view;
+}
+
+/** A view by its name. */
+export function viewNamed(database: Database, name: string): View {
+  const view = database.views.find((v) => v.name === name);
+  if (!view) throw new Error(`${database.title} has no view "${name}".`);
+  return view;
 }
 
 /** The id of a Select, Multi-select or Status option, by its name. */
@@ -136,8 +173,22 @@ export const config = {
   }),
 };
 
-/** Stored values: text is rich text, a number a decimal string, a select an option id. */
+/** Stored values: text is rich text, a number a decimal string, a date a calendar date. */
 export const value = {
   text: (text: string) => [{ text }],
   number: (amount: number) => String(amount),
+  date: (start: string) => ({ start, end: null, hasTime: false }),
+};
+
+/** Saved filters (FilterGroup in types.ts): conditions inside All of and Any of groups. */
+export const filter = {
+  where: (propertyId: string, op: string, operand?: string) => ({
+    kind: 'condition',
+    id: randomUUID(),
+    propertyId,
+    op,
+    ...(operand === undefined ? {} : { value: operand }),
+  }),
+  all: (...children: object[]) => ({ kind: 'group', id: randomUUID(), combinator: 'and', children }),
+  any: (...children: object[]) => ({ kind: 'group', id: randomUUID(), combinator: 'or', children }),
 };

@@ -4,6 +4,18 @@ import { fitToSchema, fromMarkdown, toMarkdown } from './markdown';
 import type { PageMark, PageNode } from './ydoc';
 
 const info = pageSchemaInfo();
+/** The page schema with nodes it doesn't have yet. */
+const custom: SchemaInfo = {
+  ...info,
+  nodes: new Set([...info.nodes, 'callout', 'image', 'mention']),
+  inline: new Set([...info.inline, 'mention']),
+  nodeAttrs: new Map<string, ReadonlySet<string>>([
+    ...info.nodeAttrs,
+    ['callout', new Set(['tone', 'note'])],
+    ['image', new Set(['src', 'alt'])],
+    ['mention', new Set(['id', 'label'])],
+  ]),
+};
 
 const bold = { type: 'bold' };
 const italic = { type: 'italic' };
@@ -127,11 +139,6 @@ describe('Markdown export', () => {
   });
 
   it('keeps blocks and inline nodes without Markdown as comments', () => {
-    const custom: SchemaInfo = {
-      ...info,
-      nodes: new Set([...info.nodes, 'callout', 'mention']),
-      inline: new Set([...info.inline, 'mention']),
-    };
     const nodes: PageNode[] = [
       {
         type: 'callout',
@@ -151,6 +158,48 @@ describe('Markdown export', () => {
     expect(fromMarkdown('<!-- carehub:block {"type":"nope"} -->\n', info)).toEqual([
       paragraph(text('<!-- carehub:block {"type":"nope"} -->')),
     ]);
+  });
+
+  it('moves spaces past closing marks in linear time', () => {
+    const words = Array.from({ length: 100 }, (_, index) => [
+      text(' '),
+      text(`word${index}`, bold),
+    ]);
+    const nodes = [paragraph(text(`Start${' '.repeat(20_000)}`), ...words.flat().slice(1))];
+    const started = performance.now();
+    const markdown = toMarkdown(nodes, info);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(markdown.endsWith(' **word98** **word99**\n')).toBe(true);
+    expect(fromMarkdown(markdown, info)).toEqual(nodes);
+  });
+
+  it('keeps deep nesting and long code in lists within a small multiple of the page', () => {
+    const code: PageNode = { type: 'codeBlock', content: [text('x\n'.repeat(100_000).trimEnd())] };
+    const quote = (levels: number): PageNode =>
+      levels === 0
+        ? code
+        : { type: 'blockquote', content: [paragraph(text(`Level ${levels}`)), quote(levels - 1)] };
+    const listed: PageNode = { type: 'orderedList', content: [item(paragraph(text('Run')), code)] };
+    // Past eight levels, and code whose indent would more than double it: one comment each.
+    for (const nodes of [[quote(100)], [listed]]) {
+      const markdown = toMarkdown(nodes, info);
+      expect(markdown.length).toBeLessThan(2 * JSON.stringify(nodes).length);
+      expect(markdown.match(/carehub:block/g)).toHaveLength(1);
+    }
+    for (const nodes of [[quote(12)], [listed]]) {
+      expect(fromMarkdown(toMarkdown(nodes, info), info)).toEqual(nodes);
+    }
+  });
+
+  it('keeps list numbers to the nine digits Markdown reads', () => {
+    const list = (start: number): PageNode => ({
+      type: 'orderedList',
+      attrs: { start },
+      content: [item(paragraph(text('One'))), item(paragraph(text('Two')))],
+    });
+    expect(toMarkdown([list(5e9)], info)).toBe('999999998. One\n999999999. Two\n');
+    expect(toMarkdown([list(-3)], info)).toBe('0. One\n1. Two\n');
+    expect(fromMarkdown('0. One\n1. Two\n', info)).toEqual([list(0)]);
   });
 });
 
@@ -180,6 +229,16 @@ describe('Markdown import', () => {
       },
       { type: 'bulletList', content: [item(paragraph(text('[ ] Bring the forms')))] },
     ]);
+  });
+
+  it('keeps only what the schema defines from comments', () => {
+    const comment = (node: object) => `<!-- carehub:block ${JSON.stringify(node)} -->`;
+    const callout = { type: 'callout', attrs: { tone: 'warning' }, content: [paragraph()] };
+    const extra = { ...callout, attrs: { tone: 'warning', onclick: 'alert(1)' } };
+    expect(fromMarkdown(comment(extra), custom)).toEqual([callout]);
+    // An unsafe address in a node leaves the comment as text.
+    const image = comment({ type: 'image', attrs: { src: 'javascript:alert(1)', alt: 'Map' } });
+    expect(fromMarkdown(image, custom)).toEqual([paragraph(text(image))]);
   });
 
   it('reads headings past level 3 as level 3, and HTML marks as marks', () => {

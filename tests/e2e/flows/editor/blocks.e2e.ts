@@ -1,7 +1,7 @@
-import AxeBuilder from '@axe-core/playwright';
 import { expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
 import { makePage } from '../pages/page-data.js';
-import { PageScreen, literally } from '../pages/page-screen.js';
+import { PageScreen, literally, pageIdOf } from '../pages/page-screen.js';
+import { checkScreen } from '../../support/screen-checks.js';
 import { Editor, type BlockType } from './editor-page.js';
 
 // Pages and blocks, sections 3.3 to 3.6 and 6: blocks, the "/" menu, Markdown shortcuts and links.
@@ -284,9 +284,9 @@ test.describe('Editor: the "/" menu and the block menu', () => {
     });
   });
 
-  test('PB-35 blocks move by keyboard and by the block menu, moves are announced, and the section 6 shortcuts work', async ({
+  test('PB-35 blocks move by keyboard and by the block menu, moves are announced, the section 6 shortcuts work, and axe finds no problems with the block menu open', async ({
     page,
-  }) => {
+  }, testInfo) => {
     const other = uniqueName('Fictional QA other page');
     await signInAs(page, 'editor');
     const otherId = await makePage(page, other);
@@ -375,10 +375,21 @@ test.describe('Editor: the "/" menu and the block menu', () => {
       await expect.soft(editor.block('Heading 2')).toHaveCount(0);
     });
 
-    await test.step('axe finds no serious problems on the page', async () => {
-      const { violations } = await new AxeBuilder({ page }).include('main').analyze();
-      const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-      expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+    await test.step('axe finds no problems on the page with the block menu open', async () => {
+      // A state tests/e2e/screens.ts can't reach, so it's checked here (desktop-light only).
+      await checkScreen(
+        page,
+        {
+          name: 'pb-35-block-menu',
+          path: `/p/${pageIdOf(page)}`,
+          setup: async (opened) => {
+            const again = new Editor(opened);
+            await again.content.getByText(B, { exact: true }).click();
+            await again.openBlockMenu();
+          },
+        },
+        testInfo,
+      );
     });
   });
 });

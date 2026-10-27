@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@carehub/databases": "*",
+    "@carehub/extras": "*",
     "@carehub/learning": "*",
     "@carehub/shared": "*",
     "@carehub/ui": "*",

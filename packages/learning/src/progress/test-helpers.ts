@@ -191,13 +191,8 @@ export function learner(startAt = '2026-10-27T09:00:00.000Z') {
     },
     pass: (lessonId: string, blockId: string) =>
       add({ type: 'block_completed', lessonId, blockId }),
-    answer: (lessonId: string, blockId: string, optionId = 'right') =>
-      add({
-        type: 'knowledge_check_answered',
-        lessonId,
-        blockId,
-        response: { type: 'single_choice', optionId },
-      }),
+    answer: (lessonId: string, blockId: string, correct = true) =>
+      add({ type: 'knowledge_check_answered', lessonId, blockId, correct }),
     play: (lessonId: string, blockId: string, choiceIds: string[]) =>
       add({ type: 'scenario_finished', lessonId, blockId, choiceIds }),
     complete: (lessonId: string) => add({ type: 'lesson_completed', lessonId }),

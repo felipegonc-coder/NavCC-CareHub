@@ -116,6 +116,38 @@ export class DatabaseScreen {
     await this.searchBox().fill(text);
   }
 
+  /** Filter → a property → types in the value box that opens (a text filter: "contains"). */
+  async addFilter(property: string, text: string): Promise<void> {
+    await this.button('Filter').click();
+    await this.page.getByRole('menuitem', { name: property, exact: true }).click();
+    const box = this.page.locator(':focus');
+    await expect(box).toBeEditable();
+    await box.fill(text);
+    await this.page.keyboard.press('Escape');
+  }
+
+  /** The bar someone sees after changing a view for themselves only. */
+  forYouOnly(): Locator {
+    return this.root.getByText('Changed for you only');
+  }
+
+  /** A column header's menu → "Sort ascending" or "Sort descending". */
+  async sort(property: string, direction: 'ascending' | 'descending'): Promise<void> {
+    await this.header(property).click();
+    await this.page.getByRole('menuitem', { name: `Sort ${direction}` }).click();
+  }
+
+  /** A property's totals: one in the table footer, or one per group when grouped. */
+  totalsOf(propertyId: string): Locator {
+    return this.root.getByTestId('db-totals').locator(`[data-property-id="${propertyId}"]`);
+  }
+
+  /** Clicks a property's total in the footer and picks a calculation, such as "Sum". */
+  async calculate(propertyId: string, calculation: string | RegExp): Promise<void> {
+    await this.totalsOf(propertyId).first().click();
+    await this.page.getByRole('menuitem', { name: calculation }).click();
+  }
+
   /** Opens a row page (a dialog named after the row) from the row's Open button or title link. */
   async openRow(rowId: string, title: string): Promise<Locator> {
     const row = this.grid.locator(`[role="row"][data-row-id="${rowId}"]`);

@@ -10,6 +10,7 @@ export {
   type ActiveTracker,
   type ActiveTrackerInput,
 } from './active-time';
+export type { PlayerCourse, PlayerLesson } from './course';
 export {
   PLAYER_TEXT_SIZES,
   PLAYER_TEXT_SIZE_KEY,
