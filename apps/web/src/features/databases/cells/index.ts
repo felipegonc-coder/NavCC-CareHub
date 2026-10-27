@@ -20,7 +20,15 @@
  */
 export { CellEditor } from './cell-editor';
 export { CellView, RichTextView } from './cell-view';
-export { CheckMark, FileChip, HiddenRowsChip, OptionChip, PersonChip, RowChip } from './chips';
+export {
+  CheckMark,
+  FileChip,
+  HiddenRowsChip,
+  OptionChip,
+  PersonChip,
+  RowChip,
+  VerificationBadge,
+} from './chips';
 export {
   DeletedProperties,
   type DeletedPropertiesProps,
@@ -39,6 +47,7 @@ export {
   canChangeProperties,
   checkPropertyName,
   NEW_PROPERTY_TYPES,
+  newPropertyTypes,
   typeChoices,
   type NewPropertyType,
   type InsertSide,
