@@ -11,7 +11,7 @@ import type { FileRef, Id } from '@carehub/databases';
 import { LIMITS } from '@carehub/databases';
 import { Button, Checkbox, IconButton, Input, Switch, Textarea, cn } from '@carehub/ui';
 import { isApiError, OFFLINE_MESSAGE, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
-import { useFormsClient, type FillAccess } from './api';
+import { useFormsClient } from './api';
 import {
   checkedOf,
   dateOf,
@@ -26,13 +26,7 @@ import {
 } from './answers';
 import { Picker, type PickerOption } from './picker';
 import { RichText } from './rich-text';
-import {
-  formUploadScope,
-  isPublicUploadAllowed,
-  PUBLIC_UPLOAD_ACCEPT,
-  PUBLIC_UPLOAD_REFUSED,
-  toFileRef,
-} from './uploads';
+import { formUploadScope, toFileRef } from './uploads';
 
 /** The id of a question's box on the fill screen (the error summary links to it). */
 export const questionDomId = (propertyId: Id): string => `question-${propertyId}`;
@@ -49,7 +43,6 @@ export interface QuestionProps {
   onKeyDown(event: KeyboardEvent<HTMLElement>): void;
   /** How many files are still going up for this question. */
   onUploads(propertyId: Id, count: number): void;
-  access: FillAccess;
   formId: Id;
   databaseId: Id;
 }
@@ -465,7 +458,9 @@ function useSearch<T>(lookup: (q: string) => Promise<T[]>, query: string, enable
       clearTimeout(timer);
     };
   }, [lookup, query, enabled]);
-  return { items: found?.items ?? [], searching: enabled && found?.query !== query };
+  // Only results for what's typed now: an older list could pick the wrong row with Enter.
+  const current = found !== null && found.query === query;
+  return { items: current ? found.items : [], searching: enabled && !current };
 }
 
 function SearchPicker({
@@ -542,7 +537,6 @@ function FilesControl({
   error,
   onUpdate,
   onUploads,
-  access,
   formId,
   ids,
 }: QuestionProps & { ids: Ids }) {
@@ -578,11 +572,8 @@ function FilesControl({
   function add(list: FileList | null) {
     const chosen = list ? Array.from(list) : [];
     if (chosen.length === 0) return;
-    const allowed = access === 'public' ? chosen.filter(isPublicUploadAllowed) : chosen;
-    const taken = allowed.slice(0, Math.max(0, room));
-    if (allowed.length < chosen.length) setProblem(PUBLIC_UPLOAD_REFUSED);
-    else if (taken.length < allowed.length) setProblem('Up to 10 files.');
-    else setProblem(null);
+    const taken = chosen.slice(0, Math.max(0, room));
+    setProblem(taken.length < chosen.length ? 'Up to 10 files.' : null);
     for (const file of taken) void upload(file);
   }
 
@@ -596,7 +587,6 @@ function FilesControl({
         id={ids.control}
         type="file"
         multiple
-        accept={access === 'public' ? PUBLIC_UPLOAD_ACCEPT : undefined}
         className="hidden"
         aria-describedby={ids.describedBy}
         onChange={(event) => {

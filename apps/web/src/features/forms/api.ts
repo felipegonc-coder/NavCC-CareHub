@@ -1,8 +1,9 @@
 /**
  * The fill screen's API (decision 0200, form routes): the form behind a link and sending a
- * response, signed in (`/api/forms/:code`) or, for forms anyone can fill in, signed out
- * (`/api/forms/public/:code`); plus the people and row searches of Person and Relation questions
- * and file uploads. Requests go through the database shell's `fetchJson` until lib/api lands.
+ * response, signed in (`/api/forms/:code`); plus the people and row searches of Person and
+ * Relation questions and file uploads. Forms anyone on the network can fill in without signing in
+ * (`/api/forms/public/:code`) wait for the security review, so they aren't built here yet.
+ * Requests go through the database shell's `fetchJson` until lib/api lands.
  * Screens get the client from FormsClientProvider; tests pass mockFormsClient() (test-utils.tsx).
  */
 import { createContext, createElement, useContext, type ReactNode } from 'react';
@@ -30,10 +31,7 @@ import { uploadWithProgress, type UploadedFile, type UploadOptions } from './upl
 
 export type { FormAnswers, Ok, RowPick };
 
-/** Signed in (members and guests), or signed out on a form anyone can fill in. */
-export type FillAccess = 'member' | 'public';
-
-/** What `GET /api/forms/:code` and `GET /api/forms/public/:code` answer. */
+/** What `GET /api/forms/:code` answers. */
 export interface FillForm {
   /** The form view's id: the draft key and the upload scope `forms:<formId>`. */
   formId: Id;
@@ -44,7 +42,7 @@ export interface FillForm {
   properties: Property[];
   /** What opening the form shows: the form ('open'), or a message instead of it. */
   gate: FormGate;
-  /** The person signed in (their id for "Me" in logic, their time zone for dates); null signed out. */
+  /** The person signed in: their id for "Me" in logic, their time zone for dates. */
   respondent: Respondent | null;
 }
 
@@ -58,9 +56,8 @@ export interface PersonPick {
 
 export interface FormsClient {
   getForm(code: string): Promise<FillForm>;
-  getPublicForm(code: string): Promise<FillForm>;
   /** `{ answers }` → `{ ok: true }`. The server checks everything again. */
-  submitResponse(code: string, answers: FormAnswers, access: FillAccess): Promise<Ok>;
+  submitResponse(code: string, answers: FormAnswers): Promise<Ok>;
   searchPeople(q: string): Promise<PersonPick[]>;
   pickRows(databaseId: Id, q: string): Promise<RowPick[]>;
   uploadFile(file: File, options: UploadOptions): Promise<UploadedFile>;
@@ -169,16 +166,8 @@ export function createFormsClient(request: RequestJson = fetchJson): FormsClient
   return {
     getForm: async (code) =>
       parseFillForm(await request<unknown>('GET', `/api/forms/${seg(code)}`)),
-    getPublicForm: async (code) =>
-      parseFillForm(await request<unknown>('GET', `/api/forms/public/${seg(code)}`)),
-    submitResponse: (code, answers, access) =>
-      request<Ok>(
-        'POST',
-        access === 'public'
-          ? `/api/forms/public/${seg(code)}/responses`
-          : `/api/forms/${seg(code)}/responses`,
-        { answers },
-      ),
+    submitResponse: (code, answers) =>
+      request<Ok>('POST', `/api/forms/${seg(code)}/responses`, { answers }),
     searchPeople: (q) => request<PersonPick[]>('GET', `/api/workspace/members?q=${seg(q)}`),
     pickRows: (databaseId, q) =>
       request<RowPick[]>('GET', `/api/databases/${seg(databaseId)}/rows/pick?q=${seg(q)}`),
@@ -187,24 +176,15 @@ export function createFormsClient(request: RequestJson = fetchJson): FormsClient
 }
 
 /** What opening a form link gives: the form, or the sign-in screen first. */
-export type LoadedForm = { kind: 'form'; access: FillAccess; data: FillForm } | { kind: 'sign_in' };
+export type LoadedForm = { kind: 'form'; data: FillForm } | { kind: 'sign_in' };
 
-/**
- * Opens a form link: as the person signed in, or (nobody signed in) as a form anyone can fill in.
- * A link that isn't such a form sends them to sign in, then straight back.
- */
+/** Opens a form link as the person signed in; nobody signed in: sign in, then straight back. */
 export async function loadFillForm(client: FormsClient, code: string): Promise<LoadedForm> {
   try {
     const data = await client.getForm(code);
-    if (data.gate.state === 'sign_in') return { kind: 'sign_in' };
-    return { kind: 'form', access: 'member', data };
+    return data.gate.state === 'sign_in' ? { kind: 'sign_in' } : { kind: 'form', data };
   } catch (error) {
-    if (!isApiError(error) || error.status !== 401) throw error;
-  }
-  try {
-    return { kind: 'form', access: 'public', data: await client.getPublicForm(code) };
-  } catch (error) {
-    if (isApiError(error) && [401, 403, 404].includes(error.status)) return { kind: 'sign_in' };
+    if (isApiError(error) && error.status === 401) return { kind: 'sign_in' };
     throw error;
   }
 }

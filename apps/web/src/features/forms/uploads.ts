@@ -1,8 +1,8 @@
 /**
  * Uploads for file questions through the files API (decision 0007: `POST /api/files`, multipart
  * field `file`, query `scope=<feature>:<id>`), with progress. A stand-in for `uploadFile` from
- * apps/web/src/lib/files.ts until it lands. Forms anyone can fill in upload signed out to the scope
- * `forms:<formId>` and take only the file types the security conditions in decision 0200 allow.
+ * apps/web/src/lib/files.ts until it lands. Signed in only: uploads from forms anyone can fill in
+ * without signing in wait for the security review.
  */
 import type { FileRef } from '@carehub/databases';
 import { ApiError, OFFLINE_MESSAGE, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
@@ -33,38 +33,6 @@ export function formUploadScope(formId: string): string {
 /** The value a file question keeps for an uploaded file. */
 export function toFileRef(file: UploadedFile): FileRef {
   return { id: file.id, name: file.name, size: file.size, mime: file.mimeType };
-}
-
-/**
- * File types a form anyone can fill in takes: pictures, PDFs, and Word, Excel and PowerPoint files
- * as docx, xlsx and pptx only (no files with macros, no old binary formats). The server checks the
- * content too; this only keeps the file picker honest.
- */
-export const PUBLIC_UPLOAD_EXTENSIONS = [
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.webp',
-  '.pdf',
-  '.docx',
-  '.xlsx',
-  '.pptx',
-] as const;
-
-/** The file picker's `accept` for forms anyone can fill in. */
-export const PUBLIC_UPLOAD_ACCEPT = PUBLIC_UPLOAD_EXTENSIONS.join(',');
-
-/** Shown when someone picks a file a form anyone can fill in doesn't take. */
-export const PUBLIC_UPLOAD_REFUSED =
-  'This form takes pictures, PDFs, and Word, Excel or PowerPoint files (.docx, .xlsx, .pptx).';
-
-/** Whether a form anyone can fill in takes this file, by its name. */
-export function isPublicUploadAllowed(file: Pick<File, 'name'>): boolean {
-  const name = file.name.toLowerCase();
-  const dot = name.lastIndexOf('.');
-  if (dot < 0) return false;
-  return (PUBLIC_UPLOAD_EXTENSIONS as readonly string[]).includes(name.slice(dot));
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>

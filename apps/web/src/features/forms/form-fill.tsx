@@ -23,7 +23,7 @@ import {
 import { validateValue } from '@carehub/databases/values';
 import { Button, Logo } from '@carehub/ui';
 import { isApiError, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
-import { DEFAULT_CONFIRMATION, useFormsClient, type FillAccess, type FillForm } from './api';
+import { DEFAULT_CONFIRMATION, useFormsClient, type FillForm } from './api';
 import {
   answerInput,
   answerInputs,
@@ -103,7 +103,6 @@ function coverSource(def: FormDefinition): string | null {
 
 export interface FormFillProps {
   data: FillForm;
-  access: FillAccess;
   /** The code in the form link, for sending the response. */
   code: string;
   /** Asks for the form again after the server says it changed. */
@@ -115,14 +114,10 @@ export interface FormFillProps {
  * questions that show for the answers so far, checks on submit, the confirmation, and a message
  * instead of the form when it can't be filled in. Unsent answers stay in the browser.
  */
-export function FormFill({ data, access, code, onReload }: FormFillProps) {
+export function FormFill({ data, code, onReload }: FormFillProps) {
   const client = useFormsClient();
   const titleId = useId();
-  const { formId, databaseId, properties, respondent, gate } = data;
-  const def = useMemo<FormDefinition>(
-    () => (access === 'public' ? { ...data.form, audience: 'anyone' } : data.form),
-    [access, data.form],
-  );
+  const { formId, databaseId, properties, respondent, gate, form: def } = data;
   const viewer = useMemo<Respondent>(
     () => ({
       userId: respondent?.userId ?? '',
@@ -130,7 +125,7 @@ export function FormFill({ data, access, code, onReload }: FormFillProps) {
     }),
     [respondent],
   );
-  const key = draftKey(formId, access === 'public' ? null : (respondent?.userId ?? null));
+  const key = draftKey(formId, respondent?.userId ?? null);
   const asked = useMemo(() => askedQuestions(def, properties), [def, properties]);
 
   const [answers, setAnswers] = useState<Answers>(() => loadDraft(key) ?? {});
@@ -231,7 +226,7 @@ export function FormFill({ data, access, code, onReload }: FormFillProps) {
     sendingNow.current = true;
     setSending(true);
     try {
-      await client.submitResponse(code, responseAnswers(inputs, shown), access);
+      await client.submitResponse(code, responseAnswers(inputs, shown));
       clearDraft(key);
       setAnswers({});
       setSent(true);
@@ -335,7 +330,6 @@ export function FormFill({ data, access, code, onReload }: FormFillProps) {
               onLeave={onLeave}
               onKeyDown={onKeyDown}
               onUploads={onUploads}
-              access={access}
               formId={formId}
               databaseId={databaseId}
             />

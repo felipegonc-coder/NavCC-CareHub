@@ -46,8 +46,8 @@ function usePageTitle(title: string | null) {
 }
 
 /**
- * The form link `/forms/:code`: the form for the person signed in, or signed out for a form
- * anyone can fill in; otherwise the sign-in screen first. Works without the app shell.
+ * The form link `/forms/:code`: the form for the person signed in; signed out, the sign-in screen
+ * first, then straight back. Works without the app shell.
  */
 export function FormPage() {
   const { code = '' } = useParams();
@@ -72,7 +72,6 @@ export function FormPage() {
       <FormFill
         key={loaded.data.formId}
         data={loaded.data}
-        access={loaded.access}
         code={code}
         onReload={() => void query.refetch()}
       />
