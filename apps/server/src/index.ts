@@ -1,10 +1,12 @@
 import { buildApp } from './app';
 import { loadConfig } from './config';
+import { serializeRequest } from './core/request-log';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 const config = loadConfig();
-const app = await buildApp({ config, logger: true });
+// Request lines leave out link codes and query values (core/request-log.ts).
+const app = await buildApp({ config, logger: { serializers: { req: serializeRequest } } });
 
 let shuttingDown = false;
 
