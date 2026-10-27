@@ -15,7 +15,7 @@ import { httpError } from '../../../core/errors';
 import type { Db } from '../../../db';
 import { getPageText } from '../../collab';
 import { memberOf, pageFor } from './access';
-import { askClaude, claudeErrorReason, claudeHttpError, isClaudeFeatureOn } from './claude';
+import { askClaude, claudeErrorReason, claudeHttpError, isClaudeFeatureOn } from '../index';
 import type { ClaudeWriteAppliedEvent } from './events';
 import { cleanAnswer, writePromptFor } from './prompt';
 

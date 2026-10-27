@@ -49,6 +49,8 @@ export interface LiveHub {
   registerTopic(prefix: string, canSubscribe: CanSubscribe): void;
   /** Opens a connection; its first frame is `hello` with the connection id. */
   connect(userId: string, sink: LiveSink): LiveConnection;
+  /** True while the user has at least one open connection (a tab) on this server. */
+  hasOpenTabs(userId: string): boolean;
   /** Null when the connection is unknown or belongs to someone else. */
   updateTopics(input: {
     userId: string;
@@ -295,6 +297,10 @@ export function createLiveHub(options: LiveHubOptions = {}): LiveHub {
         },
         disconnect: () => close(conn),
       };
+    },
+
+    hasOpenTabs(userId) {
+      return (byUser.get(userId)?.length ?? 0) > 0;
     },
 
     async updateTopics({ userId, connectionId, add = [], remove = [] }) {
