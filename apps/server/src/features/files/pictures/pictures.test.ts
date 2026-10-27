@@ -33,10 +33,11 @@ describe('cleanPicture', () => {
       const cleaned = rebuild(sample.file, result?.pieces ?? null);
       expect(cleaned.includes(DETAIL)).toBe(false);
       expect(cleaned.equals(sample.cleaned)).toBe(true);
-      expect(result).toMatchObject({ width: sample.width, height: sample.height });
+      const { width, height, orientation } = sample;
+      expect(result).toMatchObject({ width, height, orientation });
 
       const again = await clean(sample.mimeType, cleaned);
-      expect(again).toEqual({ width: sample.width, height: sample.height, pieces: null });
+      expect(again).toEqual({ width, height, orientation, pieces: null });
     });
   }
 

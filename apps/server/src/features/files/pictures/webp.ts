@@ -102,5 +102,11 @@ export async function cleanWebp(file: PictureFile): Promise<CleanerResult> {
     pieces.splice(0, 1, header, ...(end > 12 ? [{ start: 12, end }] : []));
   }
   const [width = 0, height = 0] = shown ?? [];
-  return { width, height, sideways: keepsOrientation && turnsSideways(orientation), pieces };
+  return {
+    width,
+    height,
+    orientation: keepsOrientation ? orientation : 1,
+    sideways: keepsOrientation && turnsSideways(orientation),
+    pieces,
+  };
 }

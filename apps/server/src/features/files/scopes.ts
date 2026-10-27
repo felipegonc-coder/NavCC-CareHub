@@ -11,11 +11,33 @@ export interface FileScopeContext {
   scopeId: string;
 }
 
-/** Who may open and who may add a feature's files. Both are asked on every request. */
-export interface FileScope {
-  canRead: (ctx: FileScopeContext) => boolean | Promise<boolean>;
-  canWrite: (ctx: FileScopeContext) => boolean | Promise<boolean>;
+/** The same in a scope registered with `allowAnonymous: true`: null for someone who isn't signed in. */
+export interface AnonymousFileScopeContext extends Omit<FileScopeContext, 'user' | 'member'> {
+  user: CurrentUser | null;
+  member: CurrentMember | null;
 }
+
+type Check<Context> = (ctx: Context) => boolean | Promise<boolean>;
+
+/**
+ * Who may open and who may add a feature's files. Both are asked on every request. With
+ * `allowAnonymous: true` (forms anyone can fill in, under decision 0010's conditions), people who aren't
+ * signed in may upload there through POST /api/files/anonymous when `canWrite` agrees; every upload
+ * there, from anyone, follows the anonymous rules: no uploader is kept, only some types are taken,
+ * pictures are drawn again, files are always downloaded, a daily quota, and files no one claims
+ * (claimFiles) within an hour are deleted.
+ */
+export type FileScope =
+  | {
+      allowAnonymous?: false;
+      canRead: Check<FileScopeContext>;
+      canWrite: Check<FileScopeContext>;
+    }
+  | {
+      allowAnonymous: true;
+      canRead: Check<AnonymousFileScopeContext>;
+      canWrite: Check<AnonymousFileScopeContext>;
+    };
 
 const FEATURE = /^[a-z][a-z0-9-]{0,39}$/;
 const scopes = new Map<string, FileScope>();
@@ -31,13 +53,26 @@ export function registerFileScope(feature: string, scope: FileScope): void {
 
 export const hasFileScope = (feature: string): boolean => scopes.has(feature);
 
-/** Whether the person may open (`read`) or add and delete (`write`) files there. Unknown scopes: never. */
+/** Whether the feature's files follow the anonymous rules (registered with `allowAnonymous: true`). */
+export const isAnonymousScope = (feature: string): boolean =>
+  scopes.get(feature)?.allowAnonymous === true;
+
+/**
+ * Whether the person may open (`read`) or add and delete (`write`) files there. Unknown scopes: never.
+ * Someone who isn't signed in: only in anonymous scopes.
+ */
 export async function canUseFileScope(
   mode: 'read' | 'write',
   feature: string,
-  ctx: FileScopeContext,
+  ctx: AnonymousFileScopeContext,
 ): Promise<boolean> {
   const scope = scopes.get(feature);
   if (!scope) return false;
-  return (await (mode === 'read' ? scope.canRead(ctx) : scope.canWrite(ctx))) === true;
+  if (scope.allowAnonymous === true) {
+    return (await (mode === 'read' ? scope.canRead(ctx) : scope.canWrite(ctx))) === true;
+  }
+  const { user, member } = ctx;
+  if (!user || !member) return false;
+  const signedIn = { ...ctx, user, member };
+  return (await (mode === 'read' ? scope.canRead(signedIn) : scope.canWrite(signedIn))) === true;
 }

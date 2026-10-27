@@ -16,6 +16,8 @@ export interface CleanedPicture {
   /** Pixels as shown, after any rotation; null when the file doesn't say. */
   width: number | null;
   height: number | null;
+  /** The Exif orientation, 1 to 8 (1: shown as stored). */
+  orientation: number;
   /** The new file, in order; null when there's nothing to remove. */
   pieces: Piece[] | null;
 }
@@ -24,6 +26,8 @@ export interface CleanedPicture {
 export interface CleanerResult {
   width: number;
   height: number;
+  /** The Exif orientation (JPEG and PNG); formats that rotate otherwise say only `sideways`. */
+  orientation?: number;
   sideways?: boolean;
   pieces: Piece[] | null;
 }
