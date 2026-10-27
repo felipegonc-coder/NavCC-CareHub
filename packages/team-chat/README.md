@@ -15,6 +15,7 @@ Message rules shared by the web app and the server for Messages: direct messages
 | `chats`        | `planNewChat`, `planAddPeople`, `planRemovePerson`, `planLeave` (handover), `planRename`, `chatPermissions`, `chatTitle`, `sortChatList`   |
 | `system-lines` | `systemEventSchema`, `systemLineText` ("Avery Lin added Sam Ortiz")                                                                        |
 | `unread`       | `unreadCounts`, `badgeCount`, `badgeText` ("99+"), `firstUnreadSeq`, `isChatRead`, `advanceReadMarker`, `markAsUnreadSeq`                  |
+| `api`          | `newChatBodySchema`, `historyQuerySchema`, and the JSON the server answers with (`ChatJson`, `MessageJson`, `PeopleJson`)                  |
 | `notify`       | `notificationSettingsSchema`, `notifyDecision` (tab, push or why not), `notificationContent` and its push payload schema                   |
 | `preview`      | `messagePreview`, `attachmentSummary`, `spokenMessage` (screen readers)                                                                    |
 | `attachments`  | `attachmentKind`, `storedFile` (HEIC to JPEG), `UploadRules`, `checkNewFiles`, `checkKeptAttachments`, `pictureGrid`, `formatFileSize`     |

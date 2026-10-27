@@ -1,3 +1,4 @@
+export * from './api';
 export * from './attachments';
 export * from './chats';
 export * from './compose';
