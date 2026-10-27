@@ -1,12 +1,10 @@
 // What a sync run reads and writes (Calendar spec, Connections). pgSyncStore keeps it in
 // Postgres; the engine's tests use a memory store. A run leases its connection, so two runs never
 // read the same calendars at once, and a run that crashed lets go when the lease runs out.
-import { createHash } from 'node:crypto';
 import { and, asc, eq, inArray, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
 import { users } from '../../auth/schema';
-import type { ExternalEvent } from '../sync/types';
-import { eventBounds } from './bounds';
+import { type SyncedEventInput, eventRows } from './event-rows';
 import {
   type ConnectionKind,
   type ConnectionStatus,
@@ -21,6 +19,8 @@ import { nextLayers } from './store';
 export const MAX_EVENTS_PER_CALENDAR = 5_000;
 export const SYNC_LEASE_MS = 10 * 60_000;
 const INSERT_CHUNK = 500;
+
+export type { SyncedEventInput } from './event-rows';
 
 /** A connection as a run sees it: with its sealed secret and the owner's address. */
 export interface SyncConnection {
@@ -54,14 +54,6 @@ export interface RemoteCalendar {
   timeZone?: string | undefined;
   /** Whether it shows when Care Hub first sees it. */
   shown: boolean;
-}
-
-export interface SyncedEventInput {
-  remoteId: string;
-  event: ExternalEvent;
-  /** The etag. Without one, a hash of the event. */
-  version?: string | undefined;
-  htmlLink?: string | undefined;
 }
 
 export interface SyncOutcome {
@@ -114,35 +106,6 @@ export interface SyncStore {
    * signed in again), only lets go, and returns false: the next run uses the new sign-in.
    */
   finish(id: string, startedWith: string, outcome: SyncOutcome): Promise<boolean>;
-}
-
-const versionOf = (input: SyncedEventInput) =>
-  input.version ??
-  createHash('sha256').update(JSON.stringify(input.event)).digest('base64url').slice(0, 27);
-
-/** How far an event is from now: 0 while it (or its series) is on. */
-function distance(row: { startsAt: Date; endsAt: Date | null }, now: number) {
-  const start = row.startsAt.getTime();
-  if (start > now) return start - now;
-  return row.endsAt === null || row.endsAt.getTime() > now ? 0 : now - row.endsAt.getTime();
-}
-
-/** One row per remote id (the last copy wins), nearest to now first. */
-function eventRows(calendarId: string, inputs: SyncedEventInput[], now: Date) {
-  const byId = new Map(inputs.map((input) => [input.remoteId, input]));
-  const at = now.getTime();
-  return [...byId.values()]
-    .map((input) => ({
-      calendarId,
-      remoteId: input.remoteId,
-      uid: input.event.uid,
-      version: versionOf(input),
-      event: input.event,
-      htmlLink: input.htmlLink ?? null,
-      ...eventBounds(input.event),
-      readAt: now,
-    }))
-    .sort((a, b) => distance(a, at) - distance(b, at));
 }
 
 const calendarColumns = {
