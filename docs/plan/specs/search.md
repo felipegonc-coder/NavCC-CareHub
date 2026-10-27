@@ -97,6 +97,19 @@ Finding any page, database or row the person can open, quickly and from anywhere
 - Find in page: Ctrl+F opens it, Enter goes to the next match and Shift+Enter to the previous one, Ctrl+H opens Replace, and Esc closes it with the cursor at the current match.
 - **Phone:** Search in the bottom bar opens a full-screen search with the filter chips in a row that scrolls sideways. Find in page is in the page menu.
 
+## Done means
+
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+
+1. ⭐ **SR-01** Press Ctrl+K on Home, in a database and on a page. → Search opens every time; with text selected in a page, Ctrl+K opens the link editor instead.
+2. ⭐ **SR-03** Type ref, then goncalves. → "Refund steps" shows while you type, and "Felipe Gonçalves" is found without the ç.
+3. ⭐ **SR-02** Open search without typing. → The last 8 pages you opened and your last 5 searches show; Clear empties the searches.
+4. **SR-06** Filter with In: Support and Edited by: Sam Ortiz, then sort by Edited, newest first. → The results follow both filters and the sort.
+5. **SR-09** Rename a page, then move another to Trash. → The new name is found within 2 seconds, and the trashed page is gone at once.
+6. **SR-08** Sign in as Avery, who can't open "Pay bands", and search for a word from it. → No result, count or snippet comes from that page.
+7. **SR-11** Search for qzxv. → No results, with Clear filters and Search in Trash.
+8. **SR-14** Press Ctrl+F on a long page, find refund inside a closed toggle, then Replace all. → The toggle opens on the match, and one Ctrl+Z undoes every replacement.
+
 ## 7. Acceptance checks
 
 - **SR-01** Ctrl+K and Ctrl+P open search on every screen; with text selected in the editor, Ctrl+K opens the link editor instead.
