@@ -74,6 +74,7 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
   const ticket = newProperty('Ticket', defaultConfig('unique_id'));
   let followUp: Property;
   let gate: Property;
+  let rate: Property;
   let client: Property;
 
   // Stand-ins for the roles pull request's tables (decision 0007 names) until it lands.
@@ -184,11 +185,15 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
       ...newProperty('Gate code', defaultConfig('text')),
       access: { see: [{ type: 'user', id: people.avery.id }], change: null },
     };
+    rate = {
+      ...newProperty('Rate', defaultConfig('number')),
+      access: { see: null, change: [{ type: 'user', id: people.avery.id }] },
+    };
     client = newProperty('Client', relationConfig(clientsId));
     const visits = await settings(visitsId, (current) => {
-      const properties = [...current.properties, visit, followUp, hours, gate, assignee, ticket];
+      const properties = [...current.properties, visit, followUp, hours, gate, rate, assignee];
       const form = defaultView('form', properties, { name: 'Call-out request' });
-      return { properties: [...properties, client], views: [...current.views, form] };
+      return { properties: [...properties, ticket, client], views: [...current.views, form] };
     });
     nameId = visits.properties.find((p) => p.config.type === 'title')!.id;
     formViewId = visits.views.find((v) => v.layout === 'form')!.id;
@@ -318,12 +323,20 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
       }),
     ));
     const before = events.length;
-    // An anonymous answer, linking a row (the forms server checked the respondent can open it).
+    // An anonymous answer. It links a row (the forms server checked the respondent can open it),
+    // and writes properties whose access lists leave the respondent out: the form decides.
+    const answered = {
+      [nameId]: 'Dripping tap',
+      [hours.id]: '1',
+      [gate.id]: '7310',
+      [rate.id]: '95',
+      [client.id]: [ids.harbor],
+    };
     const { rowId } = await write((tx) =>
       createRow(tx, {
         databaseId: visitsId,
         templateId: null,
-        values: { [nameId]: 'Dripping tap', [hours.id]: '1', [client.id]: [ids.harbor] },
+        values: answered,
         actorUserId: null,
         source: 'form',
         formId: formViewId,
@@ -359,10 +372,15 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
       { form_view_id: formViewId, created_by: null },
       { form_view_id: formViewId, created_by: people.casey.id },
     ]);
-    expect((await stored(rowId))?.values).toMatchObject({ [client.id]: [ids.harbor] });
+    expect((await stored(rowId))?.values).toMatchObject({
+      [hours.id]: '1',
+      [gate.id]: [{ text: '7310' }],
+      [rate.id]: '95',
+      [client.id]: [ids.harbor],
+    });
 
     // A form answer names one of the database's form views; only form answers are anonymous;
-    // only people write; links are to rows that are there.
+    // only people write; links are to rows that are there; anyone else goes by the access lists.
     const tableViewId = (await loadDatabase(db, visitsId))!.views[0]!.id;
     const refusals: [Partial<Parameters<typeof createRow>[1]>, number][] = [
       [{ actorUserId: null, source: 'form' }, 400],
@@ -379,6 +397,7 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
       ],
       [{ actorUserId: null, source: 'user' }, 403],
       [{ actorUserId: people.casey.id, source: 'user' }, 403],
+      [{ actorUserId: people.admin.id, source: 'user', values: { [rate.id]: '95' } }, 403],
       [{ actorUserId: newId(), source: 'automation' }, 403],
     ];
     for (const [change, status] of refusals) {
@@ -616,7 +635,10 @@ describe.skipIf(!hasDatabase)('database server functions', () => {
     };
     const find = (who: TestUser, filter: FilterGroup | null, limit?: number) =>
       findRowIds(db, { userId: who.id, databaseId: visitsId, filter, limit });
-    expect(await find(people.avery, gateSet)).toEqual([{ rowId: ids.leak, access: 'edit' }]);
+    expect(await find(people.avery, gateSet)).toEqual([
+      { rowId: ids.leak, access: 'edit' },
+      { rowId: ids.tap, access: 'edit' },
+    ]);
     // Jordan can't see the gate code, so it reads as empty.
     expect(await find(people.jordan, gateSet)).toEqual([]);
 

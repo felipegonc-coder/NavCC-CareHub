@@ -221,7 +221,8 @@ export interface CreateRowInput {
  * A form answer (source 'form') needs `formId` to name one of the database's form views (400
  * otherwise); the respondent's access to the database isn't checked (the forms server checked the
  * form's gate), and the links it sends need only be rows of their database, not in Trash (the forms
- * server checked the respondent can open them). Property access lists still apply to them.
+ * server checked the respondent can open them). Its values skip property access lists, see and
+ * change alike: the form decides which properties it writes (see checkValues).
  */
 export function createRow(tx: Tx, input: CreateRowInput): Promise<{ rowId: string }> {
   return inSavepoint(tx, async (sp) => {
