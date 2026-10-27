@@ -14,7 +14,12 @@ import {
 
 // Fictional people and courses only.
 const person = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const [trainer, tara, omar, priya, eli, casey] = [1, 2, 3, 4, 5, 6].map(person);
+const trainer = person(1);
+const tara = person(2);
+const omar = person(3);
+const priya = person(4);
+const eli = person(5);
+const casey = person(6);
 const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const at = (hour: number) => `2026-10-27T${String(hour).padStart(2, '0')}:00:00.000Z`;
 

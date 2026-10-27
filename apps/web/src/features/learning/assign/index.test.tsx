@@ -1,6 +1,6 @@
 import type { Assignment, PathSummary } from '@carehub/learning';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CatalogEntry } from '../catalog/data';
 import { formatDay, formatDueDate } from '../home/entry';
 import { errorReply, jsonReply, renderRoute } from '../player/test-utils';
@@ -155,6 +155,17 @@ async function entryOf(title: string) {
   if (!item) throw new Error(`No entry for ${title}`);
   return within(item);
 }
+
+// The kit's checkboxes measure themselves inside a form, and jsdom has no ResizeObserver.
+class ResizeObserverStub {
+  observe = () => undefined;
+  unobserve = () => undefined;
+  disconnect = () => undefined;
+}
+
+beforeAll(() => {
+  window.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
