@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { MessageJson, PeopleJson } from './api';
 import { idSchema } from './compose';
 import { SEARCH_MAX_WORDS, SEARCH_QUERY_MAX_LENGTH } from './constants';
 import { findLinks } from './tokens';
@@ -273,3 +274,13 @@ export const messageSearchBodySchema = z.object({
   has: z.enum(HAS_FILTERS).optional(),
 });
 export type MessageSearchBody = z.infer<typeof messageSearchBodySchema>;
+
+/** Results come 50 at a time; `hasMore` says there are older ones (narrow the search to see them). */
+export const SEARCH_RESULTS_MAX = 50;
+
+/** A message search's answer: messages newest first, with the names they show. */
+export interface MessageSearchResponse {
+  results: MessageJson[];
+  hasMore: boolean;
+  people: PeopleJson;
+}
