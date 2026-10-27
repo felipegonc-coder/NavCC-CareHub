@@ -4,6 +4,7 @@ import { colorNames, colorVariables, darkColors, lightColors } from './src/palet
 import {
   fontStacks,
   fontWeights,
+  gridColumns,
   layers,
   outlineOffsets,
   radii,
@@ -53,6 +54,7 @@ const preset = {
       borderRadius: { ...radii },
       spacing: { ...spacing, sidebar: widths.sidebar },
       maxWidth: { page: widths.page, dialog: widths.dialog, toast: widths.toast },
+      gridTemplateColumns: { ...gridColumns },
       fontFamily: { sans: [...fontStacks.sans], mono: [...fontStacks.mono] },
       fontSize,
       fontWeight: { ...fontWeights },
