@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { webAddressProblem } from './core/links';
 
 // src/ (source) and dist/ (bundle) sit at the same depth, so this is apps/web/dist in both.
 const defaultWebDistDir = fileURLToPath(new URL('../../web/dist', import.meta.url));
@@ -19,8 +20,22 @@ const configSchema = z.object({
   DATABASE_URL: z
     .string({ error: 'Set DATABASE_URL to a postgres:// address.' })
     .regex(/^postgres(?:ql)?:\/\//, 'Set DATABASE_URL to a postgres:// address.'),
-  /** The address people use, for example https://carehub.example.test. Requests from other origins are refused. */
-  CAREHUB_PUBLIC_URL: z.url({ protocol: /^https?$/ }).optional(),
+  /**
+   * The web address people use, for example https://carehub.example.test: just the address, with
+   * nothing after it. Stored as its origin (no slash at the end), it starts every link Care Hub
+   * makes (core/links.ts), and requests from other origins are refused.
+   */
+  CAREHUB_PUBLIC_URL: z
+    .url({
+      protocol: /^https?$/,
+      error: 'Set CAREHUB_PUBLIC_URL to a web address like https://carehub.example.test.',
+    })
+    .superRefine((value, ctx) => {
+      const problem = webAddressProblem(value);
+      if (problem) ctx.addIssue({ code: 'custom', message: problem });
+    })
+    .transform((value) => new URL(value.trim()).origin)
+    .optional(),
   /** Secure cookies (only sent over HTTPS). Turn off only for local development over plain HTTP. */
   COOKIE_SECURE: z.stringbool().default(true),
 });

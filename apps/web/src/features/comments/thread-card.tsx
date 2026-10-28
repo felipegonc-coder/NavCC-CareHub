@@ -15,6 +15,7 @@ import {
 } from '@carehub/ui';
 import { Check, Link2, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { Fragment, useRef, useState, type KeyboardEvent } from 'react';
+import { fullLink } from '../../lib/links';
 import { Composer } from './composer';
 import { useCommentsContext } from './context';
 import type { OutgoingComment } from './outbox';
@@ -141,7 +142,7 @@ function CommentItem({ comment, editing, onEditing }: CommentItemProps) {
 
   const copyLink = async () => {
     try {
-      const link = new URL(commentUrl(pageId, comment.id), window.location.origin).href;
+      const link = fullLink(commentUrl(pageId, comment.id));
       await navigator.clipboard.writeText(link);
       toast({ title: 'Link copied' });
     } catch {

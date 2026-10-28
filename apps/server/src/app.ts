@@ -7,6 +7,7 @@ import type { Config } from './config';
 import { DEFAULT_ERROR_MESSAGES, errorBody, errorHandler } from './core/errors';
 import { registerEvents } from './core/events';
 import { databasePlugin } from './db';
+import { registerLinks } from './core/links';
 import { authPlugin } from './features/auth/plugin';
 
 export interface BuildAppOptions {
@@ -30,6 +31,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     cookieSecure: config.COOKIE_SECURE,
     publicUrl: config.CAREHUB_PUBLIC_URL,
   });
+  registerLinks(app, config);
 
   app.get('/api/health', { config: { public: true } }, async (): Promise<HealthResponse> => ({
     status: 'ok',
