@@ -9,7 +9,7 @@ import {
 } from '@carehub/learning';
 import type { Course, Id, Lesson } from '@carehub/learning';
 import { Button, cn, IconButton } from '@carehub/ui';
-import { ArrowDown, ArrowUp, Copy, Plus, Settings, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { lessonPath } from '../labels';
 import { TitleField } from './parts';
@@ -95,16 +95,11 @@ function LessonRow(
 /** Props for {@link Outline}. */
 export type OutlineProps = EditorActions & {
   course: Course;
-  /** The lesson on the canvas, or null when none is (for example while the settings are open). */
+  /** The lesson on the canvas, or null when there is none. */
   lessonId: Id | null;
-  settingsOpen: boolean;
-  onSettings(): void;
 };
 
-/**
- * The course title, a way to the course settings, and the lessons: select, add, reorder (drag or move buttons),
- * duplicate and delete.
- */
+/** The course title and the lessons: select, add, reorder (drag or move buttons), duplicate and delete. */
 export function Outline(props: OutlineProps) {
   const { course, lessonId, edit } = props;
   const add = (kind: Lesson['kind']) => {
@@ -121,16 +116,6 @@ export function Outline(props: OutlineProps) {
         value={course.title}
         onChange={(text) => edit((c) => renameCourse(c, text), { group: 'course-title' })}
       />
-      <Button
-        size="sm"
-        variant={props.settingsOpen ? 'secondary' : 'ghost'}
-        className="justify-start"
-        aria-current={props.settingsOpen || undefined}
-        onClick={props.onSettings}
-      >
-        <Settings aria-hidden />
-        Course settings
-      </Button>
       <nav aria-label="Outline" className="flex flex-col gap-2">
         <h2 className="text-small font-semibold text-muted">Lessons</h2>
         {course.lessons.length === 0 ? (
