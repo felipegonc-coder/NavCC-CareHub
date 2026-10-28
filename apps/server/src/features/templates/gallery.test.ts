@@ -117,8 +117,6 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
         (pages.get(pageId)?.childIds ?? []).flatMap((id) => pages.get(id) ?? []),
       space: async (_db, userId, spaceId) =>
         spaceId === supportSpace ? { name: 'Support', isMember: supportMembers.has(userId) } : null,
-      spaces: async (_db, userId) =>
-        supportMembers.has(userId) ? [{ id: supportSpace, name: 'Support' }] : [],
       privateSpaceId: async (_tx, userId) => {
         const id = privateSpaces.get(userId) ?? randomUUID();
         privateSpaces.set(userId, id);
@@ -210,10 +208,6 @@ describe.skipIf(!hasDatabase)('the template gallery on Postgres', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.canSave).toBe(false);
-    expect(body.spaces).toEqual([]);
-    expect((await call(sam, 'GET', '')).json().spaces).toEqual([
-      { id: supportSpace, name: 'Support' },
-    ]);
     expect(body.categories.slice(0, 2)).toEqual(['Meetings', 'Projects']);
     const meeting = body.templates.find((card: { id: string }) => card.id === 'meeting-notes');
     expect(meeting).toMatchObject({ kind: 'starter', by: 'Care Hub', category: 'Meetings' });

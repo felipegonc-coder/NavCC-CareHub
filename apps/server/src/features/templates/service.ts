@@ -21,7 +21,6 @@ import { and, asc, eq } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { users } from '../auth/schema';
-import { copyButtons } from './buttons';
 import { core, type CorePage, type TemplatesViewer } from './core';
 import { tplHiddenStarters, tplTemplatePages, tplTemplates, type TemplateRow } from './schema';
 import { STARTERS, STARTERS_BY_KEY, type Starter, type StarterPage } from './starters';
@@ -186,7 +185,6 @@ export async function listGallery(db: Db, viewer: TemplatesViewer): Promise<Gall
     templates,
     categories: galleryCategories(templates),
     canSave: viewer.can('templates.manage'),
-    spaces: await core().spaces(db, viewer.userId, viewer.workspaceId),
   };
 }
 
@@ -347,20 +345,9 @@ export async function saveTemplate(db: Db, viewer: TemplatesViewer, input: SaveT
       })
       .returning();
     if (!saved) throw new Error('The template was not saved.');
-    // The template keeps its own copies of the buttons on its pages.
-    const pageIds = new Set(entries.map(({ page }) => page.id.toLowerCase()));
-    const owner = { workspaceId: viewer.workspaceId, pageId: null, templateId: saved.id };
-    const rows = [];
-    for (const page of pages) {
-      const markdown = await copyButtons(
-        tx,
-        page.markdown,
-        { ...owner, by: viewer.userId },
-        { pageIds },
-      );
-      rows.push({ ...page, markdown, templateId: saved.id });
-    }
-    await tx.insert(tplTemplatePages).values(rows);
+    await tx
+      .insert(tplTemplatePages)
+      .values(pages.map((page) => ({ ...page, templateId: saved.id })));
     return saved;
   });
   return workspaceCard({ template: row, byName: viewer.name }, viewer, spaceName);
