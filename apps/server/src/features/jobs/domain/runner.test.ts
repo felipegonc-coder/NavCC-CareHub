@@ -440,6 +440,27 @@ describe('periodic tasks', () => {
     expect(times).toEqual([T0 + MINUTE + 5 * SECOND]);
   });
 
+  it('runs a task once off its grid for a server test, at the time it gives', async () => {
+    const { runner } = setup();
+    const runs: { now: number; attempt: number; aborted: boolean; hook: boolean }[] = [];
+    runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
+      runs.push({
+        now: ctx.now.getTime(),
+        attempt: ctx.attempt,
+        aborted: ctx.signal.aborted,
+        hook: isTestHookRun(),
+      });
+    });
+    const now = new Date('2026-10-26T15:00:00.000Z');
+    expect(await runner.runPeriodicTask('reminders.sweep', { now })).toBe(true);
+    expect(await runner.runPeriodicTask('reminders.sweep')).toBe(true);
+    expect(await runner.runPeriodicTask('reminders.nothing')).toBe(false);
+    expect(runs).toEqual([
+      { now: now.getTime(), attempt: 1, aborted: false, hook: false },
+      { now: T0, attempt: 1, aborted: false, hook: false },
+    ]);
+  });
+
   it('cleans up finished jobs after 7 days', async () => {
     const { runner, store, setClock } = setup();
     runner.registerHandler('reminders.fire', async () => {});
@@ -487,12 +508,12 @@ describe('test-hook runs', () => {
     runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
       runs.push({ now: ctx.now.getTime(), hook: isTestHookRun(), jobId: ctx.jobId });
     });
-    expect(await runner.runPeriodicTask('reminders.sweep', { now: YEAR_LATER })).toEqual({
+    expect(await runner.runForTestHook('reminders.sweep', { now: YEAR_LATER })).toEqual({
       status: 'ran',
       ms: 0,
     });
-    expect(await runner.runPeriodicTask('reminders.sweep')).toEqual({ status: 'ran', ms: 0 });
-    expect(await runner.runPeriodicTask('reminders.nothing')).toEqual({ status: 'unknown' });
+    expect(await runner.runForTestHook('reminders.sweep')).toEqual({ status: 'ran', ms: 0 });
+    expect(await runner.runForTestHook('reminders.nothing')).toEqual({ status: 'unknown' });
     expect(runs.map(({ now, hook }) => ({ now, hook }))).toEqual([
       { now: YEAR_LATER.getTime(), hook: true },
       { now: T0, hook: true },
@@ -533,13 +554,13 @@ describe('test-hook runs', () => {
       await runner.tick();
       await flush();
       expect(task.runs).toHaveLength(1);
-      expect(await runner.runPeriodicTask('reminders.sweep', { now: YEAR_LATER })).toEqual({
+      expect(await runner.runForTestHook('reminders.sweep', { now: YEAR_LATER })).toEqual({
         status: 'busy',
       });
       expect(task.runs).toHaveLength(1);
       task.release();
       await sleep(10);
-      expect(await runner.runPeriodicTask('reminders.sweep')).toMatchObject({ status: 'ran' });
+      expect(await runner.runForTestHook('reminders.sweep')).toMatchObject({ status: 'ran' });
     } finally {
       await runner.stop();
     }
@@ -553,9 +574,9 @@ describe('test-hook runs', () => {
     await runner.start();
     try {
       await runner.tick();
-      const first = runner.runPeriodicTask('reminders.sweep', { now: YEAR_LATER });
+      const first = runner.runForTestHook('reminders.sweep', { now: YEAR_LATER });
       await flush();
-      expect(await runner.runPeriodicTask('reminders.sweep')).toEqual({ status: 'busy' });
+      expect(await runner.runForTestHook('reminders.sweep')).toEqual({ status: 'busy' });
       setClock(MINUTE + 5 * SECOND);
       await runner.tick();
       await sleep(10);
@@ -584,12 +605,12 @@ describe('test-hook runs', () => {
     runner.registerPeriodicTask('reminders.broken', MINUTE, async () => {
       throw new Error('Database is down');
     });
-    expect(await runner.runPeriodicTask('reminders.sweep')).toEqual({
+    expect(await runner.runForTestHook('reminders.sweep')).toEqual({
       status: 'ran',
       counts: { sent: 2, skipped: 0 },
       ms: 0,
     });
-    expect(await runner.runPeriodicTask('reminders.broken')).toEqual({ status: 'failed', ms: 0 });
+    expect(await runner.runForTestHook('reminders.broken')).toEqual({ status: 'failed', ms: 0 });
     expect(warnings).toContain('jobs: test run failed');
     expect(await store.get(jobId)).toMatchObject({ status: 'queued', attempts: 0 });
   });
@@ -607,7 +628,7 @@ describe('test-hook runs', () => {
     });
     await runner.start();
     try {
-      await runner.runPeriodicTask('reminders.sweep');
+      await runner.runForTestHook('reminders.sweep');
       await sleep(10);
     } finally {
       await runner.stop();

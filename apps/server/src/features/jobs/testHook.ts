@@ -17,7 +17,7 @@ export interface TestHookCall {
 }
 
 export interface TestHookOptions {
-  runner: Pick<JobRunner, 'runPeriodicTask'>;
+  runner: Pick<JobRunner, 'runForTestHook'>;
   log: { info(details: object, message: string): void };
   /** The allow-list. Defaults to `TEST_HOOK_TASKS`. */
   tasks?: Readonly<Record<string, string>>;
@@ -68,7 +68,7 @@ export async function runTestHook(
     if (now !== null && Math.abs(Date.parse(now) - clock()) > MAX_SHIFT_MS) {
       return failure(400, 'invalid', 'Give now within a year of the current time.');
     }
-    const run = await options.runner.runPeriodicTask(task, now ? { now: new Date(now) } : {});
+    const run = await options.runner.runForTestHook(task, now ? { now: new Date(now) } : {});
     if (run.status === 'unknown') return notFound();
     if (run.status === 'busy') {
       return failure(409, 'busy', 'This task is running now. Try again in a moment.');

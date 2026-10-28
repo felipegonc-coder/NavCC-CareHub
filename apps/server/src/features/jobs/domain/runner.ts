@@ -511,12 +511,32 @@ export function createJobRunner(options: JobRunnerOptions) {
     registerPeriodicTask,
 
     /**
-     * Runs a periodic task once, here, at once and off its grid: for the test hook. It takes the
-     * scheduler's lock (the task's one unfinished job) without waiting: `busy` while a run is
+     * Runs a periodic task once, here and at once, off its grid: for server tests in this
+     * process. `now` (default the current time) is the run's `ctx.now`; it gets the task's usual
+     * 5 minutes. False when there's no task with this name. It doesn't take the scheduler's lock
+     * or set `isTestHookRun()`; the HTTP test hook uses `runForTestHook`.
+     */
+    async runPeriodicTask(name: string, input: { now?: Date } = {}): Promise<boolean> {
+      const task = tasks.get(name);
+      if (!task) return false;
+      await task.run({
+        jobId: randomUUID(),
+        attempt: 1,
+        lateByMs: 0,
+        signal: AbortSignal.timeout(PERIODIC_TIMEOUT_MS),
+        setProgress: () => {},
+        now: input.now ?? new Date(now()),
+      });
+      return true;
+    },
+
+    /**
+     * Runs a periodic task once, here, at once and off its grid: for the HTTP test hook. It takes
+     * the scheduler's lock (the task's one unfinished job) without waiting: `busy` while a run is
      * going anywhere. `now` (default the current time) is only the run's `ctx.now`; the queue
      * keeps the real clock, and the next scheduled run stays on its slot.
      */
-    async runPeriodicTask(name: string, input: { now?: Date } = {}): Promise<TestRun> {
+    async runForTestHook(name: string, input: { now?: Date } = {}): Promise<TestRun> {
       const task = tasks.get(name);
       if (!task) return { status: 'unknown' };
       const at = now();
