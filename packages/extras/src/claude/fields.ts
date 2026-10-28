@@ -105,6 +105,11 @@ export const CLAUDE_FIELD_ERRORS = {
     message:
       "This field uses a property that some people who see the field can't see. Change what it uses.",
   },
+  rows_changed: {
+    status: 409,
+    code: 'conflict',
+    message: 'The number of rows changed. Check it and try again.',
+  },
   database_hour: {
     status: 429,
     code: 'rate_limited',
@@ -138,14 +143,39 @@ export function claudeFieldInputProblem(
   return null;
 }
 
-/** POST /api/claude/fields/fill. More than one row comes with the background fills. */
+/** Which rows: their IDs, or every row (`all`) or the empty ones (`empty`) the person may fill. */
+export const claudeFieldRowsSchema = z.union([
+  z.array(z.uuid()).min(1).max(CLAUDE_FIELD_LIMITS.rows),
+  z.enum(['all', 'empty']),
+]);
+export type ClaudeFieldRows = z.infer<typeof claudeFieldRowsSchema>;
+
+const target = { databaseId: z.uuid(), propertyId: id, rowIds: claudeFieldRowsSchema };
+
+/** POST /api/claude/fields/plan: how many rows a Fill would fill, for "Fill 240 rows?". */
+export const claudeFieldPlanRequestSchema = z.object(target).strict();
+export const claudeFieldPlanSchema = z.object({
+  rows: z.number().int().min(0),
+  /** "This uses 240 of this month's 3,000 requests." */
+  monthlyRequests: z.number().int().min(0),
+});
+export type ClaudeFieldPlan = z.infer<typeof claudeFieldPlanSchema>;
+
+/** POST /api/claude/fields/fill. More than one row needs the count the person said yes to. */
 export const claudeFieldFillRequestSchema = z
-  .object({ databaseId: z.uuid(), propertyId: id, rowIds: z.array(z.uuid()).length(1) })
+  .object({ ...target, confirmedRows: z.number().int().min(0).optional() })
   .strict();
 
-export const claudeFieldFillResultSchema = z.object({
-  status: z.literal('filled'),
-  rowId: z.uuid(),
-  value: claudeFieldValueSchema,
-});
+/** One row fills at once; more fill in the background, 5 at a time. */
+export const claudeFieldFillResultSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('filled'), rowId: z.uuid(), value: claudeFieldValueSchema }),
+  z.object({ status: z.literal('queued'), rows: z.number().int().min(0) }),
+]);
 export type ClaudeFieldFillResult = z.infer<typeof claudeFieldFillResultSchema>;
+
+/** GET /api/claude/fields/progress: how many of the person's own rows are still waiting. */
+export const claudeFieldProgressQuerySchema = z
+  .object({ databaseId: z.uuid(), propertyId: id })
+  .strict();
+export const claudeFieldProgressSchema = z.object({ waiting: z.number().int().min(0) });
+export type ClaudeFieldProgress = z.infer<typeof claudeFieldProgressSchema>;

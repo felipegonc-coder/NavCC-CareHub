@@ -10,10 +10,11 @@ import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, runMigrations, type DatabaseConnection, type Db } from '../../../db';
 import { createTestDatabase, createUser, hasDatabase, type TestUser } from '../../../testing';
-import { claudeFieldFills, claudeUsage } from '../schema';
+import { claudeFieldFills, claudeFieldQueue, claudeUsage } from '../schema';
 import { ClaudeError } from './errors';
-import { fieldErrorReason, fillClaudeFields } from './fields';
+import { fieldErrorReason, fillClaudeFields, planClaudeFieldFill } from './fields';
 import { bindClaudeFieldHost, type ClaudeField } from './fields-host';
+import { claudeFieldProgress, claudeFieldRowChanged, runClaudeFieldQueue } from './fields-queue';
 import { configureClaude } from './runtime';
 import { CLAUDE_MESSAGES_URL } from './settings';
 
@@ -81,9 +82,10 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
     await runMigrations(connection.pool);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     while (restores.length > 0) restores.pop()?.();
     clock.now = START;
+    await db.delete(claudeFieldQueue);
   });
 
   afterAll(async () => {
@@ -105,6 +107,9 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
     const bodies: Array<Record<string, unknown>> = [];
     const logs: string[] = [];
     const replies = [...(options.replies ?? [])];
+    let inFlight = 0;
+    const most = { inFlight: 0 };
+    const hooks: { duringFetch?: (() => Promise<void>) | undefined } = {};
 
     const field = (): ClaudeField => ({
       workspaceId,
@@ -141,6 +146,11 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
         },
         fetch: async (_url, init) => {
           bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          inFlight += 1;
+          most.inFlight = Math.max(most.inFlight, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          await hooks.duringFetch?.();
+          inFlight -= 1;
           return replies.shift() ?? answer('A fictional summary.');
         },
         sleep: async () => {},
@@ -150,8 +160,20 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
       bindClaudeFieldHost({
         field: async (_db, id, property) =>
           id === databaseId && property === propertyId ? field() : null,
+        autoFields: async (_db, id) =>
+          id === databaseId && field().setup.fill === 'auto' ? [field()] : [],
         fillableRows: async (_db, input) =>
-          input.rowIds.filter((id) => rows.get(id)?.editors.includes(input.userId)),
+          [...rows.values()]
+            .filter((row) => row.editors.includes(input.userId))
+            .filter((row) =>
+              input.rowIds === 'all'
+                ? true
+                : input.rowIds === 'empty'
+                  ? !row.value?.text
+                  : input.rowIds.includes(row.id),
+            )
+            .map((row) => row.id)
+            .slice(0, input.limit),
         readRowText: async (_db, input) => {
           const row = rows.get(input.rowId);
           if (!row?.editors.includes(input.userId)) return null;
@@ -194,7 +216,19 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
     }
 
     const target = { databaseId, propertyId };
-    return { workspaceId, databaseId, avery, morgan, rows, bodies, logs, addRow, target };
+    return {
+      workspaceId,
+      databaseId,
+      avery,
+      morgan,
+      rows,
+      bodies,
+      logs,
+      most,
+      hooks,
+      addRow,
+      target,
+    };
   }
 
   it('fills one row now, sending only the properties it uses', async () => {
@@ -359,31 +393,172 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
     expect(await outcome(fill())).toBe('filled');
   });
 
-  it('keeps the migration and the Drizzle table the same', async () => {
-    const config = getTableConfig(claudeFieldFills);
-    const { rows } = await db.execute<{
-      name: string;
-      type: string;
-      not_null: boolean;
-      has_default: boolean;
-    }>(
-      sql`SELECT attname AS name, format_type(atttypid, atttypmod) AS type,
-                 attnotnull AS not_null, atthasdef AS has_default
-          FROM pg_attribute
-          WHERE attrelid = ${config.name}::regclass AND attnum > 0 AND NOT attisdropped`,
+  it('asks before filling more than one row, then fills them in the background, 5 at a time', async () => {
+    const t = await setUp();
+    const rows = Array.from({ length: 12 }, () => t.addRow());
+    t.addRow([t.morgan]);
+    const all = { userId: t.avery.id, ...t.target, rowIds: 'all' as const };
+    expect(await planClaudeFieldFill(db, all)).toEqual({ rows: 12, monthlyRequests: 3000 });
+
+    for (const confirmedRows of [undefined, 11]) {
+      const error = await fillClaudeFields(db, { ...all, confirmedRows }).catch((e: unknown) => e);
+      expect(fieldErrorReason(error)).toBe('rows_changed');
+      expect((error as { details: unknown }).details).toEqual({ reason: 'rows_changed', rows: 12 });
+    }
+    expect(await fillClaudeFields(db, { ...all, confirmedRows: 12 })).toEqual({
+      status: 'queued',
+      rows: 12,
+    });
+    const progress = { userId: t.avery.id, ...t.target };
+    expect(await claudeFieldProgress(db, progress)).toEqual({ waiting: 12 });
+    expect(t.bodies).toHaveLength(0);
+
+    expect(await runClaudeFieldQueue(db)).toBe(12);
+    expect(t.bodies).toHaveLength(12);
+    expect(t.most.inFlight).toBeGreaterThan(1);
+    expect(t.most.inFlight).toBeLessThanOrEqual(5);
+    for (const row of rows) expect(row.value?.filledFor).toBe(t.avery.id);
+    expect(await claudeFieldProgress(db, progress)).toEqual({ waiting: 0 });
+    const empty = { ...all, rowIds: 'empty' as const };
+    expect(await planClaudeFieldFill(db, empty)).toEqual({ rows: 0, monthlyRequests: 3000 });
+  });
+
+  it("waits at each database's hourly cap in the background", async () => {
+    const t = await setUp();
+    const first = t.addRow();
+    const second = t.addRow();
+    await db.insert(claudeFieldFills).values(
+      Array.from({ length: 300 }, () => ({
+        workspaceId: t.workspaceId,
+        databaseId: t.databaseId,
+        propertyId: 'property-summary',
+        userId: t.morgan.id,
+        auto: true,
+        status: 'ok' as const,
+        createdAt: new Date(START.getTime() - 30 * MINUTE),
+      })),
     );
-    const inDatabase = Object.fromEntries(
-      rows.map((row) => [
-        row.name,
-        { type: row.type, notNull: row.not_null, hasDefault: row.has_default },
-      ]),
-    );
-    const inDrizzle = Object.fromEntries(
-      config.columns.map((column) => [
-        column.name,
-        { type: column.getSQLType(), notNull: column.notNull, hasDefault: column.hasDefault },
-      ]),
-    );
-    expect(inDatabase).toEqual(inDrizzle);
+    const two = {
+      userId: t.avery.id,
+      ...t.target,
+      rowIds: [first.id, second.id],
+      confirmedRows: 2,
+    };
+    expect(await outcome(fillClaudeFields(db, two))).toBe('queued');
+    expect(await runClaudeFieldQueue(db)).toBe(2);
+    expect(t.bodies).toHaveLength(0);
+    const waiting = await db.select().from(claudeFieldQueue);
+    expect(waiting.map((entry) => [entry.attempts, entry.dueAt > START])).toEqual([
+      [0, true],
+      [0, true],
+    ]);
+
+    // Half an hour later, the older requests are more than an hour old.
+    clock.now = new Date(START.getTime() + 31 * MINUTE);
+    expect(await runClaudeFieldQueue(db)).toBe(2);
+    expect(t.bodies).toHaveLength(2);
+    expect(await db.select().from(claudeFieldQueue)).toHaveLength(0);
+  });
+
+  it('fills automatically 2 minutes after the last change, with the owner’s access', async () => {
+    const t = await setUp({ setup: { fill: 'auto' } });
+    const row = t.addRow();
+    const change = { databaseId: t.databaseId, rowId: row.id, source: 'user' };
+    await claudeFieldRowChanged(db, { ...change, propertyIds: ['property-salary'] });
+    await claudeFieldRowChanged(db, {
+      ...change,
+      propertyIds: ['property-request'],
+      source: 'import',
+    });
+    expect(await db.select().from(claudeFieldQueue)).toHaveLength(0);
+
+    await claudeFieldRowChanged(db, { ...change, propertyIds: ['property-request'] });
+    clock.now = new Date(START.getTime() + MINUTE);
+    await claudeFieldRowChanged(db, { ...change, propertyIds: ['property-status'] });
+    clock.now = new Date(START.getTime() + 2.5 * MINUTE);
+    expect(await runClaudeFieldQueue(db)).toBe(0);
+
+    clock.now = new Date(START.getTime() + 3 * MINUTE);
+    expect(await runClaudeFieldQueue(db)).toBe(1);
+    expect(row.value).toEqual({
+      text: 'A fictional summary.',
+      filledAt: clock.now.toISOString(),
+      filledFor: null,
+      status: 'filled',
+    });
+    const usage = await db
+      .select()
+      .from(claudeUsage)
+      .where(eq(claudeUsage.workspaceId, t.workspaceId));
+    expect(usage.map((r) => r.userId)).toEqual([t.morgan.id]);
+    expect(await db.select().from(claudeFieldQueue)).toHaveLength(0);
+  });
+
+  it('refills automatically after a By-hand fill that was filling during a change', async () => {
+    const t = await setUp({ setup: { fill: 'auto' } });
+    const row = t.addRow();
+    t.addRow();
+    const all = { userId: t.avery.id, ...t.target, rowIds: 'all' as const, confirmedRows: 2 };
+    expect(await fillClaudeFields(db, all)).toEqual({ status: 'queued', rows: 2 });
+    t.hooks.duringFetch = async () => {
+      t.hooks.duringFetch = undefined;
+      clock.now = new Date(START.getTime() + MINUTE);
+      const change = { databaseId: t.databaseId, rowId: row.id, propertyIds: ['property-request'] };
+      await claudeFieldRowChanged(db, { ...change, source: 'user' });
+    };
+    expect(await runClaudeFieldQueue(db)).toBe(2);
+    expect(row.value?.filledFor).toBe(t.avery.id);
+    const waiting = await db.select().from(claudeFieldQueue);
+    expect(waiting.map((entry) => [entry.rowId, entry.auto, entry.requestedBy])).toEqual([
+      [row.id, true, null],
+    ]);
+    expect(waiting[0]?.dueAt).toEqual(new Date(START.getTime() + 3 * MINUTE));
+    expect(await claudeFieldProgress(db, { userId: t.avery.id, ...t.target })).toEqual({
+      waiting: 0,
+    });
+
+    clock.now = new Date(START.getTime() + 3 * MINUTE);
+    expect(await runClaudeFieldQueue(db)).toBe(1);
+    expect(row.value?.filledFor).toBeNull();
+  });
+
+  it('fills nothing automatically with Claude fields off, or for a field By hand', async () => {
+    for (const options of [{ off: ['claude.fields'] }, { setup: { fill: 'by_hand' as const } }]) {
+      const t = await setUp({ setup: { fill: 'auto' }, ...options });
+      const row = t.addRow();
+      const change = { databaseId: t.databaseId, rowId: row.id, source: 'user' };
+      await claudeFieldRowChanged(db, { ...change, propertyIds: ['property-request'] });
+      expect(await db.select().from(claudeFieldQueue)).toHaveLength(0);
+    }
+  });
+
+  it('keeps the migration and the Drizzle tables the same', async () => {
+    for (const table of [claudeFieldFills, claudeFieldQueue]) {
+      const config = getTableConfig(table);
+      const { rows } = await db.execute<{
+        name: string;
+        type: string;
+        not_null: boolean;
+        has_default: boolean;
+      }>(
+        sql`SELECT attname AS name, format_type(atttypid, atttypmod) AS type,
+                   attnotnull AS not_null, atthasdef AS has_default
+            FROM pg_attribute
+            WHERE attrelid = ${config.name}::regclass AND attnum > 0 AND NOT attisdropped`,
+      );
+      const inDatabase = Object.fromEntries(
+        rows.map((row) => [
+          row.name,
+          { type: row.type, notNull: row.not_null, hasDefault: row.has_default },
+        ]),
+      );
+      const inDrizzle = Object.fromEntries(
+        config.columns.map((column) => [
+          column.name,
+          { type: column.getSQLType(), notNull: column.notNull, hasDefault: column.hasDefault },
+        ]),
+      );
+      expect(inDatabase).toEqual(inDrizzle);
+    }
   });
 });

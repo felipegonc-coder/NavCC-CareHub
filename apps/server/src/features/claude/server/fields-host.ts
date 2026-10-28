@@ -1,6 +1,7 @@
 import type {
   ClaudeFieldAudience,
   ClaudeFieldInput,
+  ClaudeFieldRows,
   ClaudeFieldSetup,
   ClaudeFieldValue,
 } from '@carehub/extras/claude/fields';
@@ -34,9 +35,11 @@ export interface ClaudeRowText {
 export interface ClaudeFieldHost {
   /** The Claude field, or null when the property isn't one or its database is in Trash. */
   field(db: Db | Tx, databaseId: string, propertyId: string): Promise<ClaudeField | null>;
+  /** The database's Claude fields that fill automatically. */
+  autoFields(db: Db | Tx, databaseId: string): Promise<ClaudeField[]>;
   /**
-   * The rows of `rowIds` the person may fill now: Can edit on the row and may change the field.
-   * Never rows in Trash.
+   * The rows the person may fill now (Can edit on the row and may change the field; never rows in
+   * Trash), out of `rowIds`, or every row (`all`) or those whose value is empty (`empty`).
    */
   fillableRows(
     db: Db | Tx,
@@ -44,7 +47,8 @@ export interface ClaudeFieldHost {
       userId: string;
       databaseId: string;
       propertyId: string;
-      rowIds: readonly string[];
+      rowIds: ClaudeFieldRows;
+      limit: number;
     },
   ): Promise<string[]>;
   /** readRowText (decision 0200): null when the person can't see the row. */
@@ -70,6 +74,7 @@ export interface ClaudeFieldHost {
 
 const none: ClaudeFieldHost = {
   field: async () => null,
+  autoFields: async () => [],
   fillableRows: async () => [],
   readRowText: async () => null,
   saveFill: async () => {},
