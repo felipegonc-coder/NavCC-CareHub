@@ -34,12 +34,17 @@ import { spacePlace } from './spaces';
 
 const locked = () => httpError(403, 'forbidden', 'This page is locked. Unlock it to change it.');
 
-/** Where a new page goes: a page that isn't locked, a space the person may add to, or Private. */
+/**
+ * Where a new page goes: a page that isn't locked or archived, a space the person may add to, or
+ * Private.
+ */
 async function checkPlace(tx: Executor, viewer: Viewer, input: CreatePageInput) {
   if (input.parentId !== undefined) {
-    const { rows } = await tx.execute<{ locked: boolean }>(sql`
-      SELECT locked_at IS NOT NULL AS locked FROM pages WHERE id = ${input.parentId}`);
+    const { rows } = await tx.execute<{ locked: boolean; archived: boolean }>(sql`
+      SELECT locked_at IS NOT NULL AS locked, archived_at IS NOT NULL AS archived
+      FROM pages WHERE id = ${input.parentId}`);
     if (rows[0]?.locked) throw locked();
+    if (rows[0]?.archived) throw forbidden();
   } else if (input.spaceId !== undefined) {
     const space = await spacePlace(tx, viewer, input.spaceId);
     if (space.archived) throw spaceArchived();

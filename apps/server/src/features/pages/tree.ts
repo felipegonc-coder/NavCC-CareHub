@@ -21,11 +21,15 @@ function add<K, V>(map: Map<K, V[]>, key: K, value: V) {
   else map.set(key, [value]);
 }
 
-/** The space's pages and databases the person can open, in sidebar order (`PageTreeJson`). */
+/**
+ * The space's pages and databases the person can open, in sidebar order (`PageTreeJson`).
+ * Archived pages stay out, and so does everything under them.
+ */
 export async function spaceTree(db: Executor, viewer: Viewer, spaceId: string) {
   const { rows } = await db.execute<TreeRow>(sql`
     SELECT id, parent_id AS "parentId", kind, is_inline AS "isInline", title, icon, position
-    FROM pages WHERE space_id = ${spaceId} AND deleted_at IS NULL ORDER BY position, id`);
+    FROM pages WHERE space_id = ${spaceId} AND deleted_at IS NULL AND archived_at IS NULL
+    ORDER BY position, id`);
   const under = new Map<string | null, TreeRow[]>();
   for (const row of rows) add(under, row.parentId, row);
 

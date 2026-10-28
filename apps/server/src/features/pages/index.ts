@@ -15,9 +15,12 @@ export {
   joinDefaultSpaces,
   setUpWorkspaceSpaces,
 } from './spaces';
+export { archivePage, unarchivePage } from './archive';
+export type { ArchivedPages } from './archive';
 export { getPageCards } from './cards';
+export { nudgePage } from './live';
 export { changePageKind } from './move';
-export { createPage, setPageTitle } from './pages';
-export type { NewPage, PageRow } from './pages';
+export { createPage, getPageLook, setPageLook, setPageTitle } from './pages';
+export type { NewPage, PageLook, PageRow } from './pages';
 export { listSubtree } from './tree';
 export type { SubtreePage } from './tree';
