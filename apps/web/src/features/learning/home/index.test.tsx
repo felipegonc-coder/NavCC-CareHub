@@ -1,9 +1,9 @@
 import type { MyLearningEntry, MyLearningResponse } from '@carehub/learning';
+import { DEFAULT_TIME_ZONE } from '@carehub/shared';
 import { cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CatalogEntry } from '../catalog/data';
-import { DEFAULT_TIME_ZONE } from '../player/data';
 import { errorReply, jsonReply, LEARNER, renderRoute, signedInReply } from '../player/test-utils';
 import { formatDay, formatDueDate } from './entry';
 import { MyLearningScreen } from './index';
