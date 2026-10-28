@@ -47,7 +47,7 @@ import {
 import type { QueryRow } from '../contract';
 import { PROPERTY_TEXT } from './messages';
 import type { PropertyActions } from './property-actions';
-import { PropertySettingsPopover } from './property-settings';
+import { PropertySettingsPopover, type DatabaseChoice } from './property-settings';
 import {
   addedProperty,
   canChangeProperties,
@@ -100,8 +100,10 @@ export interface PropertyMenuProps {
   onEditProperty?: () => void;
   /** Opens property access (shown with Full access, not for Name). */
   onPropertyAccess?: () => void;
-  /** A two-way relation's other side, named in the delete confirm. */
+  /** A two-way relation's other side, named in the delete confirm and in Edit property. */
   twoWay?: { propertyName: string; databaseTitle: string };
+  /** Databases the viewer can open, for a relation's settings. */
+  databases?: readonly DatabaseChoice[];
   onChanged?: (event: PropertyMenuEvent) => void;
   /** A write the server refused (the menu has closed by then, or the confirm stays open). */
   onError?: (error: unknown) => void;
@@ -167,6 +169,7 @@ export function PropertyMenu({
   onEditProperty,
   onPropertyAccess,
   twoWay,
+  databases,
   onChanged,
   onError,
   open,
@@ -577,6 +580,8 @@ export function PropertyMenu({
         meta={meta}
         property={property}
         actions={actions}
+        databases={databases}
+        twoWay={twoWay}
         onError={onError}
         returnFocus={trigger}
       />

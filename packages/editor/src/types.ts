@@ -3,8 +3,18 @@ import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ComponentType, ReactNode } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 
+/**
+ * The React view of a node: a component, or `{ component, stopEvent }`. `stopEvent` returns true
+ * for an event inside the view that the editor should leave to the view, like a click, a key, a
+ * paste or a drop in a table. It replaces Tiptap's default, where the editor takes clicks that
+ * select the block, copy, cut, paste, drops and everything in the view's editable content.
+ */
+export type NodeViewEntry =
+  | ComponentType<ReactNodeViewProps>
+  | { component: ComponentType<ReactNodeViewProps>; stopEvent?(event: Event): boolean };
+
 /** React views for nodes, by node name, like `{ database: DatabaseView }`. */
-export type NodeViews = Record<string, ComponentType<ReactNodeViewProps>>;
+export type NodeViews = Record<string, NodeViewEntry>;
 
 /** The person editing, as other people see them next to their caret. */
 export interface EditorUser {
@@ -17,6 +27,12 @@ export interface EditorUser {
 /** What the editor needs from a collab provider. A Hocuspocus or y-websocket provider fits. */
 export interface CollabProvider {
   awareness?: Awareness | null;
+}
+
+/** What a "/" menu entry gets besides the editor when it runs. */
+export interface SlashContext {
+  /** The ID of the page being edited (`BlockEditor`'s `pageId`), or null if it has none. */
+  pageId: string | null;
 }
 
 /** An entry in the "/" menu. */
@@ -36,8 +52,11 @@ export interface SlashItem {
   group?: string;
   /** The Markdown shortcut for the same block, shown on the right, like `#` or `---`. */
   hint?: string;
-  /** Runs once the typed "/query" is gone, with the cursor where it was. */
-  run(editor: Editor): void;
+  /**
+   * Runs once the typed "/query" is gone, with the cursor where it was. `context.pageId` is the
+   * page being edited, for entries that make something on it, like an inline database.
+   */
+  run(editor: Editor, context: SlashContext): void;
 }
 
 /** A way to choose a link target in the link panel, like "Link to a lesson". */

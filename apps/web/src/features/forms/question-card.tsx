@@ -12,17 +12,16 @@ import {
 import {
   LIMITS,
   TYPE_LABELS,
-  fromPlainText,
-  plainText,
   type FormDefinition,
   type FormQuestion,
   type Id,
   type Property,
 } from '@carehub/databases';
 import { questionLabel } from '@carehub/databases/forms';
-import { CommitInput, CommitTextarea, SwitchField } from './controls';
+import { CommitInput, SwitchField } from './controls';
 import { changeLogic, changeQuestion, displaySetting, type QuestionChange } from './definition';
 import { LogicEditor } from './logic-editor';
+import { RichTextField } from './rich-editor';
 
 /** The card's element id, to bring focus back to a card. */
 export const cardDomId = (propertyId: Id): string => `form-card-${propertyId}`;
@@ -148,13 +147,12 @@ export function QuestionCard({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <CommitTextarea
+        <RichTextField
           aria-label="Description"
           placeholder="Description"
-          rows={2}
           maxLength={LIMITS.formDescription}
-          value={plainText(question.description)}
-          onCommit={(t) => change({ description: fromPlainText(t) })}
+          value={question.description}
+          onCommit={(description) => change({ description })}
           onKeyDown={keys}
         />
         <div className="flex flex-wrap items-center gap-4">
