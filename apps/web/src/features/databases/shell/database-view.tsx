@@ -15,7 +15,7 @@ import {
 import { can } from '@carehub/databases/access';
 import { applyOverride } from '@carehub/databases/engine';
 import { countConditions } from '@carehub/databases/filter';
-import { cn, Tabs, TabsContent, TabsList, TabsTrigger } from '@carehub/ui';
+import { cn, Tabs, TabsContent } from '@carehub/ui';
 import { isApiError, type DatabaseWithVersion } from '../api';
 import { DIALOG_PANELS, type LayoutProps, type OpenMode } from '../contract';
 import { useDatabase, useViewData } from '../hooks';
@@ -32,13 +32,13 @@ import {
   NoMatches,
   NoRows,
   OverrideBar,
-  TOUCH,
 } from './states';
 import { WithToasts } from './toasts';
 import { Toolbar } from './toolbar';
 import { useViewActions } from './use-view-actions';
 import { useOnline, useViewer } from './viewer';
 import { canEditViews, pickView, readLastView, rememberView, tabViews } from './view-state';
+import { ViewTabs } from './view-tabs';
 
 /**
  * Layouts that show "No rows yet." and "No rows match." in place of themselves. The others draw
@@ -117,10 +117,7 @@ function LoadedDatabase({ meta, ...props }: DatabaseViewProps & { meta: Database
   useDatabaseLive(meta.id);
   const [lastUsed] = useState(() => readLastView(meta.id));
   const [choice, setChoice] = useState<Choice | null>(null);
-  const wanted = choice && choice.link === props.viewId ? choice.viewId : props.viewId;
-  const savedView = pickView(meta.views, wanted, lastUsed);
   const { onViewChange, viewId: link } = props;
-
   const pick = useCallback(
     (viewId: Id) => {
       setChoice({ viewId, link });
@@ -128,6 +125,8 @@ function LoadedDatabase({ meta, ...props }: DatabaseViewProps & { meta: Database
     },
     [link, onViewChange],
   );
+  const wanted = choice && choice.link === props.viewId ? choice.viewId : props.viewId;
+  const savedView = pickView(meta.views, wanted, lastUsed);
 
   const shownId = savedView?.id;
   useEffect(() => {
@@ -156,7 +155,7 @@ function LoadedDatabase({ meta, ...props }: DatabaseViewProps & { meta: Database
       )}
       {savedView && (
         <Tabs value={savedView.id} onValueChange={pick} className="flex flex-col gap-3">
-          <ViewBody {...props} meta={meta} savedView={savedView} />
+          <ViewBody {...props} meta={meta} savedView={savedView} pick={pick} />
         </Tabs>
       )}
     </>
@@ -166,6 +165,7 @@ function LoadedDatabase({ meta, ...props }: DatabaseViewProps & { meta: Database
 interface ViewBodyProps extends DatabaseViewProps {
   meta: DatabaseWithVersion;
   savedView: View;
+  pick(viewId: Id): void;
 }
 
 interface OverrideState {
@@ -173,7 +173,7 @@ interface OverrideState {
   override: ViewOverride;
 }
 
-function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
+function ViewBody({ meta, savedView, pick, ...props }: ViewBodyProps) {
   const viewer = useViewer(props.viewer);
   const online = useOnline();
   // Search and the open panel belong to the view showing: another view starts without them.
@@ -264,17 +264,15 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
   return (
     <>
       <div className="flex items-end gap-2">
-        <TabsList
-          aria-label="Views"
-          // On a phone an open search box takes the tabs' place.
-          className={cn('min-w-0 flex-1 overflow-x-auto', search.open && 'max-md:hidden')}
-        >
-          {tabViews(meta.views).map((v) => (
-            <TabsTrigger key={v.id} value={v.id} className={cn('shrink-0', TOUCH)}>
-              {v.name || 'Untitled'}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <ViewTabs
+          meta={meta}
+          tabs={tabViews(meta.views)}
+          view={savedView}
+          canEdit={shared.canEditViews}
+          dropdown={props.inline === true && savedView.tabsAs === 'dropdown'}
+          searching={search.open}
+          onPick={pick}
+        />
         <Toolbar
           {...shared}
           online={online}
