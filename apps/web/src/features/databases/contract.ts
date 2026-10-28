@@ -125,6 +125,13 @@ export interface ViewActions {
   /** Moves the rows to Trash; the shell offers Undo for 8 seconds. */
   trashRows(rowIds: readonly Id[]): Promise<void>;
   /**
+   * Presses a Button property on a row. A confirmation step asks first (Cancel stops it); then a
+   * toast says how it went, with Undo for 8 seconds when it changed something, and what the run
+   * opens opens in step order. Resolves when the run is done; rejects when it was refused, failed
+   * or cancelled (any toast already shown).
+   */
+  pressButton(rowId: Id, propertyId: Id): Promise<void>;
+  /**
    * Manual order, and moves between groups: the shell writes the value of the group (and lane) the
    * row lands in. A group that can't set a value (dates, formulas, "Rows you can't open") keeps the
    * row where it was, and sorted views keep their order.

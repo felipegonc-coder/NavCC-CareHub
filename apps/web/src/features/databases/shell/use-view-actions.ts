@@ -8,8 +8,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { DatabaseMeta, Id, View, ViewOverride, Viewer } from '@carehub/databases';
 import { defaultTemplate } from '@carehub/databases/templates';
 import { pageUrl } from '@carehub/shared';
-import { personChoice } from '../api';
+import { personChoice, type ButtonRunAnswer, type RunOpen } from '../api';
 import { findQueryRow, savedOptionIds } from '../cache';
+import { openButtonLink } from '../cells/button-links';
 import {
   cellContext,
   type OpenMode,
@@ -30,7 +31,9 @@ import {
   useUpdateValues,
   useUpdateView,
 } from '../hooks';
+import { useConfirm } from './confirm';
 import { moveValues } from './moves';
+import { pressToast } from './press';
 import { errorText } from './states';
 import { useToasts } from './toasts';
 import { canEditViews, mergeOverride } from './view-state';
@@ -63,6 +66,7 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
     input,
     navigate: useNavigate(),
     toasts: useToasts(),
+    confirm: useConfirm(),
     client: useDatabaseClient(),
     queryClient: useQueryClient(),
     createRow: useCreateRow(databaseId),
@@ -85,6 +89,25 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
     const refused = (error: unknown): never => {
       now().toasts.show({ message: errorText(error) });
       throw error;
+    };
+    /** Where a run's "Open a page" or "Open a link" step goes: pages as openRow, links as cells do. */
+    const openStep = (step: RunOpen) => {
+      const { input, navigate } = now();
+      if (step.kind === 'link') openButtonLink(step.url);
+      else if (step.openIn === 'new_tab') window.open(pageUrl(step.pageId), '_blank', 'noopener');
+      else if (step.openIn !== 'full_page' && input.onOpenRow) {
+        input.onOpenRow(step.pageId, step.openIn);
+      } else void navigate(pageUrl(step.pageId));
+    };
+    /** Undo on a run: the note says what it can't take back (sent messages). */
+    const undoRun = (runId: Id) => {
+      const { input, client, toasts } = now();
+      client.undoButtonRun(input.meta.id, runId).then(
+        (answer) => {
+          if (answer.note) toasts.show({ message: answer.note });
+        },
+        (error: unknown) => toasts.show({ message: errorText(error) }),
+      );
     };
 
     return {
@@ -168,6 +191,30 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
               .catch((error: unknown) => now().toasts.show({ message: errorText(error) }));
           },
         });
+      },
+
+      async pressButton(rowId, propertyId) {
+        const { input, client, confirm } = now();
+        // A confirmation step asks first; Continue presses again, one step further.
+        const press = async (confirmed: number): Promise<ButtonRunAnswer> => {
+          const answer = await client
+            .pressButton(input.meta.id, rowId, propertyId, confirmed)
+            .catch(refused);
+          if (answer.status !== 'confirm') return answer;
+          if (!(await confirm(answer))) throw new Error('The press was cancelled.');
+          return press(confirmed + 1);
+        };
+        // What the run changed comes through live updates, as anyone's changes do.
+        const run = await press(0);
+        const toast = pressToast(run);
+        if (toast) {
+          now().toasts.show({
+            message: toast.message,
+            onUndo: toast.undo ? () => undoRun(run.runId) : undefined,
+          });
+        }
+        for (const step of run.open ?? []) openStep(step);
+        if (run.status === 'failed') throw new Error(toast?.message);
       },
 
       async moveRow(rowId, place) {
