@@ -1,18 +1,17 @@
 // Making, reading and changing pages, databases and rows (decision 0007, section 4.1; Pages and
 // blocks 3.1). Like every service function here, these take Db | Tx, leave access checks to the
 // caller and never emit events: the caller knows when its transaction commits.
-import {
-  updatePageSchema,
-  type AccessLevel,
-  type PageAncestor,
-  type PageIcon,
-  type PageJson,
-  type PageKind,
-  type UpdatePageInput,
+import type {
+  AccessLevel,
+  PageAncestor,
+  PageIcon,
+  PageJson,
+  PageKind,
+  UpdatePageInput,
 } from '@carehub/shared';
 import { sql, type SQL } from 'drizzle-orm';
-import { resolvePages, type Executor, type Viewer } from './access';
-import { invalid, iso, isUuid, json, notFound } from './http';
+import { memberOf, resolvePages, type Executor, type Viewer } from './access';
+import { invalid, iso, isUuid, json, notFound, uuidArray } from './http';
 import { positionAt } from './position';
 import { getPrivateSpaceId } from './spaces';
 
@@ -28,7 +27,13 @@ export type NewPage = {
   createdBy: string;
   /** Its place among the pages next to it (0 is first); last when left out. */
   index?: number;
+  /** False: it starts with only its own grants, like after "Stop inheriting" (meeting notes). */
+  inheritAccess?: boolean;
 };
+
+/** How deep pages may nest, top level included: the sidebar and the access walks stay quick. */
+export const MAX_DEPTH = 100;
+export const tooDeep = () => invalid(`Pages can nest up to ${MAX_DEPTH} levels deep.`);
 
 export type PageRow = {
   id: string;
@@ -74,6 +79,7 @@ export async function insertPage(tx: Executor, input: NewPage): Promise<PageRow>
       WHERE id = ${parentId} AND workspace_id = ${workspaceId} AND deleted_at IS NULL FOR SHARE`);
     const parent = rows[0];
     if (!parent) throw notFound();
+    if ((await depthOf(tx, parentId)) >= MAX_DEPTH) throw tooDeep();
     if (spaceId !== undefined && spaceId !== parent.spaceId) {
       throw invalid('The parent page is in another space.');
     }
@@ -98,16 +104,54 @@ export async function insertPage(tx: Executor, input: NewPage): Promise<PageRow>
   );
   const { rows } = await tx.execute<PageRow>(sql`
     INSERT INTO pages (workspace_id, space_id, parent_id, kind, is_inline, title, icon, position,
-      created_by, updated_by)
+      inherit_access, created_by, updated_by)
     SELECT s.workspace_id, s.id, ${parentId}::uuid, ${kind}::text, ${isInline}::boolean,
       ${input.title ?? ''}::text, ${json(input.icon)}::jsonb, ${position}::text,
-      ${createdBy}::uuid, ${createdBy}::uuid
+      ${input.inheritAccess ?? true}::boolean, ${createdBy}::uuid, ${createdBy}::uuid
     FROM spaces s
     WHERE s.id = ${spaceId} AND s.workspace_id = ${workspaceId} AND s.deleted_at IS NULL
     RETURNING id, workspace_id AS "workspaceId", space_id AS "spaceId", parent_id AS "parentId",
       kind, is_inline AS "isInline", title, position`);
   if (!rows[0]) throw notFound();
   return rows[0];
+}
+
+/** How many levels down the page is: 1 at the top of its space, 0 when there's no such page. */
+export async function depthOf(db: Executor, pageId: string): Promise<number> {
+  const { rows } = await db.execute<{ depth: number }>(sql`
+    WITH RECURSIVE up AS (
+      SELECT parent_id, 1 AS depth FROM pages WHERE id = ${pageId}
+      UNION ALL
+      SELECT p.parent_id, up.depth + 1 FROM up JOIN pages p ON p.id = up.parent_id
+      WHERE up.depth < 1000
+    )
+    SELECT coalesce(max(depth), 0)::int AS depth FROM up`);
+  return rows[0]?.depth ?? 0;
+}
+
+/**
+ * 0007: where the page is, for features that file things under it; null when there's no such
+ * page. `inTrash` when the page, a page above it or its space is in Trash.
+ */
+export async function getPagePlace(db: Executor, pageId: string) {
+  const id = isUuid(pageId) ? pageId : null;
+  const { rows } = await db.execute<{
+    workspaceId: string;
+    spaceId: string;
+    parentId: string | null;
+    inTrash: boolean;
+  }>(sql`
+    WITH RECURSIVE up AS (
+      SELECT parent_id, deleted_at, 1 AS depth FROM pages WHERE id = ${id}::uuid
+      UNION ALL
+      SELECT p.parent_id, p.deleted_at, up.depth + 1 FROM up JOIN pages p ON p.id = up.parent_id
+      WHERE up.depth < 1000
+    )
+    SELECT p.workspace_id AS "workspaceId", p.space_id AS "spaceId", p.parent_id AS "parentId",
+      s.deleted_at IS NOT NULL OR EXISTS (SELECT 1 FROM up WHERE up.deleted_at IS NOT NULL)
+        AS "inTrash"
+    FROM pages p JOIN spaces s ON s.id = p.space_id WHERE p.id = ${id}::uuid`);
+  return rows[0] ?? null;
 }
 
 const STYLE_KEYS = ['font', 'smallText', 'textDirection'] as const;
@@ -123,6 +167,8 @@ export async function updatePage(
   by: string,
 ): Promise<void> {
   const { title, icon, cover, coverPosition, fullWidth, locked } = changes;
+  // Pictures need the files API's checks (Pages and blocks 5), so they wait for it.
+  if (cover?.type === 'file') throw invalid('Uploaded covers come with file uploads.');
   const sets: SQL[] = [];
   if (title !== undefined) sets.push(sql`title = ${title}`);
   if (icon !== undefined) sets.push(sql`icon = ${json(icon)}::jsonb`);
@@ -152,42 +198,15 @@ export async function setPageTitle(tx: Executor, pageId: string, title: string, 
   await updatePage(tx, pageId, { title: title.replace(/[\r\n]+/g, ' ') }, by);
 }
 
-/** What a version keeps of a page besides its content (History, HT-05). */
-export type PageLook = {
-  title: string;
-  icon: unknown;
-  cover: unknown;
-  /** `font`, `smallText`, `textDirection`, `fullWidth` and `coverPosition`. */
-  style: Record<string, unknown>;
-};
-
-/** The page's look, for History to save with a version; null when there's no such page. */
-export async function getPageLook(db: Executor, pageId: string): Promise<PageLook | null> {
-  const { rows } = await db.execute<PageLook>(sql`
-    SELECT title, icon, cover,
-      style || jsonb_build_object('fullWidth', full_width, 'coverPosition', cover_position) AS style
-    FROM pages WHERE id = ${isUuid(pageId) ? pageId : null}::uuid`);
-  return rows[0] ?? null;
-}
-
 /**
- * Puts back a version's look as one change (History's restore, HT-05): style it leaves out goes
- * back to the default, and style it doesn't know is ignored. 400 when something isn't valid.
+ * A Private team space (alias `s`) the person isn't in: only its members and Admins learn its name
+ * (decision 0012, point 11).
  */
-export async function setPageLook(tx: Executor, pageId: string, look: PageLook, by: string) {
-  const { style } = look;
-  const changes = updatePageSchema.safeParse({
-    title: look.title,
-    icon: look.icon ?? null,
-    cover: look.cover ?? null,
-    font: style.font ?? 'default',
-    smallText: style.smallText ?? false,
-    textDirection: style.textDirection ?? 'ltr',
-    fullWidth: style.fullWidth ?? false,
-    coverPosition: style.coverPosition ?? 50,
-  });
-  if (!changes.success) throw invalid("This version's title, icon, cover or style isn't valid.");
-  await updatePage(tx, pageId, changes.data, by);
+export function unseenSpace(viewer: Viewer): SQL {
+  const admin = [...viewer.memberships.values()].filter((m) => m.isAdmin).map((m) => m.workspaceId);
+  return sql`(s.kind = 'private' AND NOT s.workspace_id = ANY(${uuidArray(admin)})
+    AND NOT EXISTS (SELECT 1 FROM space_members m
+      WHERE m.space_id = s.id AND ${memberOf(viewer)}))`;
 }
 
 /** `{ id, name }` of the user in `column`, or null. */
@@ -212,7 +231,10 @@ export async function readPage(
       p.parent_id AS "parentId", p.position, p.title, p.icon, p.cover,
       p.cover_position AS "coverPosition", p.full_width AS "fullWidth", p.style,
       p.inherit_access AS "inheritAccess",
-      json_build_object('id', s.id, 'name', s.name, 'icon', s.icon, 'kind', s.kind) AS space,
+      CASE WHEN ${unseenSpace(viewer)}
+        THEN json_build_object('id', s.id, 'name', 'Private space', 'icon', NULL, 'kind', s.kind)
+        ELSE json_build_object('id', s.id, 'name', s.name, 'icon', s.icon, 'kind', s.kind)
+      END AS space,
       ${person('p.locked_by')} AS "lockedBy", ${iso('p.locked_at')} AS "lockedAt",
       ${person('p.archived_by')} AS "archivedBy", ${iso('p.archived_at')} AS "archivedAt",
       ${person('p.created_by')} AS "createdBy", ${iso('p.created_at')} AS "createdAt",
@@ -222,13 +244,17 @@ export async function readPage(
     WHERE p.id = ${isUuid(pageId) ? pageId : null}::uuid`);
   if (!rows[0]) throw notFound();
   const { style, ...page } = rows[0];
+  const ancestors = await ancestorsOf(db, viewer, pageId);
+  const parent = ancestors.at(-1);
   return {
     ...page,
+    // A parent the person can't open stays unnamed, as in the breadcrumbs.
+    parentId: parent && 'id' in parent ? page.parentId : null,
     font: style.font ?? 'default',
     smallText: style.smallText ?? false,
     textDirection: style.textDirection ?? 'ltr',
     access,
-    ancestors: await ancestorsOf(db, viewer, pageId),
+    ancestors,
   };
 }
 
