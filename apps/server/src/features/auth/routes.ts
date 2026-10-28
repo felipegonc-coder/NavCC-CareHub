@@ -51,11 +51,14 @@ async function meResponse(
   return { user, member: member && memberJson(member), workspace };
 }
 
-/** /api/auth: the current user, signing in and out, and changing the password (decision 0007, 3.1). */
+/**
+ * /api/auth: the current user, signing in and out, and changing the password (decision 0007, 3.1).
+ * Everyone signed in may use them, in the workspace or not (`me` says which).
+ */
 const authRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     '/me',
-    { config: { allowTemporaryPassword: true } },
+    { config: { allowTemporaryPassword: true, allowNonMembers: true } },
     async (request): Promise<MeResponse> => meResponse(app.db, signedIn(request), request.member),
   );
 
@@ -110,17 +113,21 @@ const authRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // Every session of this person ends, this one too.
-  app.post('/sign-out-everywhere', async (request, reply) => {
-    const ended = await deleteUserSessions(app.db, signedIn(request).id);
-    app.sessionCookies.clear(reply);
-    emitSessionsEnded(app, ended);
-    return { ok: true };
-  });
+  app.post(
+    '/sign-out-everywhere',
+    { config: { allowNonMembers: true } },
+    async (request, reply) => {
+      const ended = await deleteUserSessions(app.db, signedIn(request).id);
+      app.sessionCookies.clear(reply);
+      emitSessionsEnded(app, ended);
+      return { ok: true };
+    },
+  );
 
   // Also how a temporary password is replaced. Every other session of this person ends.
   app.post(
     '/password',
-    { config: { allowTemporaryPassword: true } },
+    { config: { allowTemporaryPassword: true, allowNonMembers: true } },
     async (request): Promise<MeResponse> => {
       const user = signedIn(request);
       const body = changePasswordBodySchema.parse(request.body);

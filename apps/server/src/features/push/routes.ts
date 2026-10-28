@@ -1,6 +1,6 @@
 // /api/push: the server's public key, the person's browsers, a test notification, the
-// notification settings and pausing notifications. Every route needs a signed-in person; the auth
-// plugin checks CSRF and Origin on changes.
+// notification settings and pausing notifications. Every route needs a signed-in member of the
+// workspace; the auth plugin checks that, and CSRF and Origin on changes.
 import { DEFAULT_TIME_ZONE } from '@carehub/shared';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
@@ -83,6 +83,17 @@ const pushRoutes: FastifyPluginAsync<PushRoutesOptions> = async (app, options) =
   const getTimeZone = options.getTimeZone ?? ((request: FastifyRequest) => request.user?.timeZone);
   const now = options.now ?? (() => new Date());
   const lastTests = new Map<string, number>();
+
+  // Someone taken out of the workspace gets no more notifications in any of their browsers.
+  // (Unit tests may build the routes without app.events.)
+  if (app.hasDecorator('events')) {
+    const off = app.events.on('member.removed', async ({ userId }) => {
+      for (const { id } of await store.listSubscriptions(userId)) {
+        await store.deleteSubscription(userId, { id });
+      }
+    });
+    app.addHook('onClose', async () => off());
+  }
 
   function userOf(request: FastifyRequest): string {
     const userId = getUserId(request);

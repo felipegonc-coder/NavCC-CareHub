@@ -28,8 +28,10 @@ lands).
 - `GET /api/live`: the event stream. Headers turn off caching, transforms and proxy buffering.
 - `POST /api/live/topics` with `{ connectionId, add?: string[], remove?: string[] }` (at most 50
   each) returns `{ results: { topic, ok }[] }`.
-- Errors use the shared shape `{ error: { code, message } }`: 401 `signed_out`, 400 `invalid`
-  (with `details`), and 404 `not_found` when the connection has ended or is someone else's.
+- Errors use the shared shape `{ error: { code, message } }`: 401 `signed_out`, 403 `forbidden`
+  for guests and people outside the workspace (the auth plugin), 400 `invalid` (with `details`),
+  and 404 `not_found` when the connection has ended or is someone else's.
+- Someone taken out of the workspace (`member.removed`) has all their streams closed at once.
 
 ## Wire format
 

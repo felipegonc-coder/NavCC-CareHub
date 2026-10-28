@@ -95,9 +95,9 @@ it returns the store, the scheduled `jobs`, the `notices` sent, and `runDueJobs(
 
 ## Stand-ins
 
-- Workspace: everyone is in `STAND_IN_WORKSPACE_ID` until accounts add `request.member`. Then the
-  routes use `app.requireMember` (no member is 403), and a new migration deletes the stand-in rows
-  and adds the `workspace_id` foreign key.
+- Workspace: reminders are kept in the person's workspace (`request.member`); guests and people
+  outside it get 403. Rows saved under the old stand-in workspace ID stay until a new migration
+  deletes them and adds the `workspace_id` foreign key.
 - Page access: the `canOpenPage` route option, which lets everyone open every page until pages land
   with `getPageAccess`.
 - Jobs run, and survive a restart (HR-11), once the jobs routes are registered in `app.ts`.

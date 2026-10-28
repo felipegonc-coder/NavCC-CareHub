@@ -53,6 +53,7 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 - A feature's routes are a Fastify plugin, the default export of `features/<f>/routes.ts`, registered on its line with the prefix `/api/<f>`. Other features import only from `features/<f>/index.ts` (or the files a lane names as public, such as `databases/api.ts`).
 - Validate params, query and body with zod schemas from your lane package (core: `@carehub/shared`).
 - **Every `/api` route needs a signed-in user unless it says `config: { public: true }`** (for example `GET /api/health`, sign-in, and `GET /api/status`). State-changing requests also need the CSRF header (section 3.1). Public routes still validate input and are rate-limited where they accept writes.
+- **Every other `/api` route also needs a member of the current workspace** (403 for guests, people outside it and removed members), unless it says `config: { allowGuests: true }` (guests too; the route then checks the page grant itself) or `config: { allowNonMembers: true }` (anyone signed in: only account routes such as `/api/auth/me`, and site-admin routes).
 - Errors are JSON `{ "error": { "code": "...", "message": "..." } }`, with the message in plain words:
 
 | Status | `code` | When |
@@ -93,8 +94,9 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 - Cookies: `carehub_session` (HttpOnly, Secure, SameSite=Lax, 30-day sliding, 90 days at most) and `carehub_csrf` (readable). Over HTTPS both names get the `__Host-` prefix, so never hard-code them. Every state-changing `/api` request sends the `X-CSRF-Token` header with the CSRF cookie's value, and the Origin is checked. Web code never reads the cookie itself: `lib/api.ts` sends the header, using `readCsrfToken()` from `@carehub/shared`.
 - `request.user`: `{ id, email, name, avatarUrl, isSiteAdmin, timeZone, use24h, weekStart, mustChangePassword }` (`timeZone` is IANA, default `America/Denver`; `weekStart` 0 = Sunday). `null` when signed out.
 - `request.member`: `{ workspaceId, roleId, roleName, permissions: ReadonlySet<PermissionKey>, isAdmin }` for the current workspace, or `null`. One workspace for now ("Care Hub"); the model allows more.
-- Guards (Fastify preHandlers): `app.requireUser`, `app.requireMember`, `app.requirePermission(key)`, `app.requireSiteAdmin`.
+- Guards (Fastify preHandlers): `app.requireUser`, `app.requireMember`, `app.requirePermission(key)`, `app.requireSiteAdmin`. Membership is already checked for every route without `allowNonMembers` (section 2.2).
 - `getMembership(db, workspaceId, userId): Promise<Member | null>` for work done outside a request, like notices (skip non-members). It doesn't check whether the account is locked.
+- `addMember(db, { userId, role })` (a built-in role key), `{ userId, roleId }` or `{ userId, kind: 'guest' }`: a member always gets a role, never a default one. `removeMember(app, userId)` ends all the person's sessions and then emits `member.removed { workspaceId, userId }`: live updates close their open streams and push deletes their browsers.
 - `request.sessionId`: the current session's ID (never the token), for data tied to one device, like push subscriptions. `session.ended { sessionId, userId }` is emitted when a session ends: sign-out, sign-out everywhere, a password change, a locked account, or expiry.
 - On public routes a failed session lookup (for example, the database is down) counts as signed out, so `GET /api/status` can still answer.
 - For the live co-editing server: read the token with `app.sessionCookies.sessionToken(request)` (it knows the cookie names), then `getUserFromSessionToken(db, token)`. Check `Origin` on the WebSocket upgrade, because the CSRF check skips GET.
@@ -106,9 +108,9 @@ Spec: [Roles and permissions](../plan/specs/roles-and-permissions.md).
 
 - `PermissionKey` (from `@carehub/shared`): `pages.edit`, `pages.create`, `pages.comment`, `pages.share`, `templates.manage`, `claude.use`, `learning.build`, `learning.assign`, `learning.analytics`, `guests.add`, `pages.shareLinks`, `workspace.admin` (Admin settings; built-in Admin only, never on custom roles).
 - Built-in roles (per workspace, can't be changed or deleted): **Admin** (all), **Editor** (edit, create, comment, share, templates, claude.use, guests.add, pages.shareLinks), **Commenter** (comment), **Viewer** (none). Custom roles: any mix except `workspace.admin` (Settings → Roles).
-- Guests have no role (`roleId: null`): `hasPermission` is false for every key, and `app.requireMember` refuses them unless the route sets `config: { allowGuests: true }`. Their page access comes only from grants (no role limit), capped at `edit`.
+- Guests have no role (`roleId: null`): `hasPermission` is false for every key, and every route refuses them unless it sets `config: { allowGuests: true }`. Their page access comes only from grants (no role limit), capped at `edit`.
 - `hasPermission(member, key)` (from `@carehub/shared`) on both sides. A **site admin** (`isSiteAdmin`) manages accounts and the server. A workspace **Admin** is someone whose role has `workspace.admin`.
-- Everyone, in every role, may use Home, Messages, Calendar, reminders and My learning, and fill in forms sent to them. Those routes need only `app.requireMember`.
+- Everyone, in every role, may use Home, Messages, Calendar, reminders and My learning, and fill in forms sent to them. Those routes need no permission check (membership is checked for every route).
 - **Privacy (RP-D1):** admins never open other people's private spaces, chats they aren't in, private events, connected calendars, transcripts or Claude chats (403). Each lane enforces this for its own content.
 
 ### 3.3 Access to spaces, pages, databases and rows

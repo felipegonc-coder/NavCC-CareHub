@@ -68,6 +68,8 @@ export interface LiveHub {
   tick(): Promise<void>;
   /** Ends every stream (server shutdown). Clients reconnect on their own. */
   closeAll(): void;
+  /** Ends every stream of this user, for example when they're removed from the workspace. */
+  disconnectUser(userId: string): void;
   setLogger(log: LiveLogger): void;
   stats(): { connections: number; users: number; subscriptions: number };
 }
@@ -348,6 +350,10 @@ export function createLiveHub(options: LiveHubOptions = {}): LiveHub {
 
     closeAll() {
       for (const conn of [...conns.values()]) close(conn);
+    },
+
+    disconnectUser(userId) {
+      for (const conn of [...(byUser.get(userId) ?? [])]) close(conn);
     },
 
     setLogger(next) {

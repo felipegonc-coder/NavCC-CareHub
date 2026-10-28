@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { registerEvents } from '../../core/events';
 import { createLiveHub, type LiveHub } from './domain/hub';
 import { parseFrames, testSink } from './domain/testSink';
 import liveRoutes from './routes';
@@ -7,10 +8,11 @@ import liveRoutes from './routes';
 let app: FastifyInstance | undefined;
 let hub: LiveHub;
 
-async function build(): Promise<FastifyInstance> {
+async function build(options: { events?: boolean } = {}): Promise<FastifyInstance> {
   hub = createLiveHub();
   hub.registerTopic('chat', async ({ userId }) => userId === 'user-avery');
   app = Fastify();
+  if (options.events) registerEvents(app);
   await app.register(liveRoutes, {
     prefix: '/api/live',
     hub,
@@ -119,5 +121,19 @@ describe('GET /api/live', () => {
     await closing;
     app = undefined;
     expect(hub.stats().connections).toBe(0);
+  });
+});
+
+describe('someone taken out of the workspace', () => {
+  it('loses every open stream at once', async () => {
+    const api = await build({ events: true });
+    const tabs = [testSink(), testSink(), testSink()];
+    hub.connect('user-avery', tabs[0]!.sink);
+    hub.connect('user-avery', tabs[1]!.sink);
+    hub.connect('user-sam', tabs[2]!.sink);
+    api.events.emit('member.removed', { workspaceId: 'workspace-1', userId: 'user-avery' });
+    await api.events.settled();
+    expect(tabs.map((tab) => tab.ended)).toEqual([true, true, false]);
+    expect(hub.hasOpenTabs('user-sam')).toBe(true);
   });
 });

@@ -66,7 +66,8 @@ such as `/messages/<chatId>`.
 
 `routes.ts`, registered with
 `await app.register(import('./features/push/routes'), { prefix: '/api/push' })`. Every route needs a
-signed-in person, and none returns an endpoint or keys.
+signed-in member of the workspace (guests and people outside it get 403), and none returns an
+endpoint or keys. Someone taken out of the workspace loses all their browsers (`member.removed`).
 
 | Route                                    | What it does                                                                                      |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------- |

@@ -13,12 +13,23 @@ export type Guard = (request: FastifyRequest, reply: FastifyReply) => Promise<vo
 
 declare module 'fastify' {
   interface FastifyContextConfig {
-    /** Reachable without signing in. Every other /api route needs a signed-in user (default-deny). */
+    /**
+     * Reachable without signing in. Every other /api route needs a signed-in member of the current
+     * workspace (default-deny), unless it has allowGuests or allowNonMembers.
+     */
     public?: boolean;
     /** Works while the person must still replace a temporary password (me, password, sign-out). */
     allowTemporaryPassword?: boolean;
-    /** Guests may use it too (pages and comments shared with them). requireMember refuses guests otherwise. */
+    /**
+     * Guests may use it too (pages and comments shared with them), so the route must check the page
+     * grant itself. Every other route refuses guests.
+     */
     allowGuests?: boolean;
+    /**
+     * Anyone signed in may use it, in the workspace or not, guests and removed members too: account
+     * and site-admin routes only. Every other /api route needs a member of the current workspace.
+     */
+    allowNonMembers?: boolean;
   }
   interface FastifyRequest {
     /** The signed-in person on /api routes, or null. */
@@ -35,7 +46,10 @@ declare module 'fastify' {
     requireUser: Guard;
     /** 401 unless signed in; 403 unless a site admin. */
     requireSiteAdmin: Guard;
-    /** 401 unless signed in; 403 unless in the workspace (guests only where the route has allowGuests). */
+    /**
+     * 401 unless signed in; 403 unless in the workspace (guests only where the route has allowGuests).
+     * Every route without allowNonMembers already gets this check.
+     */
     requireMember: Guard;
     /** requireMember, then 403 unless the person's role includes `key` (always 403 for guests). */
     requirePermission: (key: PermissionKey) => Guard;
@@ -105,6 +119,20 @@ export const authPlugin = fp<AuthPluginOptions>(
       rememberSession(request, { id: session.id, token });
     };
 
+    const signedIn = (request: FastifyRequest): CurrentUser => {
+      if (!request.user) throw httpError(401, 'signed_out');
+      return request.user;
+    };
+    const inWorkspace = (request: FastifyRequest): CurrentMember => {
+      signedIn(request);
+      const { member } = request;
+      if (!member) throw httpError(403, 'forbidden');
+      if (member.kind === 'guest' && !request.routeOptions.config.allowGuests) {
+        throw httpError(403, 'forbidden');
+      }
+      return member;
+    };
+
     app.addHook('onRequest', async (request, reply) => {
       const route = request.routeOptions.url;
       if (route === undefined || !API_ROUTE.test(route)) return;
@@ -126,10 +154,12 @@ export const authPlugin = fp<AuthPluginOptions>(
       cookies.ensureCsrf(request, reply);
 
       if (!config.public) {
-        if (!request.user) throw httpError(401, 'signed_out');
-        if (request.user.mustChangePassword && !config.allowTemporaryPassword) {
+        const user = signedIn(request);
+        if (user.mustChangePassword && !config.allowTemporaryPassword) {
           throw httpError(403, 'forbidden', 'Choose a new password to continue.');
         }
+        // Members only by default: guests, people outside the workspace and removed members get 403.
+        if (!config.allowNonMembers) inWorkspace(request);
       }
       const failure = checkCsrf({
         method: request.method,
@@ -143,23 +173,10 @@ export const authPlugin = fp<AuthPluginOptions>(
       if (failure) throw httpError(403, 'forbidden', CSRF_MESSAGES[failure]);
     });
 
-    const signedIn = (request: FastifyRequest): CurrentUser => {
-      if (!request.user) throw httpError(401, 'signed_out');
-      return request.user;
-    };
     app.decorate('requireUser', async (request: FastifyRequest) => void signedIn(request));
     app.decorate('requireSiteAdmin', async (request: FastifyRequest) => {
       if (!signedIn(request).isSiteAdmin) throw httpError(403, 'forbidden');
     });
-    const inWorkspace = (request: FastifyRequest): CurrentMember => {
-      signedIn(request);
-      const { member } = request;
-      if (!member) throw httpError(403, 'forbidden');
-      if (member.kind === 'guest' && !request.routeOptions.config.allowGuests) {
-        throw httpError(403, 'forbidden');
-      }
-      return member;
-    };
     app.decorate('requireMember', async (request: FastifyRequest) => void inWorkspace(request));
     app.decorate('requirePermission', (key: PermissionKey): Guard => async (request) => {
       if (!hasPermission(inWorkspace(request), key)) throw httpError(403, 'forbidden');

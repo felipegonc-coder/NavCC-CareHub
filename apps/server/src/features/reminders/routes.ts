@@ -25,21 +25,19 @@ import {
 import { postgresReminderStore } from './store';
 import type { Viewer } from './types';
 
-/** Stand-in until accounts add `request.member`: everyone is in this one workspace. */
-export const STAND_IN_WORKSPACE_ID = '00000000-0000-4000-8000-000000000000';
-
 export interface RemindersRoutesOptions {
   /** Defaults to everyone opening every page, until pages land with `getPageAccess`. */
   canOpenPage?: RemindersRuntime['canOpenPage'];
 }
 
+/** The member asking. The auth plugin has already turned away guests and people outside. */
 function viewerOf(request: FastifyRequest): Viewer {
-  const { user } = request;
+  const { user, member } = request;
   if (!user) throw httpError(401, 'signed_out');
-  const member = (request as { member?: { workspaceId: string } | null }).member;
+  if (member?.kind !== 'member') throw httpError(403, 'forbidden');
   return {
     userId: user.id,
-    workspaceId: member?.workspaceId ?? STAND_IN_WORKSPACE_ID,
+    workspaceId: member.workspaceId,
     timeZone: user.timeZone,
     use24h: user.use24h,
   };
