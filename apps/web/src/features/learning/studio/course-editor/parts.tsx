@@ -27,6 +27,59 @@ export function TitleField(props: { label: string; value: string; onChange(title
   );
 }
 
+/** A whole number box (a spin button) that can be cleared while typing; blank means "not set" (null). */
+export function NumberField(props: {
+  label: string;
+  hint?: string | undefined;
+  value: number | undefined;
+  min: number;
+  max: number;
+  onChange(next: number | null): void;
+}) {
+  const show = (value: number | undefined) => (value === undefined ? '' : String(value));
+  const [text, setText] = useState(show(props.value));
+  const [unreadable, setUnreadable] = useState(false);
+  const [shown, setShown] = useState(props.value);
+  if (props.value !== shown) {
+    setShown(props.value);
+    setText(show(props.value));
+  }
+  const valid = (raw: string) => {
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= props.min && n <= props.max;
+  };
+  const typed = text.trim();
+  return (
+    <Field
+      label={props.label}
+      hint={props.hint}
+      error={
+        !unreadable && (typed === '' || valid(typed))
+          ? undefined
+          : `Use a whole number from ${props.min} to ${props.max}.`
+      }
+    >
+      <Input
+        type="number"
+        min={props.min}
+        max={props.max}
+        step={1}
+        className="max-w-32"
+        value={text}
+        onChange={(event) => {
+          const raw = event.currentTarget.value.trim();
+          const bad = event.currentTarget.validity.badInput;
+          setText(event.currentTarget.value);
+          setUnreadable(bad);
+          if (bad) return;
+          if (raw === '') props.onChange(null);
+          else if (valid(raw)) props.onChange(Number(raw));
+        }}
+      />
+    </Field>
+  );
+}
+
 /** "Deleted …" with Undo. Focus moves to Undo, so keyboard users can take it straight back. */
 export function UndoNotice({ message, onUndo }: { message: string; onUndo(): void }) {
   const undo = useRef<HTMLButtonElement>(null);

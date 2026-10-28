@@ -3,7 +3,7 @@ import { fold, foldWithMap, titleKey } from './index';
 
 describe('fold', () => {
   it('drops case and accents (SR-03)', () => {
-    expect(fold('Felipe GONÇALVES')).toBe('felipe goncalves');
+    expect(fold('Lúcia ASSUNÇÃO')).toBe('lucia assuncao');
     expect(fold('Ærøskøbing straße İstanbul')).toBe('aeroskobing strasse istanbul');
   });
 

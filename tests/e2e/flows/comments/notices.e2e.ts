@@ -34,7 +34,7 @@ test.describe('Notices: the 🔔 chat as inbox', () => {
   }) => {
     test.setTimeout(120_000);
     await signInAs(page, 'editor');
-    const id = await pageWith(page);
+    await pageWith(page);
     const notes = [
       uniqueName('Fictional QA please check the address for'),
       uniqueName('Fictional QA and the phone number for'),

@@ -9,9 +9,10 @@ import {
   signInAs,
   test,
   uniqueName,
+  userIdOf,
 } from '../_support/index.js';
 import { AutomationEditor } from '../automations/automation-editor.js';
-import { CareHubChat } from '../automations/care-hub-chat.js';
+import { CareHubChat } from '../comments/care-hub-chat.js';
 import { addProperty, config, makeDatabase, nameOf, value } from '../databases/database-api.js';
 import { containing, DatabaseScreen, signedInPage } from '../databases/database-page.js';
 import { makeForm, question, sendAnswers } from '../forms/form-data.js';
@@ -104,13 +105,6 @@ class CalendarScreen {
   }
 }
 
-/** The signed-in person's user id (GET /api/auth/me), for a Person answer. */
-async function userIdOf(page: Page): Promise<string> {
-  const me = await (await apiFor(page)).get<{ user?: { id?: string } }>('/api/auth/me');
-  if (!me.user?.id) throw new Error('GET /api/auth/me answered without a user id.');
-  return me.user.id;
-}
-
 // FLOW-02 (Specs, cross-area flows): Riley submits the Callback request form; an automation
 // messages the new row's owner; Callbacks is a database layer in Calendar. → One new row, one 🔔
 // message within 10 seconds, and the callback on the calendar at its date and time (FM-02, AU-12,
@@ -198,7 +192,9 @@ test.describe('Form response → automation → calendar', () => {
       await test.step('Within 10 seconds, one 🔔 message from the automation reaches Eli', async () => {
         // 10 seconds for the automation to act, plus 2 for the open chat's live update.
         await expect(chat.shown(note)).toHaveCount(1, { timeout: 12_000 });
-        await expect(chat.from(automation).first()).toBeVisible();
+        // It comes from "Automation:" and the automation's name (Automations spec, Message).
+        const sender = new RegExp(`Automation:\\s*${containing(automation).source}`);
+        await expect(chat.shown(note).filter({ hasText: sender })).toHaveCount(1);
       });
 
       await test.step('The database has one new row, the callback', async () => {

@@ -51,6 +51,12 @@ test.describe('Cross-area flow: a knowledge base page expires, is reviewed and r
     const valScreen = new PageScreen(val.page);
     const valPage = new KbPage(val.page);
     const until = minutesIn() >= NINE_FIFTEEN ? dayIn(0) : dayIn(-1);
+    // On the day, the notice says "expired today". With yesterday's date only its start is certain:
+    // the expiry task runs on the server, so the test can't move its clock.
+    const expiredNote =
+      until.iso === dayIn(0).iso
+        ? 'This page needs review: its verification expired today.'
+        : /This page needs review: its verification expired\b/;
 
     await test.step('Test data: Refund policy verified until today (before 9:15 AM, yesterday)', async () => {
       await setVerifiedUntil(page, refundId, until.iso);
@@ -64,9 +70,7 @@ test.describe('Cross-area flow: a knowledge base page expires, is reviewed and r
     const chat = new CareHubChat(page);
     await test.step('Eli gets the notice in the 🔔 chat, with the page', async () => {
       await chat.open();
-      await expect(chat.notice(literally(refund), 'Due for review')).toContainText(
-        'This page needs review: its verification expired today.',
-      );
+      await expect(chat.notice(literally(refund), 'Due for review')).toContainText(expiredNote);
     });
 
     await test.step('Val sees the expired banner', async () => {

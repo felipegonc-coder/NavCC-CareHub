@@ -1,5 +1,6 @@
+import { LIMITS } from '@carehub/team-calendar-api';
 import { describe, expect, it } from 'vitest';
-import { IcalParseError, parseCalendar } from './parse';
+import { clip, IcalParseError, parseCalendar, READ_LIMITS } from './parse';
 import type { ParseOptions } from './parse';
 
 const CRLF = '\r\n';
@@ -642,5 +643,168 @@ describe('parseCalendar: robustness', () => {
   it('keeps at most 50 warnings', () => {
     const noise = Array.from({ length: 60 }, (_, i) => `noise line ${i}`);
     expect(parse(calendar(...noise)).warnings).toHaveLength(50);
+  });
+});
+
+describe('parseCalendar: limits', () => {
+  const long = (length: number, letter = 'a') => letter.repeat(length);
+
+  it("keeps text to the API's limits", () => {
+    const { title, location, description, videoUrl, people } = READ_LIMITS;
+    expect({ title, location, description, videoUrl, people }).toEqual({
+      title: LIMITS.title,
+      location: LIMITS.location,
+      description: LIMITS.description,
+      videoUrl: LIMITS.videoUrl,
+      people: LIMITS.people,
+    });
+  });
+
+  it('shortens text past the limits, with one warning for the event', () => {
+    const { events, warnings } = parse(
+      calendar(
+        ...event(
+          'UID:long@example.com',
+          'DTSTART:20261102T150000Z',
+          `SUMMARY:${long(1500)}`,
+          `DESCRIPTION:${long(9000)}`,
+          `LOCATION:${long(1200)}`,
+          `ATTENDEE;CN=${long(300)}:mailto:sam.ortiz@example.org`,
+        ),
+        ...event('UID:short@example.com', 'DTSTART:20261102T160000Z', 'SUMMARY:Huddle'),
+      ),
+    );
+    const [first, second] = events;
+    expect(first?.title).toBe(`${long(999)}…`);
+    expect(first?.description).toBe(`${long(7999)}…`);
+    expect(first?.location).toBe(`${long(999)}…`);
+    expect(first?.attendees?.[0]?.name).toBe(`${long(199)}…`);
+    expect(second?.title).toBe('Huddle');
+    expect(warnings).toEqual([
+      'Event "long@example.com" has text longer than Care Hub keeps; it was shortened.',
+    ]);
+  });
+
+  it('cuts text without splitting a character made of two code units', () => {
+    expect(clip('abcdef', 6)).toBe('abcdef');
+    expect(clip('abcdefg', 6)).toBe('abcde…');
+    expect(clip('abcd😀fg', 6)).toBe('abcd…'); // the emoji would have been cut in half
+    expect(clip('abc😀efg', 6)).toBe('abc😀…');
+  });
+
+  it('leaves out video links and addresses too long to work', () => {
+    const local = long(250);
+    const [meeting] = parse(
+      calendar(
+        ...event(
+          'UID:links@example.com',
+          'DTSTART:20261102T150000Z',
+          `CONFERENCE;VALUE=URI;FEATURE=VIDEO:https://example.zoom.us/j/123456789?pwd=${long(2000)}`,
+          `ORGANIZER:mailto:${local}@example.com`,
+          `ATTENDEE:mailto:${local}@example.com`,
+          'ATTENDEE:mailto:riley.chen@example.net',
+        ),
+      ),
+    ).events;
+    expect(meeting?.videoLink).toBeUndefined();
+    expect(meeting?.organizerEmail).toBeUndefined();
+    expect(meeting?.attendees).toEqual([
+      { email: 'riley.chen@example.net', response: 'needs-action' },
+    ]);
+  });
+
+  it('keeps 200 attendees, and the calendar owner among them', () => {
+    const attendees = Array.from(
+      { length: 250 },
+      (_, i) => `ATTENDEE;PARTSTAT=ACCEPTED:mailto:person.${i}@example.org`,
+    );
+    attendees[230] = 'ATTENDEE;CN=Avery Lin;PARTSTAT=DECLINED:mailto:Avery.Lin@example.com';
+    const text = calendar(
+      ...event('UID:all-hands@example.com', 'DTSTART:20261102T150000Z', ...attendees),
+    );
+    const owned = parse(text, { ownAddresses: [' avery.lin@EXAMPLE.com '] });
+    const list = owned.events[0]?.attendees ?? [];
+    expect(list).toHaveLength(200);
+    expect(list[198]?.email).toBe('person.198@example.org');
+    expect(list[199]).toEqual({
+      email: 'Avery.Lin@example.com',
+      name: 'Avery Lin',
+      response: 'declined',
+      self: true,
+    });
+    expect(owned.warnings).toEqual([
+      'Event "all-hands@example.com" has more than 200 attendees; only 200 were kept.',
+    ]);
+    const plain = parse(text).events[0]?.attendees ?? [];
+    expect(plain).toHaveLength(200);
+    expect(plain[199]?.email).toBe('person.199@example.org');
+    expect(plain.some((a) => a.self)).toBe(false);
+  });
+
+  it("marks the owner's attendee as self", () => {
+    const [meeting] = parse(
+      calendar(
+        ...event(
+          'UID:meeting@example.com',
+          'DTSTART:20261102T150000Z',
+          'ATTENDEE:mailto:sam.ortiz@example.org',
+          'ATTENDEE:mailto:Riley.Chen@Example.net',
+        ),
+      ),
+      { ownAddresses: ['riley.chen@example.net', 'riley@example.org'] },
+    ).events;
+    expect(meeting?.attendees).toEqual([
+      { email: 'sam.ortiz@example.org', response: 'needs-action' },
+      { email: 'Riley.Chen@Example.net', response: 'needs-action', self: true },
+    ]);
+  });
+
+  it('replaces a UID longer than 255 characters with a stable one made from it', () => {
+    const uid = `${long(300)}@example.com`;
+    const text = calendar(
+      ...event(`UID:${uid}`, 'DTSTART:20261102T150000Z'),
+      ...event(`UID:${uid}`, 'RECURRENCE-ID:20261102T150000Z', 'DTSTART:20261102T160000Z'),
+      ...event(`UID:${long(300, 'b')}@example.com`, 'DTSTART:20261102T150000Z'),
+    );
+    const { events, warnings } = parse(text);
+    expect(events[0]?.uid).toMatch(/^longuid-[0-9a-f]{32}$/);
+    expect(events[1]?.uid).toBe(events[0]?.uid); // still the same series
+    expect(events[2]?.uid).not.toBe(events[0]?.uid);
+    expect(parse(text).events[0]?.uid).toBe(events[0]?.uid);
+    expect(warnings[0]).toBe(
+      `Event "${long(60)}" has a UID longer than 255 characters; a shorter one was made from it.`,
+    );
+  });
+
+  it('reads an RRULE longer than 1000 characters as a single event', () => {
+    const days = Array.from({ length: 366 }, (_, i) => i + 1).join(',');
+    const rule = `FREQ=YEARLY;BYYEARDAY=${days}`;
+    expect(rule.length).toBeGreaterThan(READ_LIMITS.rrule);
+    const { events, warnings } = parse(
+      calendar(...event('UID:rule@example.com', 'DTSTART:20261102T150000Z', `RRULE:${rule}`)),
+    );
+    expect(events[0]?.rrule).toBeUndefined();
+    expect(warnings).toEqual([
+      'Event "rule@example.com" has an invalid RRULE; it was read as a single event.',
+    ]);
+  });
+
+  it('names events in warnings by the start of their UID, quoted', () => {
+    const { warnings } = parse(
+      calendar(
+        ...event(`UID:say "hi" ${long(80, 'x')}`, 'DTSTART:20261102T150000Z', 'EXRULE:FREQ=WEEKLY'),
+      ),
+    );
+    expect(warnings).toEqual([
+      `Event "say \\"hi\\" ${long(51, 'x')}" has an EXRULE, which is ignored.`,
+    ]);
+  });
+
+  it("shortens the calendar's name and description", () => {
+    const { calendar: info } = parse(
+      calendar(`X-WR-CALNAME:${long(300)}`, `X-WR-CALDESC:${long(1200)}`),
+    );
+    expect(info.name).toBe(`${long(199)}…`);
+    expect(info.description).toBe(`${long(999)}…`);
   });
 });

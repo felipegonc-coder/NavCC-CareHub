@@ -31,6 +31,8 @@ None of them has run against a server yet. The features each check needs are sti
 | #418         | `1470d3b5a757596f173ede26ffa08a9d5edacce7` | `95a3316`     | RP-10                                                                                           |
 | #420         | `013966c2ba113d58d82e3a57b21deed639865e98` | `3cf03e8`     | SB-11, PB-32 (`fixme` entries)                                                                  |
 | #428         | `32c8e90b73f6647b4ba04a22773f1d839f39ddf5` | `21d96da`     | FLOW-05, FLOW-08, SM-12 (fixes)                                                                 |
+| #453         | `5dbc9670a41f25c1686a4d342009d26005511618` | `5b2c6f7`     | SR-03 (fictional surname)                                                                       |
+| #458         | `72dec8dc4fd291667d596822d7a94cb9b0ccc610` | `09241b3`     | SR-03 (the spec's example)                                                                      |
 
 Notes:
 
