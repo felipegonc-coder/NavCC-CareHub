@@ -9,6 +9,7 @@ import {
   signInAs,
   test,
   uniqueName,
+  userIdOf,
 } from '../_support/index.js';
 import { AutomationEditor } from '../automations/automation-editor.js';
 import { CareHubChat } from '../comments/care-hub-chat.js';
@@ -102,13 +103,6 @@ class CalendarScreen {
     const named = { name: containing(title) };
     return this.page.getByRole('button', named).or(this.page.getByRole('link', named)).first();
   }
-}
-
-/** The signed-in person's user id (GET /api/auth/me), for a Person answer. */
-async function userIdOf(page: Page): Promise<string> {
-  const me = await (await apiFor(page)).get<{ user?: { id?: string } }>('/api/auth/me');
-  if (!me.user?.id) throw new Error('GET /api/auth/me answered without a user id.');
-  return me.user.id;
 }
 
 // FLOW-02 (Specs, cross-area flows): Riley submits the Callback request form; an automation

@@ -93,6 +93,11 @@ function Picker({ target, prefs, onDone }: PickerProps) {
 
   function set(time: ReminderTime) {
     if (create.isPending) return;
+    // Typing stops at the limit; this catches a longer note that got in another way.
+    if (note.trim().length > NOTE_MAX) {
+      setProblem(`A note can be up to ${NOTE_MAX} characters.`);
+      return;
+    }
     setProblem(null);
     create.mutate(newReminder(target, time, note), {
       onSuccess: (reminder) => {

@@ -1,6 +1,6 @@
 import { ToastProvider } from '@carehub/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NewReminder, Reminder } from './api';
@@ -262,6 +262,25 @@ describe('RemindMeDialog', () => {
     expect(
       posts().map((call) => (call.body as NewReminder & { minutesBefore: number }).minutesBefore),
     ).toEqual([45]);
+  });
+
+  it('refuses a note over 280 characters, counted after trimming', async () => {
+    renderDialog(page);
+    await choices();
+    const note = screen.getByRole('textbox', { name: 'Note' });
+    const pick = () => fireEvent.click(screen.getByRole('menuitem', { name: 'In 1 hour' }));
+    expect(note).toHaveAttribute('maxlength', '280');
+
+    // Typing stops at 280; a change event can still put in a longer note.
+    fireEvent.change(note, { target: { value: 'a'.repeat(281) } });
+    pick();
+    expect(screen.getByRole('alert')).toHaveTextContent('A note can be up to 280 characters.');
+    expect(posts()).toEqual([]);
+
+    fireEvent.change(note, { target: { value: ` ${'a'.repeat(280)} ` } });
+    pick();
+    await screen.findByText('Closed');
+    expect(posts().map((call) => (call.body as { note?: string }).note)).toEqual(['a'.repeat(280)]);
   });
 
   it('shows the server’s reason when it refuses, and stays open', async () => {

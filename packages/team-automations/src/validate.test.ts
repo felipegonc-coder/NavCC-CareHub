@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Trigger } from './automation';
-import { automationChanges, automationInput, automationProblems } from './validate';
+import {
+  automationChanges,
+  automationInput,
+  automationListQuery,
+  automationProblems,
+} from './validate';
 
 const avery = '7f0c2b9e-3d4a-4c1e-9b8f-1a2b3c4d5e6f';
 const now = new Date('2026-10-27T15:00:00.000Z'); // 9:00 AM in Denver
@@ -78,6 +83,21 @@ describe('automationChanges', () => {
   it('takes only the fields that change', () => {
     expect(automationChanges.parse({ enabled: false })).toEqual({ enabled: false });
     expect(automationChanges.safeParse({ actions: [] }).success).toBe(false);
+  });
+});
+
+describe('automationListQuery', () => {
+  it('reads the filters from the query string', () => {
+    expect(automationListQuery.parse({})).toEqual({});
+    expect(
+      automationListQuery.parse({ databaseId: 'db-qa', ownerUserId: avery, enabled: 'false' }),
+    ).toEqual({
+      databaseId: 'db-qa',
+      ownerUserId: avery,
+      enabled: false,
+    });
+    expect(automationListQuery.safeParse({ enabled: 'yes' }).success).toBe(false);
+    expect(automationListQuery.safeParse({ ownerUserId: 'Avery Lin' }).success).toBe(false);
   });
 });
 

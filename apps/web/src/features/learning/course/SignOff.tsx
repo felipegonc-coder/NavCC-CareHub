@@ -2,7 +2,7 @@ import type { IsoDateTime, NewProgressEvent } from '@carehub/learning';
 import { Button, Checkbox, Field } from '@carehub/ui';
 import { CircleCheck } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { useProfileTimeZone } from '../player/data';
+import { useProfileTimeZone } from '../data/timeZone';
 import type { SignOff } from './start';
 
 type SignOffSectionProps = { signOff: SignOff; emit(event: NewProgressEvent): void };
