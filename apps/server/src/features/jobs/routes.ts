@@ -1,10 +1,12 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { readSettings } from '../../core/settings';
 import type { JobRunner } from './domain/runner';
 import type { Job, JobProgress, JobStatus, JsonValue } from './domain/types';
 import { jobRunner } from './index';
 import { createPostgresJobStore, type SqlRunner } from './store';
 import { sqlRunnerFor } from './sql';
+import { runTestHook } from './testHook';
 
 export interface JobsRoutesOptions {
   /** The signed-in user's id, or null (401). Defaults to `request.user?.id`. */
@@ -15,7 +17,19 @@ export interface JobsRoutesOptions {
   sql?: SqlRunner;
   /** Defaults to the app-wide runner. */
   runner?: JobRunner;
+  /** Adds the test hook below. Defaults to the CAREHUB_TEST_HOOKS setting. */
+  testHooks?: boolean;
+  /** Whether the signed-in user is a site admin. Defaults to `request.user?.isSiteAdmin`. */
+  isSiteAdmin?: (request: FastifyRequest) => boolean | Promise<boolean>;
+  /** The test hook's allow-list. Defaults to `TEST_HOOK_TASKS` (`testHookTasks.ts`). */
+  testHookTasks?: Readonly<Record<string, string>>;
 }
+
+/** Decision 0007, section 2.3. Only end-to-end test servers set it; never production. */
+const testSettings = z.object({
+  /** "1" adds `POST /api/jobs/test/periodic/:name`. */
+  CAREHUB_TEST_HOOKS: z.enum(['0', '1']).optional(),
+});
 
 /** What the owner sees of a job. */
 export interface JobView {
@@ -64,7 +78,9 @@ function sendError(
 const jobsRoutes: FastifyPluginAsync<JobsRoutesOptions> = async (app, options) => {
   const runner = options.runner ?? jobRunner;
   const sql = options.sql ?? (app.hasDecorator('db') ? sqlRunnerFor(app.db) : undefined);
-  if (sql) runner.useStore(createPostgresJobStore(sql));
+  // Tests build a second app while the first is open. They share this runner and one test
+  // database, so the runner keeps the store it started with.
+  if (sql && !runner.isRunning()) runner.useStore(createPostgresJobStore(sql));
   const getUserId = options.getUserId ?? ((request: FastifyRequest) => request.user?.id);
   runner.setLogger(app.log);
   app.addHook('onReady', async () => {
@@ -103,6 +119,27 @@ const jobsRoutes: FastifyPluginAsync<JobsRoutesOptions> = async (app, options) =
     const job = await ownJob(request, reply);
     if (!job) return reply;
     return { job: toJobView((await runner.cancel(job.id)) ?? job) };
+  });
+
+  const testHooks =
+    options.testHooks ?? readSettings(testSettings, { log: app.log }).CAREHUB_TEST_HOOKS === '1';
+  if (!testHooks) return;
+  const isSiteAdmin =
+    options.isSiteAdmin ?? ((request: FastifyRequest) => request.user?.isSiteAdmin === true);
+
+  /** Test hook: runs an allow-listed periodic task once now, as if it were `now` (`testHook.ts`). */
+  app.post('/test/periodic/:name', async (request, reply) => {
+    const userId = (await getUserId(request)) ?? null;
+    const outcome = await runTestHook(
+      {
+        userId,
+        isSiteAdmin: userId !== null && (await isSiteAdmin(request)),
+        params: request.params,
+        body: request.body,
+      },
+      { runner, log: app.log, tasks: options.testHookTasks },
+    );
+    return reply.code(outcome.status).send(outcome.body);
   });
 };
 

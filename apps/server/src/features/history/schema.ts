@@ -1,8 +1,8 @@
 import { VERSION_KINDS, type HistoryDoc } from '@carehub/extras/history';
 import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-// Mirrors migrations/202610271345_history_versions.sql, which is the source of truth (a test
-// compares them).
+// Mirrors migrations/202610271345_history_versions.sql and 202610271400_history_restores.sql,
+// which are the source of truth (a test compares them).
 
 const at = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -24,6 +24,8 @@ export const historyVersions = pgTable('history_versions', {
   content: jsonb('content').$type<HistoryDoc>().notNull(),
   digest: text('digest').notNull(),
   size: integer('size').notNull(),
+  restoredVersionId: uuid('restored_version_id'),
+  restoredFrom: at('restored_from'),
 });
 
 export const historyEdits = pgTable('history_edits', {

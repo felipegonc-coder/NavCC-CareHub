@@ -41,8 +41,8 @@ function setup(
 const payload = buildPushPayload(
   {
     kind: 'message',
-    title: 'Riley Chen',
-    body: 'Stand-up moved to 10:30.',
+    from: 'Riley Chen',
+    text: 'Stand-up moved to 10:30.',
     url: '/messages/c1',
     tag: 'chat:c1',
   },

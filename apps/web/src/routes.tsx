@@ -17,7 +17,7 @@ import { NotFoundPage } from './shell/NotFoundPage';
 // feature: shell
 
 // feature: home
-import { HomePage } from './HomePage'; // placeholder until the home line takes /
+import { routes as homeRoutes } from './features/home/routes';
 
 // feature: pages
 
@@ -44,10 +44,12 @@ import { routes as learningRoutes } from './features/learning/routes';
 // feature: databases
 
 // feature: forms
+import { routes as formsRoutes } from './features/forms/routes';
 
 // feature: messages
 
 // feature: calendar
+import { routes as calendarRoutes } from './features/calendar/routes';
 
 // feature: meetings
 
@@ -56,6 +58,9 @@ import { routes as learningRoutes } from './features/learning/routes';
 // feature: analytics
 
 // feature: notifications
+
+// feature: reminders
+import { routes as remindersRoutes } from './features/reminders/routes';
 
 // feature: claude
 import { routes as claudeRoutes } from './features/claude/routes';
@@ -68,6 +73,9 @@ export const publicRoutes: RouteObject[] = [
 
   // feature: design
   { path: 'design', lazy: () => import('./features/design/route') },
+
+  // feature: forms
+  ...formsRoutes,
 ];
 
 /** Signed in, inside the app shell. */
@@ -75,7 +83,7 @@ export const appRoutes: RouteObject[] = [
   // feature: shell
 
   // feature: home
-  { index: true, element: <HomePage /> }, // placeholder until the home line takes /
+  ...homeRoutes,
 
   // feature: pages
 
@@ -106,6 +114,7 @@ export const appRoutes: RouteObject[] = [
   // feature: messages
 
   // feature: calendar
+  ...calendarRoutes,
 
   // feature: meetings
 
@@ -114,6 +123,9 @@ export const appRoutes: RouteObject[] = [
   // feature: analytics
 
   // feature: notifications
+
+  // feature: reminders
+  ...remindersRoutes,
 
   // feature: claude
   ...claudeRoutes,

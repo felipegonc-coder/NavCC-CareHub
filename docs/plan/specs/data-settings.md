@@ -1,6 +1,6 @@
 # Data settings
 
-_Copied from the Notion spec (https://app.notion.com/p/d3e3077867b6443697837e8a30eadd4c) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
 > 🗄️ Phase 3 · Feature list: Data settings · Depends on: Page history and Trash, Analytics, Status page (backups), Import and export · Upload limits agree with the build contract (docs/decisions/0007, section 4.3)
 
@@ -45,15 +45,15 @@ Admins decide how long Care Hub keeps old page versions, deleted items and activ
 
 These rules apply to every way a file arrives: blocks, covers and icons, database Files properties, forms, comments, messages and imports. Smaller limits in other specs (for example, 5 MB icons) still apply.
 
-- **Largest file:** 100 MB by default. Site admins can set it between 1 MB and 1,000 MB; Admins can set a lower one for their workspace.
+- **Largest file:** 100 MB by default. Site admins can set it between 1 MB and 1,000 MB; Admins can set a lower one for their workspace. 1 MB = 1,048,576 bytes; sizes in messages follow File sizes in the Specs index (one decimal; a file over the limit never shows the limit itself as its size).
 - **Programs are refused**, judged by the file's real contents and by its name ending: Windows, Mac, Linux and phone programs and installers, and scripts that run when opened (for example .exe, .msi, .bat, .cmd, .com, .scr, .ps1, .vbs, .jar, .app, .dmg, .pkg, .apk, .deb, .rpm, .sh). The message says "Programs can't be uploaded." Admins can add more endings; the built-in ones can't be removed.
-- **Pictures:** location and camera details are removed before saving; HEIC is turned into JPEG; SVG is accepted only to be shown as a picture and is never put into a page as code.
+- **Pictures:** location and camera details are removed before saving: all EXIF, XMP and IPTC data except the orientation and the color profile. HEIC and AVIF keep their format; the web uploader turns HEIC into JPEG first when the browser can. Where a browser can't show a HEIC picture, it appears as a file with Download. SVG is accepted only to be shown as a picture and is never put into a page as code.
 - **Showing files:** pictures, video, audio and PDFs open in the browser; everything else downloads. HTML and other web files always download and never open as pages.
 - Every file is checked on the server; what the browser says about a file is never trusted.
 
 ### 3.4 Backups (site admins)
 
-- The Status page runs and checks the nightly backups. Here site admins see: the backup time (default 2:00 AM, America/Denver; changeable), where backups are kept on the ThinkCentre, the 30 kept backups (date, size, result, last restore test) and Back up now.
+- The Status page runs and checks the nightly backups. Here site admins see: the backup time (default 2:00 AM, America/Denver; changeable), where backups are kept on the server, the 30 kept backups (date, size, result, last restore test) and Back up now.
 - **Download a backup:** for keeping a copy somewhere else. It needs the password again, and the download is logged in the Security log.
 - Restoring a whole backup is done on the server by a site admin, following the runbook; it's never a button in the browser.
 
@@ -99,7 +99,7 @@ These rules apply to every way a file arrives: blocks, covers and icons, databas
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **DS-05** Upload a 100.1 MB file; then, as a site admin, raise the limit to 200 MB and try again. → First it's refused with "This file is 100.1 MB; the limit is 100 MB."; then it's accepted.
 2. ⭐ **DS-04** Open Settings → Data → Storage. → The totals match the disk, and the largest-files list shows no title you can't open.
@@ -126,7 +126,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **DS-11** Deleting a workspace closes it at once, can be cancelled for 7 days, and then it's gone.
 - **DS-12** Non-Admins can't open Data settings, and Admins are refused (403) on the site-admin parts.
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **DS-D1** Should Export everything include other people's private pages, chats and private events? **Default:** no, to match RP-D1; each person exports their own.
 - 🟨 **DS-D2** Default periods: automatic page versions 1 year, Trash 30 days (Notion keeps Trash 30 days; its version history runs from 7 days to unlimited depending on the plan). **Default:** as listed.

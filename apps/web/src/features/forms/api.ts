@@ -1,9 +1,9 @@
 /**
  * The fill screen's API (decision 0200, form routes): the form behind a link and sending a
- * response, signed in (`/api/forms/:code`); plus the people and row searches of Person and
- * Relation questions and file uploads. Forms anyone on the network can fill in without signing in
- * (`/api/forms/public/:code`) wait for the security review, so they aren't built here yet.
- * Requests go through the database shell's `fetchJson` until lib/api lands.
+ * response, signed in (`/api/forms/:code`) or, for forms anyone on the network can fill in, with
+ * nobody signed in (`/api/forms/public/:code`); plus the people and row searches of Person and
+ * Relation questions and file uploads.
+ * Requests go through lib/api, which adds the CSRF header to changes (decision 0007 section 3.1).
  * Screens get the client from FormsClientProvider; tests pass mockFormsClient() (test-utils.tsx).
  */
 import { createContext, createElement, useContext, type ReactNode } from 'react';
@@ -17,12 +17,14 @@ import type {
 } from '@carehub/databases';
 import { DEFAULT_TIME_ZONE } from '@carehub/databases';
 import type { FormGate, Respondent } from '@carehub/databases/forms';
+import { api } from '../../lib/api';
 import {
   ApiError,
-  fetchJson,
   isApiError,
+  OFFLINE_MESSAGE,
   UNKNOWN_ERROR_MESSAGE,
   type FormAnswers,
+  type HttpMethod,
   type Ok,
   type RequestJson,
   type RowPick,
@@ -44,6 +46,11 @@ export interface FillForm {
   gate: FormGate;
   /** The person signed in: their id for "Me" in logic, their time zone for dates. */
   respondent: Respondent | null;
+  /**
+   * A signed token for one fill of the form, when the server sends one (decision 0010). Each
+   * upload sends it as `X-Form-Fill`, and the response sends it as `fill`.
+   */
+  fill?: string;
 }
 
 /** One person in the Person question's picker (`GET /api/workspace/members?q=`). */
@@ -54,10 +61,24 @@ export interface PersonPick {
   avatarUrl?: string | null;
 }
 
+/**
+ * What the fill screen sends: the answers; `anonymous`, whether it told the person their name
+ * isn't recorded (when that was true and the form isn't anonymous any more, the server answers
+ * `form_changed` and saves nothing); and the form's fill token, when it came with one.
+ */
+export interface ResponseBody {
+  answers: FormAnswers;
+  anonymous: boolean;
+  fill?: string | undefined;
+}
+
 export interface FormsClient {
   getForm(code: string): Promise<FillForm>;
-  /** `{ answers }` → `{ ok: true }`. The server checks everything again. */
-  submitResponse(code: string, answers: FormAnswers): Promise<Ok>;
+  /** `{ answers, anonymous, fill? }` → `{ ok: true }`. The server checks everything again. */
+  submitResponse(code: string, body: ResponseBody): Promise<Ok>;
+  /** The same two for a form anyone can fill in, with nobody signed in. */
+  getPublicForm(code: string): Promise<FillForm>;
+  submitPublicResponse(code: string, body: ResponseBody): Promise<Ok>;
   searchPeople(q: string): Promise<PersonPick[]>;
   pickRows(databaseId: Id, q: string): Promise<RowPick[]>;
   uploadFile(file: File, options: UploadOptions): Promise<UploadedFile>;
@@ -157,17 +178,47 @@ export function parseFillForm(raw: unknown): FillForm {
     properties: raw.properties.filter(isProperty),
     gate: readGate(raw.gate),
     respondent,
+    ...(typeof raw.fill === 'string' && raw.fill ? { fill: raw.fill } : {}),
   };
 }
 
 const seg = encodeURIComponent;
 
-export function createFormsClient(request: RequestJson = fetchJson): FormsClient {
+/** The cover of a form anyone can fill in, for someone not signed in (`/api/files` needs a sign-in). */
+export function publicCoverUrl(code: string): string {
+  return `/api/forms/public/${seg(code)}/cover`;
+}
+
+/** One request through lib/api: the session cookie, JSON and, on changes, the CSRF header. */
+export const apiRequest: RequestJson = <T>(method: HttpMethod, path: string, body?: unknown) => {
+  switch (method) {
+    case 'GET':
+      return api.get<T>(path);
+    case 'POST':
+      return api.post<T>(path, body);
+    case 'PUT':
+      return api.put<T>(path, body);
+    case 'PATCH':
+      return api.patch<T>(path, body);
+    case 'DELETE':
+      return api.delete<T>(path, body);
+  }
+};
+
+/** A response's body: `fill` only when there is one. */
+const responseBody = ({ answers, anonymous, fill }: ResponseBody) =>
+  fill ? { answers, anonymous, fill } : { answers, anonymous };
+
+export function createFormsClient(request: RequestJson = apiRequest): FormsClient {
   return {
     getForm: async (code) =>
       parseFillForm(await request<unknown>('GET', `/api/forms/${seg(code)}`)),
-    submitResponse: (code, answers) =>
-      request<Ok>('POST', `/api/forms/${seg(code)}/responses`, { answers }),
+    submitResponse: (code, body) =>
+      request<Ok>('POST', `/api/forms/${seg(code)}/responses`, responseBody(body)),
+    getPublicForm: async (code) =>
+      parseFillForm(await request<unknown>('GET', `/api/forms/public/${seg(code)}`)),
+    submitPublicResponse: (code, body) =>
+      request<Ok>('POST', `/api/forms/public/${seg(code)}/responses`, responseBody(body)),
     searchPeople: (q) => request<PersonPick[]>('GET', `/api/workspace/members?q=${seg(q)}`),
     pickRows: (databaseId, q) =>
       request<RowPick[]>('GET', `/api/databases/${seg(databaseId)}/rows/pick?q=${seg(q)}`),
@@ -175,16 +226,41 @@ export function createFormsClient(request: RequestJson = fetchJson): FormsClient
   };
 }
 
-/** What opening a form link gives: the form, or the sign-in screen first. */
-export type LoadedForm = { kind: 'form'; data: FillForm } | { kind: 'sign_in' };
+/** What to tell the person when a request fails: offline, the server's message, or a general one. */
+export function problemText(error: unknown): string {
+  if (!isApiError(error)) return UNKNOWN_ERROR_MESSAGE;
+  return error.status === 0 ? OFFLINE_MESSAGE : error.message;
+}
 
-/** Opens a form link as the person signed in; nobody signed in: sign in, then straight back. */
+/**
+ * What opening a form link gives: the form (`signedOut` when nobody is signed in, so the response
+ * goes through the public route), or the sign-in screen first.
+ */
+export type LoadedForm = { kind: 'form'; data: FillForm; signedOut: boolean } | { kind: 'sign_in' };
+
+// What the public route answers for a form that isn't open to anyone: sign in first.
+const NOT_PUBLIC = new Set([401, 403, 404]);
+
+/**
+ * Opens a form link as the person signed in. With nobody signed in, a form anyone can fill in
+ * opens as it is; any other sends them to sign in, then straight back.
+ */
 export async function loadFillForm(client: FormsClient, code: string): Promise<LoadedForm> {
   try {
     const data = await client.getForm(code);
-    return data.gate.state === 'sign_in' ? { kind: 'sign_in' } : { kind: 'form', data };
+    return data.gate.state === 'sign_in'
+      ? { kind: 'sign_in' }
+      : { kind: 'form', data, signedOut: false };
   } catch (error) {
-    if (isApiError(error) && error.status === 401) return { kind: 'sign_in' };
+    if (!isApiError(error) || error.status !== 401) throw error;
+  }
+  try {
+    const data = await client.getPublicForm(code);
+    return data.gate.state === 'sign_in'
+      ? { kind: 'sign_in' }
+      : { kind: 'form', data, signedOut: true };
+  } catch (error) {
+    if (isApiError(error) && NOT_PUBLIC.has(error.status)) return { kind: 'sign_in' };
     throw error;
   }
 }

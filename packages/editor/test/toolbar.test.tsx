@@ -26,15 +26,21 @@ async function render(element: ReactElement) {
 }
 
 /** An editor with "Shift handover notes" selected, and its toolbar. */
-async function setup(props: { linkPickers?: LinkPicker[]; bubbleItems?: BubbleItem[] } = {}) {
+async function setup(
+  props: { linkPickers?: LinkPicker[]; bubbleItems?: BubbleItem[]; readOnly?: boolean } = {},
+) {
   editor = await createTestEditor();
   editor.commands.setContent('<p>Shift handover notes</p>');
   editor.commands.setTextSelection({ from: 7, to: 15 });
+  if (props.readOnly) editor.setEditable(false);
   const container = await render(<FormattingToolbar editor={editor} {...props} />);
   const button = (name: string) =>
     container.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
   return { editor, container, button };
 }
+
+const labelsIn = (element: Element | null | undefined) =>
+  [...(element?.querySelectorAll('button') ?? [])].map((b) => b.getAttribute('aria-label'));
 
 const click = (element: Element | null) =>
   act(async () => {
@@ -66,22 +72,20 @@ const marksAt = (e: Editor, pos: number) =>
     .map((mark) => mark.type.name);
 
 describe('selection toolbar', () => {
-  it('has a button for each mark and link, labelled with its shortcut', async () => {
-    const { container } = await setup();
+  it('has Link and a button for each mark, in the spec order, labelled with its shortcut', async () => {
+    const { container, button } = await setup();
     const toolbar = container.querySelector('[role="toolbar"]');
     expect(toolbar?.getAttribute('aria-label')).toBe('Text formatting');
-    const labels = [...container.querySelectorAll('button')].map((b) =>
-      b.getAttribute('aria-label'),
-    );
-    expect(labels).toEqual([
+    expect(labelsIn(container)).toEqual([
+      'Add link',
       'Bold',
       'Italic',
       'Underline',
       'Strikethrough',
       'Inline code',
-      'Add link',
     ]);
-    expect(container.querySelector('button')?.title).toBe('Bold (Ctrl+B)');
+    expect(button('Add link')?.title).toBe('Link (Ctrl+K)');
+    expect(button('Bold')?.title).toBe('Bold (Ctrl+B)');
   });
 
   it('toggles a mark on the selection and shows it as pressed', async () => {
@@ -188,11 +192,38 @@ describe('selection toolbar', () => {
     });
   });
 
-  it('adds bubble items after the formatting buttons', async () => {
+  it('puts Comment right after Link and other bubble items after the formatting buttons', async () => {
     const run = vi.fn();
+    const translate: BubbleItem = { id: 'translate', label: 'Translate', run: vi.fn() };
     const comment: BubbleItem = { id: 'comment', label: 'Comment', isActive: () => true, run };
-    const { button } = await setup({ bubbleItems: [comment] });
+    const { container, button } = await setup({ bubbleItems: [translate, comment] });
+    expect(labelsIn(container)).toEqual([
+      'Add link',
+      'Comment',
+      'Bold',
+      'Italic',
+      'Underline',
+      'Strikethrough',
+      'Inline code',
+      'Translate',
+    ]);
     expect(button('Comment')?.getAttribute('aria-pressed')).toBe('true');
+    expect(button('Translate')?.hasAttribute('aria-pressed')).toBe(false);
+    await click(button('Comment'));
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('has only the read-only items in a read-only editor', async () => {
+    const run = vi.fn();
+    const comment: BubbleItem = { id: 'comment', label: 'Comment', readOnly: true, run };
+    const translate: BubbleItem = { id: 'translate', label: 'Translate', run: vi.fn() };
+    const { container, button } = await setup({
+      bubbleItems: [translate, comment],
+      readOnly: true,
+    });
+    const toolbar = container.querySelector('[role="toolbar"]');
+    expect(toolbar?.getAttribute('aria-label')).toBe('Selected text');
+    expect(labelsIn(container)).toEqual(['Comment']);
     await click(button('Comment'));
     expect(run).toHaveBeenCalledOnce();
   });
@@ -204,7 +235,7 @@ describe('selection toolbar', () => {
       handled = pressKey(editor, 'F10', { altKey: true });
     });
     expect(handled).toBe(true);
-    expect(document.activeElement?.getAttribute('aria-label')).toBe('Bold');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Add link');
     await act(async () => {
       handled = pressKey(editor, 'k', { ctrlKey: true });
       await flush();
@@ -233,6 +264,8 @@ describe('selection toolbar', () => {
     await arrow('ArrowLeft');
     await arrow('ArrowLeft');
     expect(document.activeElement).toBe(button('Add link'));
+    await arrow('ArrowLeft');
+    expect(document.activeElement).toBe(button('Inline code'));
     await click(button('Add link'));
     await arrow('Escape');
     expect(container.querySelector('form')).toBeNull();
@@ -254,5 +287,46 @@ describe('BlockEditor toolbar', () => {
       await act(async () => root?.unmount());
       root = undefined;
     }
+  });
+
+  it('shows the read-only items over text selected in a read-only page, until you click away', async () => {
+    const comment: BubbleItem = { id: 'comment', label: 'Comment', readOnly: true, run: vi.fn() };
+    const translate: BubbleItem = { id: 'translate', label: 'Translate', run: vi.fn() };
+    const ready: { editor?: Editor } = {};
+    await render(
+      <BlockEditor
+        ydoc={new Y.Doc()}
+        editable={false}
+        bubbleItems={[comment, translate]}
+        onReady={(e) => (ready.editor = e)}
+      />,
+    );
+    await act(flush);
+    const e = ready.editor as Editor;
+    e.commands.setContent('<p>Medication round</p>');
+    /** The toolbar, if it's on the page and not hidden. */
+    const shown = () => {
+      const toolbar = document.querySelector('[data-ch-toolbar]');
+      let menu = toolbar?.parentElement;
+      while (menu && !menu.style.visibility) menu = menu.parentElement;
+      return toolbar && menu?.style.visibility !== 'hidden' ? toolbar : null;
+    };
+    const selectPage = (node: Node, from: number, to: number) =>
+      act(async () => {
+        document.getSelection()?.setBaseAndExtent(node, from, node, to);
+        document.dispatchEvent(new Event('selectionchange'));
+        // The bubble menu waits 250 ms after a selection change.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      });
+
+    // Selecting with the mouse: a read-only editor never has focus.
+    const text = e.view.dom.querySelector('p')?.firstChild;
+    if (text) await selectPage(text, 0, 10);
+    expect([e.state.selection.from, e.state.selection.to]).toEqual([1, 11]);
+    expect(labelsIn(shown())).toEqual(['Comment']);
+
+    await selectPage(document.body, 0, 0);
+    expect(e.state.selection.empty).toBe(true);
+    expect(shown()).toBeNull();
   });
 });

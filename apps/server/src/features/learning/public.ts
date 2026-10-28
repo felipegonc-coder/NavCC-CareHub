@@ -1,17 +1,13 @@
 import { compareDays, dueDateCalendarItems, IdSchema, IsoDateSchema } from '@carehub/learning';
 import { z } from 'zod';
-import {
-  boundAssignmentSources,
-  learnerAssignments,
-  myLearningFor,
-  todayIn,
-} from './assignments/service';
+import { boundAssignmentSources, learnerAssignments, myLearningFor } from './assignments/service';
+import { learningToday } from './day';
 
 // Learning's server functions for other lanes: Team tools' Calendar layer and Home
 // (docs/learning/api.md). Security (decision 0310): pass the signed-in person's own id
 // (`request.user.id`) and workspace, never ids from a query or a body. Each answer holds only that
-// person's items, and every `href` is an in-app path that starts with /learning/. `timeZone`
-// (optional) is the person's profile zone, for what "today" means.
+// person's items, and every `href` is an in-app path that starts with /learning/. "Today" is the
+// Learning day, the same for everyone (decision 0317), whatever `timeZone` says.
 
 /** A due date on someone's calendar. `dueDate` is a calendar day, `YYYY-MM-DD`. */
 export type LearningDueDate = {
@@ -65,17 +61,14 @@ export const listLearningDueDates = async (query: {
   workspaceId: string;
   from: string;
   to: string;
+  /** @deprecated Not used: "today" is the Learning day (decision 0317). */
   timeZone?: string;
 }): Promise<LearningDueDate[]> => {
-  const { userId, workspaceId, from, to, timeZone } = DueDatesQuerySchema.parse(query);
+  const { userId, workspaceId, from, to } = DueDatesQuerySchema.parse(query);
   const sources = boundAssignmentSources();
   if (!sources || from > to) return [];
-  const { assignments, progress } = await learnerAssignments(
-    sources,
-    workspaceId,
-    todayIn(timeZone).today,
-    userId,
-  );
+  const today = learningToday();
+  const { assignments, progress } = await learnerAssignments(sources, workspaceId, today, userId);
   const courseIds = [...new Set(assignments.map((assignment) => assignment.courseId))];
   const courses = await sources.liveCourses(workspaceId, courseIds);
   const statusByCourse = Object.fromEntries(
@@ -97,13 +90,13 @@ export const listMyLearning = async (query: {
   userId: string;
   workspaceId: string;
   limit: number;
+  /** @deprecated Not used: "today" is the Learning day (decision 0317). */
   timeZone?: string;
 }): Promise<MyLearningItem[]> => {
-  const { userId, workspaceId, limit, timeZone } = MyLearningQuerySchema.parse(query);
+  const { userId, workspaceId, limit } = MyLearningQuerySchema.parse(query);
   const sources = boundAssignmentSources();
   if (!sources) return [];
-  const zone = todayIn(timeZone);
-  const page = await myLearningFor(sources, { userId, workspaceId }, zone.today, zone.timeZone);
+  const page = await myLearningFor(sources, { userId, workspaceId }, learningToday());
   const dueDay = (entry: { dueDate: string | null }) => entry.dueDate ?? LAST_DAY;
   const upcoming = [...page.continue, ...page.assigned].sort((a, b) =>
     compareDays(dueDay(a), dueDay(b)),

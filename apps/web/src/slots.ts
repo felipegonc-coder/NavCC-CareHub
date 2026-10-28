@@ -171,7 +171,7 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
 
   // feature: shell
 
-  // feature: home
+  () => import('./features/home/slots'), // feature: home
 
   // feature: pages
 
@@ -190,7 +190,7 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
   // feature: learning
 
   // feature: databases
-
+  () => import('./features/databases/slots'),
   // feature: forms
 
   // feature: messages

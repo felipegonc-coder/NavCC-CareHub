@@ -1,6 +1,6 @@
 # Pages and blocks
 
-_Copied from the Notion spec (https://app.notion.com/p/2e1234682f1d4e23b29b18fbbf5d8ecf) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
 > 🧱 Phase 1 · Notion parity · Depends on: accounts, file storage and live co-editing (Phase 1) · Used by: every spec that shows page content · Related: Comments and mentions, Page history and Trash, Templates and buttons, Import and export, Sidebar, spaces and nested pages
 
@@ -95,7 +95,7 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 
 | Block | Add with | Options and rules |
 | --- | --- | --- |
-| Image | "/image", or paste or drop a picture | Upload, or a web address that Care Hub downloads and keeps (🟨 PB-D3). PNG, JPEG, GIF, WebP, AVIF, HEIC (shown as JPEG) and SVG (shown only as a picture, never as page code). Location data is removed. Options: Caption, Description for screen readers (asked after uploading; can be skipped), Align (left, center, right), size (drag a side handle; 10–100% of the column), Replace, Download, View original. A click opens the viewer: zoom, ← and → through the page's pictures, Download, Esc to close. Big pictures get smaller copies for speed; the original is kept. |
+| Image | "/image", or paste or drop a picture | Upload, or a web address that Care Hub downloads and keeps (🟨 PB-D3). PNG, JPEG, GIF, WebP, AVIF, HEIC (kept as HEIC; the web uploader turns it into JPEG first when the browser can) and SVG (shown only as a picture, never as page code). Location and camera details are removed (Data settings, section 3.3). Options: Caption, Description for screen readers (asked after uploading; can be skipped), Align (left, center, right), size (drag a side handle; 10–100% of the column), Replace, Download, View original. A click opens the viewer: zoom, ← and → through the page's pictures, Download, Esc to close. Big pictures get smaller copies for speed; the original is kept. |
 | Video | "/video" | Upload (MP4, WebM, MOV) or a YouTube, Vimeo or Loom link. Player controls; never plays by itself. Caption, size, align, Download (uploads), Open original. |
 | Audio | "/audio" | Upload (MP3, M4A, WAV, OGG, WebM). Player, caption, Download. |
 | File | "/file" | Any allowed file (see Data settings). Type icon, name and size; Download; Rename (the name shown); Caption. |
@@ -184,7 +184,7 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 ### 3.11 Uploads
 
 - Upload by button, paste or drop, several files at once. Each file is checked on the server for its real type and size (the limits are in Data settings). A refused file says why: "Programs can't be uploaded." or "This file is 310 MB; the limit is 100 MB."
-- Files are stored on the ThinkCentre and served only to people who can open the page they're on; every file request checks this. Copying a page's link to a file works only for those people.
+- Files are stored on the server and served only to people who can open the page they're on; every file request checks this. Copying a page's link to a file works only for those people.
 - A file stays as long as any block, page or version uses it; deleting the last use frees it after Trash and history no longer need it (see Data settings).
 
 ### 3.12 Live co-editing and connection drops
@@ -252,7 +252,7 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **PB-01** On a new page, type / and pick To-do, then type ## and a space on the next line. → A to-do and a heading appear; Ctrl+Z right after the ## turns it back into the typed text.
 2. ⭐ **PB-30** Avery Lin and Sam Ortiz open "Weekly huddle – Oct 27" in two browsers and type in the same paragraph. → No letters are lost, each sees the other's named cursor, and Ctrl+Z undoes only your own typing.
@@ -278,7 +278,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **PB-07** An image can be resized, aligned, captioned and described; the description is read by a screen reader; the viewer opens, zooms and moves to the next picture.
 - **PB-08** Video, audio, file and PDF blocks upload and play or show; a 310 MB file is refused with the limit in the message.
 - **PB-09** A YouTube link pasted and turned into an embed plays; a link from a site that isn't approved offers only Bookmark or Link; a hand-made save with an unapproved embed is cleaned by the server.
-- **PB-10** A bookmark shows title, description and picture; previews never come from local or Tailscale addresses (tested with a link to the ThinkCentre's own address).
+- **PB-10** A bookmark shows title, description and picture; previews never come from local or Tailscale addresses (tested with a link to the server's own address).
 - **PB-11** Code: language colors, wrap, line numbers and Copy work; Tab indents inside; a Mermaid diagram previews and a broken one shows its error.
 - **PB-12** Block and inline equations draw; a broken one shows "Invalid equation" and keeps the text.
 - **PB-13** Simple table: header row and column, add, drag, resize, color cells, paste a 4 × 6 block from a spreadsheet, and Turn into database.
@@ -302,7 +302,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **PB-31** With the network cut for 2 minutes, typing goes on; on reconnecting everything arrives once, in order; closing the tab with unsent changes asks first.
 - **PB-32** Someone with Can view gets a read-only connection, and a change sent by a hand-made client is refused (403) and the connection closed.
 - **PB-33** A file link from a page is refused (403) for someone who can't open that page.
-- **PB-34** A 2,000-block page opens in about a second on the ThinkCentre, and typing shows each key within 50 ms; the 20,000-block limit shows its message.
+- **PB-34** A 2,000-block page opens in about a second on the server, and typing shows each key within 50 ms; the 20,000-block limit shows its message.
 - **PB-35** Every shortcut in section 6 works on Windows and Mac; every drag has a keyboard and a menu way; axe finds no serious problems.
 - **PB-36** Phone: the keyboard toolbar, long-press menu and drag, the "/" menu, and full-screen pictures work.
 - **PB-37** A new page opens untitled (the title shows "Untitled" until you type), with the cursor in the title.
@@ -310,7 +310,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **PB-39** Add cover puts a gallery cover on the page; Change swaps it for an uploaded picture; Remove takes it off. Each change stays after a reload.
 - **PB-40** Links in text: Ctrl+K on selected text adds a link to a web address or a searched Care Hub page; hovering the link offers Edit and Remove, and both work. Clicking a Care Hub link opens it in the same tab; a web link opens in a new tab.
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **PB-D1** Notion offers cover pictures from Unsplash (an outside service that needs a key). **Default:** no; use Care Hub's own cover gallery and uploads.
 - 🟨 **PB-D2** Live link previews that keep updating from other services (GitHub, Jira, Figma, Slack). They need a sign-in to each service. **Default:** later.

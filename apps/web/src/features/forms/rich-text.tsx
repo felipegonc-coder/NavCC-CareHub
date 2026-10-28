@@ -1,39 +1,28 @@
 import type { ReactNode } from 'react';
-import type { RichText as RichTextValue, RichTextSpan, TextColor } from '@carehub/databases';
+import type { RichText as RichTextValue, RichTextSpan } from '@carehub/databases';
 import { isRichTextEmpty, isSafeWebLink } from '@carehub/databases';
-import { cn, colorClasses, isColorName } from '@carehub/ui';
-
-const BACKGROUND = '_background';
-
-/** The kit class for a picked text or background colour. */
-function colorClass(color: TextColor | undefined): string | null {
-  if (!color) return null;
-  const background = color.endsWith(BACKGROUND);
-  const name = background ? color.slice(0, -BACKGROUND.length) : color;
-  if (!isColorName(name)) return null;
-  return background ? cn(colorClasses[name].bg, 'rounded px-0.5') : colorClasses[name].text;
-}
+import { cn } from '@carehub/ui';
+import { LINK_CLASS, MARK_LOOKS, colorClass } from './rich-style';
 
 function Span({ span }: { span: RichTextSpan }) {
   const marks = span.marks ?? [];
   let node: ReactNode = span.text;
-  if (marks.includes('code')) {
-    node = <code className="rounded bg-fill px-1 font-mono text-small">{node}</code>;
+  for (const look of MARK_LOOKS) {
+    if (!marks.includes(look.mark)) continue;
+    const Tag = look.tag;
+    node = <Tag className={look.className}>{node}</Tag>;
   }
-  if (marks.includes('bold')) node = <strong className="font-semibold">{node}</strong>;
-  if (marks.includes('italic')) node = <em>{node}</em>;
-  if (marks.includes('underline')) node = <u>{node}</u>;
-  if (marks.includes('strike')) node = <s>{node}</s>;
   const color = colorClass(span.color);
-  if (color) node = <span className={color}>{node}</span>;
+  if (color) {
+    node = (
+      <span className={color} data-color={span.color}>
+        {node}
+      </span>
+    );
+  }
   if (span.link && isSafeWebLink(span.link)) {
     node = (
-      <a
-        href={span.link}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-primary underline underline-offset-2 hover:text-primary-hover"
-      >
+      <a href={span.link} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
         {node}
       </a>
     );
