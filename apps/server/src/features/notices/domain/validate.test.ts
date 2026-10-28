@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { NOTICE_KINDS, type SendNoticeInput } from '../types';
 import { isRelativeHref, NOTICE_LIMITS, NoticeInputError, parseSendNoticeInput } from './validate';
 
-// Care Team Demo, Avery Lin, Sam Ortiz and the "Coaching plan – Q4" page.
+// Care Team Demo, Avery Lin, Sam Ortiz and the "Coaching plan – Q4" and "QA form" pages.
 const workspaceId = '3f1c2d4e-0000-4000-8000-00000000c0de';
 const avery = '3f1c2d4e-0000-4000-8000-0000000a7e51';
 const sam = '3f1c2d4e-0000-4000-8000-00000000005a';
 const coachingPlan = '3f1c2d4e-0000-4000-8000-0000000c0a01';
+const qaForm = '3f1c2d4e-0000-4000-8000-0000000c0a02';
 
 const minimal: SendNoticeInput = {
   workspaceId,
@@ -43,6 +44,7 @@ describe('parseSendNoticeInput', () => {
       icon: null,
       text: null,
       card: null,
+      extraCards: [],
       buttons: [],
       groupKey: null,
       idempotencyKey: null,
@@ -75,7 +77,25 @@ describe('parseSendNoticeInput', () => {
       groupKey: `comments:${coachingPlan}`,
       idempotencyKey: 'reminders:r-1:2026-11-02T09:00',
     };
-    expect(parseSendNoticeInput(input)).toEqual(input);
+    expect(parseSendNoticeInput(input)).toEqual({ ...input, extraCards: [] });
+  });
+
+  it('takes up to 3 cards in order: the first as the card, then the rest', () => {
+    const first = { type: 'page', pageId: coachingPlan } as const;
+    const second = { type: 'event', eventId: 'evt_42', occurrenceStart: '2026-11-02' } as const;
+    const third = { type: 'page', pageId: qaForm } as const;
+    expect(parseSendNoticeInput({ ...minimal, cards: [first, second, third] })).toMatchObject({
+      card: first,
+      extraCards: [second, third],
+    });
+    expect(parseSendNoticeInput({ ...minimal, cards: [first] })).toMatchObject({
+      card: first,
+      extraCards: [],
+    });
+    expect(parseSendNoticeInput({ ...minimal, card: first })).toMatchObject({
+      card: first,
+      extraCards: [],
+    });
   });
 
   it('accepts every kind', () => {
@@ -182,6 +202,10 @@ describe('parseSendNoticeInput', () => {
       { card: { ...event, occurrenceStart: 'Monday' } },
       'card.occurrenceStart',
     ],
+    ['an empty list of cards', { cards: [] }, 'cards'],
+    ['4 cards', { cards: [event, event, event, event] }, 'cards'],
+    ['a card and cards', { card: event, cards: [event] }, 'cards'],
+    ['a bad second card', { cards: [event, { type: 'page' }] }, 'cards.1.pageId'],
     ['an unknown field', { pageTitle: 'Coaching plan – Q4' }, 'input'],
   ];
   for (const [name, change, path] of rejected) {

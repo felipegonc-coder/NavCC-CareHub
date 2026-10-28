@@ -1,3 +1,4 @@
+import { addQuestionsToBank, parseQuestionCsv } from '@carehub/learning';
 import type { BankReply, BankSummary, QuestionBank } from '@carehub/learning';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
@@ -20,20 +21,22 @@ const failure = (status: number, code: string, message: string) =>
 
 /**
  * Answers `/api/learning/studio/banks…` like the server, including the revision check on save (409 when someone
- * saved first). `banks` is what the server holds; change it to act as another author.
+ * saved first) and the spreadsheet import. `banks` is what the server holds; change it to act as another author.
  */
 export function fakeBankApi(initial: QuestionBank[] = []) {
   const banks = new Map<string, Stored>(
     initial.map((bank) => [bank.id, { bank, revision: 1, updatedAt: '2026-10-20T09:00:00.000Z' }]),
   );
   let created = 0;
+  let imported = 0;
   const reply = (stored: Stored): BankReply => ({ ...stored });
   const fetch = vi
     .spyOn(globalThis, 'fetch')
     .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const method = init?.method ?? 'GET';
       const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined;
-      const [, id] = /^\/api\/learning\/studio\/banks(?:\/([^/]+))?$/.exec(String(input)) ?? [];
+      const [, id, action] =
+        /^\/api\/learning\/studio\/banks(?:\/([^/]+)(?:\/(import))?)?$/.exec(String(input)) ?? [];
       if (!id && method === 'GET') {
         const list: BankSummary[] = [...banks.values()].map(({ bank, updatedAt }) => ({
           id: bank.id,
@@ -60,6 +63,14 @@ export function fakeBankApi(initial: QuestionBank[] = []) {
       }
       const stored = id ? banks.get(decodeURIComponent(id)) : undefined;
       if (!stored) return failure(404, 'not_found', "This bank doesn't exist.");
+      if (action === 'import' && method === 'POST') {
+        const read = parseQuestionCsv((body as { csv: string }).csv, {
+          newId: () => `imported-${(imported += 1)}`,
+        });
+        const { bank, added } = addQuestionsToBank(stored.bank, read.questions);
+        banks.set(bank.id, { ...stored, bank, revision: stored.revision + 1 });
+        return json(200, { added, errors: read.errors });
+      }
       if (method === 'GET') return json(200, reply(stored));
       if (method === 'DELETE') {
         banks.delete(stored.bank.id);

@@ -18,6 +18,9 @@ import { NO_ACCESS } from '../learning/learner-page.js';
 import { PlayerPage } from '../learning/player-page.js';
 import { ReportsPage } from '../learning/reports-page.js';
 
+// The browser is in Tokyo: Learning shows days in the profile's time zone (decision 0317).
+test.use({ timezoneId: 'Asia/Tokyo' });
+
 const GREET = 'You greet the caller first.';
 /** A certificate's verification code: XXXX-XXXX-XXXX in Crockford base32. */
 const CODE = /[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}/;
@@ -30,7 +33,7 @@ async function assignOnScreen(page: Page, title: string, person: string, dueDate
   const people = main.getByRole('group', { name: 'People' });
   await people.getByRole('searchbox', { name: 'Find people' }).fill(person);
   await people.getByRole('checkbox', { name: person, exact: true }).check();
-  await main.getByLabel('Due date').selectOption({ label: 'On a date' });
+  await main.getByLabel('Due date').selectOption({ label: 'On a day' });
   await main.getByLabel('Due on').fill(dueDate);
   await main.getByRole('button', { name: 'Assign', exact: true }).click();
   const done = page.getByRole('status').filter({ hasText: /^Assigned / });
