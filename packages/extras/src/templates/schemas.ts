@@ -90,6 +90,6 @@ export interface TemplatePreviewResponse {
 export interface UseTemplateResponse {
   /** The new top page (or the page the template was applied to). */
   pageId: string;
-  /** Titles of databases that couldn't be copied yet. */
+  /** Databases that weren't copied: "Tickets", or "Tickets (No access)" for ones they can't see. */
   notCopied: string[];
 }
