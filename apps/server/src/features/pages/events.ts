@@ -26,5 +26,13 @@ declare module '../../core/events' {
     /** Archived or unarchived with the pages that went along (`pageIds`, the root included). */
     'page.archived': ArchivedPages & { by: string };
     'page.unarchived': ArchivedPages & { by: string };
+    /** Moved to Trash with what went along (`pageIds`, the page included). */
+    'page.trashed': TrashEvent & { by: string };
+    /** Back from Trash with what came along. "Restore both" sends one per page brought back. */
+    'page.restored': TrashEvent & { by: string };
+    /** Deleted for good with everything under it; `by` is null for the nightly cleanup. */
+    'page.deleted': TrashEvent & { by: string | null };
   }
 }
+
+type TrashEvent = { pageId: string; workspaceId: string; spaceId: string; pageIds: string[] };
