@@ -102,3 +102,52 @@ export const PROPERTY_TEXT = {
   restore: 'Restore',
   restoreNamed: (name: string) => `Restore ${name}`,
 } as const;
+
+/** Option colors by name, in the spec's order. */
+export const OPTION_COLOR_LABELS = {
+  default: 'Default',
+  gray: 'Gray',
+  brown: 'Brown',
+  orange: 'Orange',
+  yellow: 'Yellow',
+  green: 'Green',
+  blue: 'Blue',
+  purple: 'Purple',
+  pink: 'Pink',
+  red: 'Red',
+} as const;
+
+/** Words in Edit property: the settings every type has and each type's own. */
+export const SETTINGS_TEXT = {
+  title: 'Edit property',
+  description: 'Description',
+  type: 'Type',
+  rowPage: 'On row pages',
+  rowPageChoices: {
+    always: 'Always show',
+    hide_when_empty: 'Hide when empty',
+    always_hide: 'Always hide',
+  },
+  numberFormat: 'Number format',
+  formats: { number: 'Number', number_commas: 'Number with commas', percent: 'Percent' },
+  decimals: 'Decimals',
+  automatic: 'Automatic',
+  showAs: 'Show as',
+  showAsChoices: { number: 'Number', bar: 'Bar', ring: 'Ring' },
+  divideBy: 'Divide by',
+  divideByPositive: 'Enter a number above 0.',
+  color: 'Color',
+  showNumber: 'Show number',
+  dateFormat: 'Date format',
+  relative: 'Relative (Today, Tomorrow, Yesterday)',
+  timeFormat: 'Time format',
+  timeViewer: "Each person's 12- or 24-hour setting",
+  time12: (example: string) => `12-hour (${example})`,
+  time24: (example: string) => `24-hour (${example})`,
+  timeHidden: "Don't show times",
+  onePerson: 'One person only',
+  notify: 'Notify people when added',
+  prefix: 'Prefix',
+  prefixExample: (example: string) => `Rows are numbered ${example}.`,
+  prefixInvalid: 'Use up to 20 letters, numbers, hyphens or underscores.',
+} as const;

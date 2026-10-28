@@ -219,12 +219,33 @@ interface Transition {
   to: number;
 }
 
+/** The most years one VTIMEZONE covers: Intl is asked about every day of them. */
+export const MAX_VTIMEZONE_YEARS = 30;
+/** VTIMEZONEs written so far, by zone and years. About 600 zones, so a cap is enough. */
+const written = new Map<string, readonly string[]>();
+
 /**
- * A VTIMEZONE for an IANA zone covering the given years. Transitions are found with Intl;
- * transitions that repeat yearly (same month, weekday, week and time) become one RRULE, and
- * the last rule is left open so later occurrences of a series stay right.
+ * A VTIMEZONE for an IANA zone covering the given years (at most MAX_VTIMEZONE_YEARS).
+ * Transitions are found with Intl; transitions that repeat yearly (same month, weekday, week and
+ * time) become one RRULE, and the last rule is left open so later occurrences of a series stay
+ * right. Each zone and span is worked out once.
  */
 export function writeVTimezone(zone: string, fromYear: number, toYear: number): string[] {
+  const span = toYear - fromYear;
+  if (!Number.isInteger(span) || span < 0 || span >= MAX_VTIMEZONE_YEARS) {
+    throw new RangeError(`A VTIMEZONE covers 1 to ${MAX_VTIMEZONE_YEARS} years.`);
+  }
+  const key = `${zone} ${fromYear} ${toYear}`;
+  let lines = written.get(key);
+  if (!lines) {
+    lines = buildVTimezone(zone, fromYear, toYear);
+    if (written.size >= 1000) written.clear();
+    written.set(key, lines);
+  }
+  return [...lines];
+}
+
+function buildVTimezone(zone: string, fromYear: number, toYear: number): string[] {
   const start = civilToMs({ year: fromYear, month: 1, day: 1, hour: 0, minute: 0 });
   const end = civilToMs({ year: toYear + 1, month: 1, day: 1, hour: 0, minute: 0 });
   const out = ['BEGIN:VTIMEZONE', `TZID:${clean(zone)}`];

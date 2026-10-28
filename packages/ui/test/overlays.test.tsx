@@ -12,6 +12,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   IconButton,
   Popover,
@@ -72,6 +75,74 @@ describe('DropdownMenu', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
+  });
+});
+
+describe('DropdownMenu with a submenu', () => {
+  function TicketMenu({ onAssign }: { onAssign: () => void }) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="secondary">Ticket actions</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Reply</DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Assign to</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onSelect={onAssign}>Sam Rivers</DropdownMenuItem>
+              <DropdownMenuItem>Jo Lee</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  it('opens with the right arrow key, closes with the left one, and picks an item', async () => {
+    const user = userEvent.setup();
+    const onAssign = vi.fn();
+    render(<TicketMenu onAssign={onAssign} />);
+    const trigger = screen.getByRole('button', { name: 'Ticket actions' });
+    trigger.focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Reply' })).toHaveFocus());
+
+    await user.keyboard('{ArrowDown}');
+    const assign = screen.getByRole('menuitem', { name: 'Assign to' });
+    await waitFor(() => expect(assign).toHaveFocus());
+    expect(assign).toHaveAttribute('aria-haspopup', 'menu');
+
+    await user.keyboard('{ArrowRight}');
+    const sam = await screen.findByRole('menuitem', { name: 'Sam Rivers' });
+    await waitFor(() => expect(sam).toHaveFocus());
+    expect(assign).toHaveAttribute('aria-expanded', 'true');
+
+    await user.keyboard('{ArrowLeft}');
+    await waitFor(() => expect(assign).toHaveFocus());
+    expect(screen.queryByRole('menuitem', { name: 'Sam Rivers' })).not.toBeInTheDocument();
+
+    await user.keyboard('{ArrowRight}');
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Sam Rivers' })).toHaveFocus());
+    await user.keyboard('{Enter}');
+    expect(onAssign).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('opens on a click, and on a phone as a sheet over the first menu', async () => {
+    const user = userEvent.setup();
+    render(<TicketMenu onAssign={() => undefined} />);
+    await user.click(screen.getByRole('button', { name: 'Ticket actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Assign to' }));
+
+    const submenu = await screen.findByRole('menu', { name: 'Assign to' });
+    expect(submenu).toHaveAttribute('data-sheet', 'stacked');
+    expect(submenu).toHaveClass('max-md:w-full', 'max-md:max-h-sheet', 'max-md:rounded-b-none');
+    expect(screen.getByRole('menuitem', { name: 'Assign to' })).toHaveAttribute(
+      'data-state',
+      'open',
+    );
   });
 });
 

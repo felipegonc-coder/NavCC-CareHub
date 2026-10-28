@@ -870,6 +870,18 @@ export interface FormQuestion {
   logic: FormLogic | null;
   /** Set when a condition was removed because its property or option was deleted ("Logic changed"). */
   logicChanged?: boolean;
+  /**
+   * Who mapped this question to its property, kept by the server: set when the question is added or
+   * moved to another property, and when someone who can change the property edits it. Values a
+   * client sends are ignored.
+   */
+  mappedBy?: Id;
+  /**
+   * Set by the server when a response skipped this answer because whoever mapped the question can
+   * no longer change its property; cleared when a response passes the check again. The form's
+   * editors see it on the question.
+   */
+  mapperLostAccess?: boolean;
 }
 export interface FormDefinition {
   title: string;
@@ -883,7 +895,7 @@ export interface FormDefinition {
   /** Secret part of the form link. "Change link" replaces it. */
   linkCode: string;
   linkChangedAt: Instant | null;
-  /** Felipe approved anonymous responses (FM-D1): off by default, a setting per form. */
+  /** Anonymous responses (FM-D1, approved): off by default, a setting per form. */
   anonymous: boolean;
   /** People who asked to be notified about new responses. */
   notifyUserIds: Id[];
