@@ -66,17 +66,27 @@ const chipClasses = (color: OptionColor | undefined) =>
     color ? cn(colorClasses[color].bg, colorClasses[color].text) : 'text-fg',
   );
 
-/** The focusable part of a card, in a slot if it's there. */
-function findCard(root: HTMLElement | null, rowId: Id, slot: string): HTMLElement | null {
+/** A card to focus once it's drawn in a slot, asked for while the view showed `data`. */
+interface FocusRequest {
+  rowId: Id;
+  slot: string;
+  data: ViewData;
+}
+
+/** The focusable part of a card: in the slot, or with `anywhere`, wherever it is. */
+function findCard(
+  root: HTMLElement | null,
+  { rowId, slot }: FocusRequest,
+  anywhere: boolean,
+): HTMLElement | null {
   if (!root) return null;
   const all = [...root.querySelectorAll<HTMLElement>('[data-card-open]')].filter(
     (el) => el.closest<HTMLElement>('article[data-row-id]')?.dataset.rowId === rowId,
   );
-  return (
-    all.find((el) => el.closest<HTMLElement>('[data-board-slot]')?.dataset.boardSlot === slot) ??
-    all[0] ??
-    null
+  const here = all.find(
+    (el) => el.closest<HTMLElement>('[data-board-slot]')?.dataset.boardSlot === slot,
   );
+  return here ?? (anywhere ? (all[0] ?? null) : null);
 }
 
 /**
@@ -128,7 +138,9 @@ export default function BoardLayout({ meta, view, data, viewer, actions, readOnl
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [notice, setNotice] = useState('');
-  const [focusRequest, setFocusRequest] = useState<{ rowId: Id; slot: string } | null>(null);
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
+  const focusCard = (rowId: Id, slot: Slot) =>
+    setFocusRequest({ rowId, slot: slotKey(slot), data });
   const root = useRef<HTMLDivElement>(null);
 
   // Cards made here leave the local list once the answer has them.
@@ -139,14 +151,16 @@ export default function BoardLayout({ meta, view, data, viewer, actions, readOnl
     });
   }, [data]);
 
-  // Focus goes to a card once it's drawn where it went (after a move, a menu or a new title).
+  // Focus goes to a card once it's drawn where it went (after a move, a menu or a new title). A
+  // moved card may only reach its new place with the next answer; once that's in, any copy will do.
   useEffect(() => {
     if (!focusRequest) return;
-    const card = findCard(root.current, focusRequest.rowId, focusRequest.slot);
+    const settled = focusRequest.data !== data && !data.refreshing;
+    const card = findCard(root.current, focusRequest, settled);
     if (!card) return;
     card.focus();
     setFocusRequest(null);
-  });
+  }, [focusRequest, data, created]);
 
   const rowsIn = (slot: Slot): QueryRow[] => {
     const group = groupByKey.get(slot.groupKey);
@@ -246,7 +260,7 @@ export default function BoardLayout({ meta, view, data, viewer, actions, readOnl
       return;
     }
     move(row, at.from, at.to, beforeRowAt(rowsIn(at.to), row.id, at.index));
-    setFocusRequest({ rowId: row.id, slot: slotKey(at.to) });
+    focusCard(row.id, at.to);
   };
 
   const stepPick = (row: QueryRow, at: Picked, arrow: Arrow) => {
@@ -338,7 +352,7 @@ export default function BoardLayout({ meta, view, data, viewer, actions, readOnl
 
   const nameCard = (row: QueryRow, slot: Slot, text: string | null) => {
     setNaming(null);
-    setFocusRequest({ rowId: row.id, slot: slotKey(slot) });
+    focusCard(row.id, slot);
     const title = text?.trim() ?? '';
     if (!title || title === row.title || !titleProperty) return;
     setCreated((list) =>
@@ -365,7 +379,7 @@ export default function BoardLayout({ meta, view, data, viewer, actions, readOnl
       const onSelect = () => {
         // To the top of the column, where it's in sight.
         move(row, from, to, rowsIn(to).find((r) => r.id !== row.id)?.id ?? null);
-        setFocusRequest({ rowId: row.id, slot: slotKey(to) });
+        focusCard(row.id, to);
       };
       return [{ key: group.key, label: group.label, onSelect }];
     });
@@ -400,7 +414,9 @@ export default function BoardLayout({ meta, view, data, viewer, actions, readOnl
         }
         menuOpen={menuFor === key}
         onMenuOpenChange={(open) => setMenuFor(open ? key : null)}
-        onMenuClosed={() => setFocusRequest((r) => r ?? { rowId: row.id, slot: slotKey(slot) })}
+        onMenuClosed={() =>
+          setFocusRequest((r) => r ?? { rowId: row.id, slot: slotKey(slot), data })
+        }
         menu={{
           open: () => actions.openRow(row.id),
           moveTo: () => moveChoices(row, slot),
