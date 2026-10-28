@@ -14,6 +14,7 @@ import {
   uuidArray,
 } from './indexer';
 import { hasPageModel, searchPages } from './pages';
+import { recordViewed } from './recent';
 
 const POLL_MS = 2000;
 /** Saves that commit a little late are still picked up. */
@@ -104,6 +105,9 @@ export function startSearchSync(app: FastifyInstance): void {
     events.on('page.restored', reindexSubtree),
     events.on('page.archived', reindexSubtree),
     events.on('page.unarchived', reindexSubtree),
+    events.on('page.viewed', (payload) =>
+      safely('recording a visit', () => recordViewed(db, payload)),
+    ),
     events.on('page.trashed', (payload) =>
       safely('Trash', () => markTrashed(db, pageIdsOf(payload))),
     ),

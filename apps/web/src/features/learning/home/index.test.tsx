@@ -1,8 +1,10 @@
 import type { MyLearningEntry, MyLearningResponse } from '@carehub/learning';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { DEFAULT_TIME_ZONE } from '@carehub/shared';
+import { cleanup, fireEvent, screen, within } from '@testing-library/react';
+import { useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CatalogEntry } from '../catalog/data';
-import { errorReply, jsonReply, renderRoute } from '../player/test-utils';
+import { errorReply, jsonReply, LEARNER, renderRoute, signedInReply } from '../player/test-utils';
 import { formatDay, formatDueDate } from './entry';
 import { MyLearningScreen } from './index';
 
@@ -22,6 +24,7 @@ const entry = (courseId: string, title: string, change: Partial<MyLearningEntry>
     ...change,
   }) satisfies MyLearningEntry;
 
+// 15:30 UTC on 12 October is already 13 October in Tokyo (the learner's zone), but not in Denver.
 const FINISHED_AT = '2026-10-12T15:30:00.000Z';
 const mine: MyLearningResponse = {
   continue: [
@@ -68,11 +71,17 @@ const catalog = [
   listed('course-hold', 'Two-minute tip: putting a call on hold'),
 ];
 
-/** A fake Learning API with My learning (GET /me) and the catalog; try 400 or 403 for either. */
-function serveHome(me: MyLearningResponse, list: CatalogEntry[], options = { me: 200, list: 200 }) {
-  const server = { ...options };
+type HomeOptions = { me?: number; list?: number; timeZone?: string | null };
+
+/**
+ * A fake Learning API with My learning (GET /me) and the catalog (try 400 or 403 for either), and
+ * core's GET /api/auth/me with the time zone on the learner's profile (null for none).
+ */
+function serveHome(me: MyLearningResponse, list: CatalogEntry[], options: HomeOptions = {}) {
+  const server = { me: 200, list: 200, timeZone: LEARNER.timeZone, ...options };
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input);
+    if (url === '/api/auth/me') return signedInReply({ timeZone: server.timeZone });
     if (url === '/api/learning/me') {
       return server.me === 200 ? jsonReply(200, me) : errorReply(server.me);
     }
@@ -84,7 +93,17 @@ function serveHome(me: MyLearningResponse, list: CatalogEntry[], options = { me:
   return server;
 }
 
-const show = () => renderRoute('/learning', { '/learning': <MyLearningScreen /> });
+/** A stand-in for a course's start page that says how it was opened. */
+function StandInStart() {
+  const { pathname, state } = useLocation();
+  return <p>{`The start page at ${pathname} with ${JSON.stringify(state ?? null)}`}</p>;
+}
+
+const show = () =>
+  renderRoute('/learning', {
+    '/learning': <MyLearningScreen />,
+    '/learning/courses/:courseId': <StandInStart />,
+  });
 
 const section = (name: string) => {
   const heading = screen.getByRole('heading', { level: 2, name });
@@ -133,7 +152,54 @@ describe('MyLearningScreen', () => {
     expect(
       section('Assigned to you').getByText(`Due ${formatDueDate('2026-11-20')}`),
     ).toBeVisible();
-    expect(section('Finished').getByText(`Passed on ${formatDay(FINISHED_AT)}`)).toBeVisible();
+    const passed = `Passed on ${formatDay(FINISHED_AT, LEARNER.timeZone)}`;
+    expect(section('Finished').getByText(passed)).toBeVisible();
+  });
+
+  it("shows the day a course was finished in the profile's time zone", async () => {
+    // In the learner's zone it's another day than in UTC (the test browser's zone in CI) or Denver.
+    for (const other of ['UTC', DEFAULT_TIME_ZONE]) {
+      expect(formatDay(FINISHED_AT, LEARNER.timeZone)).not.toBe(formatDay(FINISHED_AT, other));
+    }
+    serveHome(mine, catalog);
+    show();
+    const passed = `Passed on ${formatDay(FINISHED_AT, LEARNER.timeZone)}`;
+    expect(await screen.findByText(passed)).toBeVisible();
+    // A profile with no zone, or one the browser doesn't know, is on Denver time.
+    for (const timeZone of [null, 'Mars/Olympus_Mons']) {
+      cleanup();
+      vi.restoreAllMocks();
+      serveHome(mine, catalog, { timeZone });
+      show();
+      const denver = `Passed on ${formatDay(FINISHED_AT, DEFAULT_TIME_ZONE)}`;
+      expect(await screen.findByText(denver)).toBeVisible();
+    }
+  });
+
+  it('shows due dates on the day they are stored, in any time zone', () => {
+    const day = { day: 'numeric', month: 'short', year: 'numeric' } as const;
+    // Midnight on 1 November where the browser is, shown where the browser is: always 1 November.
+    const stored = new Intl.DateTimeFormat(undefined, day).format(new Date(2026, 10, 1));
+    expect(formatDueDate('2026-11-01')).toBe(stored);
+  });
+
+  it('opens a course in progress where the learner stopped, and others at the start', async () => {
+    serveHome(mine, catalog);
+    show();
+    await screen.findByRole('heading', { level: 1, name: 'My learning' });
+    fireEvent.click(section('Continue').getByRole('link', { name: 'Handling calls with care' }));
+    expect(
+      await screen.findByText(
+        'The start page at /learning/courses/course-calls-with-care with {"resume":true}',
+      ),
+    ).toBeInTheDocument();
+    cleanup();
+    show();
+    await screen.findByRole('heading', { level: 1, name: 'My learning' });
+    fireEvent.click(section('Overdue').getByRole('link', { name: 'Privacy basics' }));
+    expect(
+      await screen.findByText('The start page at /learning/courses/course-privacy with null'),
+    ).toBeInTheDocument();
   });
 
   it('shows catalog courses that are not in My learning yet', async () => {

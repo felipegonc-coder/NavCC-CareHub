@@ -199,7 +199,7 @@ const standIn: TemplatesCore = {
     throw notYet(); // stand-in: trashRows (Databases api.ts)
   },
   readRow: async () => null, // stand-in: readRow (Databases api.ts)
-  recipients: async () => [], // stand-in: members, groups and roles (accounts S1, ETA Oct 29)
+  recipients: async () => [], // stand-in: members, groups and roles (accounts)
   sendNotice,
 };
 

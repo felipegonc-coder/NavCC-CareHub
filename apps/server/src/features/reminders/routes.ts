@@ -1,20 +1,24 @@
 // /api/reminders: the signed-in person's own reminders (Home and reminders spec). It also binds
-// what sends them: the Postgres store and the `reminders.fire` job.
+// what sends them: the store, the `reminders.fire` job and the Snooze and Done buttons.
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { httpError } from '../../core/errors';
 import { registerJobHandler, scheduleJob } from '../jobs';
 import { publishToUsers } from '../live';
-import { sendNotice } from '../notices';
-import { createReminderSchema, toReminderView, updateReminderSchema } from './domain/rules';
+import { registerNoticeAction, sendNotice } from '../notices';
+import { DONE_ACTION, SNOOZE_ACTION } from './domain/notice';
+import { createReminderSchema, updateReminderSchema } from './domain/rules';
 import {
   bindReminders,
   createReminder,
   deleteReminder,
+  doneFromNotice,
   FIRE_JOB,
   fireReminder,
   listReminders,
+  snoozeFromNotice,
   updateReminder,
+  viewsOf,
   type FirePayload,
   type RemindersRuntime,
 } from './service';
@@ -46,8 +50,7 @@ const params = z.object({ id: z.string() });
 const remindersRoutes: FastifyPluginAsync<RemindersRoutesOptions> = async (app, options) => {
   const unbind = bindReminders({
     store: postgresReminderStore,
-    // Outside the caller's transaction until jobs takes `{ db }`.
-    scheduleJob: (input) => scheduleJob(input),
+    scheduleJob,
     sendNotice,
     publish: publishToUsers,
     canOpenPage: options.canOpenPage ?? (async () => true),
@@ -57,22 +60,30 @@ const remindersRoutes: FastifyPluginAsync<RemindersRoutesOptions> = async (app, 
   registerJobHandler<FirePayload>(FIRE_JOB, (payload) => fireReminder(app.db, payload), {
     maxAttempts: 25,
   });
+  registerNoticeAction(SNOOZE_ACTION, (context) => snoozeFromNotice(app.db, context));
+  registerNoticeAction(DONE_ACTION, (context) => doneFromNotice(app.db, context));
 
   app.get('/', async (request) => {
-    const { pending, sent } = await listReminders(app.db, viewerOf(request));
-    return { pending: pending.map(toReminderView), sent: sent.map(toReminderView) };
+    const viewer = viewerOf(request);
+    const { pending, sent } = await listReminders(app.db, viewer);
+    const views = await viewsOf(app.db, viewer, [...pending, ...sent]);
+    return { pending: views.slice(0, pending.length), sent: views.slice(pending.length) };
   });
 
   app.post('/', async (request, reply) => {
+    const viewer = viewerOf(request);
     const input = createReminderSchema.parse(request.body);
-    const reminder = await createReminder(app.db, viewerOf(request), input);
-    return reply.code(201).send({ reminder: toReminderView(reminder) });
+    const reminder = await createReminder(app.db, viewer, input);
+    const [view] = await viewsOf(app.db, viewer, [reminder]);
+    return reply.code(201).send({ reminder: view });
   });
 
   app.patch('/:id', async (request) => {
+    const viewer = viewerOf(request);
     const { id } = params.parse(request.params);
     const input = updateReminderSchema.parse(request.body);
-    return { reminder: toReminderView(await updateReminder(app.db, viewerOf(request), id, input)) };
+    const [view] = await viewsOf(app.db, viewer, [await updateReminder(app.db, viewer, id, input)]);
+    return { reminder: view };
   });
 
   app.delete('/:id', async (request, reply) => {

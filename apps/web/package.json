@@ -5,10 +5,10 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/write-icons.mjs && vite",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run",
-    "build": "vite build",
+    "build": "node scripts/write-icons.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

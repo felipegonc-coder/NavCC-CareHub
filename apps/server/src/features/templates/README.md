@@ -69,7 +69,7 @@ refuses until it's bound (403, or "missing" and 404), and is marked `// stand-in
 - `getPageMarkdown`, `setPageContentFromMarkdown`, `page.updated`: collab #197/#200;
 - `duplicateDatabase`, `createDatabase`, row counts, `runRowWrites`, `createRow`, `updateRows`,
   `findRowIds`, `trashRows` and `readRow`: the Databases lane's `api.ts`;
-- the people a button's message reaches (people, groups, roles, everyone): accounts S1.
+- the people a button's message reaches (people, groups, roles, everyone): the accounts feature.
 
 `sendNotice` is the notices feature's own, and `saveVersionNow` is History's (it saves no version
 until pages land).
