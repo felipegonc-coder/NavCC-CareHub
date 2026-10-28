@@ -126,7 +126,7 @@ function setup(client: MockClient = mockClient()) {
   client.previewImport.mockResolvedValue(csvPreview());
   client.startImport.mockResolvedValue({ importId: 'import-1', jobId: 'job-import' });
   const props = panelProps();
-  return { ...renderWithDatabase(<ImportDialog {...props} />, { client }), props };
+  return { ...renderWithDatabase(<ImportDialog {...props} />, { client }), client, props };
 }
 
 function pick(file: File) {
