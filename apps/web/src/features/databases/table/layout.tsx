@@ -1070,13 +1070,17 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       ? { width: column.width, left: column.left }
       : { width: column.width };
   const lineClass = options.showVerticalLines ? 'border-r border-border' : undefined;
-  const frozenClass = (column: TableColumn) =>
-    cn(
-      column.frozen && 'sticky z-10 bg-bg',
-      column.property.config.type === 'title' &&
-        !column.frozen &&
-        'max-md:sticky max-md:z-10 max-md:bg-bg',
+  // Frozen cells cover what scrolls under them: with the page's background, or (`filled` off) their
+  // own color. On phones, Name stays at the left edge too.
+  const frozenClass = (column: TableColumn, filled = true) => {
+    const nameOnPhone = column.property.config.type === 'title' && !column.frozen;
+    return cn(
+      column.frozen && 'sticky z-10',
+      column.frozen && filled && 'bg-bg',
+      nameOnPhone && 'max-md:sticky max-md:z-10',
+      nameOnPhone && filled && 'max-md:bg-bg',
     );
+  };
 
   // The selection column stays at the left edge, over the cells scrolling under it.
   const selectClass =
@@ -1162,6 +1166,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     const cell = rowCell(line.row, property);
     const isEditing = editing?.line === line.key && editing.propertyId === property.id;
     const inBlock = inBox(block, lineAt.get(line.key) ?? -1, columnIndex);
+    // Conditional color (the view's color rules): a cell rule's color wins over the row's.
+    const tint = line.row.color.cells[property.id] ?? line.row.color.row;
     return (
       <div
         key={property.id}
@@ -1183,9 +1189,11 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         className={cn(
           'relative flex min-h-9 shrink-0 items-start gap-1 px-2 py-1.5 outline-none max-md:min-h-11',
           'focus:outline focus:outline-2 focus:outline-offset-inset focus:outline-ring',
-          'group-hover/row:bg-fill',
+          !tint && 'group-hover/row:bg-fill',
           lineClass,
-          frozenClass(column),
+          frozenClass(column, !tint),
+          // It stays under the pointer; normal text reads on every one of the kit's colors.
+          tint && colorClasses[tint].bg,
           selected.has(line.row.id) && selectedClass,
         )}
       >
