@@ -107,8 +107,14 @@ export interface TranscriptApi {
   /** Returns the new transcript's id. */
   create(notesId: string, model: string): Promise<string>;
   saveLines(transcriptId: string, lines: SpeechLine[]): Promise<void>;
+  /** Sent every 30 s while a transcript is worked on, so a closed tab doesn't block a new one. */
+  alive(transcriptId: string): Promise<void>;
   stop(transcriptId: string): Promise<void>;
   finish(transcriptId: string): Promise<void>;
+  /** False when it was deleted. */
+  exists(transcriptId: string): Promise<boolean>;
+  /** Deletes a transcript without lines. */
+  remove(transcriptId: string): Promise<void>;
 }
 
 /** 'gone': the transcript was deleted. 'failed': Care Hub refused the request. */
@@ -127,6 +133,8 @@ export type StoredRecording = {
   startedAt: string;
   /** Care Hub knows the recording ended. */
   stopped: boolean;
+  /** Lines were sent, so deleting it keeps them: it's finished, not deleted. */
+  hasLines: boolean;
 };
 
 export type StoredPiece = {

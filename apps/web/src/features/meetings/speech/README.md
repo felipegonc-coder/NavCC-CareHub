@@ -22,7 +22,13 @@ Care Hub itself.
 `Unfinished`) and the parts it's built from. `limits.ts` has the 3-hour limit and the warning
 5 minutes before it (MT-14), and `WorkRate`, which estimates how long finishing will take.
 
+`support.ts` has `speechSupport()`: `'phone'` for phones and tablets ("Transcription works on a
+computer."), `'browser'` when the browser lacks something it needs (a secure context,
+AudioWorklet, WebAssembly, workers, IndexedDB, Web Locks or the microphone API). `locks.ts`
+wraps Web Locks: one tab transcribes at a time, and a stored recording that no tab holds was left
+by a closed tab.
+
 ## Tests
 
-`audio.test.ts`, `pieces.test.ts` and `limits.test.ts`. jsdom has neither IndexedDB nor Web
-Audio, so `idb.ts` and `capture.ts` aren't unit tested.
+`audio.test.ts`, `pieces.test.ts`, `limits.test.ts` and `support.test.ts`. jsdom has neither
+IndexedDB nor Web Audio, so `idb.ts`, `capture.ts` and `locks.ts` aren't unit tested.

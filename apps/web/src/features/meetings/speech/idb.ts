@@ -11,12 +11,12 @@ function settled(tx: IDBTransaction): Promise<void> {
 }
 
 /** The browser's IndexedDB. A piece's sound is kept apart, so listing pieces doesn't load it. */
-export function createIdbStore(factory: IDBFactory = indexedDB): SpeechStore {
+export function createIdbStore(factory?: IDBFactory): SpeechStore {
   let opening: Promise<IDBDatabase> | null = null;
 
   const open = () =>
     new Promise<IDBDatabase>((resolve, reject) => {
-      const request = factory.open(NAME, 1);
+      const request = (factory ?? indexedDB).open(NAME, 1);
       request.onupgradeneeded = () => {
         const db = request.result;
         db.createObjectStore('recordings', { keyPath: 'id' });
