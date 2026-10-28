@@ -55,7 +55,8 @@ function readChildren(parent: Y.XmlFragment, depth: number): PageNode[] {
   const nodes: PageNode[] = [];
   if (depth > MAX_DEPTH) return nodes;
   for (const child of parent.toArray()) {
-    if (child instanceof Y.XmlText) nodes.push(...readText(child));
+    // One node per run of text: a long paragraph can have more than a call takes as arguments.
+    if (child instanceof Y.XmlText) for (const node of readText(child)) nodes.push(node);
     else if (child instanceof Y.XmlElement) nodes.push(readElement(child, depth));
   }
   return nodes;
