@@ -1,6 +1,6 @@
 // What other features may import from push. See README.md.
-export { DEFAULT_PREFERENCES, NOTIFY_ABOUT } from './domain/preferences';
-export type { NotificationPreferences, NotifyAbout } from './domain/preferences';
+export { activePause, DEFAULT_PREFERENCES, NOTIFY_ABOUT } from './domain/preferences';
+export type { NotificationPause, NotificationPreferences, NotifyAbout } from './domain/preferences';
 export { buildPushPayload, PREVIEW_LENGTH } from './payload';
 export type { PayloadOptions, PushKind, PushNotice, PushPayload } from './payload';
 export { generateVapidKeys } from './protocol/vapid';

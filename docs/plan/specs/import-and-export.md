@@ -1,6 +1,6 @@
 # Import and export
 
-_Copied from the Notion spec (https://app.notion.com/p/cfc830eabedc46fc8dea8e74609317f4) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
 > 📦 Phase 1 · Notion parity · Depends on: Pages and blocks, file storage, Roles and permissions (Create), Settings and members (export switches) · Phase 2 parts: database imports and exports (Databases, CSV sections 3.7 and 3.8) · Related: Data settings (upload rules, Export everything, Export my content), Page history and Trash (undo import)
 
@@ -14,7 +14,7 @@ Bringing work into Care Hub from files other tools make, and getting it out agai
 - **Progress panel** (bottom right, can be closed and reopened from the 🔔 notice): "Importing [notion-export.zip](http://notion-export.zip) · 312 of 1,204 pages" with Cancel. The person can keep working.
 - **Summary:** "Imported 1,204 pages, 6 databases, 4,310 rows and 890 files into Support." A list of problems (file, what happened, why) that can be downloaded as CSV, Open, and Undo import.
 - **Dropping a file into a page:** dropping a .md, .txt, .html or .docx file asks "Add as a file, or import its content here?"
-- **Export** (page menu → Export, or "…" on a database): format (Markdown and CSV, HTML, PDF), and options: Include sub-pages (off), Include files and pictures (on), Databases (This view or Everything), and for PDF the paper size (Letter, A4 or fit to content) and scale (50–200%). Export starts it.
+- **Export** (page menu → Export, or "…" on a database): format (Markdown and CSV, HTML, PDF), and options: Include sub-pages (off), Include files and pictures (on) and Databases (This view or Everything). Export starts it. 🆕 For now, picking PDF opens the Print view instead, and the browser's Save as PDF makes the file (section 3.3).
 - **Print** (page menu → Print; Ctrl+P is search): a clean print view with the browser's print dialog, plus "Open all toggles".
 
 | State | What shows |
@@ -33,7 +33,7 @@ Bringing work into Care Hub from files other tools make, and getting it out agai
 
 - Imports run on the server in the background, one at a time per person (more wait in line). Cancel stops it and removes what it added.
 - **Limits:** one file up to 2 GB; once unpacked, up to 5 GB, 10,000 pages and 50,000 files. Zips inside zips aren't opened.
-- **Safety:** every file inside follows the upload rules (Data settings, and the build contract 0007 section 4.3): 100 MB per file, programs refused, SVG only as a picture, and location data removed from photos. HTML is cleaned: scripts, forms, frames and styles that run code are removed. Paths that point outside the zip are ignored. Links keep only http, https, mailto and tel (Pages and blocks).
+- **Safety:** every file inside follows the upload rules (Data settings, and the build contract 0007 section 4.3): 100 MB per file, programs refused, SVG only as a picture, and location and camera details removed from photos. HTML is cleaned: scripts, forms, frames and styles that run code are removed. Paths that point outside the zip are ignored. Links keep only http, https, mailto and tel (Pages and blocks).
 - **Links between imported pages** are changed to point at the new pages (page mentions or block links when they pointed at a heading). Links to files in the import point at the uploaded files. Other links stay as they are.
 - **Pictures from the web** inside imported pages follow PB-D3: downloaded when public and up to 10 MB, otherwise kept as links.
 - **Mentions of people** are matched to members by email, then by exact name; unmatched ones become plain text ("@Sam Ortiz"). Imported mentions never send notices (Comments and mentions).
@@ -63,7 +63,7 @@ Bringing work into Care Hub from files other tools make, and getting it out agai
 - **What's included:** only what the exporter can open; hidden properties and rows they can't see are left out (Databases); pages in Trash never. With Include sub-pages, sub-pages they can't open are skipped and counted in a README file in the export.
 - **Markdown and CSV:** each page as a .md file starting with its title as a heading and its properties as "Name: value" lines; databases as CSV (Databases section 3.8) plus a folder with each row's page as Markdown. Toggles become bullets with their content indented; callouts become quotes starting with the icon; columns come one after another; synced blocks as their content; equations as TeX between `$$`; mentions and links to exported pages as relative links, others as Care Hub links. Files go in a folder next to the page with relative links, so the export works offline.
 - **HTML:** one file per page with its styling inside (no scripts), files in folders, and working links between exported pages.
-- **PDF:** made on the ThinkCentre with the same layout as Print: colors, callouts, code with highlighting, tables split across pages by row, pictures never split. Inline databases show the chosen view as a table. Videos, audio and embeds show as links.
+- **PDF:** 🆕 for now, made by the browser: picking PDF in Export opens the Print view with the note "Choose Save as PDF in the print dialog.", and paper size and scale are set in that dialog. Include sub-pages doesn't apply to PDF. The layout is the same as Print: colors and backgrounds kept (print-color-adjust: exact), callouts, code with highlighting, tables split across pages by row, pictures never split (break-inside: avoid). Inline databases show the chosen view as a table. Videos, audio and embeds show as links. A PDF made on the server, with paper size, scale and sub-pages in the Export dialog, comes later: it needs a headless browser in the server image.
 - **Print:** prints the page as shown (toggles as they are, unless Open all toggles), without the sidebar, top bar, comments or buttons. Long tables repeat their header row on each page.
 - **File names:** the page title, with characters that aren't allowed in file names replaced by "-", trimmed to 100 characters, and numbered when two are the same ("Refund steps (2).md").
 - **Small exports** (up to 50 pages and 100 MB) download at once. Bigger ones run in the background; when they're ready, the person gets a 🔔 notice with a download link that works only for them, for 7 days (as in Data settings). Downloading asks for the password again after 15 minutes (Settings and members).
@@ -99,7 +99,7 @@ Bringing work into Care Hub from files other tools make, and getting it out agai
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **IE-04** Import a Notion export with 3 databases. → The page tree, the databases with row pages and the links between pages come back; formulas are listed as problems.
 2. ⭐ **IE-01** Import a Markdown zip with folders and pictures. → A page tree with pictures, and links between the files point to the new pages.
@@ -124,13 +124,13 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **IE-10** Mentions are matched by email, then name; unmatched become text; no notices are sent.
 - **IE-11** Cancel removes what was added; Undo import moves it all to Trash as one entry and lists pages changed since.
 - **IE-12** Markdown and CSV export of a page with sub-pages and a database opens offline with working relative links and pictures.
-- **IE-13** HTML export has no scripts and its links work offline; PDF export keeps colors and never splits a picture.
+- **IE-13** HTML export has no scripts and its links work offline; PDF export (through Print for now) keeps colors and never splits a picture.
 - **IE-14** Exports leave out pages the exporter can't open, hidden properties and rows they can't see, and Trash.
 - **IE-15** A 2,000-page export runs in the background and sends a 🔔 notice; the link works only for its maker and stops after 7 days.
 - **IE-16** With "members can export" off, Export is hidden for members and refused (403); Admins can still export; Print works.
 - **IE-17** Every export shows in the Security log.
 - **IE-18** Everything works by keyboard and screen reader; axe finds no serious problems; the phone layout works.
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **IE-D1** Importers that sign in to another service (Notion, Confluence, Trello, Asana or Google Drive) instead of using their export files. They'd need outside connections and stored keys, which the builder rules avoid. **Default:** no; files only.

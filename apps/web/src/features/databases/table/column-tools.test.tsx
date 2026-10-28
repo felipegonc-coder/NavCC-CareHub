@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { View, ViewPropertySetting } from '@carehub/databases';
-import { jobsDatabase, layoutProps, PRIORITY, PROPS } from '../test-utils';
+import { jobsDatabase, layoutProps, PROPS } from '../test-utils';
 import TableLayout from './layout';
 
 function tableView(patch: Partial<View> = {}): View {
@@ -153,7 +153,10 @@ describe('TableLayout column tools', () => {
   it("leaves the columns alone for someone who can't edit the view", () => {
     const meta = { ...jobsDatabase(), viewerAccess: 'edit_content' as const };
     render(<TableLayout {...layoutProps({ meta })} />);
-    expect(screen.getAllByRole('columnheader')).toHaveLength(8);
+    const columns = screen
+      .getAllByRole('columnheader')
+      .filter((h) => h.hasAttribute('data-property-id'));
+    expect(columns).toHaveLength(8);
     expect(within(header('Status')).queryByRole('button')).toBeNull();
     expect(document.querySelector('[data-resize-handle]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Properties' })).toBeNull();
@@ -176,28 +179,6 @@ describe('TableLayout groups and options', () => {
       'false',
     );
     expect(again.querySelector('[data-row-id]')).toBeNull();
-  });
-
-  it('leaves out options typed into a Select until they can be added', () => {
-    const props = layoutProps();
-    render(<TableLayout {...props} />);
-    const cell = screen
-      .getAllByRole('row')
-      .find((r) => r.getAttribute('data-row-id') === 'row-sink')
-      ?.querySelector(`[data-property-id="${PROPS.priority}"]`);
-    if (!cell) throw new Error('No Priority cell');
-    fireEvent.click(cell);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Priority' }), {
-      target: { value: 'Urgent' },
-    });
-    fireEvent.click(screen.getByRole('option', { name: 'Create Urgent' }));
-    expect(props.actions.updateValues).not.toHaveBeenCalled();
-
-    fireEvent.click(cell);
-    fireEvent.click(screen.getByRole('option', { name: 'Low' }));
-    expect(props.actions.updateValues).toHaveBeenCalledWith('row-sink', {
-      [PROPS.priority]: PRIORITY.low,
-    });
   });
 
   it("doesn't offer new options to someone who can't change properties", () => {

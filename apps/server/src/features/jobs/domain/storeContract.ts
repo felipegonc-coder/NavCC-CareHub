@@ -153,6 +153,29 @@ export function describeJobStoreContract(name: string, createStore: () => Promis
       expect((await store.get(job.id))?.progress).toEqual({ done: 1, total: 2, label: 'Sending' });
     });
 
+    it('claims one queued job by id, even before its run time', async () => {
+      const store = await createStore();
+      const due = await store.insert(newJob({ runAt: at(-10) }));
+      const { job } = await store.insert(newJob({ runAt: later }));
+      const input = {
+        kind: 'reminders.fire',
+        limit: 5,
+        workerId: 'w-1',
+        now: t0,
+        lockedUntil: at(60),
+      };
+      expect(await store.claim({ ...input, kind: 'calendar.sync', id: job.id })).toEqual([]);
+      const claimed = await store.claim({ ...input, id: job.id });
+      expect(claimed.map((one) => one.id)).toEqual([job.id]);
+      expect(claimed[0]).toMatchObject({ status: 'running', attempts: 1, lockedBy: 'w-1' });
+      expect(claimed[0]?.runAt.toISOString()).toBe(later.toISOString());
+      // Running now, even once its lock runs out: only a claim without id takes it over.
+      expect(await store.claim({ ...input, id: job.id })).toEqual([]);
+      expect(await store.claim({ ...input, now: at(61), id: job.id })).toEqual([]);
+      expect(await store.claim({ ...input, id: randomUUID() })).toEqual([]);
+      expect((await store.get(due.job.id))?.status).toBe('queued');
+    });
+
     it('finishes jobs with a result or an error', async () => {
       const store = await createStore();
       await store.insert(newJob());

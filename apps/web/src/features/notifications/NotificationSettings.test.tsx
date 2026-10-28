@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../lib/api';
-import type { NotificationPreferences, NotificationsClient, PushDevice } from './api';
+import type { NotificationPreferences, NotificationsClient, PauseEnds, PushDevice } from './api';
 import { NotificationSettings } from './NotificationSettings';
 import { PUSH_PROBLEM_TEXT, type PushResult, type PushStatus } from './push-client';
 import type { BrowserPush } from './useBrowserPush';
@@ -42,6 +42,7 @@ const THIS_BROWSER: PushDevice = {
 };
 
 interface Options {
+  pause?: NotificationPreferences['pause'];
   devices?: PushDevice[];
   status?: PushStatus;
   serverReady?: boolean;
@@ -50,18 +51,33 @@ interface Options {
 
 /** A server and a browser that remember changes, like the real ones. */
 function fakes({
+  pause = null,
   devices = [LAPTOP, PHONE],
   status = 'off',
   serverReady = true,
   turnOn,
 }: Options = {}) {
-  let saved: NotificationPreferences = { notifyAbout: 'all', showText: true };
+  let saved: NotificationPreferences = { notifyAbout: 'all', showText: true, pause };
   let list = [...devices];
   let browser = status;
   const client = {
-    getPreferences: vi.fn(async () => saved),
+    // A pause that has ended reads as none, as on the server.
+    getPreferences: vi.fn(async () => {
+      const until = saved.pause?.until;
+      if (until && Date.parse(until) <= Date.now()) saved = { ...saved, pause: null };
+      return saved;
+    }),
     updatePreferences: vi.fn(async (changes: Partial<NotificationPreferences>) => {
       saved = { ...saved, ...changes };
+      return saved;
+    }),
+    pause: vi.fn(async (ends: PauseEnds) => {
+      const until = ends === 'in_an_hour' ? new Date(Date.now() + 3_600_000).toISOString() : null;
+      saved = { ...saved, pause: { until } };
+      return saved;
+    }),
+    resume: vi.fn(async () => {
+      saved = { ...saved, pause: null };
       return saved;
     }),
     listDevices: vi.fn(async () => list),
@@ -167,6 +183,79 @@ describe('NotificationSettings: Messages', () => {
     ).toBeInTheDocument();
     fireEvent.click(within(section('Messages')).getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('combobox', { name: 'Notify me about' })).toBeInTheDocument();
+  });
+});
+
+describe('NotificationSettings: pause', () => {
+  it('pauses for an hour, then turns notifications back on', async () => {
+    const parts = fakes();
+    show(parts);
+    const pause = await screen.findByRole('region', { name: 'Pause notifications' });
+    expect(
+      within(pause).getByText('Notices still arrive in the 🔔 chat, quietly.'),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(within(pause).getByRole('button', { name: 'Pause' }), { key: 'Enter' });
+    expect(
+      await screen.findByRole('menuitem', { name: 'Until tomorrow, 8:00 AM' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Until I turn them back on' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'For 1 hour' }));
+    await waitFor(() => expect(parts.client.pause).toHaveBeenCalledWith('in_an_hour'));
+    const turnBackOn = await within(pause).findByRole('button', { name: 'Turn back on' });
+    expect(turnBackOn).toHaveAccessibleDescription(
+      /^Paused until (tomorrow, )?\d{1,2}:\d{2} [AP]M\.$/,
+    );
+    await waitFor(() => expect(turnBackOn).toHaveFocus());
+
+    fireEvent.click(turnBackOn);
+    const again = await within(pause).findByRole('button', { name: 'Pause' });
+    await waitFor(() => expect(again).toHaveFocus());
+    expect(parts.client.resume).toHaveBeenCalledTimes(1);
+    expect(within(pause).queryByText(/^Paused until/)).not.toBeInTheDocument();
+  });
+
+  it('shows a pause that lasts until turned back on', async () => {
+    show(fakes({ pause: { until: null } }));
+    const pause = await screen.findByRole('region', { name: 'Pause notifications' });
+    expect(within(pause).getByText('Paused until you turn them back on.')).toBeInTheDocument();
+    expect(within(pause).getByRole('button', { name: 'Turn back on' })).toBeInTheDocument();
+  });
+
+  it('shows notifications are back on once the pause ends', async () => {
+    const until = new Date(Date.now() + 1_000).toISOString();
+    const parts = fakes({ pause: { until } });
+    show(parts);
+    const pause = await screen.findByRole('region', { name: 'Pause notifications' });
+    expect(within(pause).getByRole('button', { name: 'Turn back on' })).toBeInTheDocument();
+    expect(
+      await within(pause).findByRole('button', { name: 'Pause' }, { timeout: 4_000 }),
+    ).toBeInTheDocument();
+    expect(parts.client.resume).not.toHaveBeenCalled();
+  });
+
+  it("says so when it can't pause", async () => {
+    const parts = fakes();
+    parts.client.pause.mockRejectedValueOnce(new Error('offline'));
+    show(parts);
+    const pause = await screen.findByRole('region', { name: 'Pause notifications' });
+    fireEvent.keyDown(within(pause).getByRole('button', { name: 'Pause' }), { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Until I turn them back on' }));
+    expect(
+      await within(pause).findByText("Couldn't pause notifications. Try again."),
+    ).toBeInTheDocument();
+    expect(within(pause).getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+  });
+
+  it("says so when it can't turn notifications back on", async () => {
+    const parts = fakes({ pause: { until: null } });
+    parts.client.resume.mockRejectedValueOnce(new Error('offline'));
+    show(parts);
+    const pause = await screen.findByRole('region', { name: 'Pause notifications' });
+    fireEvent.click(within(pause).getByRole('button', { name: 'Turn back on' }));
+    expect(
+      await within(pause).findByText("Couldn't turn notifications back on. Try again."),
+    ).toBeInTheDocument();
+    expect(within(pause).getByText('Paused until you turn them back on.')).toBeInTheDocument();
   });
 });
 

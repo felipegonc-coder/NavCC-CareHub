@@ -79,6 +79,20 @@ describe('Learning API client', () => {
     });
   });
 
+  it('adds the headers it is given, but keeps its own', async () => {
+    setCsrfCookie('token-123');
+    reply(() => json({ path: '', message: '' }, 201));
+    await api('POST', '/review/comments', { body: 'Hi' }, ApiIssueSchema, {
+      headers: { 'X-Review-Token': 'abc', Accept: 'text/html', [CSRF_HEADER]: 'other' },
+    });
+    expect(calls[0]?.init.headers).toEqual({
+      'X-Review-Token': 'abc',
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      [CSRF_HEADER]: 'token-123',
+    });
+  });
+
   it('never sends the CSRF header with a GET', async () => {
     setCsrfCookie('token-123');
     reply(() => json({ path: '', message: '' }));

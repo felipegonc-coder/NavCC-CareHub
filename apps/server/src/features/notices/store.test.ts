@@ -7,7 +7,7 @@ import type { SeedContext } from '../../seed';
 import { createTestApp, createUser, hasDatabase, type TestApp, type TestUser } from '../../testing';
 import { users } from '../auth/schema';
 import type { NoticeFilter } from './domain/filters';
-import { noticeIdempotencyKeys, notices } from './schema';
+import { noticeIdempotencyKeys, notices, noticeSettings } from './schema';
 import { seed } from './seed';
 import { sendNotice, type NoticeScope } from './service';
 import { createNoticeStore, getNotice } from './store';
@@ -213,6 +213,75 @@ describe.skipIf(!hasDatabase)('notices on Postgres', () => {
     ]);
   });
 
+  it('keeps up to 3 cards in order, and a grouped notice takes the new ones', async () => {
+    const avery = await person();
+    const [planId, formId, notesId] = [randomUUID(), randomUUID(), randomUUID()];
+    const event = { type: 'event', eventId: 'evt_42', occurrenceStart: '2026-11-02' } as const;
+    const groupKey = `automations:${randomUUID()}`;
+    const cards = [
+      { type: 'page', pageId: planId },
+      event,
+      { type: 'page', pageId: formId },
+    ] as const;
+    await notice(avery, { kind: 'automation', groupKey, cards });
+    expect(await list(avery)).toMatchObject([
+      { card: cards[0], extraCards: [event, { type: 'page', pageId: formId }] },
+    ]);
+
+    await notice(avery, { kind: 'automation', groupKey, card: { type: 'page', pageId: notesId } });
+    expect(await list(avery)).toMatchObject([
+      { count: 2, card: { type: 'page', pageId: notesId }, extraCards: [] },
+    ]);
+  });
+
+  it('refuses more than 3 cards, and more cards without a first one', async () => {
+    const avery = await person();
+    const page = { type: 'page', pageId: randomUUID() } as const;
+    const row = { workspaceId, userId: avery.id, sender: 'Care Hub', title: 'Cards' };
+    const insert = (cards: Pick<typeof notices.$inferInsert, 'card' | 'extraCards'>) =>
+      test.db.insert(notices).values({ ...row, kind: 'alert', ...cards });
+    await expect(insert({ card: page, extraCards: [page, page, page] })).rejects.toThrow();
+    await expect(insert({ extraCards: [page] })).rejects.toThrow();
+    await expect(insert({ card: page, extraCards: [page, page] })).resolves.toBeDefined();
+  });
+
+  it("keeps each person's notice settings per workspace, and sends only what's on", async () => {
+    const avery = await person();
+    const otherWorkspaceId = randomUUID();
+    expect(await store().getSettings(chatOf(avery))).toEqual({
+      comments: true,
+      edits: true,
+      formResponses: true,
+      automations: true,
+    });
+    const now = new Date();
+    await store().changeSettings(chatOf(avery), { edits: false }, now);
+    await expect(
+      store().changeSettings(chatOf(avery), { automations: false }, now),
+    ).resolves.toEqual({ comments: true, edits: false, formResponses: true, automations: false });
+    expect(await store().getSettings(chatOf(avery, otherWorkspaceId))).toMatchObject({
+      edits: true,
+    });
+
+    await expect(notice(avery, { kind: 'edit_summary', title: 'Edits' })).resolves.toMatchObject({
+      turnedOff: true,
+    });
+    await notice(avery, { kind: 'comment', title: 'New comment' });
+    await notice(avery, { kind: 'edit_summary', title: 'Edits', workspaceId: otherWorkspaceId });
+    expect(await titles(avery)).toEqual(['New comment']);
+  });
+
+  it('saves only the switches from a settings change', async () => {
+    const avery = await person();
+    const otherWorkspaceId = randomUUID();
+    const change = { edits: false, workspaceId: otherWorkspaceId };
+    await store().changeSettings(chatOf(avery), change, new Date());
+    expect(await store().getSettings(chatOf(avery))).toMatchObject({ edits: false });
+    expect(await store().getSettings(chatOf(avery, otherWorkspaceId))).toMatchObject({
+      edits: true,
+    });
+  });
+
   it('gives one notice to features such as push, or null', async () => {
     const avery = await person();
     const pageId = randomUUID();
@@ -300,7 +369,7 @@ describe.skipIf(!hasDatabase)('notices on Postgres', () => {
   });
 
   it('describes the tables exactly as the migrations made them', async () => {
-    for (const table of [notices, noticeIdempotencyKeys]) {
+    for (const table of [notices, noticeIdempotencyKeys, noticeSettings]) {
       const { name, columns } = getTableConfig(table);
       const { rows } = await test.db.execute<{ name: string; type: string; notNull: boolean }>(sql`
         SELECT attname AS name, format_type(atttypid, atttypmod) AS type, attnotnull AS "notNull"

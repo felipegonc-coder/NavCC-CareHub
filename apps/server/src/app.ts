@@ -46,9 +46,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: workspaces
 
-  // feature: pages
+  await app.register(import('./features/pages/routes'));
 
-  // feature: collab
+  await app.register(import('./features/collab/routes'), {
+    prefix: '/api/collab',
+    version: config.CAREHUB_VERSION,
+    publicUrl: config.CAREHUB_PUBLIC_URL,
+  });
 
   await app.register(import('./features/comments/routes'), { prefix: '/api/comments' });
 
@@ -72,7 +76,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(import('./features/learning/routes'), { prefix: '/api/learning' });
 
-  // feature: databases
+  await app.register(import('./features/databases/routes'), { prefix: '/api/databases' });
 
   // feature: forms
 
@@ -97,11 +101,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: meetings
 
-  // feature: automations
+  await app.register(import('./features/automations/routes'), { prefix: '/api/automations' });
 
   // feature: analytics
 
-  // feature: status
+  await app.register(import('./features/status/routes'), { prefix: '/api/status' });
 
   await app.register(import('./features/claude/routes'), { prefix: '/api/claude' });
 

@@ -21,6 +21,7 @@ import { compareDecimal, fitsNumberLimits, normalizeDecimal } from './decimal';
 import { fromPlainText, plainText } from './richtext';
 import { findProperty, isEmptyValue, readValue, type ReadValue } from './row';
 import { foldText } from './text';
+import { verificationState } from './verification';
 import {
   FILTER_OPS,
   LIMITS,
@@ -44,6 +45,7 @@ import {
   type Row,
   type SelectOption,
   type StatusGroup,
+  type VerificationState,
   type Viewer,
   type WeekDay,
 } from './types';
@@ -72,6 +74,7 @@ const OPS = {
   files: EMPTY_OPS,
   // Additions 2: lists match any item's text.
   list: ['contains', 'does_not_contain', ...EMPTY_OPS],
+  verification: ['is_verified', 'is_expired', 'is_not_verified'],
   none: [],
 } satisfies Record<string, readonly FilterOp[]>;
 /** How a property filters. Formulas and rollups filter like their result kind. */
@@ -147,6 +150,9 @@ const LABELS: Record<FilterOp, string> = {
   not_all_done: 'Not all done',
   is_empty: 'Is empty',
   is_not_empty: 'Is not empty',
+  is_verified: 'Is verified',
+  is_expired: 'Is expired',
+  is_not_verified: 'Is not verified',
 };
 
 /**
@@ -186,6 +192,9 @@ const NO_VALUE_OPS = new Set<FilterOp>([
   'is_not_checked',
   'all_done',
   'not_all_done',
+  'is_verified',
+  'is_expired',
+  'is_not_verified',
   ...EMPTY_OPS,
 ]);
 
@@ -436,6 +445,13 @@ function dateTest(
   return (d) => d.start <= range.end && d.end >= range.start;
 }
 
+/** The state each Verification condition looks for. */
+const VERIFICATION_OP_STATES: Partial<Record<FilterOp, VerificationState>> = {
+  is_verified: 'verified',
+  is_expired: 'expired',
+  is_not_verified: 'none',
+};
+
 /** A test for one condition, or null when it doesn't filter (deleted property, unusable operator, no value yet). */
 function compileCondition(c: FilterCondition, ctx: EvalContext, today: CalendarDate): Test | null {
   const prop = findProperty(ctx.properties, c.propertyId);
@@ -524,6 +540,10 @@ function compileCondition(c: FilterCondition, ctx: EvalContext, today: CalendarD
         const items = read(row) as ChecklistItem[] | null;
         return !!items?.length && items.every((i) => i.done === true) === want;
       };
+    }
+    case 'verification': {
+      const want = VERIFICATION_OP_STATES[c.op];
+      return (row) => verificationState(read(row)) === want;
     }
     default:
       return null;

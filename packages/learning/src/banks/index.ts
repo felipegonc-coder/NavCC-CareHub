@@ -7,3 +7,4 @@ export * from './edit';
 export * from './import';
 export * from './problems';
 export * from './survey';
+export * from './template';
