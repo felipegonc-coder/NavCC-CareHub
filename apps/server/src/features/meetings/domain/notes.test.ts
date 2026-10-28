@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { attendeesOf, meetingDate, NOTES_MARKDOWN, notesTitle, takeNotesSchema } from './notes';
+import {
+  attendeesOf,
+  MAX_INVITED,
+  meetingDate,
+  NOTES_MARKDOWN,
+  notesTitle,
+  takeNotesSchema,
+  withinNotesWindow,
+} from './notes';
 
 const huddle = {
   title: 'Team huddle',
@@ -40,6 +48,23 @@ describe('attendeesOf', () => {
   it('is the organizer, then the invited members, each once', () => {
     const event = { organizerId: 'avery', memberIds: ['sam', 'avery', 'riley', 'sam'] };
     expect(attendeesOf(event)).toEqual(['avery', 'sam', 'riley']);
+  });
+
+  it("takes no more invited members than Calendar's invitee cap", () => {
+    const memberIds = Array.from({ length: MAX_INVITED + 50 }, (_, i) => `member-${i}`);
+    const attendees = attendeesOf({ organizerId: 'avery', memberIds });
+    expect(attendees).toHaveLength(MAX_INVITED + 1);
+    expect(attendees.at(-1)).toBe(`member-${MAX_INVITED - 1}`);
+  });
+});
+
+describe('withinNotesWindow', () => {
+  const now = new Date('2026-10-27T12:00:00.000Z');
+  it('is a year either side of today, for timed and all-day occurrences', () => {
+    expect(withinNotesWindow({ start: '2027-10-27T12:00:00.000Z' }, now)).toBe(true);
+    expect(withinNotesWindow({ start: '2025-10-27' }, now)).toBe(true);
+    expect(withinNotesWindow({ start: '2027-12-01T12:00:00.000Z' }, now)).toBe(false);
+    expect(withinNotesWindow({ start: '2025-09-01' }, now)).toBe(false);
   });
 });
 

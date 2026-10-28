@@ -4,11 +4,23 @@
 // numbers: packages/learning/src/reports (csv.ts, course-report.ts, question-analysis.ts).
 import type { APIResponse } from '@playwright/test';
 import { apiFor, expect, needs, onlyIn, signInAs, test } from '../_support/index.js';
-import { assign, day, whoIs } from './assign-data.js';
-import { TARA, choice, content, liveCourse, pageFor, quiz, trueFalse } from './course-data.js';
+import { assign, day, setDueDate, whoIs } from './assign-data.js';
+import {
+  REMY,
+  TARA,
+  choice,
+  content,
+  liveCourse,
+  pageFor,
+  quiz,
+  trueFalse,
+} from './course-data.js';
 import { NO_ACCESS, shownDayIn } from './learner-page.js';
 import { PlayerPage } from './player-page.js';
 import { ReportsPage, courseReport } from './reports-page.js';
+
+// The browser is in Tokyo: Learning shows days in the profile's time zone (decision 0317).
+test.use({ timezoneId: 'Asia/Tokyo' });
 
 const GREET = 'You greet the caller first.';
 const HOLD = 'What do you do during a long hold?';
@@ -142,6 +154,46 @@ test.describe('Learning: reports', () => {
     });
   });
 
+  test('LN-11 a report viewer sees the report, with no Studio and no Reset', async ({
+    browser,
+    page,
+  }) => {
+    needs('learningStudio');
+    const eli = new PlayerPage(await pageFor(browser, 'editor'));
+    const me = await whoIs(eli.page);
+    const course =
+      await test.step('Tara assigns Eli a course; he finishes lesson one', async () => {
+        await signInAs(page, TARA);
+        const course = await liveCourse(page, twoLessons());
+        await assign(page, course.id, { people: [me.id] });
+        await stopAfterLessonOne(eli, course.id);
+        return course;
+      });
+    const remy = new ReportsPage(await pageFor(browser, REMY));
+    await test.step('Remy has Reports and no Studio; the report has Eli and no Reset', async () => {
+      await remy.page.goto('/learning');
+      await expect(remy.page.getByRole('link', { name: 'Reports' })).toBeVisible();
+      await expect(remy.page.getByRole('link', { name: 'Studio' })).toHaveCount(0);
+      await remy.openCourse(course.title);
+      await remy.expectRowSoon(me.name, /in progress/i);
+      await expect(remy.main.getByRole('button', { name: /^reset/i })).toHaveCount(0);
+    });
+    await test.step('a Studio link says Remy has no access, and never shows the editor', async () => {
+      await remy.page.goto(`/learning/studio/courses/${course.id}`);
+      await expect(remy.page.getByText(NO_ACCESS)).toBeVisible();
+      await expect(remy.page.getByRole('button', { name: 'Publish' })).toHaveCount(0);
+      await expect(remy.page.getByText(course.title)).toHaveCount(0);
+    });
+    await test.step('the server refuses Remy the course in Studio and Reset (403)', async () => {
+      const api = await apiFor(remy.page);
+      const reset = `/api/learning/people/${me.id}/courses/${course.id}/reset`;
+      const studio = `/api/learning/studio/courses/${course.id}`;
+      expect((await api.send('POST', reset, {})).status(), reset).toBe(403);
+      expect((await api.send('GET', studio)).status(), studio).toBe(403);
+      expect((await eli.progress(course.id)).status, "Eli's progress").toBe('in_progress');
+    });
+  });
+
   test('LN-13 a learner has no Studio or Reports, and a report link shows no names or scores', async ({
     browser,
     page,
@@ -175,8 +227,7 @@ test.describe('Learning: reports', () => {
     });
   });
 
-  // Overdue with a past due date waits for B4's backdate hook (PR #247), which needs
-  // CAREHUB_TEST_HOOKS in the e2e server's env; until then the due date is today, not yet overdue.
+  // Due today, nobody is overdue yet; the next check moves the due date into the past.
   test('LN-22 the course report counts passed, in progress and not started, and names the most-missed question', async ({
     browser,
     page,
@@ -219,6 +270,49 @@ test.describe('Learning: reports', () => {
       await reports.openCourse(course.title);
       await expect(reports.main.getByText('33%').first()).toBeVisible();
       await expect(reports.row(HOLD)).toContainText('Hang up');
+    });
+  });
+
+  test('LN-22 past the due date, the report counts everyone not finished as overdue', async ({
+    browser,
+    page,
+  }) => {
+    needs('learningQuizzes', 'learningTestHooks');
+    test.setTimeout(120_000);
+    const eli = new PlayerPage(await pageFor(browser, 'editor'));
+    const casey = new PlayerPage(await pageFor(browser, 'commenter'));
+    const val = await whoIs(await pageFor(browser, 'viewer'));
+    const [eliMe, caseyMe] = [await whoIs(eli.page), await whoIs(casey.page)];
+    const course =
+      await test.step('Tara assigns Eli, Casey and Val a quiz course that was due yesterday', async () => {
+        await signInAs(page, TARA);
+        const course = await liveCourse(page, quizCourse());
+        const people = [eliMe.id, caseyMe.id, val.id];
+        const made = await assign(page, course.id, { people, dueDate: day() });
+        // The API refuses a past due date; the test hook (#247) moves it (assign-data.ts).
+        await setDueDate(page, made.id, day(-1));
+        return course;
+      });
+    await test.step('Eli passes, late; Casey starts; Val does not', async () => {
+      await takeQuiz(eli, course.id);
+      await casey.start(course.id);
+      await casey.startQuiz();
+    });
+    await test.step('within a minute: 2 overdue, Casey and Val, not Eli', async () => {
+      const report = { total: 3, passed: 1, inProgress: 1, notStarted: 1, overdue: 2 };
+      await expect
+        .poll(() => courseReport(page, course.id), { timeout: 60_000 })
+        .toMatchObject({ report });
+    });
+    await test.step('the CSV has 1 day overdue for Casey and Val, none for Eli', async () => {
+      const reports = new ReportsPage(page);
+      await reports.openCourse(course.title);
+      const [header = [], ...rows] = await reports.downloadCsv();
+      const overdue = (name: string) =>
+        rows.find((row) => row[0] === name)?.[header.indexOf('Days overdue')];
+      expect(overdue(eliMe.name), eliMe.name).toBe('');
+      expect(overdue(caseyMe.name), caseyMe.name).toBe('1');
+      expect(overdue(val.name), val.name).toBe('1');
     });
   });
 

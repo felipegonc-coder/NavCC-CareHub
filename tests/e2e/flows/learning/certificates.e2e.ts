@@ -6,6 +6,9 @@ import { whoIs } from './assign-data.js';
 import { TARA, liveCourse, pageFor, quiz, trueFalse } from './course-data.js';
 import { PlayerPage } from './player-page.js';
 
+// The browser is in Tokyo: Learning shows days in the profile's time zone (decision 0317).
+test.use({ timezoneId: 'Asia/Tokyo' });
+
 /** A verification code as issued: XXXX-XXXX-XXXX in Crockford base32. */
 const CODE = /[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}/;
 const GREET = 'You greet the caller first.';

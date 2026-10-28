@@ -1,6 +1,6 @@
 # Specs
 
-_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins. Specs marked (in Notion) below aren't copied here._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins. Specs marked (in Notion) below aren't copied here._
 
 > 📐 Ready-to-build specs for the Care Hub rebuild: 🆕 **Phase 1 workspace features that match Notion**, **Phase 2** (databases, formulas and forms) and **Phase 3** (team tools, the knowledge base and 🆕 Claude features). Written only from the plan, the Feature list, Look and feel, Builder rules and the answered decisions. Draft v2 · Oct 27, 2026 · Fictional data only.
 > **Build order:** Phase 1 first, then Phase 2 (Databases, Messages and the rest), then Phase 3. Messages is listed under Phase 3 but is built early, alongside Phase 2. 🆕 Claude features is listed under Phase 3 too (Phase 5 in the plan), with every feature switched off by default.
@@ -31,7 +31,8 @@ _Copied from the Notion spec on 2026-10-27. If they differ, Notion wins. Specs m
 | Undo | Deletes show an Undo toast for 8 seconds unless a spec says otherwise. |
 | Permissions | Checked on the server for every request; hiding a button is only a convenience. Each spec has at least one check where a direct request must be refused (HTTP 403). Words such as Admin, Full access and Can edit are defined in Roles and permissions. |
 | Notices | Reminders, automations and alerts arrive in each person's 🔔 Care Hub chat (see Messages). |
-| 🆕 Uploads | Every upload follows Data settings and the build contract (docs/decisions/0007, section 4.3): 100 MB per file by default, programs refused, SVG only as a picture, location data removed from photos. |
+| 🆕 Uploads | Every upload follows Data settings and the build contract (docs/decisions/0007, section 4.3): 100 MB per file by default, programs refused, SVG only as a picture, location and camera details removed from photos (orientation and color profile kept), HEIC and AVIF kept in their format. |
+| 🆕 File sizes | 1 KB = 1,024 bytes, 1 MB = 1,024 KB, 1 GB = 1,024 MB. Sizes show rounded to one decimal, without a trailing .0 (100.1 MB, 150 MB); below 1 MB they show in KB, below 1 KB in bytes. A file over a limit never shows the limit itself as its size: if it would round to the limit, it shows the limit plus 0.1 (a file 1 byte over 100 MB shows 100.1 MB). |
 | Keyboard | Everything works without a mouse, with a visible focus outline. Esc closes the top pop-up and returns focus to what opened it. Menus use arrows, Enter and type-to-search. Ctrl means Cmd on a Mac. Every drag has a keyboard and a menu alternative. |
 | Screen readers | Every control has a name; changes are announced politely; WCAG 2.1 AA. |
 | Phone | Phone means narrower than 768 px; tablet 768–1023 px. Touch targets at least 44 × 44 px. Long-press replaces right-click. Pop-ups become bottom sheets; side panels become full screens with Back. |
