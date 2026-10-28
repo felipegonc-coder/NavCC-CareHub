@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { CurrentUser } from '@carehub/shared';
-import { and, eq, gt, isNull, lte, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lte, ne, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../db';
+import type { EndedSession } from './events';
 import { sessions, users } from './schema';
 
 /**
@@ -109,12 +110,25 @@ export async function touchSession(db: Db | Tx, sessionId: string): Promise<void
   if (row) await markActive(db, row.userId);
 }
 
-export async function deleteSession(db: Db | Tx, sessionId: string): Promise<void> {
-  await db.delete(sessions).where(eq(sessions.id, sessionId));
+const ended = { sessionId: sessions.id, userId: sessions.userId };
+
+/** Ends one session. Returns it, for `session.ended`, or null if it had already ended. */
+export async function deleteSession(db: Db | Tx, sessionId: string): Promise<EndedSession | null> {
+  const [row] = await db.delete(sessions).where(eq(sessions.id, sessionId)).returning(ended);
+  return row ?? null;
 }
 
-export async function deleteUserSessions(db: Db | Tx, userId: string): Promise<void> {
-  await db.delete(sessions).where(eq(sessions.userId, userId));
+/** Ends all of a person's sessions, or all but `except` (the one in use), and returns them. */
+export async function deleteUserSessions(
+  db: Db | Tx,
+  userId: string,
+  options: { except?: string } = {},
+): Promise<EndedSession[]> {
+  const others = options.except === undefined ? undefined : ne(sessions.id, options.except);
+  return db
+    .delete(sessions)
+    .where(and(eq(sessions.userId, userId), others))
+    .returning(ended);
 }
 
 /**

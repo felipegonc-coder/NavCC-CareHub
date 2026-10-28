@@ -1,6 +1,7 @@
 import { boolean, integer, pgTable, smallint, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-// Mirrors migrations/202610262300_auth_accounts.sql, which is the source of truth (a test compares them).
+// Mirrors migrations/202610262300_auth_accounts.sql and the later *_auth_*.sql files, which are the
+// source of truth (a test compares them).
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).notNull().defaultNow();
@@ -18,9 +19,6 @@ export const users = pgTable('users', {
   timeZone: text('time_zone').notNull().default('America/Denver'),
   use24h: boolean('use_24h').notNull().default(false),
   weekStart: smallint('week_start').notNull().default(0),
-  failedSignIns: integer('failed_sign_ins').notNull().default(0),
-  failedSignInsSince: timestamp('failed_sign_ins_since', { withTimezone: true }),
-  signInPausedUntil: timestamp('sign_in_paused_until', { withTimezone: true }),
   /** Locked by a site admin: no sign-in, and sessions stop working. */
   lockedAt: timestamp('locked_at', { withTimezone: true }),
   lastActiveAt: timestamp('last_active_at', { withTimezone: true }),
@@ -39,4 +37,12 @@ export const sessions = pgTable('sessions', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   userAgent: text('user_agent'),
   ipAddress: text('ip_address'),
+});
+
+/** Wrong passwords per sign-in name, known or not (see limits.ts). */
+export const signInLimits = pgTable('sign_in_limits', {
+  nameHash: text('name_hash').primaryKey(),
+  failures: integer('failures').notNull().default(0),
+  windowStartedAt: timestamp('window_started_at', { withTimezone: true }).notNull().defaultNow(),
+  pausedUntil: timestamp('paused_until', { withTimezone: true }),
 });

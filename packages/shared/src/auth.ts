@@ -82,3 +82,130 @@ export const meResponseSchema = z.object({
   workspace: workspaceSummarySchema,
 });
 export type MeResponse = z.infer<typeof meResponseSchema>;
+
+export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MAX_LENGTH = 256;
+
+/**
+ * A password's length in characters (Unicode code points), as the rules count it. String length
+ * counts UTF-16 units instead, two for many emoji.
+ */
+const passwordLength = (password: string) => [...password].length;
+
+/** A password that's typed in, never longer than a new one may be. */
+const typedPassword = (empty: string, tooLong: string) =>
+  z
+    .string()
+    .min(1, empty)
+    .refine((password) => passwordLength(password) <= PASSWORD_MAX_LENGTH, tooLong);
+
+/** POST /api/auth/sign-in. Answers like GET /api/auth/me. */
+export const signInBodySchema = z.object({
+  email: z.string().trim().min(1, 'Enter your email.').max(254, "That isn't an email."),
+  password: typedPassword('Enter your password.', "That password doesn't match."),
+});
+export type SignInBody = z.infer<typeof signInBodySchema>;
+
+/** POST /api/auth/password. `newPassword` must also pass `passwordProblem`. */
+export const changePasswordBodySchema = z.object({
+  currentPassword: typedPassword(
+    'Enter your current password.',
+    "That isn't your current password.",
+  ),
+  newPassword: z.string(),
+});
+export type ChangePasswordBody = z.infer<typeof changePasswordBodySchema>;
+
+// The built-in list of common passwords: the words people build them from. Variants such as
+// "P@ssw0rd2024!" and "welcome12345" are caught too (see `isCommonPassword`).
+const COMMON_WORDS = new Set(
+  (
+    'password passwort passcode welcome letmein iloveyou iloveu admin administrator root login ' +
+    'changeme secret default guest user test testing qwerty monkey dragon sunshine princess ' +
+    'football baseball basketball soccer hockey superman batman starwars trustno master ' +
+    'freedom whatever computer internet hello flower summer winter spring autumn love lovely ' +
+    'angel cookie cheese chocolate killer hunter ranger mustang abc abcd care carehub nurse ' +
+    'health hospital company office work'
+  ).split(' '),
+);
+
+const SEQUENCES = [
+  '01234567890123456789',
+  'abcdefghijklmnopqrstuvwxyz',
+  'qwertyuiopasdfghjklzxcvbnm',
+  '1q2w3e4r5t6y7u8i9o0p',
+  'qazwsxedcrfvtgbyhnujmikolp',
+  '!@#$%^&*()_+',
+];
+const BOTH_WAYS = [...SEQUENCES, ...SEQUENCES.map((s) => [...s].reverse().join(''))];
+
+/** Repeats (aaaa, abcabc) and runs along the alphabet, the digits or the keyboard, either way. */
+function isPattern(text: string): boolean {
+  if (text.length < 2) return false;
+  return /^(.+?)\1+$/s.test(text) || BOTH_WAYS.some((sequence) => sequence.includes(text));
+}
+
+const LOOKALIKES: Readonly<Record<string, string>> = {
+  '0': 'o',
+  '1': 'i',
+  '3': 'e',
+  '4': 'a',
+  '5': 's',
+  '7': 't',
+  '@': 'a',
+  $: 's',
+  '!': 'i',
+};
+const plain = (text: string) => text.replace(/[0-9@$!]/g, (c) => LOOKALIKES[c] ?? c);
+
+/** A password in lower case split into its middle and the digits and symbols around it. */
+function split(lower: string) {
+  const [, before = '', middle = '', after = ''] = /^([^a-z]*)(.*?)([^a-z]*)$/s.exec(lower) ?? [];
+  return { before, middle: plain(middle), after };
+}
+
+/** Digits and symbols people add to a word: a few of each, or a run such as 12345. */
+function isAddOn(text: string): boolean {
+  const digits = text.replace(/[^0-9]/g, '');
+  const symbols = text.replace(/[0-9]/g, '');
+  return (digits.length <= 4 || isPattern(digits)) && (symbols.length <= 3 || isPattern(symbols));
+}
+
+function isCommonPassword(lower: string): boolean {
+  if (isPattern(lower)) return true;
+  const { before, middle, after } = split(lower);
+  if (!isAddOn(before) || !isAddOn(after)) return false;
+  const repeated = /^(.+?)\1+$/s.exec(middle)?.[1] ?? middle;
+  return (
+    middle.length <= 2 ||
+    COMMON_WORDS.has(middle) ||
+    COMMON_WORDS.has(repeated) ||
+    (middle.length >= 3 && isPattern(middle))
+  );
+}
+
+function isSignInName(lower: string, signInName: string): boolean {
+  const email = signInName.trim().toLowerCase();
+  if (email && lower.includes(email)) return true;
+  const name = (email.split('@')[0] ?? '').replace(/[^a-z]/g, '');
+  const { before, middle, after } = split(lower);
+  return (
+    name.length >= 3 && middle.replace(/[^a-z]/g, '') === name && isAddOn(before) && isAddOn(after)
+  );
+}
+
+/**
+ * Why a new password can't be used, in plain words, or null if it can (Settings and members,
+ * Account): at least 12 characters, not a common password and not the sign-in name.
+ */
+export function passwordProblem(password: string, signInName: string): string | null {
+  const length = passwordLength(password);
+  if (length < PASSWORD_MIN_LENGTH) return `Use at least ${PASSWORD_MIN_LENGTH} characters.`;
+  if (length > PASSWORD_MAX_LENGTH) return `Use at most ${PASSWORD_MAX_LENGTH} characters.`;
+  const lower = password.toLowerCase();
+  if (isSignInName(lower, signInName)) return "Don't use your email in your password.";
+  if (isCommonPassword(lower)) {
+    return 'This password is too easy to guess. Try three or four words that have nothing in common.';
+  }
+  return null;
+}

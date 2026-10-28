@@ -1,4 +1,4 @@
-// Helpers for server tests in every lane (decision 0007, section 2.5). Fictional data only.
+// Helpers for server tests in every feature (decision 0007, section 2.5). Fictional data only.
 import { createHash, randomBytes } from 'node:crypto';
 import {
   CSRF_HEADER,
@@ -15,6 +15,7 @@ import { buildApp } from '../app';
 import { loadConfig } from '../config';
 import type { Db, Tx } from '../db';
 import { csrfTokenForSession } from '../features/auth/csrf';
+import { hashPassword } from '../features/auth/passwords';
 import { users } from '../features/auth/schema';
 import { createSession, currentUserColumns } from '../features/auth/sessions';
 import { createRole } from '../features/roles';
@@ -117,6 +118,8 @@ export interface CreateUserOptions {
   email?: string;
   mustChangePassword?: boolean;
   locked?: boolean;
+  /** Lets the person sign in with this password (make it up in the test, never a fixed one). */
+  password?: string;
 }
 
 export interface TestUser extends CurrentUser {
@@ -140,8 +143,8 @@ async function testRoleId(db: Db | Tx, permissions: readonly PermissionKey[]): P
 }
 
 /**
- * A fictional person at example.test, without a password (tests sign in with injectAs). By default an
- * Editor of the current workspace.
+ * A fictional person at example.test, without a password unless `password` is given (tests sign in
+ * with injectAs). By default an Editor of the current workspace.
  */
 export async function createUser(db: Db | Tx, options: CreateUserOptions = {}): Promise<TestUser> {
   const guest = options.kind === 'guest';
@@ -167,6 +170,7 @@ export async function createUser(db: Db | Tx, options: CreateUserOptions = {}): 
       isSiteAdmin: options.siteAdmin ?? false,
       mustChangePassword: options.mustChangePassword ?? false,
       lockedAt: options.locked ? new Date() : null,
+      passwordHash: options.password === undefined ? null : await hashPassword(options.password),
     })
     .returning(currentUserColumns);
   if (!user) throw new Error('The test user was not saved.');

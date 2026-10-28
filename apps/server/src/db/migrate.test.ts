@@ -4,7 +4,7 @@ import path from 'node:path';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import pg from 'pg';
 import { afterEach, describe, expect, it } from 'vitest';
-import { sessions, users } from '../features/auth/schema';
+import { sessions, signInLimits, users } from '../features/auth/schema';
 import { roles, workspaceMembers, workspaces } from '../features/workspaces/schema';
 import { createTestDatabase, hasDatabase } from '../testing';
 import { defaultMigrationsDir, listMigrations, runMigrations } from './migrate';
@@ -127,7 +127,7 @@ describe.skipIf(!hasDatabase)('runMigrations', () => {
         '202610270035_workspaces_members-and-roles.sql',
       ]),
     );
-    for (const table of [users, sessions, workspaces, roles, workspaceMembers]) {
+    for (const table of [users, sessions, signInLimits, workspaces, roles, workspaceMembers]) {
       const config = getTableConfig(table);
       const { rows } = await pool.query<{
         name: string;
