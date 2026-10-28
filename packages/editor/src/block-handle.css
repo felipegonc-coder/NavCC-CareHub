@@ -1,0 +1,89 @@
+/* The + and ⋮⋮ next to the block under the pointer and the blue line where dragged blocks land
+   (./block-handle.ts), drawn in the box around the page. Tokens only, as in ./styles.css. */
+
+.ch-block-editor {
+  position: relative;
+}
+
+.ch-block-handle {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--ch-space-0_5);
+  /* Up to the block, so the pointer can go from the block to the buttons without leaving. */
+  padding-right: var(--ch-space-1);
+}
+
+.ch-block-handle[hidden],
+.ch-drop-line[hidden] {
+  display: none;
+}
+
+.ch-block-handle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ch-space-6);
+  height: var(--ch-space-6);
+  padding: 0;
+  border: none;
+  border-radius: var(--ch-radius);
+  background: none;
+  color: rgb(var(--ch-muted));
+  cursor: pointer;
+}
+
+.ch-block-handle-button:hover {
+  background: rgb(var(--ch-fill-hover));
+  color: rgb(var(--ch-fg));
+}
+
+.ch-block-handle-button:focus-visible {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: 1px;
+}
+
+.ch-block-handle-button svg {
+  width: var(--ch-space-4);
+  height: var(--ch-space-4);
+}
+
+/* ⋮⋮ drags on touch screens too, instead of scrolling the page. */
+.ch-block-handle-drag {
+  cursor: grab;
+  touch-action: none;
+}
+
+/* Big enough for a finger. */
+@media (pointer: coarse) {
+  .ch-block-handle-button {
+    width: var(--ch-space-11);
+    height: var(--ch-space-11);
+  }
+}
+
+.ch-drop-line {
+  position: absolute;
+  z-index: 10;
+  height: 2px;
+  border-radius: var(--ch-radius-full);
+  background: rgb(var(--ch-ring));
+  pointer-events: none;
+}
+
+/* The blocks being dragged stay where they are, faded, until they land. */
+.ch-editor .ch-block-dragged {
+  opacity: 0.4;
+}
+
+body.ch-block-dragging,
+body.ch-block-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+body.ch-block-drag-copy,
+body.ch-block-drag-copy * {
+  cursor: copy;
+}

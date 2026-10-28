@@ -10,7 +10,8 @@ import { canJoin, Transform } from '@tiptap/pm/transform';
 
 /**
  * Moving blocks around a page: which block a position belongs to, and the changes that move
- * blocks between others. No DOM here; the keys that move them are in ./block-keys.ts.
+ * blocks between others. No DOM here: the keys are in ./block-keys.ts, the handle in
+ * ./block-handle.ts.
  */
 
 /** A block that moves as one piece, and the position just before it. */
@@ -89,6 +90,24 @@ export function blockAt(doc: ProseMirrorNode, pos: number): Block | null {
   // At the end of the page: its last block.
   const last = $pos.nodeBefore;
   return last ? blockFrom(doc, $pos.pos - last.nodeSize) : null;
+}
+
+/**
+ * `block`, then each block it is the last thing in, innermost first. Right below a nested list,
+ * a drop can go after its last item, or after the item the list is nested in, and so on.
+ */
+export function blocksEndingWith(doc: ProseMirrorNode, block: Block): Block[] {
+  const found = [block];
+  let $end = doc.resolve(endOf(block));
+  while ($end.depth > 0 && $end.pos === $end.end()) {
+    if (!isList($end.parent)) {
+      const outer = blockFrom(doc, $end.before());
+      if (!outer || outer.pos !== $end.before()) break;
+      found.push(outer);
+    }
+    $end = doc.resolve($end.after());
+  }
+  return found;
 }
 
 /** `blocks` in page order, without the ones inside another of them. */
@@ -368,6 +387,21 @@ export function moveBlocks(
   }
   for (const step of change.steps) tr.step(step);
   return landed;
+}
+
+/**
+ * Adds an empty line at `pos`, a position between blocks (splitting a list if it's in one).
+ * Returns the position of the new line, or null if a line can't go there.
+ */
+export function insertLine(tr: Transaction, pos: number): number | null {
+  const line = tr.doc.type.schema.nodes.paragraph?.create();
+  if (!line) return null;
+  const change = new Transform(tr.doc);
+  const added = insertPieces(change, pos, [{ node: line, list: null }]);
+  const start = added?.starts[0];
+  if (start === undefined) return null;
+  for (const step of change.steps) tr.step(step);
+  return start;
 }
 
 /**
