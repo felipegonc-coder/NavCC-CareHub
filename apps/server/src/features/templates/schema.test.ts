@@ -2,7 +2,14 @@ import { sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, hasDatabase, type TestApp } from '../../testing';
-import { tplHiddenStarters, tplMadeFrom, tplTemplatePages, tplTemplates } from './schema';
+import {
+  tplButtonRuns,
+  tplButtons,
+  tplHiddenStarters,
+  tplMadeFrom,
+  tplTemplatePages,
+  tplTemplates,
+} from './schema';
 
 describe.skipIf(!hasDatabase)('template tables on Postgres', () => {
   let test: TestApp;
@@ -15,7 +22,15 @@ describe.skipIf(!hasDatabase)('template tables on Postgres', () => {
   });
 
   it('creates the template tables exactly as the Drizzle definitions describe them', async () => {
-    for (const table of [tplTemplates, tplTemplatePages, tplHiddenStarters, tplMadeFrom]) {
+    const tables = [
+      tplTemplates,
+      tplTemplatePages,
+      tplHiddenStarters,
+      tplMadeFrom,
+      tplButtons,
+      tplButtonRuns,
+    ];
+    for (const table of tables) {
       const config = getTableConfig(table);
       type Column = { name: string; type: string; not_null: boolean; has_default: boolean };
       const { rows } = await test.db.execute<Column>(sql`

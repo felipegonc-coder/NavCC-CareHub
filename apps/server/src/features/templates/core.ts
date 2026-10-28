@@ -3,11 +3,13 @@
 // member (403), pages and spaces are missing (404) and nothing can be made. Tests bind fakes;
 // when a feature lands, its line here calls it instead (see README.md).
 import type { AccessLevel } from '@carehub/shared';
+import type { StarterDatabase } from '@carehub/extras/templates/databases';
 import type { TemplateIcon } from '@carehub/extras/templates/gallery';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { saveVersionNow } from '../history';
+import { sendNotice, type SendNoticeInput } from '../notices';
 
 /** The person asking, in their workspace. */
 export interface TemplatesViewer {
@@ -32,6 +34,7 @@ export interface CorePage {
   title: string;
   icon: TemplateIcon | null;
   locked: boolean;
+  /** Archived, itself or through a page above it, so it's read-only. */
   archived: boolean;
 }
 
@@ -42,6 +45,12 @@ export interface NewPage {
   title: string;
   icon: TemplateIcon | null;
   createdBy: string;
+}
+
+/** A database to make from a starter: where it goes and what it's made of. */
+export interface NewDatabase extends NewPage {
+  /** With new ids, and the sample rows filled in for the person (or none). */
+  database: StarterDatabase;
 }
 
 export interface TemplatesCore {
@@ -62,6 +71,8 @@ export interface TemplatesCore {
     userId: string,
     spaceId: string,
   ): Promise<{ name: string; isMember: boolean } | null>;
+  /** The team spaces the person is in, for "Who can use it". */
+  spaces(db: Db | Tx, userId: string, workspaceId: string): Promise<{ id: string; name: string }[]>;
   privateSpaceId(tx: Tx, userId: string): Promise<string>;
   createPage(tx: Tx, page: NewPage): Promise<string>;
   setTitle(tx: Tx, pageId: string, title: string, by: string): Promise<void>;
@@ -69,14 +80,58 @@ export interface TemplatesCore {
   setMarkdown(tx: Tx, pageId: string, markdown: string, by: string): Promise<void>;
   /** A version in the page's history, before a template changes it (history, HT-02). */
   saveVersionNow: typeof saveVersionNow;
-  /** A copy of a database under `parentId`; null when databases can't be copied yet. */
+  /**
+   * A copy of a database under `parentId`, with only the rows `by` can see (row rules); null when
+   * databases can't be copied yet. Templates check that `by` can view the database first.
+   */
   duplicateDatabase(
     tx: Tx,
     input: { databaseId: string; parentId: string; includeRows: boolean; by: string },
   ): Promise<string | null>;
+  /** A new database from a starter, as its own page; null when databases can't be made yet. */
+  createDatabase(tx: Tx, input: NewDatabase): Promise<string | null>;
   rowCount(db: Db | Tx, databaseId: string): Promise<number>;
   /** After the commit: open editors reload these pages (collab's `page.updated`). */
   contentChanged(pageIds: string[], by: string): void;
+
+  // Buttons' row steps, with the presser's access (Databases api.ts, decision 0200). Each one
+  // refuses (403) or reports a missing database (404) before it writes, in a savepoint of `tx`.
+  /** Runs `work` in a transaction, then announces the row changes after the commit. */
+  runRowWrites<T>(app: FastifyInstance, work: (tx: Tx) => Promise<T>): Promise<T>;
+  createRow(tx: Tx, input: RowInput & { templateId?: string }): Promise<{ rowId: string }>;
+  updateRows(tx: Tx, input: RowInput & { rowIds: string[] }): Promise<unknown>;
+  /** Rows not in Trash that the person can view, oldest first, with their level on each. */
+  findRowIds(
+    db: Db | Tx,
+    input: { userId: string; databaseId: string; filter: unknown; limit: number },
+  ): Promise<{ rowId: string; access: AccessLevel }[]>;
+  trashRows(
+    tx: Tx,
+    input: { databaseId: string; rowIds: string[]; actorUserId: string },
+  ): Promise<{ rowIds: string[] }>;
+  /** The row's values the person may see, by property id; null when it's missing or in Trash. */
+  readRow(
+    db: Db | Tx,
+    input: { userId: string; rowId: string },
+  ): Promise<{ values: Record<string, unknown> } | null>;
+  /** The members a button's message reaches, without repeats (people, groups, roles, everyone). */
+  recipients(db: Db | Tx, workspaceId: string, to: MessageTo): Promise<string[]>;
+  sendNotice(input: SendNoticeInput): Promise<unknown>;
+}
+
+export interface RowInput {
+  databaseId: string;
+  /** Stored values by property id. */
+  values: Record<string, unknown>;
+  actorUserId: string;
+  source: 'button';
+}
+
+export interface MessageTo {
+  userIds: string[];
+  groupIds: string[];
+  roleIds: string[];
+  everyone: boolean;
 }
 
 type CoreRequest = {
@@ -111,6 +166,7 @@ const standIn: TemplatesCore = {
   levels: async () => new Map(), // stand-in: getAccessForPages (pages #49)
   children: async () => [], // stand-in: the pages table (pages #49)
   space: async () => null, // stand-in: the spaces table (pages #49)
+  spaces: async () => [], // stand-in: the spaces table (pages #49)
   privateSpaceId: async () => {
     throw notYet(); // stand-in: getPrivateSpaceId (pages #49)
   },
@@ -126,8 +182,25 @@ const standIn: TemplatesCore = {
   },
   saveVersionNow, // History's (#317); it saves no version until pages land (#49)
   duplicateDatabase: async () => null, // stand-in: duplicateDatabase (Databases api.ts)
+  createDatabase: async () => null, // stand-in: createDatabase (Databases api.ts)
   rowCount: async () => 0, // stand-in: the Databases lane's row count
   contentChanged: () => {}, // stand-in: emit page.updated (collab #197)
+  runRowWrites: (app, work) => app.db.transaction(work), // stand-in: runRowWrites (Databases api.ts)
+  createRow: async () => {
+    throw notYet(); // stand-in: createRow (Databases api.ts)
+  },
+  updateRows: async () => {
+    throw notYet(); // stand-in: updateRows (Databases api.ts)
+  },
+  findRowIds: async () => {
+    throw notYet(); // stand-in: findRowIds (Databases api.ts)
+  },
+  trashRows: async () => {
+    throw notYet(); // stand-in: trashRows (Databases api.ts)
+  },
+  readRow: async () => null, // stand-in: readRow (Databases api.ts)
+  recipients: async () => [], // stand-in: members, groups and roles (accounts)
+  sendNotice,
 };
 
 let bound: TemplatesCore = standIn;

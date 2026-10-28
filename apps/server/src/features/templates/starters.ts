@@ -1,14 +1,34 @@
 import type { TemplateIcon } from '@carehub/extras/templates/gallery';
 import { TEMPLATE_VARIABLE_NODE, type TemplateVariable } from '@carehub/extras/templates/content';
+import {
+  describeDatabase,
+  readableIds,
+  type StarterDatabaseBuild,
+} from '@carehub/extras/templates/databases';
+import {
+  agents,
+  coachingConversations,
+  contentCalendar,
+  eventSignUp,
+  feedbackForm,
+  projectTracker,
+  qaReviews,
+  requestForm,
+  taskBoard,
+} from '@carehub/extras/templates/starter-databases';
 
-// Care Hub's own starter templates (spec 3.1, TB-D1), written for the Customer Care team. All
-// names and sample text are fictional. More starters, with their databases, come in later PRs.
+// Care Hub's own starter templates (spec 3.1, TB-D1 and TB-17), written for the Customer Care
+// team. All names and sample text are fictional. The starters that are a database (the forms
+// too) are made with the Databases lane's createDatabase (core.ts).
 
 export interface StarterPage {
   title: string;
   icon: TemplateIcon | null;
+  /** For a database, what the preview reads (its properties, views and sample rows). */
   markdown: string;
   children?: StarterPage[];
+  /** This page is a database, made from this build. */
+  database?: StarterDatabaseBuild;
 }
 
 export interface Starter {
@@ -19,16 +39,15 @@ export interface Starter {
   page: StarterPage;
 }
 
-const emoji = (value: string): TemplateIcon => ({
-  type: 'emoji',
-  emoji: value,
-});
+const emoji = (value: string): TemplateIcon => ({ type: 'emoji', emoji: value });
 /** A variable chip, as the collab feature writes inline nodes in Markdown. */
 const chip = (kind: TemplateVariable, offsetDays = 0) =>
   `<!-- carehub:inline ${JSON.stringify({ type: TEMPLATE_VARIABLE_NODE, attrs: { kind, offsetDays } })} -->`;
 const lines = (...text: string[]) => `${text.join('\n')}\n`;
+/** A link to another page of the same starter, by its place in the tree (the top page is 0). */
+const pageLink = (key: number) => `/p/{{template-page:${key}}}`;
 
-export const STARTERS: readonly Starter[] = [
+const PAGE_STARTERS: readonly Starter[] = [
   {
     key: 'meeting-notes',
     name: 'Meeting notes',
@@ -87,7 +106,466 @@ export const STARTERS: readonly Starter[] = [
       ),
     },
   },
+  {
+    key: 'one-on-one',
+    name: '1:1 notes',
+    description: 'A shared page for regular one-on-ones between a lead and an agent.',
+    category: 'Team',
+    page: {
+      title: '1:1 notes',
+      icon: emoji('🤝'),
+      markdown: lines(
+        `**Date:** ${chip('today')}`,
+        '',
+        '## How are things going?',
+        '',
+        '- ',
+        '',
+        '## Wins since last time',
+        '',
+        '- ',
+        '',
+        '## Goals and growth',
+        '',
+        '- [ ] Shadow a senior agent on escalations',
+        '',
+        '## Next steps',
+        '',
+        '- [ ] ',
+      ),
+    },
+  },
+  {
+    key: 'shift-handover',
+    name: 'Shift handover',
+    description: 'What the next shift needs to know: open tickets, outages and follow-ups.',
+    category: 'Support',
+    page: {
+      title: 'Shift handover',
+      icon: emoji('🔁'),
+      markdown: lines(
+        `**Handed over by** ${chip('me')} · ${chip('now')}`,
+        '',
+        '## Open tickets to watch',
+        '',
+        '- [ ] Ticket 4821: refund waiting on finance',
+        '- [ ] Ticket 4830: customer asked for a call back after 3 PM',
+        '',
+        '## Known issues',
+        '',
+        '- Card payments slow for some customers since 10:15 AM (status page updated)',
+        '',
+        '## Notes for the next shift',
+        '',
+        '- ',
+      ),
+    },
+  },
+  {
+    key: 'incident-review',
+    name: 'Incident review',
+    description: 'What happened, how customers were affected, the timeline and what we’ll change.',
+    category: 'Support',
+    page: {
+      title: 'Incident review',
+      icon: emoji('🧯'),
+      markdown: lines(
+        `**Written by** ${chip('me')} · **Date:** ${chip('today')}`,
+        '',
+        '> Blameless: we look at what made the problem possible, not at who was on shift.',
+        '',
+        '## Summary',
+        '',
+        'From 10:15 to 11:40 AM, card payments failed for about 1 in 5 customers.',
+        '',
+        '## How customers were affected',
+        '',
+        '- 212 chats and emails about failed payments',
+        '- Longest chat wait: 18 minutes',
+        '',
+        '## Timeline',
+        '',
+        '- **10:15 AM** First chats about failed payments',
+        '- **10:25 AM** Status page updated and a saved reply shared with the team',
+        '- **11:40 AM** Payments working again',
+        '',
+        '## What went well',
+        '',
+        '- The saved reply was ready within 10 minutes.',
+        '',
+        '## What we’ll change',
+        '',
+        '- [ ] Add a payments check to the shift handover',
+        '- [ ] Practice the outage saved replies every quarter',
+      ),
+    },
+  },
+  {
+    key: 'project-brief',
+    name: 'Project brief',
+    description: 'The goal, scope, milestones, people and risks of a project, on one page.',
+    category: 'Projects',
+    page: {
+      title: 'Project brief',
+      icon: emoji('🎯'),
+      markdown: lines(
+        `**Owner:** ${chip('me')} · **Started:** ${chip('today')}`,
+        '',
+        '## Goal',
+        '',
+        'Cut the first reply time on chat from 4 minutes to 2 by the end of the quarter.',
+        '',
+        '## Why now',
+        '',
+        'Chats grew by a third since spring, and customers wait longest at lunchtime.',
+        '',
+        '## Scope',
+        '',
+        '- **In:** chat routing, saved replies, lunchtime cover',
+        '- **Out:** phone and email queues',
+        '',
+        '## Milestones',
+        '',
+        '- [ ] Routing rules agreed with the team leads',
+        '- [ ] Saved replies reviewed',
+        '- [ ] Two-week trial on the morning shift',
+        '',
+        '## People',
+        '',
+        '- Sponsor: Jordan Rivera',
+        '- Team: Priya Shah, Marco Bellini',
+        '',
+        '## Risks',
+        '',
+        '- The holiday rush starts halfway through the trial.',
+      ),
+    },
+  },
+  {
+    key: 'decision-record',
+    name: 'Decision record',
+    description: 'One decision, the options weighed and why, so anyone can look it up later.',
+    category: 'Projects',
+    page: {
+      title: 'Decision record',
+      icon: emoji('⚖️'),
+      markdown: lines(
+        `**Status:** Proposed · **Decided by:** ${chip('me')} · **Date:** ${chip('today')}`,
+        '',
+        '## Context',
+        '',
+        'Customers often reply to closed tickets, which puts old tickets back in the queue.',
+        '',
+        '## Options',
+        '',
+        '1. Reopen the ticket, as today',
+        '2. Start a new ticket that links to the old one',
+        '3. Reopen only within 7 days of closing',
+        '',
+        '## Decision',
+        '',
+        'Option 3: tickets reopen within 7 days; later replies start a new, linked ticket.',
+        '',
+        '## What changes',
+        '',
+        '- [ ] Update the ticket rules',
+        '- [ ] Tell the team at the weekly huddle',
+      ),
+    },
+  },
+  {
+    key: 'how-to-guide',
+    name: 'How-to guide',
+    description: 'Step-by-step instructions for one task, and what to do when it goes wrong.',
+    category: 'Knowledge',
+    page: {
+      title: 'How to refund a duplicate payment',
+      icon: emoji('📘'),
+      markdown: lines(
+        `**Written by** ${chip('me')} · **Last checked** ${chip('today')}`,
+        '',
+        '## Before you start',
+        '',
+        '- You need the Refunds role in the billing tool.',
+        '- Have the order number and the last four digits of the card ready.',
+        '',
+        '## Steps',
+        '',
+        '1. Open the order in the billing tool and check that both payments went through.',
+        '2. Choose **Refund** on the second payment and pick "Duplicate payment".',
+        '3. Add the ticket number to the note.',
+        '4. Send the customer the "Refund on its way" saved reply.',
+        '',
+        '## If something goes wrong',
+        '',
+        '- **Refund is greyed out:** the payment is still pending. Try again tomorrow.',
+        '- **The refund failed:** ask a team lead before trying again.',
+      ),
+    },
+  },
+  {
+    key: 'policy-page',
+    name: 'Policy page',
+    description: 'A policy with its purpose, who it applies to, exceptions and the next review.',
+    category: 'Knowledge',
+    page: {
+      title: 'Refund policy',
+      icon: emoji('📜'),
+      markdown: lines(
+        `**Owner:** ${chip('me')} · **In effect from:** ${chip('today')}`,
+        `**Next review:** ${chip('today', 365)}`,
+        '',
+        '## Purpose',
+        '',
+        'Customers get the same clear, fair answer about refunds, whoever they talk to.',
+        '',
+        '## Who this applies to',
+        '',
+        'Everyone who answers customers by chat, email or phone.',
+        '',
+        '## Policy',
+        '',
+        '1. Orders can be refunded in full within 30 days of delivery.',
+        '2. After 30 days, offer store credit instead.',
+        '3. Refunds over $500 need a team lead’s OK.',
+        '',
+        '## Exceptions',
+        '',
+        '- Damaged items are always refunded once the customer sends a photo.',
+      ),
+    },
+  },
+  {
+    key: 'team-wiki',
+    name: 'Team wiki',
+    description: 'A home for the team’s know-how: start here, how we work, tools and who to ask.',
+    category: 'Knowledge',
+    page: {
+      title: 'Team wiki',
+      icon: emoji('📚'),
+      markdown: lines(
+        'Everything the Customer Care team needs to know, in one place.',
+        '',
+        `- [Start here](${pageLink(1)})`,
+        `- [How we work](${pageLink(2)})`,
+        `- [Tools and access](${pageLink(3)})`,
+        `- [Who to ask](${pageLink(4)})`,
+      ),
+      children: [
+        {
+          title: 'Start here',
+          icon: emoji('👋'),
+          markdown: lines(
+            'New to the team? Read these first.',
+            '',
+            `- [ ] [How we work](${pageLink(2)}): shifts, queues and reply times`,
+            `- [ ] [Tools and access](${pageLink(3)}): what to ask for on day one`,
+          ),
+        },
+        {
+          title: 'How we work',
+          icon: emoji('🗓️'),
+          markdown: lines(
+            '## Shifts',
+            '',
+            '- Morning 7 AM–3 PM, late 1–9 PM, weekends on a rota',
+            '',
+            '## Reply times',
+            '',
+            '- Chat: within 2 minutes',
+            '- Email: within 1 business day',
+          ),
+        },
+        {
+          title: 'Tools and access',
+          icon: emoji('🧰'),
+          markdown: lines(
+            '- **Help desk:** tickets, chat and saved replies',
+            '- **Billing tool:** orders and refunds (ask for the Refunds role)',
+            '- **Status page:** what customers see during an outage',
+          ),
+        },
+        {
+          title: 'Who to ask',
+          icon: emoji('🙋'),
+          markdown: lines(
+            '- Billing questions: Priya Shah',
+            '- Shift swaps: Jordan Rivera',
+            '- Help desk problems: Marco Bellini',
+          ),
+        },
+      ],
+    },
+  },
+  {
+    key: 'new-hire-onboarding',
+    name: 'New hire onboarding',
+    description: 'A first-month checklist for a new teammate, with a page for each stage.',
+    category: 'Team',
+    page: {
+      title: 'New hire onboarding',
+      icon: emoji('🧭'),
+      markdown: lines(
+        `**Buddy:** ${chip('me')} · **Start date:** ${chip('today')}`,
+        '',
+        '## Checklist',
+        '',
+        '- [ ] Laptop, headset and accounts ready',
+        '- [ ] Meet your buddy and team lead',
+        `- [ ] [Week 1: Getting set up](${pageLink(1)})`,
+        `- [ ] [Week 2: Shadowing](${pageLink(2)})`,
+        `- [ ] [Weeks 3 and 4: On your own](${pageLink(3)})`,
+        `- [ ] 30-day check-in with your team lead, ${chip('today', 30)}`,
+      ),
+      children: [
+        {
+          title: 'Week 1: Getting set up',
+          icon: emoji('1️⃣'),
+          markdown: lines(
+            '- [ ] Sign in to the help desk and the billing tool',
+            '- [ ] Read the refund policy',
+            '- [ ] Listen in on five calls with your buddy',
+          ),
+        },
+        {
+          title: 'Week 2: Shadowing',
+          icon: emoji('2️⃣'),
+          markdown: lines(
+            '- [ ] Answer chats with your buddy watching',
+            '- [ ] Write your first saved reply',
+            '- [ ] Join the weekly huddle',
+          ),
+        },
+        {
+          title: 'Weeks 3 and 4: On your own',
+          icon: emoji('3️⃣'),
+          markdown: lines(
+            '- [ ] Take the chat queue on the morning shift',
+            '- [ ] Handle your first refund from start to finish',
+            '- [ ] Share one thing we could do better',
+          ),
+        },
+      ],
+    },
+  },
 ];
+
+/** A starter that is a database: the preview describes it, and using it makes it. */
+function databaseStarter(
+  starter: Omit<Starter, 'page'> & { title: string; icon: string },
+  build: StarterDatabaseBuild,
+): Starter {
+  const { title, icon, ...card } = starter;
+  const markdown = describeDatabase(build(readableIds));
+  return { ...card, page: { title, icon: emoji(icon), markdown, database: build } };
+}
+
+const DATABASE_STARTERS: readonly Starter[] = [
+  databaseStarter(
+    {
+      key: 'project-tracker',
+      name: 'Project tracker',
+      description: 'Projects with an owner, a priority, dates and a timeline.',
+      category: 'Projects',
+      title: 'Projects',
+      icon: '🗂️',
+    },
+    projectTracker,
+  ),
+  databaseStarter(
+    {
+      key: 'task-board',
+      name: 'Task board',
+      description: 'The team’s tasks on a board, from Not started to Done.',
+      category: 'Projects',
+      title: 'Tasks',
+      icon: '✅',
+    },
+    taskBoard,
+  ),
+  databaseStarter(
+    {
+      key: 'content-calendar',
+      name: 'Content calendar',
+      description: 'Plan help center articles, newsletters and posts on a calendar.',
+      category: 'Planning',
+      title: 'Content calendar',
+      icon: '📅',
+    },
+    contentCalendar,
+  ),
+  databaseStarter(
+    {
+      key: 'request-form',
+      name: 'Request form',
+      description:
+        'A form for access, equipment and schedule requests, with the answers in a database.',
+      category: 'Forms',
+      title: 'Requests',
+      icon: '📨',
+    },
+    requestForm,
+  ),
+  databaseStarter(
+    {
+      key: 'feedback-form',
+      name: 'Feedback form',
+      description: 'Ask the team how tools, training and schedules are working.',
+      category: 'Forms',
+      title: 'Feedback',
+      icon: '💡',
+    },
+    feedbackForm,
+  ),
+  databaseStarter(
+    {
+      key: 'event-sign-up',
+      name: 'Event sign-up',
+      description: 'Sign-ups for a training day or team event, by session.',
+      category: 'Forms',
+      title: 'Event sign-ups',
+      icon: '🎟️',
+    },
+    eventSignUp,
+  ),
+  // Customer Care starters (TB-17).
+  databaseStarter(
+    {
+      key: 'agents',
+      name: 'Agents',
+      description: 'Everyone on the team, with their team, team lead, start date and status.',
+      category: 'Support',
+      title: 'Agents',
+      icon: '🎧',
+    },
+    agents,
+  ),
+  databaseStarter(
+    {
+      key: 'qa-reviews',
+      name: 'QA reviews',
+      description: 'Score calls, chats and emails, and let each agent see their own reviews.',
+      category: 'Support',
+      title: 'QA reviews',
+      icon: '📋',
+    },
+    qaReviews,
+  ),
+  databaseStarter(
+    {
+      key: 'coaching-conversations',
+      name: 'Coaching conversations',
+      description: 'Plan coaching sessions with agents and keep track of what you agreed.',
+      category: 'Support',
+      title: 'Coaching conversations',
+      icon: '💬',
+    },
+    coachingConversations,
+  ),
+];
+
+/** Every starter, in gallery order: pages first, then databases and forms. */
+export const STARTERS: readonly Starter[] = [...PAGE_STARTERS, ...DATABASE_STARTERS];
 
 export const STARTERS_BY_KEY: ReadonlyMap<string, Starter> = new Map(
   STARTERS.map((starter) => [starter.key, starter]),

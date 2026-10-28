@@ -1,6 +1,7 @@
 // The template gallery (spec 3.1 and 5): listing, preview, Save as template, changes and starters
 // hidden by Admins. Every function checks the person's rights first.
 import { tokenizePageIds } from '@carehub/extras/templates/content';
+import { readableIds, type StarterDatabaseBuild } from '@carehub/extras/templates/databases';
 import {
   galleryCategories,
   TEMPLATE_LIMITS,
@@ -20,6 +21,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { users } from '../auth/schema';
+import { copyButtons } from './buttons';
 import { core, type CorePage, type TemplatesViewer } from './core';
 import { tplHiddenStarters, tplTemplatePages, tplTemplates, type TemplateRow } from './schema';
 import { STARTERS, STARTERS_BY_KEY, type Starter, type StarterPage } from './starters';
@@ -40,6 +42,8 @@ export interface TemplatePage {
   markdown: string;
   sourcePageId: string | null;
   rowCount: number;
+  /** A starter's database: what createDatabase makes. */
+  database?: StarterDatabaseBuild;
 }
 
 interface LoadedTemplate {
@@ -55,17 +59,18 @@ function starterPages(starter: Starter): TemplatePage[] {
   const pages: TemplatePage[] = [];
   const walk = (page: StarterPage, parentKey: number | null) => {
     const key = pages.length;
-    const { title, icon, markdown } = page;
+    const { title, icon, markdown, database } = page;
     pages.push({
       key,
       parentKey,
-      kind: 'page',
+      kind: database ? 'database' : 'page',
       isInline: false,
       title,
       icon,
       markdown,
       sourcePageId: null,
-      rowCount: 0,
+      rowCount: database ? database(readableIds).rows.length : 0,
+      ...(database ? { database } : {}),
     });
     for (const child of page.children ?? []) walk(child, key);
   };
@@ -181,6 +186,7 @@ export async function listGallery(db: Db, viewer: TemplatesViewer): Promise<Gall
     templates,
     categories: galleryCategories(templates),
     canSave: viewer.can('templates.manage'),
+    spaces: await core().spaces(db, viewer.userId, viewer.workspaceId),
   };
 }
 
@@ -341,9 +347,20 @@ export async function saveTemplate(db: Db, viewer: TemplatesViewer, input: SaveT
       })
       .returning();
     if (!saved) throw new Error('The template was not saved.');
-    await tx
-      .insert(tplTemplatePages)
-      .values(pages.map((page) => ({ ...page, templateId: saved.id })));
+    // The template keeps its own copies of the buttons on its pages.
+    const pageIds = new Set(entries.map(({ page }) => page.id.toLowerCase()));
+    const owner = { workspaceId: viewer.workspaceId, pageId: null, templateId: saved.id };
+    const rows = [];
+    for (const page of pages) {
+      const markdown = await copyButtons(
+        tx,
+        page.markdown,
+        { ...owner, by: viewer.userId },
+        { pageIds },
+      );
+      rows.push({ ...page, markdown, templateId: saved.id });
+    }
+    await tx.insert(tplTemplatePages).values(rows);
     return saved;
   });
   return workspaceCard({ template: row, byName: viewer.name }, viewer, spaceName);
