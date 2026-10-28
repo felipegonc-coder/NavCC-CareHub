@@ -40,6 +40,12 @@ const oneSchema = z.object({ reminder: reminderSchema });
 /** A new time (`at` for a page, `minutesBefore` for an event), a new note, or both. */
 export type ReminderChange = { at?: string; minutesBefore?: number; note?: string };
 
+/** When a new reminder is due: at a time (pages), or minutes before the start (events). */
+export type ReminderTime = { at: string } | { minutesBefore: number };
+
+/** POST /api/reminders: what it's for, when, and an optional note. */
+export type NewReminder = { target: Reminder['target']; note?: string } & ReminderTime;
+
 /** A pending reminder, for Home's Reminders section. */
 export interface PendingReminder {
   id: string;
@@ -95,6 +101,8 @@ export const remindersKeys = {
 
 export const remindersApi = {
   list: (signal?: AbortSignal) => api.get('/api/reminders', { schema: listSchema, signal }),
+  create: async (input: NewReminder) =>
+    (await api.post('/api/reminders', input, { schema: oneSchema })).reminder,
   update: async (id: string, change: ReminderChange) =>
     (await api.patch(`/api/reminders/${encodeURIComponent(id)}`, change, { schema: oneSchema }))
       .reminder,

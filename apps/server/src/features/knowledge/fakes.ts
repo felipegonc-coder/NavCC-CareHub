@@ -24,7 +24,8 @@ export function createFakeKnowledge(workspaceId: string = randomUUID()) {
         accessForPages: async (_db, userId, pageIds) =>
           new Map(pageIds.map((id) => [id, levels.get(id)?.get(userId) ?? 'none'])),
         getBase: async (_db, id) => bases.get(id) ?? null,
-        getRow: async (_db, id) => structuredClone(rows.get(id) ?? null),
+        getRow: async (_db, id) =>
+          archived.has(id) ? null : structuredClone(rows.get(id) ?? null),
         writeValues: async (_tx, { rowId, values }) => {
           const row = rows.get(rowId);
           if (row) row.values = { ...row.values, ...values };
@@ -32,6 +33,11 @@ export function createFakeKnowledge(workspaceId: string = randomUUID()) {
         archivePage: async (_tx, pageId) => {
           archived.add(pageId);
         },
+        listBases: async (_db, id) => [...bases.values()].filter((base) => base.workspaceId === id),
+        listRows: async (_db, databaseId) =>
+          [...rows.values()]
+            .filter((row) => row.databaseId === databaseId && !archived.has(row.id))
+            .map((row) => structuredClone(row)),
         usersWithAccess: async (_db, pageId, min) =>
           [...(levels.get(pageId) ?? new Map<string, AccessLevel>())]
             .filter(([, level]) => atLeast(level, min))

@@ -82,21 +82,23 @@ describe('counts in words', () => {
 });
 
 describe('notices', () => {
-  it('uses the spec’s words', () => {
-    expect(KB_NOTICES.summary(3, 'Support handbook')).toBe(
-      '3 pages in Support handbook need review',
-    );
-    expect(KB_NOTICES.summary(1, 'Support handbook')).toBe(
+  it('uses the spec’s words and keeps titles generic', () => {
+    expect(KB_NOTICES.summary(3, 'Support handbook')).toEqual({
+      title: 'Pages need review',
+      text: '3 pages in Support handbook need review',
+    });
+    expect(KB_NOTICES.summary(1, 'Support handbook').text).toBe(
       '1 page in Support handbook needs review',
     );
-    expect(KB_NOTICES.ownerRemoved('Riley Chen', 12, 'Support handbook')).toBe(
+    expect(KB_NOTICES.ownerRemoved('Riley Chen', 12, 'Support handbook').text).toBe(
       'Riley Chen no longer owns 12 pages in Support handbook. Pick new owners.',
     );
-    expect(KB_NOTICES.reported('Riley Chen', 'Refund policy', 'out_of_date')).toBe(
-      'Riley Chen reported a problem with Refund policy: Out of date.',
+    expect(KB_NOTICES.reported('Riley Chen', 'out_of_date').text).toBe(
+      'Riley Chen reported a problem: Out of date.',
     );
-    expect(KB_NOTICES.closed('Refund policy', 'wont_fix')).toBe(
-      "Your report on Refund policy was marked Won't fix.",
-    );
+    expect(KB_NOTICES.closed('wont_fix').text).toBe("Your report was marked Won't fix.");
+    for (const notice of [KB_NOTICES.expiredToday(), KB_NOTICES.replied('Sam Ortiz')]) {
+      expect(notice.title.length).toBeGreaterThan(0);
+    }
   });
 });
