@@ -14,6 +14,7 @@ import {
   type View,
 } from '@carehub/databases';
 import { groupMovePatch } from '@carehub/databases/group';
+import { breakpoints } from '@carehub/ui';
 import type { CellData } from '../cells';
 import {
   fileUrl,
@@ -25,6 +26,9 @@ import {
   type ViewQueryData,
 } from '../contract';
 import { moveValues } from '../shell/moves';
+
+/** Phones (below the design kit's md breakpoint): the board shows one column at a time. */
+export const PHONE = `not all and (min-width: ${breakpoints.md})`;
 
 /** Where a card sits: a column, and its lane on a board with sub-groups. */
 export interface Slot {
@@ -53,18 +57,34 @@ export function slotRows(group: QueryGroup, laneKey?: string): SlotRows {
   return group.subGroups?.find((sub) => sub.key === laneKey) ?? NO_ROWS;
 }
 
+/** Whether a group or lane is left out: "Hide empty groups" is on and it has no rows. */
+const leftOut = (group: { count: number }, grouping: Grouping | null | undefined) =>
+  grouping?.hideEmpty === true && group.count === 0;
+
+/** The groups a list or gallery shows: not hidden, and not empty with "Hide empty groups". */
+export const shownGroups = (
+  groups: readonly QueryGroup[],
+  grouping: Grouping | null | undefined,
+): QueryGroup[] => groups.filter((g) => !g.hidden && !leftOut(g, grouping));
+
 /** The columns in the view's order, and the hidden ones (listed under "Hidden groups"). */
-export function boardColumns(groups: readonly QueryGroup[] | null): {
+export function boardColumns(
+  groups: readonly QueryGroup[] | null,
+  grouping?: Grouping | null,
+): {
   shown: QueryGroup[];
   hidden: QueryGroup[];
 } {
-  const all = groups ?? [];
+  const all = (groups ?? []).filter((g) => !leftOut(g, grouping));
   return { shown: all.filter((g) => !g.hidden), hidden: all.filter((g) => g.hidden) };
 }
 
 /** The lanes shown, or null on a board without sub-groups. */
-export const boardLanes = (lanes: readonly QueryLane[] | null): QueryLane[] | null =>
-  lanes ? lanes.filter((lane) => !lane.hidden) : null;
+export const boardLanes = (
+  lanes: readonly QueryLane[] | null,
+  subGrouping?: Grouping | null,
+): QueryLane[] | null =>
+  lanes ? lanes.filter((lane) => !lane.hidden && !leftOut(lane, subGrouping)) : null;
 
 /** The grouping without one hidden group: "Show" in the Hidden groups list. */
 export function withGroupShown(grouping: Grouping, groupKey: string): Grouping {
@@ -270,7 +290,7 @@ export interface BoardGrid {
   allowed(slot: Slot): boolean;
 }
 
-const othersIn = (grid: BoardGrid, slot: Slot, rowId: Id) =>
+const othersIn = (grid: Pick<BoardGrid, 'rowsIn'>, slot: Slot, rowId: Id) =>
   grid.rowsIn(slot).filter((r) => r.id !== rowId).length;
 
 /**
@@ -309,3 +329,41 @@ function withLane(groupKey: string, laneKey: string | undefined): Slot {
 /** Whether dropping the picked card where it is now changes anything. */
 export const pickedMoved = (picked: Picked): boolean =>
   !sameSlot(picked.from, picked.to) || picked.index !== picked.fromIndex;
+
+/** What a keyboard move needs to know about a list or a gallery: its groups, top to bottom. */
+export interface LineGrid {
+  /** Group keys in order; [''] without a grouping. */
+  slots: readonly string[];
+  /** Cards on one line of the grid (1 in a list). */
+  perLine: number;
+  /** Whether ← and → move a card too (a gallery's grid). */
+  sideways: boolean;
+  rowsIn(slot: Slot): readonly QueryRow[];
+  allowed(slot: Slot): boolean;
+}
+
+/**
+ * Where an arrow key takes a picked-up card in a list or gallery: ← and → one place, ↑ and ↓ one
+ * line, then on into the group before or after that can take it. Null: no further.
+ */
+export function stepAlong(picked: Picked, arrow: Arrow, grid: LineGrid): Picked | null {
+  const { to, index, rowId } = picked;
+  const sideways = arrow === 'ArrowLeft' || arrow === 'ArrowRight';
+  if (sideways && !grid.sideways) return null;
+  const distance = sideways ? 1 : Math.max(1, grid.perLine);
+  const back = arrow === 'ArrowUp' || arrow === 'ArrowLeft';
+  const count = othersIn(grid, to, rowId);
+  if (back && index - distance >= 0) return { ...picked, index: index - distance };
+  if (!back && index + distance <= count) return { ...picked, index: index + distance };
+  const step = back ? -1 : 1;
+  for (
+    let at = grid.slots.indexOf(to.groupKey) + step;
+    at >= 0 && at < grid.slots.length;
+    at += step
+  ) {
+    const slot: Slot = { groupKey: grid.slots[at] ?? '' };
+    if (!grid.allowed(slot)) continue;
+    return { ...picked, to: slot, index: back ? othersIn(grid, slot, rowId) : 0 };
+  }
+  return null;
+}

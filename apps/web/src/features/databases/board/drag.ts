@@ -1,7 +1,7 @@
 /**
  * Dragging cards with pointer events: a mouse press that moves a few pixels picks the card up; a
  * touch picks it up after a long press (a short one scrolls the board, and a long press that
- * doesn't move opens the card's menu). Escape puts it back.
+ * doesn't move opens the card's menu). Escape puts it back. Near the board's edges it scrolls.
  */
 import {
   useEffect,
@@ -23,6 +23,10 @@ const TOUCH_SLOP = 8;
 
 /** Presses on these inside a card don't drag it (its menu button, a title being typed). */
 const NO_DRAG = 'input, textarea, [contenteditable="true"], [data-no-drag]';
+/** How near an edge of the board (or the window) a dragged card comes before it scrolls. */
+const EDGE = 48;
+/** The most it scrolls in one frame, at the edge or past it. */
+const MAX_STEP = 16;
 
 /** Where a dragged card would land. */
 export interface DropTarget {
@@ -42,9 +46,15 @@ export interface CardDrag {
   target: DropTarget | null;
 }
 
+/** How a slot lays out its cards: one under another, or in lines that wrap (a gallery). */
+export type Arrangement = 'column' | 'grid';
+
 export interface CardDragOptions {
   /** The board: its slots carry data-board-slot, data-group-key and data-lane-key. */
   root: RefObject<HTMLElement | null>;
+  /** The cards in a slot, with data-row-id. Default: articles. */
+  item?: string;
+  arrangement?: Arrangement;
   allowed(rowId: Id, from: Slot, to: Slot): boolean;
   onDrop(rowId: Id, from: Slot, target: DropTarget): void;
   /** A touch held still and let go: the card's menu. */
@@ -64,20 +74,89 @@ export function slotOf(element: HTMLElement): Slot | null {
   return laneKey === undefined ? { groupKey } : { groupKey, laneKey };
 }
 
+/** Whether the pointer is before a card: above its middle, or in a grid, on an earlier line or left of its middle. */
+function isBefore(rect: DOMRect, x: number, y: number, arrangement: Arrangement): boolean {
+  if (arrangement === 'column') return y < rect.top + rect.height / 2;
+  return y < rect.top || (y <= rect.bottom && x < rect.left + rect.width / 2);
+}
+
 /** The slot under the pointer and the card it would go before. */
-function targetAt(root: HTMLElement, rowId: Id, x: number, y: number): DropTarget | null {
+function targetAt(
+  root: HTMLElement,
+  rowId: Id,
+  x: number,
+  y: number,
+  item: string,
+  arrangement: Arrangement,
+): DropTarget | null {
   const slots = [...root.querySelectorAll<HTMLElement>('[data-board-slot]')];
   const hit = slots.find((el) => inside(el.getBoundingClientRect(), x, y));
   const slot = hit ? slotOf(hit) : null;
   if (!hit || !slot) return null;
-  const cards = [...hit.querySelectorAll<HTMLElement>('article[data-row-id]')].filter(
+  const cards = [...hit.querySelectorAll<HTMLElement>(item)].filter(
     (card) => card.dataset.rowId !== rowId,
   );
-  const before = cards.find((card) => {
-    const rect = card.getBoundingClientRect();
-    return y < rect.top + rect.height / 2;
-  });
+  const before = cards.find((card) => isBefore(card.getBoundingClientRect(), x, y, arrangement));
   return { slot, beforeRowId: before?.dataset.rowId ?? null };
+}
+
+/**
+ * How far to scroll for a pointer at `at` over a box from `start` to `end`: back near the start,
+ * on near the end, faster closer to the edge, and nothing in between.
+ */
+export function edgeStep(at: number, start: number, end: number): number {
+  const edge = Math.min(EDGE, (end - start) / 4);
+  if (edge <= 0) return 0;
+  const step = (depth: number) => Math.ceil(MAX_STEP * Math.min(1, depth / edge));
+  if (at < start + edge) return -step(start + edge - at);
+  if (at > end - edge) return step(at - (end - edge));
+  return 0;
+}
+
+const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
+
+/** What scrolls up and down around the board: the nearest scrolling box, or the page. */
+function verticalScroller(board: HTMLElement): HTMLElement | null {
+  for (let el: HTMLElement | null = board; el; el = el.parentElement) {
+    if (el.scrollHeight > el.clientHeight && scrolls(getComputedStyle(el).overflowY)) return el;
+  }
+  const page = document.scrollingElement;
+  return page instanceof HTMLElement && page.scrollHeight > page.clientHeight ? page : null;
+}
+
+/**
+ * Scrolls the board sideways, and what holds it up and down, while the pointer is near their
+ * edges. True when anything moved (the card is then over something else).
+ */
+export function scrollNear(board: HTMLElement, x: number, y: number): boolean {
+  let moved = false;
+  const by = (el: HTMLElement, axis: 'scrollLeft' | 'scrollTop', step: number) => {
+    if (step === 0) return;
+    const was = el[axis];
+    el[axis] = was + step;
+    if (el[axis] !== was) moved = true;
+  };
+  if (board.scrollWidth > board.clientWidth) {
+    const rect = board.getBoundingClientRect();
+    by(board, 'scrollLeft', edgeStep(x, rect.left, rect.right));
+  }
+  const scroller = verticalScroller(board);
+  if (scroller) {
+    const page = scroller === document.scrollingElement;
+    const rect = page ? { top: 0, bottom: window.innerHeight } : scroller.getBoundingClientRect();
+    by(scroller, 'scrollTop', edgeStep(y, rect.top, rect.bottom));
+  }
+  return moved;
+}
+
+/** Runs `run` at the next frame; returns how to call it off. */
+function nextFrame(run: () => void): () => void {
+  if (typeof window.requestAnimationFrame === 'function') {
+    const id = window.requestAnimationFrame(run);
+    return () => window.cancelAnimationFrame(id);
+  }
+  const id = window.setTimeout(run, 16);
+  return () => window.clearTimeout(id);
 }
 
 export function useCardDrag(options: CardDragOptions) {
@@ -114,19 +193,32 @@ export function useCardDrag(options: CardDragOptions) {
     let held = !touch;
     let current: CardDrag | null = null;
     let timer: number | undefined;
+    let stopScrolling: (() => void) | null = null;
     // A mouse press doesn't select text on its way to a drag.
     if (!touch) event.preventDefault();
 
     const follow = (x: number, y: number) => {
       if (!current) return;
-      const root = latest.current.root.current;
-      let target = root ? targetAt(root, rowId, x, y) : null;
+      const { root: board, item = 'article[data-row-id]', arrangement = 'column' } = latest.current;
+      const root = board.current;
+      let target = root ? targetAt(root, rowId, x, y, item, arrangement) : null;
       if (target && !latest.current.allowed(rowId, from, target.slot)) target = null;
       current = { ...current, x, y, target };
       setDrag(current);
     };
+    // Near an edge, the board scrolls a little every frame while the card is held there.
+    const autoScroll = () => {
+      stopScrolling = nextFrame(() => {
+        const board = latest.current.root.current;
+        if (!current || !board) return;
+        if (scrollNear(board, current.x, current.y)) follow(current.x, current.y);
+        autoScroll();
+      });
+    };
     const finish = (drop: boolean) => {
       window.clearTimeout(timer);
+      stopScrolling?.();
+      stopScrolling = null;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
@@ -163,6 +255,7 @@ export function useCardDrag(options: CardDragOptions) {
       };
       latest.current.onStart?.();
       follow(e.clientX, e.clientY);
+      autoScroll();
     };
     const up = () => {
       if (touch && held && !current) {
