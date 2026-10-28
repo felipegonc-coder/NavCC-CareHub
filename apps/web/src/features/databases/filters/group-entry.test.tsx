@@ -1,11 +1,13 @@
 import { EMPTY_GROUP } from '@carehub/databases';
 import { fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { jobsDatabase, PROPS, testViewer, VIEWS } from '../fixtures';
+import type { ViewData } from '../contract';
+import { jobsDatabase, PROPS, queryData, testViewer, viewData, VIEWS } from '../fixtures';
 import { mockActions, renderWithDatabase } from '../test-utils';
 import GroupEntry from './group-entry';
 
-function show(data?: Parameters<typeof GroupEntry>[0]['data']) {
+/** The Group panel as the shell draws it; `data`: the view's answer, once it has loaded. */
+function show(data?: ViewData) {
   const meta = jobsDatabase();
   const view = meta.views.find((v) => v.id === VIEWS.board);
   if (!view) throw new Error('No view');
@@ -20,7 +22,7 @@ function show(data?: Parameters<typeof GroupEntry>[0]['data']) {
       actions={actions}
       canEditViews
       close={vi.fn<() => void>()}
-      data={data}
+      {...(data && { data, propertyIds: data.propertyIds, rowTitles: data.rowTitles })}
     />,
   );
   return actions;
@@ -45,12 +47,14 @@ describe('Group panel in the shell', () => {
       rows: [],
       nextCursor: null,
     });
-    show({
-      propertyIds: [PROPS.name, PROPS.status, PROPS.priority],
-      rowTitles: {},
-      groups: [column(EMPTY_GROUP, 'No value'), column('opt-later', 'Waiting on parts')],
-      lanes: null,
-    });
+    show(
+      viewData(
+        queryData([], {
+          propertyIds: [PROPS.name, PROPS.status, PROPS.priority],
+          groups: [column(EMPTY_GROUP, 'No value'), column('opt-later', 'Waiting on parts')],
+        }),
+      ),
+    );
     const columns = within(screen.getByRole('list', { name: 'Groups' })).getAllByRole('listitem');
     expect(columns.map((li) => li.textContent)).toEqual(['No value', 'Waiting on parts']);
     const subGroupBy = screen.getByRole('combobox', { name: 'Sub-group by' });
