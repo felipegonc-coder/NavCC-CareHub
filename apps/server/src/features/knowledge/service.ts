@@ -228,13 +228,24 @@ export async function pageInfo(db: Db, user: CurrentUser, pageId: string): Promi
   };
 }
 
+export interface VerifyOptions {
+  /** The test hook (CAREHUB_TEST_HOOKS=1 only): "until a date" may also be today or earlier. */
+  pastDates?: boolean;
+}
+
 /** Verify for a period or until a date, counted in the first owner's time zone (KB-05). */
-export async function verifyPage(db: Db, user: CurrentUser, pageId: string, input: VerifyInput) {
+export async function verifyPage(
+  db: Db,
+  user: CurrentUser,
+  pageId: string,
+  input: VerifyInput,
+  { pastDates = false }: VerifyOptions = {},
+) {
   const { row } = await openPage(db, user.id, pageId, canVerify);
   const now = new Date();
   const today = todayIn(await ownerTimeZone(db, stateOf(row).owners), now);
   const until = input.period === 'date' ? (input.until ?? null) : untilFor(input.period, today);
-  if (input.period === 'date' && (!until || !isAllowedUntil(until, today))) {
+  if (input.period === 'date' && (!until || !isAllowedUntil(until, today, { pastDates }))) {
     throw httpError(400, 'invalid', 'Pick a date after today, up to ten years ahead.');
   }
   const value = newVerification(user.id, now, until);

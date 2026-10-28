@@ -43,7 +43,12 @@ _Filled in by the import and export PRs._
 
 ## Knowledge base
 
-_Filled in by the knowledge base PRs._
+How the knowledge base works: [the spec](../plan/specs/knowledge-base.md). Its server stand-ins deny by default until the page model and wiki databases are on main, so leave `knowledgeBase` off in `tests/e2e/flows/_support/features.ts` until then.
+
+- **Verify:** `POST /api/knowledge/pages/:pageId/verification` with `{ period }` (`1w`, `30d`, `90d`, `6m`, `1y` or `none`) or `{ period: 'date', until: 'YYYY-MM-DD' }` answers the page's knowledge base info, with `verification: { state, verifiedBy: { id, name }, verifiedAt, until }`. Only the page's owners and people with Full access on the knowledge base can verify; anyone else gets 403. `DELETE` on the same path removes the verification.
+- **Dates:** "until" is a day in the first owner's time zone. Normally it must be after today and at most ten years ahead, or the answer is 400 "Pick a date after today, up to ten years ahead."
+- **Test hook, past dates:** only when the server runs with `CAREHUB_TEST_HOOKS=1` (browser-test servers, never production), `{ period: 'date', until }` also takes today and earlier days, so a test can make a page Expired without waiting for a real until date. Everything else stays the same: sign-in, CSRF, who may verify, the date format and the ten-year limit. The server logs a warning at start-up when the hook is on.
+- **Expiry:** a task that runs every minute (`knowledge.expiry`, from the knowledge base expiry PR) turns a verified page Expired once 9:00 AM has passed on its until day in the first owner's time zone. Then the badge turns orange, readers see "Verification expired on …", owners and editors see "Due for review since … · Review now", and the owners get the 🔔 notice for that day. For an Expired page at once, verify until yesterday, then wait up to 2 minutes, opening the page again until the banner shows. A page verified until today expires only after 9:00 AM in the owner's time zone.
 
 ## Claude
 
