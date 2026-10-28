@@ -36,6 +36,8 @@ export interface ResultBoxProps {
   canReplace: boolean;
   /** Those words changed while Claude was writing. */
   changed: boolean;
+  /** Why the answer didn't go in, under it. */
+  notice?: string | null;
   onStop: () => void;
   onReplace: () => void;
   onInsertBelow: () => void;
@@ -48,6 +50,7 @@ export function ResultBox({
   result,
   canReplace,
   changed,
+  notice = null,
   onStop,
   onReplace,
   onInsertBelow,
@@ -112,6 +115,7 @@ export function ResultBox({
             <Preview blocks={result.answer} />
           </div>
           {canReplace && changed && <p className="text-small text-muted">{CHANGED_NOTE}</p>}
+          {notice && <p className="text-small text-fg">{notice}</p>}
           <div className="flex flex-wrap gap-2">
             {showReplace && (
               <Button ref={first} size="sm" onClick={onReplace}>

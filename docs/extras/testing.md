@@ -64,14 +64,23 @@ The tests never reach Claude. The server is pointed at a local stub:
 
 The two environment lines go in the browser-test workflow (`.github/`), on the e2e server step only, with the fictional key.
 
-### Writing help (CL-06 to CL-08)
+### Writing help (Ask Claude)
 
-- `POST /api/claude/write` with `{ pageId, action, tone?, selection, at?, prompt? }` answers `{ text }` in Markdown.
-  - Actions: `improve`, `fix_grammar`, `change_tone` (with `tone`: `professional`, `friendly`, `direct` or `empathetic`), `make_shorter`, `simplify`, `continue`, `summarize` and `draft` (with `prompt`).
-  - `at` is where the selection starts in the page's text, so the server picks the right one when the words appear twice.
-- What reaches the stub (CL-07):
-  - The selection; for `continue`, the last 4,000 characters above the cursor.
-  - The page title, with up to 2,000 characters of the page's text on each side of the selection, which the server reads itself.
-  - For `summarize` with nothing selected, the whole page up to 40,000 characters; for `draft`, only the title and what was typed.
-- Refusals: 403 without Use Claude or Can edit, 413 over 10,000 selected characters, and Claude's own reasons with `error.details.reason` ([claude.md](claude.md)).
-- `POST /api/claude/write/applied` with `{ pageId, action, placement }` follows Replace or Insert below. Page history reads its `claude.write.applied` event to show "(with Claude)".
+- **Turning it on:** an Admin ticks "Approved for this workspace" and switches on "Writing help in pages" in Settings → Claude (`/settings/claude`). Within 5 seconds the entry points appear for people with Use Claude who can edit the page; with the switch off there are none (CL-01, CL-04, CL-05).
+- **Entry points, in a page (`/p/<id>`):** the "Ask Claude" button in the selection toolbar, "Ask Claude" in the "/" menu (under Actions), and Ctrl+J (⌘J on a Mac).
+- **The menu:** a dialog named "Ask Claude" holding a menu named "Ask Claude".
+  - Menu items: "Improve writing", "Fix grammar", "Change tone", "Make shorter", "Simplify", "Continue writing", "Summarize", "Draft".
+  - "Change tone" opens a menu named "Change tone": "Professional", "Friendly", "Direct", "Empathetic".
+  - "Draft" shows the textbox "What should Claude write?" with the buttons "Write" and "Back". Enter sends.
+  - The rewriting actions on an empty line say "Select some text first."
+- **The result box**, in the same dialog:
+  - First "Claude is writing…" with the button "Stop".
+  - Then the region "Claude's answer" with the buttons "Replace", "Insert below", "Try again" and "Discard". Draft and Continue writing have no Replace.
+  - If the selected words change meanwhile, Replace is gone and "The text changed while Claude was writing." shows (CL-08).
+  - Screen readers hear it through the page's `status` region: "Claude is writing", then the answer.
+- **Nothing changes until Replace or Insert below (CL-06):** Stop, Discard and Esc leave the page as it was. After Replace or Insert below, one Ctrl+Z (⌘Z) undoes it.
+- **Errors (CL-16, CL-17):** a selection containing `STUB-429` or `STUB-500` shows "Claude isn't available right now." with "Try again". `STUB-SLOW` shows the same after 60 seconds at most. Over 10,000 selected characters: "Select less text. Claude can work on up to 10,000 characters at a time."
+- **Endpoints (under `/api/claude`, Use Claude and Can edit on the page, else 403 "You don't have access to this."):**
+  - `POST /write` with `{ pageId, action, tone?, selection, at?, prompt? }` answers `{ text }` (Markdown).
+  - `POST /write/applied` with `{ pageId, action, placement }` answers 204, for page history's "(with Claude)".
+- **Screens:** none in `tests/e2e/extras/screens.ts` yet. Writing help can only be on once the stub's environment lines are in the browser-test workflow.
