@@ -1,25 +1,25 @@
 # Databases and Forms: additions
 
-Approved by Felipe on Oct 26, 2026. Updated Oct 27 for the v2 specs.
+Approved on Oct 26, 2026. Updated Oct 27 for the v2 specs.
 
-**The specs win.** The v2 specs written on Oct 26 cover most of this page and win wherever they differ: [Databases](https://app.notion.com/p/fe27d484cabc4a74ae11028f8d43465f), [Formulas](https://app.notion.com/p/79b23fda5f624034a964c8df4ca2ff86), [Forms](https://app.notion.com/p/6640881fdf6d41c390c8576c2c971b1d), [Roles and permissions](https://app.notion.com/p/d2e6352004d64a9b93a0b3ee29ee4259) and [Templates and buttons](https://app.notion.com/p/53b55b188e7c49e19a3d43e383e01eb6). This page keeps only lane details the specs don't give. Shapes are in `packages/databases/src/types.ts`.
+**The specs win.** The v2 specs written on Oct 26 cover most of this page and win wherever they differ: Databases and Forms (in Notion; see the [specs index](../plan/specs/README.md)), [Formulas](../plan/specs/formulas.md), [Roles and permissions](../plan/specs/roles-and-permissions.md) and [Templates and buttons](../plan/specs/templates-and-buttons.md). This page keeps only lane details the specs don't give. Shapes are in `packages/databases/src/types.ts`.
 
-## 1. Felipe's decisions
+## 1. Decisions
 
-| Decision                                                         | Answer                                                | What it means                                                                                                                         |
-| ---------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| DB-D1 Formulas, rollups, column totals                           | Now                                                   | Sections 2–4                                                                                                                          |
-| DB-D2 Row-level access                                           | Now                                                   | Section 7                                                                                                                             |
-| DB-D3 Import updates rows with the same Name                     | No, add only                                          | As the spec says                                                                                                                      |
-| DB-D4 Notices when added to a Person property                    | Yes                                                   | On for new Person properties. A bulk change sends one notice per person; imports send none; only people who can open the row are told |
-| FM-D1 Anonymous form responses                                   | Yes                                                   | A setting per form, off by default. Section 8                                                                                         |
-| DB-D5 Map view and Place property                                | Later (default, waiting for Felipe)                   | Not in the type or layout menus                                                                                                       |
-| DB-D6 Several data sources in one database                       | Later (default, waiting for Felipe)                   | One table of rows per database                                                                                                        |
-| FM-D2 Forms anyone on the network can fill in without signing in | Allowed per form, off by default (waiting for Felipe) | Always anonymous; no Person or Relation questions; 30 responses a minute per form                                                     |
+| Decision                                                         | Answer                                             | What it means                                                                                                                         |
+| ---------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| DB-D1 Formulas, rollups, column totals                           | Now                                                | Sections 2–4                                                                                                                          |
+| DB-D2 Row-level access                                           | Now                                                | Section 7                                                                                                                             |
+| DB-D3 Import updates rows with the same Name                     | No, add only                                       | As the spec says                                                                                                                      |
+| DB-D4 Notices when added to a Person property                    | Yes                                                | On for new Person properties. A bulk change sends one notice per person; imports send none; only people who can open the row are told |
+| FM-D1 Anonymous form responses                                   | Yes                                                | A setting per form, off by default. Section 8                                                                                         |
+| DB-D5 Map view and Place property                                | Later (default, not decided yet)                   | Not in the type or layout menus                                                                                                       |
+| DB-D6 Several data sources in one database                       | Later (default, not decided yet)                   | One table of rows per database                                                                                                        |
+| FM-D2 Forms anyone on the network can fill in without signing in | Allowed per form, off by default (not decided yet) | Always anonymous; no Person or Relation questions; 30 responses a minute per form                                                     |
 
 ## 2. Formulas
 
-**The [Formulas spec](https://app.notion.com/p/79b23fda5f624034a964c8df4ca2ff86) replaces this section** for syntax, types, functions, messages, limits and loops. Kept here: storage, and how patterns run safely.
+**The [Formulas spec](../plan/specs/formulas.md) replaces this section** for syntax, types, functions, messages, limits and loops. Kept here: storage, and how patterns run safely.
 
 **Patterns (security #13).** `test`, `match`, `replace` and `replaceAll` never run JavaScript `RegExp` on a typed pattern. They use the RE2 engine (`re2js`, linear time), patterns up to 200 characters, text up to 10,000 characters, inside the 50 ms per-row limit ("⚠ Pattern too slow").
 
@@ -123,7 +123,7 @@ Approved by Felipe on Oct 26, 2026. Updated Oct 27 for the v2 specs.
 - Content and values are copied when the row is made; editing a template later doesn't change existing rows.
 - Templates never show up as rows: not in views, search, counts, totals, rollups, charts, relation pickers, exports, the calendar API or forms. Form responses and CSV imports don't use templates.
 - Managing templates needs Can edit and Lock structure off; using them needs Can edit content. Up to 50 per database. Duplicating a database copies its templates.
-- Repeating templates, "Today + 3 days", "This page", and applying a template to an existing row: the [Templates and buttons spec](https://app.notion.com/p/53b55b188e7c49e19a3d43e383e01eb6).
+- Repeating templates, "Today + 3 days", "This page", and applying a template to an existing row: the [Templates and buttons spec](../plan/specs/templates-and-buttons.md).
 
 ## 7. Row-level access (DB-D2)
 
@@ -138,7 +138,7 @@ Approved by Felipe on Oct 26, 2026. Updated Oct 27 for the v2 specs.
 
 ## 8. Anonymous form responses (FM-D1)
 
-The [Forms spec](https://app.notion.com/p/6640881fdf6d41c390c8576c2c971b1d) replaces this section. In short:
+The Forms spec (in Notion) replaces this section. In short:
 
 - Changing Anonymous responses, Who can respond or closing needs Full access.
 - Nothing about the sender is stored anywhere: no Created by, no respondents list, no view, no log of the answers. The rate limit is counted in memory.

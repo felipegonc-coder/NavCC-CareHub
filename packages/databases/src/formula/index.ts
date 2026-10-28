@@ -34,6 +34,7 @@ export {
   listFunctions,
   listType,
   spendText,
+  textLeft,
   typeName,
   unify,
 } from './registry';
@@ -42,23 +43,38 @@ export type {
   FormulaBudget,
   FormulaContext,
   FormulaError,
+  FormulaInput,
   FormulaSchema,
   FormulaType,
   FunctionDef,
   FunctionInfo,
   FunctionKind,
   PatternEngine,
+  PatternLimits,
   PatternResult,
   Signature,
   TypePattern,
 } from './registry';
+export {
+  MAX_PATTERN_COPIES,
+  MAX_PATTERN_LENGTH,
+  MAX_PATTERN_PROGRAM,
+  MAX_PATTERN_WORK,
+  PATTERNS,
+  PATTERN_CACHE_SIZE,
+  PATTERN_CALL_MS,
+  PATTERN_MESSAGES,
+  PATTERN_TEXT_LENGTH,
+  createPatternEngine,
+} from './patterns';
+export type { CachedPatternEngine } from './patterns';
 export { parseFormula } from './parser';
 export type { Node, ParseResult } from './parser';
-export { LENGTH_MESSAGE, RELATION_DEPTH, TEXT_AND_NUMBER, checkFormula } from './check';
+export { LENGTH_MESSAGE, RELATION_DEPTH, TEXT_AND_NUMBER, checkFormula, findByName } from './check';
 export { basicSchema, defaultKindOf, fromComputedKind, propertyType, resultKindOf } from './kinds';
-export type { CheckMode, CheckResult } from './check';
+export type { CheckMode, CheckResult, PropertyRef } from './check';
 export { FORMULA_BROKE, compileFormula, readProperty } from './evaluate';
-export type { CompileResult, CompiledFormula } from './evaluate';
+export type { CompileResult, CompiledFormula, FormulaInputs } from './evaluate';
 export {
   CHAIN_MESSAGE,
   LOOP_MESSAGE,
@@ -71,3 +87,53 @@ export {
   toStoredFormula,
 } from './names';
 export type { ComputedNode, FormulaDependencies, StoredFormula } from './names';
+export {
+  BUTTON_INPUT_IDS,
+  BUTTON_INPUT_NAMES,
+  buttonEvaluator,
+  buttonFormulaReads,
+  buttonFormulas,
+  buttonInputValues,
+  usedTooSoon,
+} from './button-inputs';
+export type {
+  ButtonFormulas,
+  ButtonPress,
+  ButtonRowDatabase,
+  ButtonVariable,
+} from './button-inputs';
+export {
+  EDITOR_MESSAGES,
+  PHONE_KEYS,
+  announcement,
+  applyInsert,
+  editorKey,
+  editorState,
+  formulaChips,
+  functionGroups,
+  functionInsert,
+  highlightFormula,
+  hoverAt,
+  lineAndColumn,
+  lineCount,
+  matchBracket,
+  propertyList,
+  resultLabel,
+  suggestAt,
+} from './editor';
+export type {
+  EditorKey,
+  EditorPreview,
+  FormulaChip,
+  FormulaEditorState,
+  FormulaHover,
+  FormulaSuggestion,
+  FunctionGroup,
+  HighlightKind,
+  HighlightToken,
+  KeyPress,
+  ProblemPlace,
+  PropertyKind,
+  PropertyListItem,
+  SuggestionList,
+} from './editor';

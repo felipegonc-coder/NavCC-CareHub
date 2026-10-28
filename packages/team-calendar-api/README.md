@@ -31,6 +31,9 @@ checks requests with them; the web app reads responses with them. All routes are
 | `POST /duplicate`            | `duplicateSchema`                                                                            | 201 `eventResponseSchema` |
 | `PUT /events/:eventId/reply` | `replyBodySchema`                                                                            | 204                       |
 | `PATCH /rows/:rowId`         | `rowDatePatchSchema`                                                                         | 204                       |
+| `GET /settings`              |                                                                                              | `settingsResponseSchema`  |
+| `PATCH /settings`            | `settingsPatchSchema`: only the changed settings                                             | `settingsResponseSchema`  |
+| `GET /upcoming`              | `upcomingQuerySchema`: `limit` (1 to 10, default 6)                                          | `upcomingResponseSchema`  |
 
 - **Items** come from every layer, on or off, each with its `layerId`, so a layer switch needs no
   request. `source` tells the kind: `event` (Care Hub, on My events or Meetings), `synced`
@@ -46,6 +49,12 @@ checks requests with them; the web app reads responses with them. All routes are
   up to 200 characters.
 - **Duplicate** makes a Care Hub copy at the same time, and from a series, the series from the
   chosen occurrence's date. People get a new invite; replies and notes stay behind.
+- **Settings** are each person's own, with `DEFAULT_SETTINGS` for anything never changed. Week
+  start and 24-hour time aren't here: they're profile settings (`user.weekStart`, `user.use24h`).
+- **Upcoming** (Home and the sidebar): items under way or starting by the end of tomorrow in the
+  viewer's zone, from layers that are on, soonest first; no rows, courses or declined events.
+  `isJoinable(item, now)` says when to show Join (from 10 minutes before the start until the
+  end), and `eventHref(eventId, occurrence?)` makes the link that opens it in Calendar.
 - **Errors:** 400 `invalid` (with details), 403 `forbidden` for any change to a synced event or
   to a meeting someone else organizes, 404 `not_found`, 409 `conflict` when the occurrence no
   longer exists ("Reload and try again").

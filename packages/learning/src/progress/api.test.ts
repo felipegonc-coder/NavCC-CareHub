@@ -80,6 +80,16 @@ describe('LearnerCourseStateSchema', () => {
     expect(LearnerCourseStateSchema.parse(sent)).toEqual(sent);
   });
 
+  it("takes a submitted attempt's right answers (0316)", () => {
+    const state = reduceProgress(course, partway().events);
+    const [quiz] = state.quizzes;
+    const [attempt] = quiz?.attempts ?? [];
+    if (!quiz || !attempt) throw new Error('Expected a submitted attempt.');
+    const answered = { ...quiz, attempts: [{ ...attempt, answers: attempt.responses }] };
+    const sent = overTheWire({ ...state, quizzes: [answered] });
+    expect(LearnerCourseStateSchema.parse(sent)).toEqual(sent);
+  });
+
   it('refuses a state with an unknown status or extra fields', () => {
     const sent = overTheWire(reduceProgress(course, partway().events)) as Record<string, unknown>;
     expect(LearnerCourseStateSchema.safeParse({ ...sent, status: 'done' }).success).toBe(false);

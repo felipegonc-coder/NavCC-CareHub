@@ -4,6 +4,8 @@ import type {
   NoticeCard,
   NoticeCardView,
   NoticeKind,
+  NoticeLinkButton,
+  NoticeSummary,
   NoticeView,
   PageIcon,
 } from '../types';
@@ -20,7 +22,10 @@ export interface NoticeRecord {
   icon: string | null;
   title: string;
   text: string | null;
+  /** The first card. */
   card: NoticeCard | null;
+  /** The second and third cards, in order. */
+  extraCards: NoticeCard[];
   buttons: NoticeButton[];
   groupKey: string | null;
   count: number;
@@ -39,10 +44,8 @@ export interface PageCardInfo {
 /** What a reader who can open the event sees on its card (from the Calendar feature). */
 export interface EventCardInfo {
   title: string;
-  /** ISO instant, or `YYYY-MM-DD` when `allDay`. */
-  start: string;
-  end: string | null;
-  allDay: boolean;
+  /** When it happens, worded for this reader, such as "Tue, Oct 28 · 3:00 PM". */
+  when: string | null;
   href: string;
 }
 
@@ -62,21 +65,37 @@ export interface EventCardRef {
   occurrenceStart: string | null;
 }
 
-/** Event IDs never contain '|', so this can't mix up an event with another's occurrence. */
+/**
+ * `<eventId>|<occurrenceStart>`, or `<eventId>|` for the whole event. Event IDs never contain
+ * '|', so one event's key can't be mistaken for another's.
+ */
 export function eventCardKey(card: { eventId: string; occurrenceStart?: string | null }): string {
-  return card.occurrenceStart ? `${card.eventId}|${card.occurrenceStart}` : card.eventId;
+  return `${card.eventId}|${card.occurrenceStart ?? ''}`;
+}
+
+type PageCard = Extract<NoticeCard, { type: 'page' }>;
+
+/** Where a notice keeps its cards: the first one, then the rest. */
+interface NoticeCards {
+  card: NoticeCard | null;
+  extraCards?: readonly NoticeCard[];
+}
+
+/** A notice's cards, in order. */
+function noticeCards({ card, extraCards = [] }: NoticeCards): NoticeCard[] {
+  return card ? [card, ...extraCards] : [...extraCards];
 }
 
 /** The pages and events these notices' cards point at, each once. */
-export function collectCardRefs(records: readonly { card: NoticeCard | null }[]): {
+export function collectCardRefs(records: readonly NoticeCards[]): {
   pageIds: string[];
   events: EventCardRef[];
 } {
   const pageIds = new Set<string>();
   const events = new Map<string, EventCardRef>();
-  for (const { card } of records) {
-    if (card?.type === 'page') pageIds.add(card.pageId);
-    if (card?.type === 'event') {
+  for (const card of records.flatMap(noticeCards)) {
+    if (card.type === 'page') pageIds.add(card.pageId);
+    else {
       events.set(eventCardKey(card), {
         eventId: card.eventId,
         occurrenceStart: card.occurrenceStart ?? null,
@@ -116,9 +135,7 @@ export function viewCard(card: NoticeCard | null, lookups: CardLookups): NoticeC
     occurrenceStart: card.occurrenceStart ?? null,
     href: event.href,
     title: event.title,
-    start: event.start,
-    end: event.end,
-    allDay: event.allDay,
+    when: event.when,
   };
 }
 
@@ -136,6 +153,7 @@ export function viewButtons(buttons: readonly NoticeButton[]): NoticeButtonView[
 }
 
 export function toNoticeView(record: NoticeRecord, lookups: CardLookups): NoticeView {
+  const cards = noticeCards(record).flatMap((card) => viewCard(card, lookups) ?? []);
   return {
     id: record.id,
     position: record.position,
@@ -145,7 +163,8 @@ export function toNoticeView(record: NoticeRecord, lookups: CardLookups): Notice
     icon: record.icon,
     title: record.title,
     text: record.text,
-    card: viewCard(record.card, lookups),
+    card: cards[0] ?? null,
+    cards,
     buttons: viewButtons(record.buttons),
     count: record.count,
     createdAt: record.createdAt.toISOString(),
@@ -163,4 +182,34 @@ export function isNoticeOwner(
   reader: { workspaceId: string; userId: string },
 ): boolean {
   return notice.userId === reader.userId && notice.workspaceId === reader.workspaceId;
+}
+
+/** The 🔔 Care Hub chat in the web app (Messages). */
+export const NOTICES_CHAT_PATH = '/messages/care-hub';
+
+/**
+ * Where opening a notice goes: its first link button, else its first page card's page, else the
+ * chat.
+ */
+export function noticeLink(notice: NoticeCards & { buttons: readonly NoticeButton[] }): string {
+  const link = notice.buttons.find((button): button is NoticeLinkButton => 'href' in button);
+  if (link) return link.href;
+  const page = noticeCards(notice).find((card): card is PageCard => card.type === 'page');
+  return page ? pageHref(page.pageId) : NOTICES_CHAT_PATH;
+}
+
+/** What `getNotice` returns: never a card's title, and no action names. */
+export function toNoticeSummary(record: NoticeRecord): NoticeSummary {
+  return {
+    id: record.id,
+    workspaceId: record.workspaceId,
+    userId: record.userId,
+    kind: record.kind,
+    title: record.title,
+    text: record.text,
+    senderName: record.sender,
+    link: noticeLink(record),
+    createdAt: record.createdAt,
+    latestAt: record.latestAt,
+  };
 }

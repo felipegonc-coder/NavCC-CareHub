@@ -7,7 +7,17 @@ import {
 } from '@carehub/learning';
 import { describe, expect, it } from 'vitest';
 import { inOrder, learner } from '../player/test-utils';
-import { almostDoneLine, courseFacts, hasStarted, signOff, startAction, statusLine } from './start';
+import {
+  RESUME_STATE,
+  almostDoneLine,
+  courseFacts,
+  hasStarted,
+  resumeHref,
+  signOff,
+  startAction,
+  statusLine,
+  wantsResume,
+} from './start';
 
 const locked = { status: 'locked' } as const;
 const fresh: LearnerCourseState = {
@@ -62,6 +72,38 @@ describe('startAction', () => {
   it('has no button for a course without lessons', () => {
     const empty = { ...inOrder, lessons: [] };
     expect(action(fresh, empty)).toBeNull();
+  });
+});
+
+describe('resumeHref', () => {
+  const resume = (state: LearnerCourseState) =>
+    resumeHref(inOrder, state, courseOutline(inOrder, state));
+
+  it('is where the learner stopped while they are part way through', () => {
+    const state = {
+      ...learner(inOrder, { 'calls-before': { status: 'completed' } }),
+      resume: { lessonId: 'calls-during', blockId: 'calls-during-check' },
+    };
+    expect(resume(state)).toBe(lessonHref(inOrder.id, 'calls-during', 'calls-during-check'));
+  });
+
+  it('is null before the learner begins, and once the course or every lesson is done', () => {
+    const allDone = learner(inOrder, {
+      'calls-before': { status: 'completed' },
+      'calls-during': { status: 'completed' },
+      'calls-after': { status: 'completed' },
+      'calls-quiz': { status: 'completed' },
+    });
+    expect(resume(fresh)).toBeNull();
+    expect(resume({ ...fresh, status: 'failed' })).toBeNull();
+    expect(resume({ ...allDone, resume: { lessonId: 'calls-after' } })).toBeNull();
+  });
+
+  it('is asked for only with the resume state', () => {
+    expect(wantsResume(RESUME_STATE)).toBe(true);
+    for (const other of [null, undefined, 'resume', { resume: 'true' }, {}]) {
+      expect(wantsResume(other)).toBe(false);
+    }
   });
 });
 

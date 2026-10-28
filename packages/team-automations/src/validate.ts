@@ -123,6 +123,16 @@ export const automationChanges = z.object({
   actions: settings.actions.optional(),
 });
 
+/** GET /api/automations: the list's filters, from the query string. */
+export const automationListQuery = z.object({
+  databaseId: ref.optional(),
+  ownerUserId: z.guid().optional(),
+  enabled: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
+});
+
 export interface Problem {
   path: (string | number)[];
   message: string;
