@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
-import { fillForm, mockFormsClient, renderFormPage, stubResizeObserver } from './test-utils';
+import { fillForm, IDS, mockFormsClient, renderFormPage, stubResizeObserver } from './test-utils';
 
 const unauthorized = () => new ApiError(401, 'unauthorized', 'Sign in to continue.');
+const NOT_RECORDED = "Your name isn't recorded with this form.";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -39,6 +40,37 @@ describe('FormPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send request' }));
     await waitFor(() => expect(client.submitPublicResponse).toHaveBeenCalledTimes(1));
     expect(client.submitResponse).not.toHaveBeenCalled();
+  });
+
+  it('reloads a form that stopped being anonymous, keeping the answers', async () => {
+    const client = mockFormsClient();
+    client.getForm
+      .mockResolvedValueOnce(fillForm({ anonymous: true }))
+      .mockResolvedValue(fillForm({ anonymous: false }));
+    client.submitResponse.mockRejectedValueOnce(
+      new ApiError(409, 'form_changed', 'This form changed. Check your answers and send again.'),
+    );
+    renderFormPage('code-123', client);
+    expect(await screen.findByText(NOT_RECORDED)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your name' }), {
+      target: { value: 'Avery Lin' },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Billing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send request' }));
+    const answers = { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing' };
+    expect(
+      await screen.findByText('This form changed. Check your answers and send again.'),
+    ).toBeInTheDocument();
+    expect(client.submitResponse).toHaveBeenCalledWith('code-123', { answers, anonymous: true });
+    await waitFor(() => expect(screen.queryByText(NOT_RECORDED)).toBeNull());
+    expect(client.getForm).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('textbox', { name: 'Your name' })).toHaveValue('Avery Lin');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks! Your response was sent.');
+    expect(client.submitResponse).toHaveBeenLastCalledWith('code-123', {
+      answers,
+      anonymous: false,
+    });
   });
 
   it('says why the form could not open, with Retry', async () => {

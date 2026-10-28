@@ -80,6 +80,13 @@ describe('uploadWithProgress', () => {
     expect(sent().headers['X-CSRF-Token']).toBeUndefined();
   });
 
+  it("sends the form's fill token as X-Form-Fill, and none without one", () => {
+    void uploadWithProgress(photo(), { scope: 'forms:form-1', fill: 'fill-1' });
+    expect(sent().headers['X-Form-Fill']).toBe('fill-1');
+    void uploadWithProgress(photo(), { scope: 'forms:form-1' });
+    expect(sent().headers['X-Form-Fill']).toBeUndefined();
+  });
+
   it("rejects with the server's message", async () => {
     const done = uploadWithProgress(photo(), { scope: 'forms:form-1' });
     sent().answer(415, { error: { code: 'file_type', message: "This file type isn't allowed." } });
