@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLiveClientForTest } from '../live/client';
 import { createFakeLive } from '../live/testSource';
+import type { NoticeCardView } from './api';
 import { NoticesChat } from './index';
 import NoticesChatView from './NoticesChatView';
 import { at, createNoticesServer, FakeIntersectionObserver, notice, showEdge } from './testServer';
@@ -155,6 +156,31 @@ describe('NoticesChat', () => {
     expect(event).toHaveTextContent('Tue, Oct 27 · 3:00 PM');
     expect(screen.getByText("🔒 A page you can't open")).toBeInTheDocument();
     expect(screen.getByText('This event was deleted')).toBeInTheDocument();
+  });
+
+  it("shows each of a notice's cards in order, each by the reader's access", async () => {
+    const page = (pageId: string, title: string): NoticeCardView => ({
+      type: 'page',
+      state: 'open',
+      pageId,
+      href: `/p/${pageId}`,
+      title,
+      icon: null,
+      spaceName: null,
+    });
+    const first = page('page-1', 'Weekly notes');
+    api.server.notices = [
+      notice({
+        kind: 'automation',
+        card: first,
+        cards: [first, { type: 'page', state: 'locked' }, page('page-2', 'Intake checklist')],
+      }),
+    ];
+    renderChat();
+    const article = await screen.findByRole('article');
+    const links = within(article).getAllByRole('link');
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/p/page-1', '/p/page-2']);
+    expect(article).toHaveTextContent(/Weekly notes.*can't open.*Intake checklist/);
   });
 
   it('filters with the chips, and offers All when a chip has nothing', async () => {

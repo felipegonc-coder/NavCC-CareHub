@@ -7,8 +7,8 @@ import carehub from './packages/ui/lint/no-one-off-styles.js';
 
 // Colours, type, sizes and corners come from the design kit (AGENTS.md section 6, decision 0008).
 // carehub/no-one-off-styles is an error in the web app and the packages, and a warning in the lane
-// folders (AGENTS.md section 5) until 2026-10-29; scripts/lint.mjs lets those warnings pass. On
-// 2026-10-29 the lane block below goes, so it is an error everywhere.
+// folders (AGENTS.md section 5) for now; scripts/lint.mjs lets those warnings pass. When the lanes
+// switch over (decision 0008), the lane block below goes, so it is an error everywhere.
 const uiCode = ['apps/web/**/*.{js,jsx,ts,tsx}', 'packages/**/*.{js,jsx,ts,tsx}'];
 const laneCode = [
   'packages/learning*/**/*.{js,jsx,ts,tsx}',

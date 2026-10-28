@@ -68,7 +68,7 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
     expect((await list(avery)).pending.map((r) => r.id)).toEqual([reminder.id]);
     await runJobsAt(reminder.dueAt);
     expect(noticeFor(reminder.id)).toMatchObject({
-      workspaceId: STAND_IN_WORKSPACE_ID,
+      workspaceId: avery.workspaceId,
       userId: avery.id,
       title: 'Reminder',
       text: note,
@@ -159,7 +159,7 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
     await runJobsAt(reminder.dueAt);
     const click = (value: string, userId = avery.id) => ({
       noticeId: randomUUID(),
-      workspaceId: STAND_IN_WORKSPACE_ID,
+      workspaceId: avery.workspaceId!,
       userId,
       action: 'reminders.snooze',
       value,

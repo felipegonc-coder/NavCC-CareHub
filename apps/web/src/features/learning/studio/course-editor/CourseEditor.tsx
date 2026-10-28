@@ -99,8 +99,10 @@ function Editor({ draft }: { draft: StudioDraft }) {
         <Outline {...actions} course={course} lessonId={state.lessonId} />
         <LessonCanvas
           key={state.lessonId}
-          edit={edit}
+          {...actions}
+          course={course}
           lesson={course.lessons.find((lesson) => lesson.id === state.lessonId)}
+          blockId={state.blockId}
         />
       </div>
     </main>

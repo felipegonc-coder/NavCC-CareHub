@@ -87,12 +87,15 @@ test.describe('Forms: building and filling in', () => {
     // Eli stands in for Avery (spec); any member who can submit gives the same result.
     await test.step('Eli picks High, types a note and submits', async () => {
       const eli = await signedInPage(browser, 'editor');
-      const fill = new FormFill(eli, formTitle(database, form));
-      await fill.open(form.form.linkCode);
-      await fill.choose('How urgent is it?', 'High');
-      await fill.answer('What happened?', note);
-      await fill.send();
-      await eli.context().close();
+      try {
+        const fill = new FormFill(eli, formTitle(database, form));
+        await fill.open(form.form.linkCode);
+        await fill.choose('How urgent is it?', 'High');
+        await fill.answer('What happened?', note);
+        await fill.send();
+      } finally {
+        await eli.context().close();
+      }
     });
 
     await test.step('One row: his answers, "Response from Eli…", Created by Eli', async () => {
@@ -131,59 +134,62 @@ test.describe('Forms: building and filling in', () => {
       question(details.id, 'Details', { logic: showIf.any(other, when(urgent.id, 'is_checked')) }),
     ]);
     const eli = await signedInPage(browser, 'editor');
-    const fill = new FormFill(eli, formTitle(database, form));
-    const filledIn = uniqueName('Fictional QA filled in');
-    const handMade = uniqueName('Fictional QA hand-made');
-    await fill.open(form.form.linkCode);
+    try {
+      const fill = new FormFill(eli, formTitle(database, form));
+      const filledIn = uniqueName('Fictional QA filled in');
+      const handMade = uniqueName('Fictional QA hand-made');
+      await fill.open(form.form.linkCode);
 
-    await test.step('All: Reason shows only for Billing and Urgent', async () => {
-      await expect(fill.box('Reason')).toBeHidden();
-      await fill.choose('Category', 'Billing');
-      await expect(fill.box('Reason')).toBeHidden();
-      await fill.tickBox('Urgent').check();
-      await expect(fill.box('Reason')).toBeVisible();
-    });
-
-    await test.step('Any: Details shows for Urgent or for Other', async () => {
-      await expect(fill.box('Details')).toBeVisible();
-      await fill.answer('Reason', 'Fictional reason');
-      await fill.answer('Details', 'Fictional details');
-      await fill.tickBox('Urgent').uncheck();
-      await expect(fill.box('Reason')).toBeHidden();
-      await expect(fill.box('Details')).toBeHidden();
-      await fill.choose('Category', 'Other');
-      await expect(fill.box('Details')).toBeVisible();
-      await expect(fill.box('Details')).toHaveValue('');
-    });
-
-    await test.step('Sent with Reason and Details hidden', async () => {
-      await fill.choose('Category', 'Billing');
-      await expect(fill.box('Details')).toBeHidden();
-      await fill.answer('Your name', filledIn);
-      await fill.send();
-    });
-
-    await test.step('A hand-made request with hidden answers is taken', async () => {
-      const response = await sendAnswers(eli, form.form.linkCode, {
-        [name.id]: value.text(handMade),
-        [category.id]: optionId(category, 'Scheduling'),
-        [urgent.id]: false,
-        [reason.id]: value.text('Fictional hidden reason'),
-        [details.id]: value.text('Fictional hidden details'),
+      await test.step('All: Reason shows only for Billing and Urgent', async () => {
+        await expect(fill.box('Reason')).toBeHidden();
+        await fill.choose('Category', 'Billing');
+        await expect(fill.box('Reason')).toBeHidden();
+        await fill.tickBox('Urgent').check();
+        await expect(fill.box('Reason')).toBeVisible();
       });
-      expect(response.ok()).toBe(true);
-      await eli.context().close();
-    });
 
-    await test.step('Neither row kept a hidden answer', async () => {
-      const screen = new DatabaseScreen(page, database.id);
-      await screen.open();
-      await expect(screen.row(filledIn)).toContainText('Billing');
-      await expect(screen.row(handMade)).toContainText('Scheduling');
-      for (const title of [filledIn, handMade]) {
-        await expect(screen.row(title)).not.toContainText(/Fictional (hidden )?(reason|details)/);
-      }
-    });
+      await test.step('Any: Details shows for Urgent or for Other', async () => {
+        await expect(fill.box('Details')).toBeVisible();
+        await fill.answer('Reason', 'Fictional reason');
+        await fill.answer('Details', 'Fictional details');
+        await fill.tickBox('Urgent').uncheck();
+        await expect(fill.box('Reason')).toBeHidden();
+        await expect(fill.box('Details')).toBeHidden();
+        await fill.choose('Category', 'Other');
+        await expect(fill.box('Details')).toBeVisible();
+        await expect(fill.box('Details')).toHaveValue('');
+      });
+
+      await test.step('Sent with Reason and Details hidden', async () => {
+        await fill.choose('Category', 'Billing');
+        await expect(fill.box('Details')).toBeHidden();
+        await fill.answer('Your name', filledIn);
+        await fill.send();
+      });
+
+      await test.step('A hand-made request with hidden answers is taken', async () => {
+        const response = await sendAnswers(eli, form.form.linkCode, {
+          [name.id]: value.text(handMade),
+          [category.id]: optionId(category, 'Scheduling'),
+          [urgent.id]: false,
+          [reason.id]: value.text('Fictional hidden reason'),
+          [details.id]: value.text('Fictional hidden details'),
+        });
+        expect(response.ok()).toBe(true);
+      });
+
+      await test.step('Neither row kept a hidden answer', async () => {
+        const screen = new DatabaseScreen(page, database.id);
+        await screen.open();
+        await expect(screen.row(filledIn)).toContainText('Billing');
+        await expect(screen.row(handMade)).toContainText('Scheduling');
+        for (const title of [filledIn, handMade]) {
+          await expect(screen.row(title)).not.toContainText(/Fictional (hidden )?(reason|details)/);
+        }
+      });
+    } finally {
+      await eli.context().close();
+    }
   });
 
   test('FM-04 required questions block Submit unless hidden', async ({ page, browser }) => {
@@ -210,33 +216,36 @@ test.describe('Forms: building and filling in', () => {
       question(confirmed.id, confirm, { required: true }),
     ]);
     const eli = await signedInPage(browser, 'editor');
-    const fill = new FormFill(eli, formTitle(database, form));
-    await fill.open(form.form.linkCode);
+    try {
+      const fill = new FormFill(eli, formTitle(database, form));
+      await fill.open(form.form.linkCode);
 
-    await test.step('Submit with nothing: 3 errors, none for hidden Reason', async () => {
-      await fill.submit();
-      await expect(fill.form.getByText('3 questions need answers')).toBeVisible();
-      await expect(fill.errors('Answer this question.')).toHaveCount(2);
-      await expect(fill.errors('Tick this box to continue.')).toHaveCount(1);
-      await expect(fill.box('Your name')).toBeFocused();
-    });
+      await test.step('Submit with nothing: 3 errors, none for hidden Reason', async () => {
+        await fill.submit();
+        await expect(fill.form.getByText('3 questions need answers')).toBeVisible();
+        await expect(fill.errors('Answer this question.')).toHaveCount(2);
+        await expect(fill.errors('Tick this box to continue.')).toHaveCount(1);
+        await expect(fill.box('Your name')).toBeFocused();
+      });
 
-    await test.step('Once shown, Reason is required too', async () => {
-      await fill.answer('Your name', uniqueName('Fictional QA respondent'));
-      await fill.choose('Category', 'Other');
-      await fill.submit();
-      await expect(fill.errors('Answer this question.')).toHaveCount(1);
-      await expect(fill.errors('Tick this box to continue.')).toHaveCount(1);
-    });
+      await test.step('Once shown, Reason is required too', async () => {
+        await fill.answer('Your name', uniqueName('Fictional QA respondent'));
+        await fill.choose('Category', 'Other');
+        await fill.submit();
+        await expect(fill.errors('Answer this question.')).toHaveCount(1);
+        await expect(fill.errors('Tick this box to continue.')).toHaveCount(1);
+      });
 
-    await test.step("Hidden again it doesn't block; the tick box does", async () => {
-      await fill.choose('Category', 'Billing');
-      await fill.submit();
-      await expect(fill.errors('Answer this question.')).toHaveCount(0);
-      await expect(fill.errors('Tick this box to continue.')).toHaveCount(1);
-      await fill.tickBox(confirm).check();
-      await fill.send();
+      await test.step("Hidden again it doesn't block; the tick box does", async () => {
+        await fill.choose('Category', 'Billing');
+        await fill.submit();
+        await expect(fill.errors('Answer this question.')).toHaveCount(0);
+        await expect(fill.errors('Tick this box to continue.')).toHaveCount(1);
+        await fill.tickBox(confirm).check();
+        await fill.send();
+      });
+    } finally {
       await eli.context().close();
-    });
+    }
   });
 });

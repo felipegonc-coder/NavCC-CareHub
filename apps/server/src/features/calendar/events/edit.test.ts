@@ -93,6 +93,25 @@ describe('planEdit', () => {
     });
   });
 
+  it('invites each person once, and never the organizer', () => {
+    const cy = '00000000-0000-4000-8000-00000000000c';
+    const { event } = planEdit(single, { people: [ben, ada, cy, ben] });
+    expect(event.people.map((person) => person.userId)).toEqual([ben, cy]);
+    const all = planEdit(weekly, { scope: 'all', people: [ada, ben, ben] }).event;
+    expect(all.people).toEqual(weekly.people);
+  });
+
+  it('takes allDay from the new start, so it matches the times', () => {
+    // allDay without a start and end changes nothing.
+    const flag = planEdit(single, { allDay: true, title: 'Check-in' }).event;
+    expect(flag).toMatchObject({ allDay: false, start: single.start, title: 'Check-in' });
+    const series = planEdit(weekly, { scope: 'all', allDay: true, title: 'Check-in' }).event;
+    expect(series).toMatchObject({ allDay: false, start: weekly.start, title: 'Check-in' });
+    const dates = { allDay: false, start: '2026-11-03', end: '2026-11-04' };
+    const moved = planEdit(weekly, { scope: 'all', occurrence: '2026-11-03T10:00', ...dates });
+    expect(moved.event).toMatchObject({ allDay: true, start: '2026-10-20' });
+  });
+
   it('asks which occurrences on a repeating event', () => {
     expect(failure(() => planEdit(weekly, { title: 'Renamed' }))).toMatchObject({
       statusCode: 400,

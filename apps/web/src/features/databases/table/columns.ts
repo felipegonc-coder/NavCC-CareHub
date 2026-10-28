@@ -36,13 +36,15 @@ export function clampWidth(width: number): number {
 /**
  * The table's columns: Name first, then the view's visible properties in its order, leaving out
  * properties the viewer can't see (`visibleIds`, from the query answer) and ones that are gone.
- * Properties the view doesn't list are hidden. `widths` overrides saved widths (while resizing).
+ * Properties the view doesn't list are hidden. `widths` overrides saved widths (while resizing);
+ * `start` is where the first column begins (after the selection column), px.
  */
 export function tableColumns(
   properties: readonly Property[],
   view: View,
   visibleIds: readonly Id[],
   widths: Readonly<Partial<Record<Id, number>>> = {},
+  start = 0,
 ): TableColumn[] {
   const options = tableOptions(view);
   const canSee = new Set(visibleIds);
@@ -60,7 +62,7 @@ export function tableColumns(
   }
   const frozenAt =
     options.frozenUpTo === null ? -1 : picked.findIndex((p) => p.id === options.frozenUpTo);
-  let left = 0;
+  let left = start;
   return picked.map((property, index) => {
     const setting = settings.get(property.id);
     const fallback = property.config.type === 'title' ? NAME_WIDTH : COLUMN_WIDTH;
