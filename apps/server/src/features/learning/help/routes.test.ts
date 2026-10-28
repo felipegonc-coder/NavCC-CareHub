@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { CLAUDE_ERRORS, type ClaudeErrorReason } from '@carehub/extras/claude';
 import {
   blockHelpText,
+  ContentLessonSchema,
   createCourse,
   HELP_SYSTEM,
+  HelpCourseDraftAnswerSchema,
   HelpQuestionDraftsSchema,
   HelpSummarySchema,
   presetFor,
@@ -354,6 +356,60 @@ describe('Learning help: quiz questions', () => {
     claude.askClaudeJson.mockResolvedValueOnce({ data: { questions: [drafts[1]] } });
     const response = await post('questions', { lessonId: 'lesson-1' });
     expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual(refusal('bad_output'));
+  });
+});
+
+describe('Learning help: course draft', () => {
+  const description = 'A short course for new agents on taking billing calls.';
+  const sent = () => claude.askClaudeJson.mock.calls[0]?.[1];
+  const answer = {
+    summary: 'How to take a billing call from greeting to wrap-up.',
+    lessons: [
+      { title: 'Greeting', blocks: [{ type: 'paragraph', text: 'Say your name.' }] },
+      { title: 'Wrap-up', blocks: [{ type: 'paragraph', text: ' ' }] },
+    ],
+  };
+
+  beforeEach(() => {
+    claude.askClaudeJson.mockResolvedValue({ data: answer });
+  });
+
+  it("sends the author's description as the selection, never as a document", async () => {
+    const response = await post('course-draft', { description, lessons: 2 });
+    expect(response.statusCode).toBe(200);
+    expect(Object.keys(sent()).sort()).toEqual(
+      ['feature', 'instruction', 'schema', 'selection', 'system', 'userId', 'workspaceId'].sort(),
+    );
+    expect(sent()).toMatchObject({
+      feature: 'learning_help',
+      system: HELP_SYSTEM,
+      selection: description,
+    });
+    expect(sent().schema).toBe(HelpCourseDraftAnswerSchema);
+    expect(sent().instruction).toContain('in the selection, with 2 lessons');
+
+    // Only lessons that pass the course checks come back, with fresh ids.
+    const { summary, lessons } = response.json();
+    expect(summary).toBe(answer.summary);
+    expect(lessons).toHaveLength(1);
+    expect(ContentLessonSchema.safeParse(lessons[0]).success).toBe(true);
+    expect(lessons[0]).toMatchObject({ kind: 'content', title: 'Greeting' });
+  });
+
+  it('caps the description and refuses a stale draft or a non-builder', async () => {
+    expect((await post('course-draft', { description: 'x'.repeat(1001) })).statusCode).toBe(400);
+    expect((await post('course-draft', { description: '  ' })).statusCode).toBe(400);
+    expect((await post('course-draft', { description, revision: 2 })).statusCode).toBe(409);
+    expect((await post('course-draft', { description }, 'learner')).statusCode).toBe(403);
+    expect(claude.askClaudeJson).not.toHaveBeenCalled();
+  });
+
+  it('answers bad_output when no lesson passes the checks', async () => {
+    claude.askClaudeJson.mockResolvedValueOnce({
+      data: { ...answer, lessons: [answer.lessons[1]] },
+    });
+    const response = await post('course-draft', { description });
     expect(response.json()).toEqual(refusal('bad_output'));
   });
 });

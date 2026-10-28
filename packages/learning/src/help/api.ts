@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, LIMITS } from '../format/primitives';
+import { ContentLessonSchema } from '../format/course';
 import { QuestionSchema } from '../format/questions';
 
 // Requests and answers for Learning help (docs/learning/api.md, decision 0315). Requests name the course,
@@ -42,6 +43,10 @@ export const HELP_KEY_POINTS = 8;
 export const HELP_QUESTION_TYPES = ['single_choice', 'multiple_choice', 'true_false'] as const;
 export type HelpQuestionType = (typeof HELP_QUESTION_TYPES)[number];
 export const HELP_MAX_QUESTIONS = 10;
+
+/** The longest description an author can give for a course draft, and the most lessons in a draft. */
+export const HELP_DESCRIPTION_CHARS = 1000;
+export const HELP_MAX_DRAFT_LESSONS = 8;
 
 const RevisionSchema = z.number().int().min(1);
 
@@ -127,3 +132,56 @@ export const HelpQuestionsReplySchema = z.object({
   questions: z.array(QuestionSchema).min(1).max(HELP_MAX_QUESTIONS),
 });
 export type HelpQuestionsReply = z.infer<typeof HelpQuestionsReplySchema>;
+
+/** A first draft of lessons from the author's own short description, which goes to Claude as the selection. */
+export const HelpCourseDraftRequestSchema = z.object({
+  courseId: IdSchema,
+  revision: RevisionSchema,
+  description: z.string().trim().min(1).max(HELP_DESCRIPTION_CHARS),
+  lessons: z.number().int().min(1).max(HELP_MAX_DRAFT_LESSONS).default(4),
+});
+export type HelpCourseDraftRequest = z.infer<typeof HelpCourseDraftRequestSchema>;
+
+const title = z.string().trim().min(1).max(LIMITS.title);
+const paragraphs = z.string().trim().min(1).max(LIMITS.longText);
+
+/** Claude's answer: a summary and lessons of simple text blocks, without ids (`helpCourseDraft` adds them). */
+export const HelpCourseDraftAnswerSchema = z.object({
+  summary: line,
+  lessons: z
+    .array(
+      z.object({
+        title,
+        blocks: z
+          .array(
+            z.discriminatedUnion('type', [
+              z.object({ type: z.literal('heading'), text: title }),
+              z.object({ type: z.literal('paragraph'), text: paragraphs }),
+              z.object({
+                type: z.literal('list'),
+                style: z.enum(['bulleted', 'numbered']),
+                items: z.array(line).min(1).max(12),
+              }),
+              z.object({
+                type: z.literal('callout'),
+                tone: z.enum(['note', 'tip', 'warning']),
+                text: paragraphs,
+              }),
+            ]),
+          )
+          .min(1)
+          .max(20),
+      }),
+    )
+    .min(1)
+    .max(HELP_MAX_DRAFT_LESSONS),
+});
+export type HelpCourseDraftAnswer = z.infer<typeof HelpCourseDraftAnswerSchema>;
+export type HelpDraftLesson = HelpCourseDraftAnswer['lessons'][number];
+
+/** The summary, and content lessons with fresh ids that pass the course checks, for Studio to add. */
+export const HelpCourseDraftReplySchema = z.object({
+  summary: line,
+  lessons: z.array(ContentLessonSchema).min(1).max(HELP_MAX_DRAFT_LESSONS),
+});
+export type HelpCourseDraftReply = z.infer<typeof HelpCourseDraftReplySchema>;
