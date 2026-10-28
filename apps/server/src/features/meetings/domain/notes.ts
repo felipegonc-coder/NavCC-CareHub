@@ -28,9 +28,19 @@ export function notesTitle(event: Timing & Pick<MeetingEvent, 'title'>): string 
   return `${event.title.trim() || '(No title)'} · ${formatDate(meetingDate(event))}`;
 }
 
+/** Calendar's invitee cap (`LIMITS.people`): no event gives more grants than this. */
+export const MAX_INVITED = 200;
+
 /** The organizer and the invited members: who may take notes, and who gets Can edit (MT-D1). */
 export function attendeesOf(event: Pick<MeetingEvent, 'organizerId' | 'memberIds'>): string[] {
-  return [...new Set([event.organizerId, ...event.memberIds])];
+  return [...new Set([event.organizerId, ...event.memberIds.slice(0, MAX_INVITED)])];
+}
+
+const NOTES_WINDOW_MS = 366 * 86_400_000;
+
+/** New notes are for occurrences within a year of today, so a series can't make endless pages. */
+export function withinNotesWindow({ start }: Pick<MeetingEvent, 'start'>, now: Date): boolean {
+  return Math.abs(Date.parse(start) - now.getTime()) <= NOTES_WINDOW_MS;
 }
 
 /**
