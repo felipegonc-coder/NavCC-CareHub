@@ -15,12 +15,13 @@ import { isImageFile } from './logic';
 import { CELL_TEXT } from './messages';
 import type { CellContext } from './types';
 
-const colors = (color: OptionColor) => colorClasses[color] ?? colorClasses.default;
+/** The kit's classes for an option color (text and background). */
+export const optionColors = (color: OptionColor) => colorClasses[color] ?? colorClasses.default;
 
 /** Classes for a text or background colour picked in rich text ("blue", "blue_background"). */
 export function textColorClass(color: TextColor): string {
   const [name, background] = color.split('_') as [OptionColor, string | undefined];
-  return background ? colors(name).bg : colors(name).text;
+  return background ? optionColors(name).bg : optionColors(name).text;
 }
 
 /** Chips in a row: cut off at the cell's edge, or wrapped onto more lines. */
@@ -37,7 +38,7 @@ export function OptionChip({
   status?: boolean;
   children?: ReactNode;
 }) {
-  const c = colors(option.color);
+  const c = optionColors(option.color);
   return (
     <span
       className={cn(
@@ -219,7 +220,7 @@ export function VerificationBadge({
   if (state === 'none') {
     return <span className={cn('min-w-0 text-small text-muted', fit)}>{text}</span>;
   }
-  const c = colors(state === 'verified' ? 'green' : 'orange');
+  const c = optionColors(state === 'verified' ? 'green' : 'orange');
   return (
     <span
       className={cn(

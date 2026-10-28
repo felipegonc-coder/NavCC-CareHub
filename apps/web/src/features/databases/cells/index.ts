@@ -15,9 +15,9 @@
  *   items (`viewItems`). Give it `usePropertyActions(meta.id)`, and the view, `updateView` and
  *   rows the layout has. Changes that clear or remove values confirm first with a count.
  * - `PropertySettings` is Edit property: name, description, row pages and the type's settings
- *   (number display, date and time format, person, relation, ID prefix). `PropertyMenu` opens it
- *   by the header unless it gets `onEditProperty`. `NumberDisplaySettings` is there for formula
- *   and rollup results too.
+ *   (number display, date and time format, Select and Multi-select options, person, relation, ID
+ *   prefix). `PropertyMenu` opens it by the header unless it gets `onEditProperty`.
+ *   `NumberDisplaySettings` is there for formula and rollup results too.
  * - `DeletedProperties` is the Properties → Deleted list, each with Restore.
  * - `openButtonLink` opens a button press's links: http and https only, in a new tab.
  */
