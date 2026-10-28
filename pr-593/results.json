@@ -1,0 +1,2429 @@
+{
+  "config": {
+    "argv": [
+      "/opt/hostedtoolcache/node/24.22.1/x64/bin/node",
+      "/home/runner/work/NavCC-CareHub/NavCC-CareHub/node_modules/.bin/playwright",
+      "test",
+      "--only-changed=origin/main"
+    ],
+    "configFile": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/playwright.config.ts",
+    "rootDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 600000,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "ci": {
+        "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+        "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+        "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+        "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+        "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+        "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+      },
+      "gitCommit": {
+        "shortHash": "81f74c9",
+        "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+        "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+        "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+        "author": {
+          "name": "felipegonc-coder",
+          "email": "felipe.gonc@icloud.com",
+          "time": 1793142159000
+        },
+        "committer": {
+          "name": "GitHub",
+          "email": "noreply@github.com",
+          "time": 1793142159000
+        },
+        "branch": "HEAD"
+      },
+      "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+      "actualWorkers": 4
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "id": "setup",
+        "name": "setup",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/ci\\/workspace\\.setup\\.ts$/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "id": "desktop-light",
+        "name": "desktop-light",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [
+          "/\\.workspace\\.e2e\\.ts$/"
+        ],
+        "testMatch": [
+          "/\\.e2e\\.ts$/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "id": "desktop-dark",
+        "name": "desktop-dark",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [
+          "/\\.workspace\\.e2e\\.ts$/",
+          "/\\.api\\.e2e\\.ts$/"
+        ],
+        "testMatch": [
+          "/\\.e2e\\.ts$/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "id": "phone-light",
+        "name": "phone-light",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [
+          "/\\.workspace\\.e2e\\.ts$/",
+          "/\\.api\\.e2e\\.ts$/"
+        ],
+        "testMatch": [
+          "/\\.e2e\\.ts$/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "id": "phone-dark",
+        "name": "phone-dark",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [
+          "/\\.workspace\\.e2e\\.ts$/",
+          "/\\.api\\.e2e\\.ts$/"
+        ],
+        "testMatch": [
+          "/\\.e2e\\.ts$/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "id": "workspace",
+        "name": "workspace",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/\\.workspace\\.e2e\\.ts$/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "name": "setup",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "snapshotDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:38080",
+          "actionTimeout": 10000,
+          "navigationTimeout": 15000,
+          "trace": "on-first-retry"
+        },
+        "dependencies": [],
+        "teardown": "workspace",
+        "ignoreSnapshots": false,
+        "__projectId": "setup"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "name": "desktop-light",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "snapshotDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [
+          {}
+        ],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:38080",
+          "actionTimeout": 10000,
+          "navigationTimeout": 15000,
+          "trace": "on-first-retry",
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          },
+          "deviceScaleFactor": 1,
+          "isMobile": false,
+          "hasTouch": false,
+          "colorScheme": "light",
+          "browserName": "chromium"
+        },
+        "dependencies": [
+          "setup"
+        ],
+        "ignoreSnapshots": false,
+        "__projectId": "desktop-light"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "name": "desktop-dark",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "snapshotDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [
+          {},
+          {}
+        ],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:38080",
+          "actionTimeout": 10000,
+          "navigationTimeout": 15000,
+          "trace": "on-first-retry",
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          },
+          "deviceScaleFactor": 1,
+          "isMobile": false,
+          "hasTouch": false,
+          "colorScheme": "dark",
+          "browserName": "chromium"
+        },
+        "dependencies": [
+          "setup"
+        ],
+        "ignoreSnapshots": false,
+        "__projectId": "desktop-dark"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "name": "phone-light",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "snapshotDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [
+          {},
+          {}
+        ],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:38080",
+          "actionTimeout": 10000,
+          "navigationTimeout": 15000,
+          "trace": "on-first-retry",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "deviceScaleFactor": 2,
+          "isMobile": true,
+          "hasTouch": true,
+          "userAgent": "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Mobile Safari/537.36",
+          "colorScheme": "light",
+          "browserName": "chromium"
+        },
+        "dependencies": [
+          "setup"
+        ],
+        "ignoreSnapshots": false,
+        "__projectId": "phone-light"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "name": "phone-dark",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "snapshotDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [
+          {},
+          {}
+        ],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:38080",
+          "actionTimeout": 10000,
+          "navigationTimeout": 15000,
+          "trace": "on-first-retry",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "deviceScaleFactor": 2,
+          "isMobile": true,
+          "hasTouch": true,
+          "userAgent": "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Mobile Safari/537.36",
+          "colorScheme": "dark",
+          "browserName": "chromium"
+        },
+        "dependencies": [
+          "setup"
+        ],
+        "ignoreSnapshots": false,
+        "__projectId": "phone-dark"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/felipegonc-coder/NavCC-CareHub/commit/81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "commitHash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "prHref": "https://github.com/felipegonc-coder/NavCC-CareHub/pull/593",
+            "prTitle": "test(e2e): turn on learningTestHooks and jobsTestHooks; run the workspace-wide Settings checks",
+            "prBaseHash": "8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "buildHref": "https://github.com/felipegonc-coder/NavCC-CareHub/actions/runs/40605012909"
+          },
+          "gitCommit": {
+            "shortHash": "81f74c9",
+            "hash": "81f74c94edf3220d4fd48ff8e570dc17e2566ae6",
+            "subject": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf",
+            "body": "Merge 6409e06995e8e7e136eeb4bc426dc9fe00e49dc3 into 8294e9fdc3aee55591b1aedfe0492cd353a07ecf\n",
+            "author": {
+              "name": "felipegonc-coder",
+              "email": "felipe.gonc@icloud.com",
+              "time": 1793142159000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1793142159000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/tests/e2e/flows/_support/features.ts b/tests/e2e/flows/_support/features.ts\nindex a2e84a3..0e11fca 100644\n--- a/tests/e2e/flows/_support/features.ts\n+++ b/tests/e2e/flows/_support/features.ts\n@@ -109,7 +109,7 @@ export const onMain = {\n    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with\n    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.\n    */\n-  jobsTestHooks: false,\n+  jobsTestHooks: true,\n \n   /** Analytics (Admins only). */\n   analytics: false,\n@@ -142,7 +142,7 @@ export const onMain = {\n   learningReview: false,\n \n   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */\n-  learningTestHooks: false,\n+  learningTestHooks: true,\n \n   /** Learning: certificates. */\n   certificates: false,\ndiff --git a/tests/e2e/flows/settings/security.workspace.e2e.ts b/tests/e2e/flows/settings/security.workspace.e2e.ts\nindex d4961e8..c1730aa 100644\n--- a/tests/e2e/flows/settings/security.workspace.e2e.ts\n+++ b/tests/e2e/flows/settings/security.workspace.e2e.ts\n@@ -19,8 +19,6 @@ import { createInviteLink, join, openSettings, windowFor } from './settings-page\n // `finally`, and `afterAll` puts every switch back to its default. Avery (the fictional admin)\n // makes the changes; Eli (an Editor) is the member who loses the action.\n \n-const inWorkspaceProject = 'Runs in the workspace project, after all other files (#369)';\n-\n // In order, one after another, and a failed check doesn't skip the ones after it.\n test.describe.configure({ mode: 'default' });\n \n@@ -32,7 +30,6 @@ async function sendAgain(page: Page, sent: SentRequest, data: unknown = sent.dat\n test.describe('Settings: changes for the whole workspace', () => {\n   onlyIn('desktop-light');\n   needs('signIn', 'settings');\n-  test.fixme(true, inWorkspaceProject);\n \n   test.afterAll(async ({ browser }) => {\n     const page = await windowFor(browser, 'admin');",
+          "actualWorkers": 4
+        },
+        "name": "workspace",
+        "testDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "snapshotDir": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:38080",
+          "actionTimeout": 10000,
+          "navigationTimeout": 15000,
+          "trace": "on-first-retry",
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          },
+          "deviceScaleFactor": 1,
+          "isMobile": false,
+          "hasTouch": false,
+          "colorScheme": "light",
+          "browserName": "chromium"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "workspace"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "html",
+        {
+          "open": "never",
+          "outputFolder": "playwright-report"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 4,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "ci/workspace.setup.ts",
+      "file": "ci/workspace.setup.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "the other projects run first; the workspace project runs after them",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "setup",
+              "projectName": "setup",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-27T23:52:28.339Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a656fee9e39f6043c63f-c6ca79ab3675eafd49b4",
+          "file": "ci/workspace.setup.ts",
+          "line": 6,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "flows/analytics/analytics.e2e.ts",
+      "file": "flows/analytics/analytics.e2e.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Analytics: counting views",
+          "file": "flows/analytics/analytics.e2e.ts",
+          "line": 33,
+          "column": 6,
+          "specs": [
+            {
+              "title": "AN-01 three opens of Refund policy within 30 minutes count as 1 view",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "desktop-light",
+                  "projectName": "desktop-light",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.372Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "desktop-dark",
+                  "projectName": "desktop-dark",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "phone-light",
+                  "projectName": "phone-light",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "phone-dark",
+                  "projectName": "phone-dark",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "770573533b8d280ff7b5-7595ae45bac523993c85",
+              "file": "flows/analytics/analytics.e2e.ts",
+              "line": 37,
+              "column": 3
+            },
+            {
+              "title": "AN-01 one more open after 31 minutes makes 2 views",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "desktop-light",
+                  "projectName": "desktop-light",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.372Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "desktop-dark",
+                  "projectName": "desktop-dark",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "phone-light",
+                  "projectName": "phone-light",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "phone-dark",
+                  "projectName": "phone-dark",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "770573533b8d280ff7b5-20fc0bfe802386490b0f",
+              "file": "flows/analytics/analytics.e2e.ts",
+              "line": 53,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Analytics: Overview",
+          "file": "flows/analytics/analytics.e2e.ts",
+          "line": 75,
+          "column": 6,
+          "specs": [
+            {
+              "title": "AN-04 Overview for 7, 30 and 90 days: each range has its days in the viewer's time zone, the days add up to the totals, and longer ranges hold the shorter ones",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "desktop-light",
+                  "projectName": "desktop-light",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.372Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "desktop-dark",
+                  "projectName": "desktop-dark",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "phone-light",
+                  "projectName": "phone-light",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "phone-dark",
+                  "projectName": "phone-dark",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "770573533b8d280ff7b5-187add58d3592fb6e7fc",
+              "file": "flows/analytics/analytics.e2e.ts",
+              "line": 79,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Analytics: a page's visits",
+          "file": "flows/analytics/analytics.e2e.ts",
+          "line": 140,
+          "column": 6,
+          "specs": [
+            {
+              "title": "AN-05 Refund policy's detail lists its visits with person and time, and its CSV matches the table",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "desktop-light",
+                  "projectName": "desktop-light",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.372Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "desktop-dark",
+                  "projectName": "desktop-dark",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "phone-light",
+                  "projectName": "phone-light",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, pages, analytics",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "phone-dark",
+                  "projectName": "phone-dark",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, pages, analytics",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "770573533b8d280ff7b5-73fea30c1f21e1081da5",
+              "file": "flows/analytics/analytics.e2e.ts",
+              "line": 144,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "flows/automations/scheduled-runs.workspace.e2e.ts",
+      "file": "flows/automations/scheduled-runs.workspace.e2e.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Automations on a schedule, by the clock",
+          "file": "flows/automations/scheduled-runs.workspace.e2e.ts",
+          "line": 32,
+          "column": 6,
+          "specs": [
+            {
+              "title": "AU-01 Weekday stand-up nudge, left on, reaches each Agent at 9:00 AM Denver time, on weekdays only",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, automations, notices",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "workspace",
+                  "projectName": "workspace",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, automations, notices",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "a20789de0b514696a479-5a03a4119641d8234e5a",
+              "file": "flows/automations/scheduled-runs.workspace.e2e.ts",
+              "line": 36,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "flows/data-settings/settings.workspace.e2e.ts",
+      "file": "flows/data-settings/settings.workspace.e2e.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Data settings: keeping data and uploads",
+          "file": "flows/data-settings/settings.workspace.e2e.ts",
+          "line": 51,
+          "column": 6,
+          "specs": [
+            {
+              "title": "DS-01 Shortening automatic page versions to 90 days shows what goes tonight first",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "serial",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/data-settings/settings.workspace.e2e.ts",
+                        "line": 51,
+                        "column": 6
+                      }
+                    },
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, dataSettings",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "workspace",
+                  "projectName": "workspace",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "serial",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/data-settings/settings.workspace.e2e.ts",
+                            "line": 51,
+                            "column": 6
+                          }
+                        },
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, dataSettings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "3d8489ff0d55a5e34444-15622b05f6c02be72bd6",
+              "file": "flows/data-settings/settings.workspace.e2e.ts",
+              "line": 56,
+              "column": 3
+            }
+          ],
+          "suites": [
+            {
+              "title": "with a database to upload into",
+              "file": "flows/data-settings/settings.workspace.e2e.ts",
+              "line": 87,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "DS-05 A 100.1 MB file is refused at the default limit and accepted once a site admin allows 200 MB",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "serial",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/data-settings/settings.workspace.e2e.ts",
+                            "line": 51,
+                            "column": 6
+                          }
+                        },
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, dataSettings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        },
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: pages, databases",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "serial",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/data-settings/settings.workspace.e2e.ts",
+                                "line": 51,
+                                "column": 6
+                              }
+                            },
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, dataSettings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            },
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: pages, databases",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "3d8489ff0d55a5e34444-29836bdeb7183068b1dd",
+                  "file": "flows/data-settings/settings.workspace.e2e.ts",
+                  "line": 90,
+                  "column": 5
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "flows/settings/security.workspace.e2e.ts",
+      "file": "flows/settings/security.workspace.e2e.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Settings: changes for the whole workspace",
+          "file": "flows/settings/security.workspace.e2e.ts",
+          "line": 30,
+          "column": 6,
+          "specs": [],
+          "suites": [
+            {
+              "title": "Security switches in the share dialog",
+              "file": "flows/settings/security.workspace.e2e.ts",
+              "line": 44,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "SM-09 with Allow guests off, guest invites are offered nowhere, and a direct invite is refused (403)",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        },
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: pages, sharing",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, settings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            },
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: pages, sharing",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "05ef5e66fbeeed6c6f57-bddf8e955ae97f56bbf2",
+                  "file": "flows/settings/security.workspace.e2e.ts",
+                  "line": 47,
+                  "column": 5
+                },
+                {
+                  "title": "SM-09 with Allow share links off, no link can be made, a made one stops working at once, and a direct request is refused (403)",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        },
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: pages, sharing",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, settings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            },
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: pages, sharing",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "05ef5e66fbeeed6c6f57-dacac293ae13d7e94040",
+                  "file": "flows/settings/security.workspace.e2e.ts",
+                  "line": 109,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Security switches for members",
+              "file": "flows/settings/security.workspace.e2e.ts",
+              "line": 160,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "SM-09 with spaces made by Admins only, Eli is offered no new space and a direct request is refused (403)",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, settings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "05ef5e66fbeeed6c6f57-3056f5ccf4ecad781a59",
+                  "file": "flows/settings/security.workspace.e2e.ts",
+                  "line": 161,
+                  "column": 5
+                },
+                {
+                  "title": "SM-09 with custom emoji added by Admins only, Eli is offered no Add emoji and a direct upload is refused (403)",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, settings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "05ef5e66fbeeed6c6f57-b51c450623fe39c39a00",
+                  "file": "flows/settings/security.workspace.e2e.ts",
+                  "line": 186,
+                  "column": 5
+                },
+                {
+                  "title": "SM-09 with moving pages to other workspaces off, Move to offers no other workspace",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, settings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "05ef5e66fbeeed6c6f57-a5112a707a6e2faeb5c8",
+                  "file": "flows/settings/security.workspace.e2e.ts",
+                  "line": 212,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Security switches for members, exporting",
+              "file": "flows/settings/security.workspace.e2e.ts",
+              "line": 217,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "SM-09 with Members can export off, only Admins are offered Export",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        },
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: pages, importExport",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, settings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            },
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: pages, importExport",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "05ef5e66fbeeed6c6f57-98b86c477cf1e9c65873",
+                  "file": "flows/settings/security.workspace.e2e.ts",
+                  "line": 220,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Required 2-step verification",
+              "file": "flows/settings/security.workspace.e2e.ts",
+              "line": 243,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "SM-10 with 2-step verification required, someone without it sets it up at their next sign-in",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, settings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "05ef5e66fbeeed6c6f57-e880ae625f0eda69712b",
+                  "file": "flows/settings/security.workspace.e2e.ts",
+                  "line": 244,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "The custom emoji limit",
+              "file": "flows/settings/security.workspace.e2e.ts",
+              "line": 310,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "SM-12 with 500 custom emoji, a 501st is refused on the screen and by the server",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "workspace",
+                      "projectName": "workspace",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2026-10-27T23:52:28.373Z",
+                          "annotations": [
+                            {
+                              "type": "fixme",
+                              "description": "Not built yet: signIn, settings",
+                              "location": {
+                                "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                                "line": 164,
+                                "column": 8
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "05ef5e66fbeeed6c6f57-2198bef9594d243c9efd",
+                  "file": "flows/settings/security.workspace.e2e.ts",
+                  "line": 311,
+                  "column": 5
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "flows/sharing/last-admin.workspace.e2e.ts",
+      "file": "flows/sharing/last-admin.workspace.e2e.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Roles: the last Admin",
+          "file": "flows/sharing/last-admin.workspace.e2e.ts",
+          "line": 18,
+          "column": 6,
+          "specs": [
+            {
+              "title": "RP-10 the last Admin can’t be removed or given another role, and a site admin can appoint an Admin",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Not built yet: signIn, settings",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                        "line": 164,
+                        "column": 8
+                      }
+                    },
+                    {
+                      "type": "fixme",
+                      "description": "Runs in the workspace project, after all other files (Testing lead’s config PR #369)",
+                      "location": {
+                        "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/sharing/last-admin.workspace.e2e.ts",
+                        "line": 21,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "workspace",
+                  "projectName": "workspace",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T23:52:28.373Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Not built yet: signIn, settings",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/_support/features.ts",
+                            "line": 164,
+                            "column": 8
+                          }
+                        },
+                        {
+                          "type": "fixme",
+                          "description": "Runs in the workspace project, after all other files (Testing lead’s config PR #369)",
+                          "location": {
+                            "file": "/home/runner/work/NavCC-CareHub/NavCC-CareHub/tests/e2e/flows/sharing/last-admin.workspace.e2e.ts",
+                            "line": 21,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0035d75861da41f1cfe0-c8b2f5a5f6e5e76c3736",
+              "file": "flows/sharing/last-admin.workspace.e2e.ts",
+              "line": 23,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-27T23:52:26.540Z",
+    "duration": 1834.0749999999998,
+    "expected": 1,
+    "skipped": 28,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
