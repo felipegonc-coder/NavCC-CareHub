@@ -56,11 +56,16 @@ The tests never reach Claude. The server is pointed at a local stub:
   - Start it with `startClaudeStub({ port })`, which returns `{ url, requests(), clear(), answerNext(text), close() }` (`clear()` also drops queued answers), or as a process with `node tests/e2e/extras/claude-stub.ts` (port from `CLAUDE_STUB_PORT`, default 4599).
   - `POST /v1/messages` answers with canned, predictable text: `STUB_TEXT`, or `STUB_JSON` (a meeting summary) when the request asks for one JSON value.
   - To choose the next answer, call `answerNext(text)` or `POST /__answers` with `{ "text": "…" }`. Queued answers are used once, in order.
-  - A selection containing `STUB-429`, `STUB-500` or `STUB-SLOW` makes it answer 429, 500, or after 35 s. The server tries 429 and 500 twice more, so expect three recorded requests.
+  - A selection containing `STUB-429`, `STUB-500` or `STUB-SLOW` makes it answer 429, 500, or after 65 s, longer than the 60 s the server waits. The server tries 429 and 500 twice more, so expect three recorded requests.
   - Without an `x-api-key` header it answers 401, and without `anthropic-version` it answers 400.
   - `GET /__requests` returns every recorded request: time, path, body, and headers with the key replaced by `"<present>"`.
   - `DELETE /__requests` clears them.
 - **CL-01:** with the switches off, `GET /__requests` stays empty whatever the test does.
-- **CL-02:** the fictional key never appears in the server output, any API answer, any page, an export or the web bundle.
+- **CL-02 (key leak test):** the fictional key must never appear in the server output, any API answer, any page, an export or the web bundle. Settings → Claude shows only "Key set".
+- **CL-03 (Settings → Claude, `/settings/claude`):**
+  - Without `ANTHROPIC_API_KEY` it says "No key. Add it to the server's settings file, then restart Care Hub.", and the switches are disabled. A direct `PUT /api/claude/settings` that turns one on answers 409.
+  - The switches (role `switch`) are named "Writing help", "Assistant", "Claude fields", "Meeting summary" and "Learning help". Turning one on opens the dialog "Turn on Writing help?" (and so on). Its "Turn on" button stays disabled until its checkbox, "Approved for this workspace" (`CLAUDE_CONFIRM_LABEL` from `@carehub/extras/claude`), is ticked; "Cancel" leaves the switch off. Turning a switch off saves at once.
+  - The "Monthly limit" box (role `spinbutton`) saves on Enter or when it loses focus.
+- **CL-16:** set the "Monthly limit" to 1 instead of making 3,000 requests. Each person's limit is 60 requests an hour.
 
 The two environment lines go in the browser-test workflow (`.github/`), on the e2e server step only, with the fictional key.
