@@ -187,6 +187,7 @@ export default function CalendarLayout({
         }
         setDrag({ rowId, over: dayAt(spot) });
       },
+      escape: () => setDrag(null),
       end: (spot, cancelled) => {
         stopDrag.current = null;
         if (!active) return;

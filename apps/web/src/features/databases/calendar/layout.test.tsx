@@ -95,12 +95,16 @@ function pointer(target: Element | Window, type: string, x: number, y: number) {
     new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }),
   );
 }
-/** A mouse drag from `from` to `to`, as the browser sends it (the moves land on what's under). */
+/**
+ * A mouse drag from `from` to `to`, as the browser sends it: the moves land on what's under the
+ * pointer, and a click follows the drop.
+ */
 function drag(from: Element, to: Element) {
   pointer(from, 'pointerdown', 10, 10);
   pointer(to, 'pointermove', 60, 40);
   pointer(to, 'pointermove', 120, 80);
   pointer(to, 'pointerup', 120, 80);
+  fireEvent.click(to);
 }
 
 describe('the month grid', () => {
@@ -304,6 +308,9 @@ describe('moving', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       "Moved 'Fix kitchen sink leak' to Friday, Oct 30, 2026",
     );
+    // The click after the drop neither adds a row nor opens one.
+    expect(actions.createRow).not.toHaveBeenCalled();
+    expect(actions.openRow).not.toHaveBeenCalled();
   });
 
   it("keeps a range's length when it is grabbed on any of its days", () => {
@@ -365,8 +372,11 @@ describe('moving', () => {
     pointer(card, 'pointerdown', 10, 10);
     pointer(dayCell('2026-10-30'), 'pointermove', 120, 80);
     fireEvent.keyDown(window, { key: 'Escape' });
-    pointer(dayCell('2026-10-30'), 'pointerup', 120, 80);
+    pointer(dayCell('2026-10-31'), 'pointermove', 200, 80);
+    pointer(dayCell('2026-10-31'), 'pointerup', 200, 80);
+    fireEvent.click(dayCell('2026-10-31'));
     expect(actions.updateValues).not.toHaveBeenCalled();
+    expect(actions.createRow).not.toHaveBeenCalled();
   });
 
   it('moves a card with "Move to date" in its menu', () => {

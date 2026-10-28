@@ -10,37 +10,46 @@ export interface PointerSpot {
 
 export interface FollowHandlers {
   move(spot: PointerSpot): void;
-  /** The pointer went up; `cancelled` when Escape or the browser stopped the drag. */
+  /** Escape was pressed: the drag is off, though the pointer is still down. */
+  escape(): void;
+  /**
+   * The drag is over: the pointer went up (`cancelled` after Escape), or the browser stopped it
+   * (`cancelled`, and no click follows).
+   */
   end(spot: PointerSpot, cancelled: boolean): void;
 }
 
 /** How far a pointer moves before a press becomes a drag, px. */
 export const DRAG_START = 4;
 
-/** Follows one drag until the pointer goes up; Escape cancels it. Returns a stop function. */
+/** Follows one drag until the pointer goes up; Escape calls it off. Returns a stop function. */
 export function followPointer(handlers: FollowHandlers): () => void {
   let last: PointerSpot = { x: 0, y: 0, target: null };
+  let escaped = false;
   const spot = (event: MouseEvent): PointerSpot => ({
     x: event.clientX,
     y: event.clientY,
     target: event.target,
   });
   const move = (event: MouseEvent) => {
+    if (escaped) return;
     last = spot(event);
     handlers.move(last);
   };
+  // After Escape the drag ends when the pointer goes up, so the click that follows is swallowed.
   const up = (event: MouseEvent) => {
     stop();
-    handlers.end(spot(event), false);
+    handlers.end(spot(event), escaped);
   };
   const cancel = () => {
     stop();
     handlers.end(last, true);
   };
   const key = (event: KeyboardEvent) => {
-    if (event.key !== 'Escape') return;
+    if (event.key !== 'Escape' || escaped) return;
     event.preventDefault();
-    cancel();
+    escaped = true;
+    handlers.escape();
   };
   function stop() {
     window.removeEventListener('pointermove', move);
