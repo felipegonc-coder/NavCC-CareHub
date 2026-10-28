@@ -11,6 +11,7 @@ import {
 } from '@carehub/team-calendar-api';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
+import { registerMeetingEventLookup } from '../meetings';
 import { registerNoticeCardResolver } from '../notices';
 import { registerEventLookup, registerTitleLookup } from '../reminders';
 import {
@@ -22,6 +23,7 @@ import {
   getEvent,
   listItems,
   listUpcoming,
+  lookupMeetingEvent,
   onNoticeError,
   replyToEvent,
   type Viewer,
@@ -124,16 +126,19 @@ async function careHubCalendar(app: FastifyInstance) {
 /** Calendar routes under /api/calendar. */
 export default async function calendarRoutes(app: FastifyInstance) {
   // Reminders ask Calendar when an event starts (Remind me) and for titles (the Reminders list);
-  // the 🔔 Care Hub chat asks what the event cards under Calendar's notices show.
+  // the 🔔 Care Hub chat asks what the event cards under Calendar's notices show; meeting notes
+  // ask for the occurrence they're for.
   registerEventLookup(lookupStart);
   registerTitleLookup('event', lookupTitles);
   onReminderError((error) => app.log.error({ err: error }, "Calendar couldn't change a reminder"));
   registerNoticeCardResolver('event', eventCards);
   onNoticeError((error) => app.log.error({ err: error }, "A Calendar notice wasn't sent"));
+  registerMeetingEventLookup(lookupMeetingEvent);
   app.addHook('onClose', async () => {
     registerEventLookup(null);
     registerTitleLookup('event', null);
     registerNoticeCardResolver('event', null);
+    registerMeetingEventLookup(null);
   });
 
   // A plugin of its own, so its guard doesn't apply to the routes registered after it.
