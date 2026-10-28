@@ -119,6 +119,19 @@ describe('connections', () => {
     expect(tabs.map((tab) => tab.ended)).toEqual([true, true]);
     expect(hub.stats().connections).toBe(0);
   });
+
+  it("ends every stream of one user on disconnectUser, and nobody else's", () => {
+    makeHub();
+    const tabs = [testSink(), testSink(), testSink()];
+    hub.connect('user-avery', tabs[0]!.sink);
+    hub.connect('user-avery', tabs[1]!.sink);
+    hub.connect('user-sam', tabs[2]!.sink);
+    hub.disconnectUser('user-avery');
+    hub.disconnectUser('user-nobody');
+    expect(tabs.map((tab) => tab.ended)).toEqual([true, true, false]);
+    expect(hub.hasOpenTabs('user-avery')).toBe(false);
+    expect(hub.stats()).toMatchObject({ connections: 1, users: 1 });
+  });
 });
 
 describe('topics', () => {

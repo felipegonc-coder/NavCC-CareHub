@@ -2,6 +2,7 @@ import { timePart, toCivil } from '@carehub/team-time';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { errorHandler } from '../../core/errors';
+import { registerEvents } from '../../core/events';
 import { createTestApp, createUser, hasDatabase, injectAs } from '../../testing';
 import { createTestSubscription, type TestSubscription } from './protocol/testing';
 import { generateVapidKeys } from './protocol/vapid';
@@ -29,11 +30,15 @@ function on(): PushConfig {
   });
 }
 
-async function build(config: PushConfig = on()): Promise<FastifyInstance> {
+async function build(
+  config: PushConfig = on(),
+  options: { events?: boolean } = {},
+): Promise<FastifyInstance> {
   store = createMemoryPushStore();
   sent.length = 0;
   app = Fastify();
   app.setErrorHandler(errorHandler);
+  if (options.events) registerEvents(app);
   await app.register(pushRoutes, {
     prefix: '/api/push',
     store,
@@ -295,6 +300,22 @@ describe('/api/push/pause', () => {
     await call('PUT', '/pause', avery, { ends: 'in_an_hour' });
     await call('PATCH', '/preferences', avery, { showText: false });
     expect(await pauseOf(avery)).toEqual({ until: new Date(clock + HOUR).toISOString() });
+  });
+});
+
+describe('someone taken out of the workspace', () => {
+  it('loses all their browsers, and nobody else does', async () => {
+    const api = await build(on(), { events: true });
+    await subscribe(avery, createTestSubscription());
+    await subscribe(avery, createTestSubscription(), 'https://web.push.apple.com/fictional-phone');
+    await subscribe(
+      sam,
+      createTestSubscription(),
+      'https://fcm.googleapis.com/fcm/send/fictional-pc',
+    );
+    api.events.emit('member.removed', { workspaceId: 'workspace-1', userId: avery });
+    await api.events.settled();
+    expect(store.subscriptions.map((subscription) => subscription.userId)).toEqual([sam]);
   });
 });
 
