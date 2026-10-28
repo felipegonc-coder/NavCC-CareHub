@@ -1,6 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { CLAUDE_ERRORS, type ClaudeErrorReason } from '@carehub/extras/claude';
-import { blockHelpText, createCourse, HELP_SYSTEM, richText, type Course } from '@carehub/learning';
+import {
+  blockHelpText,
+  createCourse,
+  HELP_SYSTEM,
+  HelpQuestionDraftsSchema,
+  HelpSummarySchema,
+  presetFor,
+  QuestionSchema,
+  richText,
+  type Course,
+} from '@carehub/learning';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../../../db';
@@ -12,7 +22,11 @@ import helpRoutes from './routes';
 
 // The shared Claude client and the saved draft are stubbed: these tests check what the routes send to
 // Claude and what they answer. Fictional people and course text only.
-const claude = vi.hoisted(() => ({ askClaude: vi.fn(), isClaudeFeatureOn: vi.fn() }));
+const claude = vi.hoisted(() => ({
+  askClaude: vi.fn(),
+  askClaudeJson: vi.fn(),
+  isClaudeFeatureOn: vi.fn(),
+}));
 vi.mock('../../claude/index', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../claude/index')>()),
   ...claude,
@@ -47,6 +61,23 @@ const course: Course = {
         { id: 'block-2', type: 'paragraph', text: [] },
       ],
     },
+    { id: 'lesson-2', kind: 'content', title: 'Notes', blocks: [] },
+    {
+      id: 'lesson-3',
+      kind: 'quiz',
+      title: 'Check',
+      intro: richText('One quick question.'),
+      settings: { ...presetFor('standard').quiz },
+      questions: [
+        {
+          id: 'question-1',
+          type: 'true_false',
+          prompt: richText('You give your name first.'),
+          points: 1,
+          answer: true,
+        },
+      ],
+    },
   ],
 };
 const [lesson] = course.lessons;
@@ -60,57 +91,54 @@ const refusal = (reason: ClaudeErrorReason) => {
   return { error: { code, message, details: { reason } } };
 };
 
+let app: FastifyInstance;
+const logs: string[] = [];
+
+beforeAll(async () => {
+  app = Fastify({
+    logger: { level: 'error', stream: { write: (line: string) => logs.push(line) } },
+  });
+  app.decorate('db', db);
+  app.decorateRequest('user', null);
+  app.decorateRequest('member', null);
+  app.addHook('onRequest', async (request) => {
+    const person = PEOPLE[request.headers['x-test-person'] as Person];
+    if (!person) return;
+    Object.assign(request, {
+      user: { id: person.id },
+      member: { workspaceId, roleId: 'role-test', permissions: new Set(person.permissions) },
+    });
+  });
+  await app.register(helpRoutes, { prefix: '/api/learning/help' });
+  await app.ready();
+});
+
+afterAll(async () => {
+  await app?.close();
+});
+
+beforeEach(() => {
+  logs.length = 0;
+  vi.mocked(getStudioCourse).mockReset();
+  vi.mocked(getStudioCourse).mockResolvedValue({ course, revision: 3, liveVersion: null });
+  claude.askClaude.mockReset();
+  claude.askClaude.mockResolvedValue({ text: 'Say hello, then give your name.' });
+  claude.askClaudeJson.mockReset();
+  claude.isClaudeFeatureOn.mockReset();
+  claude.isClaudeFeatureOn.mockResolvedValue(true);
+});
+
+const post = (path: string, body: object, person: Person | null = 'trainer') =>
+  app.inject({
+    method: 'POST',
+    url: `/api/learning/help/${path}`,
+    headers: person ? { 'x-test-person': person } : {},
+    payload: { courseId: course.id, revision: 3, ...body },
+  });
+
 describe('Learning help: writing help', () => {
-  let app: FastifyInstance;
-  const logs: string[] = [];
-
-  beforeAll(async () => {
-    app = Fastify({
-      logger: { level: 'error', stream: { write: (line: string) => logs.push(line) } },
-    });
-    app.decorate('db', db);
-    app.decorateRequest('user', null);
-    app.decorateRequest('member', null);
-    app.addHook('onRequest', async (request) => {
-      const person = PEOPLE[request.headers['x-test-person'] as Person];
-      if (!person) return;
-      Object.assign(request, {
-        user: { id: person.id },
-        member: { workspaceId, roleId: 'role-test', permissions: new Set(person.permissions) },
-      });
-    });
-    await app.register(helpRoutes, { prefix: '/api/learning/help' });
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    await app?.close();
-  });
-
-  beforeEach(() => {
-    logs.length = 0;
-    vi.mocked(getStudioCourse).mockReset();
-    vi.mocked(getStudioCourse).mockResolvedValue({ course, revision: 3, liveVersion: null });
-    claude.askClaude.mockReset();
-    claude.askClaude.mockResolvedValue({ text: 'Say hello, then give your name.' });
-    claude.isClaudeFeatureOn.mockReset();
-    claude.isClaudeFeatureOn.mockResolvedValue(true);
-  });
-
   const write = (body: object, person: Person | null = 'trainer') =>
-    app.inject({
-      method: 'POST',
-      url: '/api/learning/help/write',
-      headers: person ? { 'x-test-person': person } : {},
-      payload: {
-        courseId: course.id,
-        revision: 3,
-        lessonId: 'lesson-1',
-        blockId: 'block-1',
-        action: 'improve',
-        ...body,
-      },
-    });
+    post('write', { lessonId: 'lesson-1', blockId: 'block-1', action: 'improve', ...body }, person);
 
   const sent = () => claude.askClaude.mock.calls[0]?.[1];
 
@@ -214,6 +242,119 @@ describe('Learning help: writing help', () => {
     expect(failed[0]).toContain('"status":500');
     expect(failed[0]).toContain('"type":"Error"');
     expect(logs.join('\n')).not.toContain('Greet the caller');
+  });
+});
+
+describe('Learning help: summary and key points', () => {
+  const answer = { summary: 'Greet callers by name.', keyPoints: ['Say your name first.'] };
+  const sent = () => claude.askClaudeJson.mock.calls[0]?.[1];
+  const lessonOne = { title: TITLE, text: TEXT };
+  const quiz = {
+    title: 'Billing calls, lesson 3: Check',
+    text: 'One quick question.\n\nYou give your name first.',
+  };
+
+  beforeEach(() => {
+    claude.askClaudeJson.mockResolvedValue({ data: answer });
+  });
+
+  it('summarizes the course from every lesson with text, as JSON checked by the schema', async () => {
+    const response = await post('summary', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(answer);
+    expect(Object.keys(sent()).sort()).toEqual(
+      ['documents', 'feature', 'instruction', 'schema', 'system', 'userId', 'workspaceId'].sort(),
+    );
+    expect(sent()).toMatchObject({
+      workspaceId,
+      userId: PEOPLE.trainer.id,
+      feature: 'learning_help',
+      system: HELP_SYSTEM,
+      documents: [lessonOne, quiz],
+    });
+    expect(sent().schema).toBe(HelpSummarySchema);
+    expect(sent().instruction).toContain('each document is one lesson');
+  });
+
+  it('summarizes one lesson, and refuses an unknown or empty one or a stale draft', async () => {
+    expect((await post('summary', { lessonId: 'lesson-1' })).statusCode).toBe(200);
+    expect(sent().documents).toEqual([lessonOne]);
+    expect(sent().instruction).toContain('this lesson');
+
+    claude.askClaudeJson.mockClear();
+    expect((await post('summary', { lessonId: 'lesson-9' })).statusCode).toBe(404);
+    const empty = await post('summary', { lessonId: 'lesson-2' });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json().error.message).toBe("There's no text here to summarize yet.");
+    expect((await post('summary', { revision: 4 })).statusCode).toBe(409);
+    expect((await post('summary', {}, 'learner')).statusCode).toBe(403);
+    expect(claude.askClaudeJson).not.toHaveBeenCalled();
+  });
+
+  it("answers the shared client's refusals with their reason", async () => {
+    claude.askClaudeJson.mockRejectedValueOnce(new ClaudeError('bad_output'));
+    const response = await post('summary', {});
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual(refusal('bad_output'));
+  });
+});
+
+describe('Learning help: quiz questions', () => {
+  const sent = () => claude.askClaudeJson.mock.calls[0]?.[1];
+  const options = (first: boolean, second: boolean) => [
+    { text: 'Your name', correct: first },
+    { text: 'The price', correct: second },
+  ];
+  const drafts = [
+    { type: 'single_choice', prompt: 'What do you say first?', options: options(true, false) },
+    { type: 'single_choice', prompt: 'Two right answers?', options: options(true, true) },
+    { type: 'true_false', prompt: 'You give your name first.', answer: true },
+    { type: 'multiple_choice', prompt: 'Not asked for', options: options(true, true) },
+  ];
+
+  beforeEach(() => {
+    claude.askClaudeJson.mockResolvedValue({ data: { questions: drafts } });
+  });
+
+  it('sends one lesson and returns only checked questions of the types asked for', async () => {
+    const response = await post('questions', {
+      lessonId: 'lesson-1',
+      count: 4,
+      types: ['single_choice', 'true_false'],
+    });
+    expect(response.statusCode).toBe(200);
+    expect(sent()).toMatchObject({
+      feature: 'learning_help',
+      system: HELP_SYSTEM,
+      documents: [{ title: TITLE, text: TEXT }],
+    });
+    expect(sent().schema).toBe(HelpQuestionDraftsSchema);
+    expect(sent().instruction).toContain('Write 4 quiz questions');
+    expect(sent().instruction).not.toContain('multiple choice');
+
+    const { questions } = response.json();
+    expect(questions.map((question: { type: string }) => question.type)).toEqual([
+      'single_choice',
+      'true_false',
+    ]);
+    for (const question of questions) expect(QuestionSchema.safeParse(question).success).toBe(true);
+    expect(new Set(questions.map((question: { id: string }) => question.id)).size).toBe(2);
+  });
+
+  it('refuses an unknown or empty lesson and too many questions', async () => {
+    expect((await post('questions', { lessonId: 'lesson-9' })).statusCode).toBe(404);
+    const empty = await post('questions', { lessonId: 'lesson-2' });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json().error.message).toBe("There's no text here to write questions about yet.");
+    expect((await post('questions', { lessonId: 'lesson-1', count: 11 })).statusCode).toBe(400);
+    expect(claude.askClaudeJson).not.toHaveBeenCalled();
+  });
+
+  it('answers bad_output when no question passes the checks', async () => {
+    claude.askClaudeJson.mockResolvedValueOnce({ data: { questions: [drafts[1]] } });
+    const response = await post('questions', { lessonId: 'lesson-1' });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual(refusal('bad_output'));
   });
 });
 

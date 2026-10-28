@@ -1,4 +1,4 @@
-import type { Block, Image, Question, RichText } from '../format/index';
+import type { Block, Image, Lesson, Question, RichText } from '../format/index';
 import type { HelpSelection } from './api';
 
 // What Claude reads for Learning help (decision 0315): course content only, meaning titles and the text
@@ -112,6 +112,15 @@ const joined = (parts: string[]) => parts.filter((part) => part.trim() !== '').j
 /** A block's text for Claude, each part separated by a blank line. Selections are offsets into it. */
 export function blockHelpText(block: Block): string {
   return joined(blockParts(block));
+}
+
+/** A lesson's text for Claude: every block's text, or a quiz's intro and questions. */
+export function lessonHelpText(lesson: Lesson): string {
+  if (lesson.kind === 'content') return joined(lesson.blocks.map(blockHelpText));
+  return joined([
+    helpRichText(lesson.intro),
+    ...lesson.questions.map((question) => joined(questionParts(question))),
+  ]);
 }
 
 /** The selected part of a block's text, or null when the offsets fall outside it. */
