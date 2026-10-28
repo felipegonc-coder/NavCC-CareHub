@@ -5,6 +5,7 @@ import { getTableConfig } from 'drizzle-orm/pg-core';
 import pg from 'pg';
 import { afterEach, describe, expect, it } from 'vitest';
 import { sessions, users } from '../features/auth/schema';
+import { roles, workspaceMembers, workspaces } from '../features/workspaces/schema';
 import { createTestDatabase, hasDatabase } from '../testing';
 import { defaultMigrationsDir, listMigrations, runMigrations } from './migrate';
 
@@ -118,10 +119,15 @@ describe.skipIf(!hasDatabase)('runMigrations', () => {
     expect(results.flat()).toEqual(['202601010000_test_create_notes.sql']);
   });
 
-  it('creates the account tables exactly as the Drizzle definitions describe them', async () => {
+  it('creates the core tables exactly as the Drizzle definitions describe them', async () => {
     const pool = await emptyDatabase();
-    expect(await runMigrations(pool)).toContain('202610262300_auth_accounts.sql');
-    for (const table of [users, sessions]) {
+    expect(await runMigrations(pool)).toEqual(
+      expect.arrayContaining([
+        '202610262300_auth_accounts.sql',
+        '202610270035_workspaces_members-and-roles.sql',
+      ]),
+    );
+    for (const table of [users, sessions, workspaces, roles, workspaceMembers]) {
       const config = getTableConfig(table);
       const { rows } = await pool.query<{
         name: string;
