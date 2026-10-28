@@ -25,7 +25,7 @@ describe('Layout panel words', () => {
       LAYOUT_TEXT.wrapCells,
       LAYOUT_TEXT.verticalLines,
     ]).toEqual([
-      'Open rows in',
+      'Open pages in',
       'Load limit',
       'Show page icons',
       'Wrap text',
@@ -67,7 +67,7 @@ describe('Layout panel words', () => {
   });
 
   it('names the choices in menu order', () => {
-    expect(Object.values(OPEN_MODE_LABELS)).toEqual(['Side panel', 'Centered window', 'Full page']);
+    expect(Object.values(OPEN_MODE_LABELS)).toEqual(['Side peek', 'Center peek', 'Full page']);
     expect(Object.values(CARD_PREVIEW_LABELS)).toEqual(['None', 'Page cover', 'Page content']);
     expect(Object.values(CARD_SIZE_LABELS)).toEqual(['Small', 'Medium', 'Large']);
     expect(Object.values(TABS_AS_LABELS)).toEqual(['Tabs', 'Dropdown']);
