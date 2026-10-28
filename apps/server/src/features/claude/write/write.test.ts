@@ -12,9 +12,9 @@ import {
   type TestUser,
 } from '../../../testing';
 import { pageDocs } from '../../collab/schema';
-import { configureClaude } from '../index';
+import { bindClaudeMembers, configureClaude, type ClaudeMember } from '../index';
 import { claudeUsage } from '../schema';
-import { bindWriteMember, bindWritePages, type ClaudeMember } from './access';
+import { bindWritePages } from './access';
 import type { ClaudeWriteAppliedEvent } from './events';
 import writeRoutes from './routes';
 
@@ -85,9 +85,9 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
     avery = await createUser(test.db, { name: 'Avery Lin', email: 'avery.lin@example.test' });
     sam = await createUser(test.db, { name: 'Sam Ortiz', email: 'sam.ortiz@example.test' });
     gia = await createUser(test.db, { name: 'Gia Park', email: 'gia.park@example.test' });
-    members.set(avery.id, { workspaceId, canUseClaude: true });
-    members.set(sam.id, { workspaceId, canUseClaude: false });
-    members.set(gia.id, { workspaceId, canUseClaude: false });
+    // Guests aren't members as far as Claude is concerned, so Gia has no entry.
+    members.set(avery.id, { workspaceId, isAdmin: false });
+    members.set(sam.id, { workspaceId, isAdmin: false });
     test.app.events.on('claude.write.applied', (event) => {
       applied.push(event);
     });
@@ -100,7 +100,7 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
     monthlyRequests = 3000;
     switchOffWhileWriting = false;
     unbind = [
-      bindWriteMember((request) => (request.user ? (members.get(request.user.id) ?? null) : null)),
+      bindClaudeMembers(async (_db, userId) => members.get(userId) ?? null),
       bindWritePages(async (_db, userId, pageId) => {
         const page = pages.get(pageId);
         if (!page) return null;
@@ -120,7 +120,7 @@ describe.skipIf(!hasDatabase)('writing help on Postgres', () => {
         access: {
           isSettingOn: async (_db, id, key) =>
             id === workspaceId && (key !== 'claude.writing_help' || featureOn),
-          canUseClaude: async () => true,
+          canUseClaude: async (_db, id, userId) => id === workspaceId && userId === avery.id,
         },
         fetch: async (_url, init) => {
           if (!reachable) throw new TypeError('fetch failed');
