@@ -1,7 +1,14 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { ToastProvider } from '@carehub/ui';
 import { describe, expect, it } from 'vitest';
-import { fixtureRow, layoutProps, PROPS, queryData, viewData } from '../test-utils';
+import {
+  fixtureRow,
+  layoutProps,
+  PROPS,
+  queryData,
+  renderWithDatabase,
+  viewData,
+} from '../test-utils';
 import TableLayout from './layout';
 
 const cellOf = (rowId: string, propertyId: string): HTMLElement => {
@@ -37,7 +44,7 @@ describe('TableLayout big pastes', () => {
       writing -= 1;
       return fixtureRow(rowId, '', 1);
     });
-    render(
+    renderWithDatabase(
       <ToastProvider>
         <TableLayout {...props} />
       </ToastProvider>,
