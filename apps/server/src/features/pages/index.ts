@@ -11,7 +11,11 @@ export {
 export type { GrantAccessInput, PageAnswer, Principal, RowAccessContext } from './access';
 export {
   GENERAL_SPACE,
+  getPersonalSpaceId,
   getPrivateSpaceId,
   joinDefaultSpaces,
   setUpWorkspaceSpaces,
 } from './spaces';
+export { getPageCards } from './cards';
+export { createPage, getPagePlace, setPageTitle } from './pages';
+export type { NewPage, PageRow } from './pages';
