@@ -21,6 +21,7 @@ import { publishToUsers } from '../../live';
 import { listLayers } from '../layers/service';
 import { planDelete, planDuplicate, planEdit, planReply } from './edit';
 import { eventItems, eventJson } from './items';
+import { checkAnswers, checkChanges } from './limits';
 import { civilOf, seriesOf, windowOf, type Schedule, type Window } from './model';
 import {
   MAX_EVENTS,
@@ -114,9 +115,13 @@ export async function getEvent(db: Db, viewer: Viewer, eventId: string): Promise
   return eventJson(event, viewer.id, await profilesOf(db, peopleIds(event)));
 }
 
-/** Times must be in Calendar's years, and a repeating schedule must make sense to team-repeat. */
+/**
+ * Times must be in Calendar's years, a series keeps only so many deleted and changed occurrences,
+ * and a repeating schedule must make sense to team-repeat.
+ */
 export function checkSchedule(schedule: Schedule): void {
   if (!scheduleInYears(schedule)) throw httpError(400, 'invalid', YEARS_MESSAGE);
+  checkChanges(schedule);
   const series = seriesOf(schedule);
   const problems = series ? checkSeries(series) : [];
   if (problems.length > 0) throw httpError(400, 'invalid', problems[0], problems);
@@ -218,6 +223,7 @@ export async function deleteEvent(
   const seen = await db.transaction(async (tx) => {
     const event = await ownEvent(tx, viewer, eventId);
     const left = planDelete(event, query);
+    if (left) checkChanges(left);
     await (left ? updateEvent(tx, event.id, left) : cancelEvent(tx, event.id));
     return peopleIds(event);
   });
@@ -235,7 +241,9 @@ export async function replyToEvent(
     const event = await visibleEvent(tx, viewer, eventId, true);
     const person = event.people.find((invited) => invited.userId === viewer.id);
     if (!person) throw httpError(403, 'forbidden');
-    await saveReply(tx, event.id, planReply(event, person, body));
+    const answered = planReply(event, person, body);
+    checkAnswers(answered);
+    await saveReply(tx, event.id, answered);
     return peopleIds(event);
   });
   notify(eventId, seen);
