@@ -125,6 +125,74 @@
   padding-left: var(--ch-space-4);
 }
 
+/* Toggles: the arrow sits left of the title, as tall as its first line. */
+.ch-toggle {
+  position: relative;
+  padding-left: var(--ch-space-6);
+}
+
+.ch-toggle-arrow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ch-space-6);
+  height: var(--ch-leading-body);
+  padding: 0;
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  background: none;
+  color: rgb(var(--ch-muted));
+  cursor: pointer;
+}
+
+.ch-toggle-arrow:hover {
+  background: rgb(var(--ch-fill));
+}
+
+.ch-toggle-arrow:focus-visible {
+  outline: 2px solid rgb(var(--ch-ring));
+}
+
+/* Clicks land on the button itself, so the editor leaves them alone. */
+.ch-toggle-arrow svg {
+  pointer-events: none;
+}
+
+.ch-toggle-open > .ch-toggle-arrow svg {
+  transform: rotate(90deg);
+}
+
+.ch-toggle-body > * > * + * {
+  margin-top: var(--ch-space-1);
+}
+
+.ch-editor > :first-child > .ch-toggle > .ch-toggle-body > * > :first-child {
+  margin-top: 0;
+}
+
+.ch-editor .ch-toggle-hidden {
+  display: none;
+}
+
+.ch-toggle-empty {
+  display: block;
+  margin-top: var(--ch-space-1);
+  padding: 0;
+  border: none;
+  background: none;
+  color: rgb(var(--ch-faint));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ch-editor[contenteditable='false'] .ch-toggle-empty {
+  display: none;
+}
+
 .ch-editor hr {
   border: none;
   border-top: 1px solid rgb(var(--ch-border));

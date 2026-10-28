@@ -181,9 +181,9 @@ const stopEvent = (event: Event) => !(event.target as Element).closest('[data-dr
 - Nodes: `doc`, `paragraph`, `hardBreak`, `text` (core); `heading` (`level` 1-3, drawn as `<h2>`
   to `<h4>` with `data-level`, because the page title is the `<h1>`) in `text`; `bulletList`,
   `orderedList` (`start`; `type`: `1`, `a`, `i`, or null to follow the depth), `listItem`,
-  `taskList`, `taskItem` (`checked`) in `lists`;
-  `blockquote` and `horizontalRule` in `callout`; `codeBlock` (`language`) in `code`; plus the
-  lane nodes.
+  `taskList`, `taskItem` (`checked`) in `lists`; `toggle` (a title `paragraph`, then the
+  blocks inside) in `toggle`; `blockquote` and `horizontalRule` in `callout`; `codeBlock`
+  (`language`) in `code`; plus the lane nodes.
 - Marks: `bold`, `italic`, `underline`, `strike`, `code`, `link` (`href`, `target`, `rel`).
   Inline code drops the other formatting marks, links too, but keeps marks that may overlap
   anything, like comments.
@@ -217,18 +217,37 @@ and search use it.
 - `@carehub/editor/schema` has `blockIdAt(doc, pos)` (the block a position belongs to),
   `findBlock(doc, blockId)` (`{ node, pos }` or null) and `withBlockIds(json)`, for content made
   outside an editor (import, templates, the API).
-- `revealBlock(editor, blockId)` scrolls to the block and highlights it for 2 seconds (PB-18), or
-  returns false if the page has no such block.
+- `revealBlock(editor, blockId)` opens the toggles around the block, scrolls to it and highlights
+  it for 2 seconds (PB-18), or returns false if the page has no such block.
+
+## Toggles
+
+A toggle list is a `toggle`: a title line and the blocks inside it. `>` and a space or "/toggle"
+make one.
+
+- Open or closed is per person (PB-14) and never in the page: kept in the editor by the title's
+  block ID, until the page reloads. Toggles start closed. A read-only editor opens and closes them
+  too.
+- The arrow is a button with `aria-expanded`. An open empty toggle says "Empty toggle. Click or
+  drop blocks inside."; clicking it starts a line inside.
+- A closed toggle hides all but its title, and the cursor never stays in hidden blocks. Enter in a
+  closed title starts a new toggle below; in an open one it adds a line at the top of the toggle.
+  Enter at the start of a title adds a toggle above. Backspace at the start of a title, or Enter
+  in an empty toggle, turns it back into lines; Backspace under a closed toggle joins the line to
+  its title.
+- Pasted `<details>` (with its `<summary>`) becomes a toggle.
 
 ## Keyboard
 
 - Markdown shortcuts at the start of a block, then a space: `#`, `##`, `###`, `-`, `*` or `+`,
-  `1.`, `a.` (letters), `i.` (Roman numerals) and `"` (quote). Without a space: `[]` (to-do),
-  `---` (divider) and three backticks (code). Also `**bold**`, `*italic*` and `` `code` ``. `>`
-  makes a quote until the toggle list lands; `$$` comes with the math group.
+  `1.`, `a.` (letters), `i.` (Roman numerals), `>` (toggle) and `"` (quote). Without a space:
+  `[]` (to-do), `---` (divider) and three backticks (code). Also `**bold**`, `*italic*` and
+  `` `code` ``. `$$` comes with the math group.
 - Ctrl/Cmd + B, I, U, Shift+S (strike), E (code). Ctrl/Cmd + Z right after a shortcut turns it
   back into what you typed; otherwise it undoes only your own changes (Yjs undo). Shift+Z or Y
   redoes. Tab and Shift+Tab indent and outdent list items.
+- Ctrl/Cmd + Enter in a toggle's title opens or closes it; Ctrl/Cmd + Alt + T opens every toggle
+  on the page, or closes them all when they're all open.
 - Ctrl/Cmd + K edits the link of the selected text (or of the link the cursor is in). Anywhere
   else it's left to the app's command menu, which should skip key events already
   `defaultPrevented`. Alt+F10 moves focus into the selection toolbar.
