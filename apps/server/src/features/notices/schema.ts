@@ -1,6 +1,6 @@
 // The notices tables, as Drizzle sees them. The SQL is in the migrations
-// 202610270040_notices_notices.sql and 202610270440_notices_kinds-and-keys.sql, and
-// store.test.ts checks that the two agree.
+// 202610270040_notices_notices.sql, 202610270440_notices_kinds-and-keys.sql and
+// 202610271400_notices_extra-cards.sql, and store.test.ts checks that the two agree.
 import { sql } from 'drizzle-orm';
 import {
   bigserial,
@@ -26,7 +26,12 @@ export const notices = pgTable('notices_notices', {
   icon: text('icon'),
   title: text('title').notNull(),
   body: text('body'),
+  /** The first card; `extraCards` has the second and third. */
   card: jsonb('card').$type<NoticeCard>(),
+  extraCards: jsonb('extra_cards')
+    .$type<NoticeCard[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   buttons: jsonb('buttons')
     .$type<NoticeButton[]>()
     .notNull()

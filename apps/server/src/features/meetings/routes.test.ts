@@ -10,11 +10,14 @@ import {
   type TestUser,
 } from '../../testing';
 import { addMember } from '../workspaces';
+import { notesTitle } from './domain/notes';
 import meetingsRoutes from './routes';
 import { NOTES_PARENT_TITLE, registerMeetingEventLookup } from './service';
-import { createMemoryPages } from './testing';
+import { isCurrentMember } from './stand-ins';
+import { createMemoryCore } from './testing';
 import type { MeetingEvent } from './types';
 
+const DAY_MS = 86_400_000;
 type View = { notes: { id: string; pageId: string } };
 
 describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
@@ -25,13 +28,15 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
   let casey: TestUser;
   let morgan: TestUser;
   let outsider: TestUser;
-  const pages = createMemoryPages();
+  const core = createMemoryCore();
   let events: MeetingEvent[] = [];
 
   beforeAll(async () => {
     test = await createTestApp({
       routes: async (app) => {
-        await app.register(meetingsRoutes, { prefix: '/api/meetings', pages: pages.service });
+        // Pages in memory, memberships from core.
+        const notes = { ...core.service, isMember: isCurrentMember };
+        await app.register(meetingsRoutes, { prefix: '/api/meetings', core: notes });
       },
     });
     // Editors by default, so with the Create permission. Casey comments only, Jordan is outside.
@@ -43,12 +48,13 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
     casey = await person('Casey Nguyen', 'casey.nguyen@example.com', { role: 'commenter' });
     morgan = await person('Morgan Lee', 'morgan.lee@example.com');
     outsider = await person('Jordan Patel', 'jordan.patel@example.com', { role: null });
-    const meeting = (eventId: string, title: string): MeetingEvent => ({
+    // Dates from today, as new notes are only for meetings within a year of it.
+    const meeting = (eventId: string, title: string, inDays = 1): MeetingEvent => ({
       eventId,
       occurrence: null,
       title,
       allDay: false,
-      start: '2026-10-27T16:00:00.000Z',
+      start: new Date(Date.now() + inDays * DAY_MS).toISOString(),
       timeZone: 'America/Denver',
       organizerId: avery.id,
       memberIds: [sam.id, riley.id, casey.id],
@@ -58,8 +64,10 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
       meeting('rota-review', 'Rota review'),
       meeting('coaching-sync', 'Coaching sync'),
       meeting('qa-review', 'QA review'),
-      { ...meeting('weekly-stand-up', 'Weekly stand-up'), occurrence: '2026-10-26T09:30' },
-      { ...meeting('weekly-stand-up', 'Weekly stand-up'), occurrence: '2026-11-02T09:30' },
+      meeting('care-plan-review', 'Care plan review'),
+      meeting('far-off-review', 'Far-off review', 800),
+      { ...meeting('weekly-stand-up', 'Weekly stand-up', 2), occurrence: '2026-10-26T09:30' },
+      { ...meeting('weekly-stand-up', 'Weekly stand-up', 9), occurrence: '2026-11-02T09:30' },
     ];
     registerMeetingEventLookup(async (_db, { workspaceId, eventId, occurrence }) => {
       if (workspaceId !== avery.workspaceId) return null;
@@ -96,8 +104,8 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
         created_by: avery.id,
       },
     ]);
-    const page = pages.pages.find((p) => p.id === made.pageId);
-    expect(page?.title).toBe('Team huddle · Oct 27, 2026');
+    const page = core.pages.find((p) => p.id === made.pageId);
+    expect(page).toMatchObject({ title: notesTitle(events[0]!), inheritAccess: false });
     const again = await takeNotes(avery, { eventId: 'team-huddle' });
     expect(again.statusCode).toBe(200);
     expect((again.json() as View).notes).toEqual(made);
@@ -118,11 +126,13 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
 
   it('keeps the Can edit the event gave each workspace attendee (MT-D1)', async () => {
     const { notes } = (await takeNotes(sam, { eventId: 'coaching-sync' })).json() as View;
-    const given = pages.grants.filter((grant) => grant.pageId === notes.pageId);
+    const given = core.grants.filter((grant) => grant.pageId === notes.pageId);
     expect(given.map((grant) => grant.userId).sort()).toEqual(
       [avery.id, riley.id, casey.id].sort(),
     );
-    expect(given.every((grant) => grant.level === 'edit' && grant.grantedBy === sam.id)).toBe(true);
+    for (const grant of given) {
+      expect(grant).toMatchObject({ level: 'edit', source: { type: 'user', id: sam.id } });
+    }
     const kept = await rows(
       sql`SELECT user_id, grant_id FROM meetings_grants WHERE notes_id = ${notes.id}::uuid`,
     );
@@ -147,7 +157,7 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
       { occurrence_key: '2026-10-26T09:30' },
       { occurrence_key: '2026-11-02T09:30' },
     ]);
-    const parents = pages.pages.filter(
+    const parents = core.pages.filter(
       (page) => page.title === NOTES_PARENT_TITLE && page.createdBy === avery.id,
     );
     expect(parents).toHaveLength(1);
@@ -156,15 +166,24 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
     );
     expect(place).toEqual([{ parent_page_id: parents[0]?.id }]);
     for (const notes of [first, next]) {
-      expect(pages.pages.find((page) => page.id === notes.pageId)?.parentId).toBe(parents[0]?.id);
+      expect(core.pages.find((page) => page.id === notes.pageId)?.parentId).toBe(parents[0]?.id);
     }
   });
 
-  it('is 403 for people not invited, guests, and making notes without the Create permission', async () => {
-    const forbidden = { error: { code: 'forbidden', message: "You don't have access to this." } };
+  it('gives Can edit only to attendees who are members now (MT-D1)', async () => {
+    await addMember(test.db, { userId: riley.id, kind: 'guest' });
+    const { notes } = (await takeNotes(avery, { eventId: 'care-plan-review' })).json() as View;
+    await addMember(test.db, { userId: riley.id, role: 'editor' });
+    const given = core.grants.filter((grant) => grant.pageId === notes.pageId);
+    expect(given.map((grant) => grant.userId).sort()).toEqual([sam.id, casey.id].sort());
+  });
+
+  it('is 404 for people not invited, 403 for outsiders, guests and without the Create permission', async () => {
     const notInvited = await takeNotes(morgan, { eventId: 'team-huddle' });
-    expect(notInvited.statusCode).toBe(403);
-    expect(notInvited.json()).toEqual(forbidden);
+    expect(notInvited.statusCode).toBe(404);
+    expect(notInvited.json()).toEqual({
+      error: { code: 'not_found', message: 'This was deleted, or the link is wrong.' },
+    });
     expect((await takeNotes(outsider, { eventId: 'team-huddle' })).statusCode).toBe(403);
     expect((await takeNotes(casey, { eventId: 'qa-review' })).statusCode).toBe(403);
     expect((await takeNotes(casey, { eventId: 'team-huddle' })).statusCode).toBe(200);
@@ -175,14 +194,24 @@ describe.skipIf(!hasDatabase)('meetings routes on Postgres', () => {
     expect((await takeNotes(sam, { eventId: 'team-huddle' })).statusCode).toBe(200);
   });
 
-  it('is 404 for an event Calendar does not find, and 400 for a bad request', async () => {
-    const missing = await takeNotes(avery, { eventId: 'no-such-event' });
-    expect(missing.statusCode).toBe(404);
-    expect(missing.json()).toEqual({
-      error: { code: 'not_found', message: 'This was deleted, or the link is wrong.' },
-    });
+  it('is 400 for a bad request, or a meeting more than a year away', async () => {
     const bad = await takeNotes(avery, { eventId: 'team-huddle', occurrence: 'next week' });
     expect(bad.statusCode).toBe(400);
     expect((bad.json() as { error: { code: string } }).error.code).toBe('invalid');
+    const farOff = await takeNotes(avery, { eventId: 'far-off-review' });
+    expect(farOff.statusCode).toBe(400);
+    expect(farOff.json()).toEqual({
+      error: { code: 'invalid', message: 'Meeting notes are for meetings within a year of today.' },
+    });
+  });
+
+  it('answers 429 after 20 tries in a minute', async () => {
+    const busy = await createUser(test.db);
+    for (let i = 0; i < 20; i += 1) {
+      expect((await takeNotes(busy, { eventId: 'team-huddle' })).statusCode).toBe(404);
+    }
+    const limited = await takeNotes(busy, { eventId: 'team-huddle' });
+    expect(limited.statusCode).toBe(429);
+    expect((limited.json() as { error: { code: string } }).error.code).toBe('rate_limited');
   });
 });
