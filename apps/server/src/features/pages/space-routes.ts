@@ -5,11 +5,14 @@ import {
   listSpacesQuerySchema,
   updateSpaceMemberSchema,
   updateSpaceSchema,
+  type PageTreeJson,
   type SpaceListJson,
 } from '@carehub/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { recheckSubscriptions } from '../live';
 import { viewerFor } from './access';
 import { conflict, forbidden, spaceArchived } from './http';
+import { treeChanged } from './live';
 import {
   addSpaceMembers,
   countSpacePages,
@@ -21,10 +24,12 @@ import {
   listSpaces,
   removeSpaceMember,
   setSpaceMemberRole,
+  spacePlace,
   trashSpace,
   updateSpace,
   type SpaceViewer,
 } from './spaces';
+import { spaceTree } from './tree';
 
 async function asker(request: FastifyRequest): Promise<SpaceViewer> {
   const { member } = request;
@@ -87,6 +92,7 @@ export function spaceRoutes(app: FastifyInstance): void {
     // Default spaces are an Admin setting (Settings and members), and so is unarchiving (SB-09).
     if ((patch.isDefault !== undefined || isArchived) && !who.isAdmin) throw forbidden();
     await db.transaction((tx) => updateSpace(tx, space.id, patch, who.viewer.userId));
+    treeChanged(space.id);
     return findSpace(db, who, space.id);
   });
 
@@ -95,7 +101,15 @@ export function spaceRoutes(app: FastifyInstance): void {
     const space = await findSpace(db, who, params(request).id);
     if (!space.canManage) throw forbidden();
     await trashSpace(db, space.id, who.viewer.userId);
+    void recheckSubscriptions();
     return reply.code(204).send();
+  });
+
+  // The sidebar tree: the space's members (Admins: any team space) or the Private section's owner.
+  app.get('/api/spaces/:id/tree', members, async (request): Promise<PageTreeJson> => {
+    const viewer = await viewerFor(request);
+    const space = await spacePlace(db, viewer, params(request).id);
+    return { nodes: await spaceTree(db, viewer, space.id) };
   });
 
   app.get('/api/spaces/:id/members', members, async (request) => {
@@ -132,6 +146,7 @@ export function spaceRoutes(app: FastifyInstance): void {
       throw conflict('Ask an owner of this space to remove you.');
     }
     await db.transaction((tx) => removeSpaceMember(tx, space.id, memberId));
+    if (typeof memberId === 'string') void recheckSubscriptions(memberId);
     return reply.code(204).send();
   });
 
