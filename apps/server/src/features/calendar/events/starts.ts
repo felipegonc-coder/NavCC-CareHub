@@ -1,11 +1,13 @@
 import { RepeatError, occurrenceAt } from '@carehub/team-repeat';
-import { toInstant } from '@carehub/team-time';
+import { isCivilDate, toInstant } from '@carehub/team-time';
 import type { EventStart } from '../../reminders';
 import { seriesOf, type Schedule } from './model';
 
 /**
  * When an event that doesn't repeat starts, or one occurrence of one that does (by its key, as
  * reminders name it). Null for an occurrence that's gone, or a key that doesn't fit the event.
+ * A moved occurrence can be all-day in a timed series (or the other way round), so the start's
+ * own kind decides.
  */
 export function startOf(schedule: Schedule, key?: string): EventStart | null {
   const series = seriesOf(schedule);
@@ -21,5 +23,5 @@ export function startOf(schedule: Schedule, key?: string): EventStart | null {
       throw error;
     }
   }
-  return schedule.allDay ? { allDay: start } : { start: toInstant(start, schedule.timeZone) };
+  return isCivilDate(start) ? { allDay: start } : { start: toInstant(start, schedule.timeZone) };
 }
