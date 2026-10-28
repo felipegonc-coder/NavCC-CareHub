@@ -16,7 +16,15 @@ const guide: ExportTarget = { id: PAGE_ID, kind: 'page', title: 'Support guide' 
 let downloads: string[];
 let server: ReturnType<typeof fakeFetch> | undefined;
 
+// jsdom has no ResizeObserver, and the kit's checkboxes measure themselves with one.
+class ResizeObserverStub {
+  observe = () => undefined;
+  unobserve = () => undefined;
+  disconnect = () => undefined;
+}
+
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
   downloads = [];
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
     this: HTMLAnchorElement,
@@ -29,6 +37,7 @@ afterEach(() => {
   server?.restore();
   server = undefined;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   resetExportStore();
 });
 
