@@ -1,5 +1,14 @@
-import { LIMITS, type Id } from '@carehub/databases';
-import type { NewRow } from '../contract';
+import { LIMITS, type Id, type Property, type SelectOption } from '@carehub/databases';
+import type { NewRow, QueryRow } from '../contract';
+
+/** One value to write: the history keeps what it replaces. */
+export interface Write {
+  row: QueryRow;
+  property: Property;
+  value: unknown;
+  /** Options typed into a Select or Multi-select cell, added to the property as it's saved. */
+  options?: readonly SelectOption[];
+}
 
 /** One value a change wrote, and the value it replaced. */
 export interface ValueChange {
@@ -7,6 +16,8 @@ export interface ValueChange {
   propertyId: Id;
   before: unknown;
   after: unknown;
+  /** Options typed into the cell that `after` names: sent with it until the property has them. */
+  options?: readonly SelectOption[];
 }
 
 /**
