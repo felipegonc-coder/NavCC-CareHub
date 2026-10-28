@@ -19,7 +19,9 @@ import { Clock, Search, X, Zap } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { slots, type Command } from '../../slots';
-import { useRecent, useResults, useSearchActions } from './data';
+import { useDebounced, useRecent, useResults, useSearchActions } from './data';
+import { FilterBar, type SearchOptions } from './FilterBar';
+import { hasFilters } from './filters';
 import { matchCommands, modifierLabel } from './keys';
 import { ResultContent, resultLabel } from './ResultRow';
 
@@ -35,15 +37,6 @@ interface Section {
   heading: boolean;
   options: Option[];
   action?: ReactNode;
-}
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return settled;
 }
 
 /** True once `on` has stayed true for `ms`. */
@@ -72,7 +65,13 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
   const [returnTo] = useState(() => document.activeElement as HTMLElement | null);
   const [text, setText] = useState('');
   const typed = useDebounced(text, 80);
-  const request = typed.trim() ? { text: typed } : null;
+  const [searchOptions, setSearchOptions] = useState<SearchOptions>({
+    filters: {},
+    sort: 'best',
+    names: {},
+  });
+  const { filters, sort } = searchOptions;
+  const request = typed.trim() ? { text: typed, filters, sort } : null;
   const results = useResults(request);
   const recent = useRecent();
   const actions = useSearchActions();
@@ -90,14 +89,26 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
   // save it to Recent searches), or when the window closes.
   const counted = useRef<string | null>(null);
   function record(save: boolean, opened?: string) {
-    if (!request || !results.data || counted.current === request.text) return;
-    counted.current = request.text;
-    actions.record({ text: request.text, save, found: total, ...(opened ? { opened } : {}) });
+    const search = JSON.stringify(request);
+    if (!request || !results.data || counted.current === search) return;
+    counted.current = search;
+    actions.record({
+      text: request.text,
+      ...(hasFilters(filters) ? { filters } : {}),
+      save,
+      found: total,
+      ...(opened ? { opened } : {}),
+    });
   }
 
   function dismiss() {
     record(false);
     onClose();
+  }
+
+  function clearFilters() {
+    setSearchOptions({ ...searchOptions, filters: {} });
+    input.current?.focus();
   }
 
   /** "Did you mean": searches for the suggestion instead. */
@@ -164,7 +175,7 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
   const options = lists.flatMap((section) => section.options);
 
   // The first option is selected whenever the list changes (spec 2).
-  const listKey = searching ? `q:${typed}` : 'recent';
+  const listKey = searching ? `q:${JSON.stringify(request)}` : 'recent';
   const [selected, setSelected] = useState({ listKey, index: 0 });
   const active = Math.min(selected.listKey === listKey ? selected.index : 0, options.length - 1);
   const activeOption = options[active];
@@ -201,6 +212,7 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
   function choose(option: Option, newTab = false) {
     if (option.type === 'search') {
       setText(option.search.text);
+      setSearchOptions({ ...searchOptions, filters: option.search.filters });
       input.current?.focus();
       return;
     }
@@ -292,6 +304,7 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
             className="h-12 min-w-0 flex-1 bg-transparent text-body text-fg placeholder:text-faint focus:outline-none max-md:h-14"
           />
         </div>
+        <FilterBar options={searchOptions} onChange={setSearchOptions} onClear={clearFilters} />
         <VisuallyHidden role="status">{status}</VisuallyHidden>
         <div className="flex max-h-96 min-h-0 flex-col gap-3 overflow-y-auto p-2 max-md:max-h-none max-md:flex-1">
           {offline && (
@@ -348,9 +361,16 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
             <div className="flex flex-col items-center gap-3 px-2 py-6 text-center text-small text-muted">
               <p>{`No results for ‘${typed.trim()}’.`}</p>
               {didYouMean}
-              <Button variant="secondary" size="sm" onClick={searchTrash}>
-                Search in Trash
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                {hasFilters(filters) && (
+                  <Button variant="secondary" size="sm" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                )}
+                <Button variant="secondary" size="sm" onClick={searchTrash}>
+                  Search in Trash
+                </Button>
+              </div>
             </div>
           ) : (
             didYouMean

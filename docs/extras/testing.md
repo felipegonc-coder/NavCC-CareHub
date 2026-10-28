@@ -22,6 +22,7 @@ How search works and what's still a stand-in: [search.md](search.md).
   - Before typing: the group "Recent" (the last 8 pages opened, newest first, options named like results) and the group "Recent searches" (the last 5, each option named by its text, with the button **Clear** in the group). With neither it says "Type to search pages, databases and rows." Opening `/p/<id>` counts as a visit straight away.
   - Each result is an option named "<title>, page in <space> › <parent>, edited <day>" (database and row for the other kinds). The first is selected (`aria-selected`). ↑ and ↓ move, Enter opens `/p/<id>`, Ctrl+Enter opens it in a new tab and Esc closes.
   - Other features' commands that match come first, under "Actions".
+  - **Filters** are buttons under the box: "Title only" and "Include archived" turn on and off (`aria-pressed`). "In", "Created by", "Edited by" and "Date" each open a small panel, and when something is picked the button is named "In: <title>", "Edited by: <name>" or "Date: Edited, last 7 days". In, Created by and Edited by put the focus in a box ("Find a page", "Find a person"); typing lists options named "<title>, <path>" or "<name>", and clicking one picks it. The list stays open for more; Esc closes only the list. "Type" is a menu of `menuitemcheckbox` (Pages, Databases, Rows, Files). Sort is the button named "Sort: Best match", a menu of `menuitemradio` ("Best match", "Edited, newest first", "Edited, oldest first", "Created, newest first", "Created, oldest first"). **Clear filters** shows when a filter is on, and under No results too.
   - When nothing matches: "No results for ‘<text>’.", then "Did you mean <text>?" with a button named the suggested text when a title is close, and the button **Search in Trash**, which goes to `/trash?q=<text>`. When the API fails: "Search isn't working right now." with **Try again**. Offline: "You're offline. Showing recent pages." A status region says "<n> results" or "No results".
 - **Screens:** `extras-search` (the window before typing) and `extras-search-results` (after typing "Fictional refund steps").
 - **Timing:** a new, renamed, moved, trashed or archived page is searchable (or hidden) at once; text typed into a page is searchable within about 2 seconds. Wait for the result to show (`expect(…).toBeVisible()`), not for a fixed time.
@@ -42,7 +43,12 @@ _Filled in by the import and export PRs._
 
 ## Knowledge base
 
-_Filled in by the knowledge base PRs._
+How the knowledge base works: [the spec](../plan/specs/knowledge-base.md). Its server stand-ins deny by default until the page model and wiki databases are bound, so leave `knowledgeBase` off in `tests/e2e/flows/_support/features.ts` until then.
+
+- **Verify:** `POST /api/knowledge/pages/:pageId/verification` with `{ period }` (`1w`, `30d`, `90d`, `6m`, `1y` or `none`) or `{ period: 'date', until: 'YYYY-MM-DD' }` answers the page's knowledge base info, with `verification: { state, verifiedBy: { id, name }, verifiedAt, until }`. Only the page's owners and people with Full access on the knowledge base can verify; anyone else gets 403. `DELETE` on the same path removes the verification.
+- **Dates:** "until" is a day in the first owner's time zone. Normally it must be after today and at most ten years ahead, or the answer is 400 "Pick a date after today, up to ten years ahead."
+- **Test hook, past dates:** only when the server runs with `CAREHUB_TEST_HOOKS=1` (browser-test servers, never production), `{ period: 'date', until }` also takes today and earlier days, so a test can make a page Expired without waiting for a real until date. Everything else stays the same: sign-in, CSRF, who may verify, the date format and the ten-year limit. The server logs a warning at start-up when the hook is on.
+- **Expiry:** a task that runs every minute (`knowledge.expiry`) turns a verified page Expired once 9:00 AM has passed on its until day in the first owner's time zone. Then the badge turns orange, readers see "Verification expired on …", owners and editors see "Due for review since … · Review now", and the owners get the 🔔 notice for that day. For an Expired page at once, verify until yesterday, then wait up to 2 minutes, opening the page again until the banner shows. A page verified until today expires only after 9:00 AM in the owner's time zone.
 
 ## Claude
 
@@ -63,3 +69,15 @@ The tests never reach Claude. The server is pointed at a local stub:
 - **CL-02:** the fictional key never appears in the server output, any API answer, any page, an export or the web bundle.
 
 The two environment lines go in the browser-test workflow (`.github/`), on the e2e server step only, with the fictional key.
+
+### Writing help (CL-06 to CL-08)
+
+- `POST /api/claude/write` with `{ pageId, action, tone?, selection, at?, prompt? }` answers `{ text }` in Markdown.
+  - Actions: `improve`, `fix_grammar`, `change_tone` (with `tone`: `professional`, `friendly`, `direct` or `empathetic`), `make_shorter`, `simplify`, `continue`, `summarize` and `draft` (with `prompt`).
+  - `at` is where the selection starts in the page's text, so the server picks the right one when the words appear twice.
+- What reaches the stub (CL-07):
+  - The selection; for `continue`, the last 4,000 characters above the cursor.
+  - The page title, with up to 2,000 characters of the page's text on each side of the selection, which the server reads itself.
+  - For `summarize` with nothing selected, the whole page up to 40,000 characters; for `draft`, only the title and what was typed.
+- Refusals: 403 without Use Claude or Can edit, 413 over 10,000 selected characters, and Claude's own reasons with `error.details.reason` ([claude.md](claude.md)).
+- `POST /api/claude/write/applied` with `{ pageId, action, placement }` follows Replace or Insert below. Page history reads its `claude.write.applied` event to show "(with Claude)".

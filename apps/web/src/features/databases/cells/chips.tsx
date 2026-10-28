@@ -1,10 +1,11 @@
-import type {
-  FileRef,
-  Id,
-  OptionColor,
-  SelectOption,
-  TextColor,
-  VerificationState,
+import {
+  isSafeWebLink,
+  type FileRef,
+  type Id,
+  type OptionColor,
+  type SelectOption,
+  type TextColor,
+  type VerificationState,
 } from '@carehub/databases';
 import { hiddenRowsText } from '@carehub/databases/values';
 import { Avatar, cn, colorClasses } from '@carehub/ui';
@@ -140,7 +141,10 @@ export function HiddenRowsChip({ count }: { count: number }) {
   );
 }
 
-/** A file or web link: pictures show a thumbnail; it opens in a new tab when it has an address. */
+/**
+ * A file or web link: pictures show a thumbnail; it opens in a new tab when it has an address. A
+ * web link opens only when it's http or https (isSafeWebLink), as in URL cells; else it's a name.
+ */
 export function FileChip({
   file,
   ctx,
@@ -150,7 +154,8 @@ export function FileChip({
   ctx: CellContext;
   children?: ReactNode;
 }) {
-  const href = file.url ?? ctx.fileHref?.(file);
+  const href =
+    file.url === undefined ? ctx.fileHref?.(file) : isSafeWebLink(file.url) ? file.url : undefined;
   const cls = 'inline-flex min-w-0 shrink-0 items-center gap-1 rounded bg-fill px-1.5 text-small';
   const content = (
     <>

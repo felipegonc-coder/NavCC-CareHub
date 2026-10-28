@@ -10,6 +10,7 @@ export * from './preview';
 export * from './reactions';
 export * from './system-lines';
 export * from './text';
+export * from './text-search';
 export * from './tokens';
 export * from './types';
 export * from './unread';

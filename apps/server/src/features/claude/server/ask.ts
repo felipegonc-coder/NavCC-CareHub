@@ -1,5 +1,6 @@
 import {
   CLAUDE_APPROVAL_KEY,
+  CLAUDE_FEATURES,
   claudeSwitchKey,
   type ClaudeErrorReason,
   type ClaudeFeature,
@@ -34,13 +35,28 @@ export interface AskClaudeJsonInput<T> extends AskClaudeInput {
   schema: z.ZodType<T>;
 }
 
-/** Whether the server has the key, an Admin has given the OK, and the feature's switch is on. */
+/** Whether the server has the key, the workspace is approved, and the feature's switch is on. */
 export async function isClaudeFeatureOn(
   db: Db | Tx,
   workspaceId: string,
   feature: ClaudeFeature,
 ): Promise<boolean> {
   return (await featureRefusal(db, workspaceId, feature)) === undefined;
+}
+
+/** isClaudeFeatureOn for every feature at once (GET /api/claude/status). */
+export async function claudeFeaturesOn(
+  db: Db | Tx,
+  workspaceId: string,
+): Promise<Record<ClaudeFeature, boolean>> {
+  const { settings, access } = claudeRuntime();
+  const ready =
+    Boolean(settings().apiKey) && (await access.isSettingOn(db, workspaceId, CLAUDE_APPROVAL_KEY));
+  const on = {} as Record<ClaudeFeature, boolean>;
+  for (const feature of CLAUDE_FEATURES) {
+    on[feature] = ready && (await access.isSettingOn(db, workspaceId, claudeSwitchKey(feature)));
+  }
+  return on;
 }
 
 /**
