@@ -4,11 +4,12 @@ import { z } from 'zod';
 import type { Db } from '../../db';
 import { FILTER_KINDS } from './domain/filters';
 import { chatLockKey, planNotice } from './domain/grouping';
+import { DEFAULT_NOTICE_SETTINGS, pickNoticeSettings } from './domain/settings';
 import type { ValidNotice } from './domain/validate';
 import { toNoticeSummary, type NoticeRecord } from './domain/view';
-import { noticeIdempotencyKeys, notices } from './schema';
+import { noticeIdempotencyKeys, notices, noticeSettings } from './schema';
 import type { NoticeScope, NoticeStore } from './service';
-import type { NoticeSummary, SendNoticeResult } from './types';
+import type { NoticeSettings, NoticeSummary, SendNoticeResult } from './types';
 
 const inChat = (scope: NoticeScope) =>
   and(eq(notices.workspaceId, scope.workspaceId), eq(notices.userId, scope.userId));
@@ -26,8 +27,19 @@ const content = (notice: ValidNotice) => ({
   title: notice.title,
   body: notice.text,
   card: notice.card,
+  extraCards: notice.extraCards,
   buttons: notice.buttons,
 });
+
+const settingsColumns = {
+  comments: noticeSettings.comments,
+  edits: noticeSettings.edits,
+  formResponses: noticeSettings.formResponses,
+  automations: noticeSettings.automations,
+};
+
+const settingsOf = (scope: NoticeScope) =>
+  and(eq(noticeSettings.userId, scope.userId), eq(noticeSettings.workspaceId, scope.workspaceId));
 
 function toRecord(row: typeof notices.$inferSelect): NoticeRecord {
   return {
@@ -42,6 +54,7 @@ function toRecord(row: typeof notices.$inferSelect): NoticeRecord {
     title: row.title,
     text: row.body,
     card: row.card,
+    extraCards: row.extraCards,
     buttons: row.buttons,
     groupKey: row.groupKey,
     count: row.groupCount,
@@ -175,6 +188,32 @@ export function createNoticeStore(db: Db): NoticeStore {
     async get(noticeId) {
       const [row] = await db.select().from(notices).where(eq(notices.id, noticeId)).limit(1);
       return row ? toRecord(row) : null;
+    },
+
+    async getSettings(scope) {
+      const [row] = await db.select(settingsColumns).from(noticeSettings).where(settingsOf(scope));
+      return row ?? { ...DEFAULT_NOTICE_SETTINGS };
+    },
+
+    async changeSettings(scope, change, now) {
+      // Only the switches: whatever else the change carries is left out.
+      const switches = pickNoticeSettings(change);
+      const [row] = await db
+        .insert(noticeSettings)
+        .values({
+          userId: scope.userId,
+          workspaceId: scope.workspaceId,
+          ...DEFAULT_NOTICE_SETTINGS,
+          ...switches,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [noticeSettings.userId, noticeSettings.workspaceId],
+          set: { ...switches, updatedAt: now },
+        })
+        .returning(settingsColumns);
+      if (!row) throw new Error('The notice settings were not saved.');
+      return row satisfies NoticeSettings;
     },
   };
 }

@@ -43,7 +43,8 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 - **Before typing** (SR-02): "Recent", the last 8 pages the person opened (`GET /api/search/recent`), and "Recent searches", their last 5, each with ✕ (or Delete while it's selected) and **Clear**. Picking a recent search searches for it again. With neither: "Type to search pages, databases and rows." Offline: "You're offline. Showing recent pages." with the recent pages it last loaded.
 - **What's recorded:** opening a result or pressing Enter saves the search (`POST /api/search/history` with `save: true`); closing the window or going to Trash only counts it (`save: false`). The shell reports each `/p/<id>` that opens to `POST /api/search/visits` (a stand-in in `SearchOverlay.tsx` for core's `page.viewed`).
 - **No results** (SR-11): "No results for ‘refnd’.", then "Did you mean refund?" when the answer has `didYouMean` (its button searches for that instead; with 1 or 2 results it shows under them), and **Search in Trash**, which closes the window and opens `/trash?q=<text>` (see With other features).
-- **Missing:** the filter chips and sort (with Clear filters), and Shift+Enter for the side panel (the page view has none).
+- **Filters and sort** (SR-06): under the box, the chips Title only, Type (Pages, Databases, Rows, Files) and Include archived. Then **Clear filters** once one is on (also under No results), and Sort: Best match, or Edited or Created, newest or oldest first. Tab reaches each of them; on phones they're one row that scrolls sideways. Filters are saved with a recent search, and picking it brings them back.
+- **Missing:** the In, Created by, Edited by and Date chips, and Shift+Enter for the side panel (the page view has none).
 
 ## For other features (`apps/server/src/features/search/index.ts`)
 

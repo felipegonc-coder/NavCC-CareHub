@@ -6,6 +6,7 @@ import {
   DEFAULT_VERIFY_PERIOD,
   KB_PROPERTY,
   KB_STATUS_OPTION,
+  OPEN_REPORT_STATUSES,
   canChangeOwners,
   canChangeSettings,
   canChangeTags,
@@ -19,6 +20,7 @@ import {
   readOwners,
   readStatus,
   readVerification,
+  verificationState,
   todayIn,
   untilFor,
   wikiRowLimiter,
@@ -30,12 +32,13 @@ import {
   type VerifyInput,
   type VerifyPeriod,
 } from '@carehub/extras/knowledge';
-import { eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { users } from '../auth/schema';
+import { verificationChanged } from './events';
 import { kbPorts, type WikiRow } from './ports';
-import { kbBases, kbPages } from './schema';
+import { kbBases, kbPages, kbReports } from './schema';
 
 type Executor = Db | Tx;
 
@@ -125,6 +128,15 @@ export async function saveValues(
     await kbPorts().writeValues(tx, { databaseId: row.databaseId, rowId: row.id, values, by });
     await indexPage(tx, { ...row, values: { ...row.values, ...values } }, by, now);
   });
+  if (KB_PROPERTY.verification in values) {
+    const value = readVerification(values[KB_PROPERTY.verification]);
+    verificationChanged({
+      workspaceId: row.workspaceId,
+      pageId: row.id,
+      state: verificationState(value),
+      until: value?.until ?? null,
+    });
+  }
 }
 
 export async function indexPage(tx: Tx, row: WikiRow, by: string | null, now: Date) {
@@ -148,6 +160,7 @@ export async function indexPage(tx: Tx, row: WikiRow, by: string | null, now: Da
     verification: state.verification?.state ?? null,
     verifiedUntil: state.verification?.until ?? null,
     expiredAt: expired ? (current?.expiredAt ?? now) : null,
+    verifiedAt: state.verification ? new Date(state.verification.verifiedAt) : null,
     updatedAt: now,
   };
   await tx
@@ -156,7 +169,7 @@ export async function indexPage(tx: Tx, row: WikiRow, by: string | null, now: Da
     .onConflictDoUpdate({ target: kbPages.pageId, set: record });
 }
 
-async function namesOf(db: Executor, ids: readonly string[]): Promise<Map<string, string>> {
+export async function namesOf(db: Executor, ids: readonly string[]): Promise<Map<string, string>> {
   const wanted = [...new Set(ids)].filter((id) => UUID.test(id));
   if (wanted.length === 0) return new Map();
   const rows = await db
@@ -166,7 +179,16 @@ async function namesOf(db: Executor, ids: readonly string[]): Promise<Map<string
   return new Map(rows.map((person) => [person.id, person.name]));
 }
 
-const FORMER_MEMBER = 'Former member';
+export const FORMER_MEMBER = 'Former member';
+
+/** New and In progress reports on a page, for the strip (spec section 3.4). */
+export async function openReportCount(db: Executor, pageId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
+    .from(kbReports)
+    .where(and(eq(kbReports.pageId, pageId), inArray(kbReports.status, [...OPEN_REPORT_STATUSES])));
+  return row?.total ?? 0;
+}
 
 /** GET /api/knowledge/pages/:pageId. */
 export async function pageInfo(db: Db, user: CurrentUser, pageId: string): Promise<KbPageInfo> {
@@ -204,8 +226,7 @@ export async function pageInfo(db: Db, user: CurrentUser, pageId: string): Promi
       until: verification.until,
     },
     tags: row.tags,
-    // Reports arrive with the next knowledge base PR.
-    openReports: canManageReports(actor) ? 0 : null,
+    openReports: canManageReports(actor) ? await openReportCount(db, row.id) : null,
     today: todayIn(timeZone, new Date()),
     defaultPeriod: (await settingsOf(db, row.databaseId)).defaultPeriod,
     can: {
