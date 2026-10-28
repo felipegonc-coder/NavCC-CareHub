@@ -94,7 +94,7 @@ function grantedTo(viewer: Viewer): SQL {
 }
 
 /** The person's space memberships (alias `m`, its space `s`), directly or through a group. */
-function memberOf(viewer: Viewer): SQL {
+export function memberOf(viewer: Viewer): SQL {
   return sql`(s.workspace_id = ANY(${memberWorkspaces(viewer)})
     AND ((m.principal_type = 'user' AND m.principal_id = ${viewer.userId}::uuid)
       OR (m.principal_type = 'group' AND m.principal_id = ANY(${uuidArray(viewer.groupIds)}))))`;

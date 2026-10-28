@@ -9,3 +9,9 @@ export {
   revokeAccess,
 } from './access';
 export type { GrantAccessInput, PageAnswer, Principal, RowAccessContext } from './access';
+export {
+  GENERAL_SPACE,
+  getPrivateSpaceId,
+  joinDefaultSpaces,
+  setUpWorkspaceSpaces,
+} from './spaces';
