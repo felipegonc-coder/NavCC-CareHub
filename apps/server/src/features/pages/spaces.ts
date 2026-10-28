@@ -165,6 +165,20 @@ export async function trashSpace(tx: Executor, spaceId: string, by: string): Pro
     WHERE id = ${spaceId} AND kind <> 'personal' AND deleted_at IS NULL`);
 }
 
+/** Brings a space back from Trash with its pages, unless another space took its name meanwhile. */
+export async function restoreSpace(tx: Executor, spaceId: string): Promise<void> {
+  try {
+    await tx.execute(sql`
+      UPDATE spaces SET deleted_at = NULL, deleted_by = NULL, updated_at = now()
+      WHERE id = ${spaceId} AND deleted_at IS NOT NULL`);
+  } catch (error) {
+    if (isUniqueViolation(error, 'spaces_name_idx')) {
+      throw conflict('Another space has this name now. Rename that one, then restore this one.');
+    }
+    throw error;
+  }
+}
+
 /** Owners first, then by name. People removed from the workspace aren't listed. */
 export async function listSpaceMembers(db: Executor, spaceId: string) {
   const { rows } = await db.execute<SpaceMemberJson>(sql`
