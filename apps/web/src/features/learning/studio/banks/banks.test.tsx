@@ -39,6 +39,19 @@ const location = () => screen.getByTestId('location');
 const saved = () =>
   waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument(), { timeout: 3000 });
 
+/** Signs in a fictional person whose profile is in `timeZone`; every other call goes to the bank fake. */
+function withProfileZone(api: ReturnType<typeof fakeBankApi>, timeZone: string) {
+  const bankApi = api.fetch.getMockImplementation();
+  if (!bankApi) throw new Error('fakeBankApi answers fetch.');
+  api.fetch.mockImplementation(async (input, init) =>
+    String(input) === '/api/auth/me'
+      ? new Response(JSON.stringify({ user: { id: 'user-kai', name: 'Kai Example', timeZone } }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+      : bankApi(input, init),
+  );
+}
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('Question bank list', () => {
@@ -51,6 +64,19 @@ describe('Question bank list', () => {
     expect(screen.getByText(/^2 questions · Edited/)).toBeInTheDocument();
     expect(screen.getByText(/^0 questions · Edited/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Question banks');
+  });
+
+  it("shows the day a bank was edited in the person's time zone", async () => {
+    withProfileZone(fakeBankApi([escalations]), 'Pacific/Honolulu');
+    renderBanks('/learning/studio/banks');
+    // The fake's banks were edited at 09:00 UTC on 20 October, which is still the 19th in Honolulu.
+    const edited = new Date('2026-10-20T09:00:00.000Z');
+    const day = (timeZone: string) =>
+      new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone }).format(edited);
+    expect(day('Pacific/Honolulu')).not.toBe(day('America/Denver'));
+    expect(
+      await screen.findByText(`2 questions · Edited ${day('Pacific/Honolulu')}`),
+    ).toBeInTheDocument();
   });
 
   it('says how to start when there are no banks', async () => {
