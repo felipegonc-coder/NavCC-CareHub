@@ -7,6 +7,7 @@ export * from './names';
 export * from './notify';
 export * from './page-cards';
 export * from './preview';
+export * from './reactions';
 export * from './system-lines';
 export * from './text';
 export * from './text-search';
