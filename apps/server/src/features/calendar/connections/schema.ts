@@ -9,10 +9,10 @@ import {
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { users } from '../../auth/schema';
 import type { ExternalEvent } from '../sync/types';
 
-// Mirrors migrations/202610271455_calendar_connections.sql, which is the source of truth.
+// Mirrors migrations/202610271455_calendar_connections.sql, which is the source of truth. The
+// foreign key to `users` is only in the SQL: features don't import each other's tables.
 
 export const CONNECTION_KINDS = ['google', 'google-bridge', 'icloud', 'link'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
@@ -41,9 +41,7 @@ export const calendarConnections = pgTable(
   'cal_connections',
   {
     id: uuid('id').primaryKey(),
-    ownerId: uuid('owner_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    ownerId: uuid('owner_id').notNull(),
     workspaceId: uuid('workspace_id'),
     kind: text('kind', { enum: CONNECTION_KINDS }).notNull(),
     label: text('label').notNull(),

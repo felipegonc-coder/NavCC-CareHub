@@ -43,7 +43,10 @@ export const googleTokensSchema: z.ZodType<GoogleTokens> = z.object({
 /** What a private link connection seals: the link as the person entered it. */
 export const linkSecretSchema = z.object({ url: z.string().min(1) });
 
-/** The iCalendar reader's readCalendarLink, as agreed with its owner. */
+/**
+ * What readCalendarLink (sync/link-reader.ts) answers, and how it's called. It fetches a link only
+ * through fetchCalendarLink and parses it only in parseCalendarInWorker; sync does neither itself.
+ */
 export type LinkReadResult =
   /** The cursor, when given, carries fresh validators: keep it. */
   | { status: 'not-modified'; cursor?: SyncCursor }

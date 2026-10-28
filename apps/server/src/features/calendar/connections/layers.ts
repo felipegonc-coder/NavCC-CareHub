@@ -192,7 +192,8 @@ export async function listSyncedEvents(
         and(
           inArray(syncedEvents.calendarId, [...new Set(occurrences.map((row) => row.calendarId))]),
           inArray(syncedEvents.uid, [...new Set(occurrences.map((row) => row.uid))]),
-          sql`${syncedEvents.event} -> 'recurrenceId' IS NULL`,
+          // A series has no recurrenceId: the key is missing, or null in the JSON.
+          sql`coalesce(jsonb_typeof(${syncedEvents.event} -> 'recurrenceId'), 'null') = 'null'`,
         ),
       );
     for (const row of found) series.set(`${row.calendarId} ${row.uid}`, row.id);

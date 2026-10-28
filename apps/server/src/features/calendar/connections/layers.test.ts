@@ -181,4 +181,25 @@ describe.skipIf(!hasDatabase)('connected calendar layers', () => {
     expect(rows[3]?.seriesId).toBeNull();
     expect(await listSyncedEvents(db, { ownerId: sam.id, ...week })).toEqual([]);
   });
+
+  it('finds the series of a moved occurrence when the series has recurrenceId: null', async () => {
+    const week = { from: new Date('2026-12-07T00:00:00Z'), to: new Date('2026-12-14T00:00:00Z') };
+    const series = await insertTestEvent(db, ownId, 'daily', {
+      startsAt: '2026-12-01T09:00:00.000Z',
+      endsAt: null,
+    });
+    await db
+      .update(syncedEvents)
+      .set({ event: { ...series.event, recurrenceId: null } as unknown as typeof series.event })
+      .where(eq(syncedEvents.id, series.id));
+    const moved = await insertTestEvent(
+      db,
+      ownId,
+      'daily-moved',
+      { startsAt: '2026-12-08T10:00:00.000Z', endsAt: '2026-12-08T11:00:00.000Z' },
+      { uid: series.event.uid, recurrenceId: { kind: 'utc', instant: '2026-12-08T09:00:00.000Z' } },
+    );
+    const rows = await listSyncedEvents(db, { ownerId: avery.id, ...week });
+    expect(rows.find((row) => row.id === moved.id)?.seriesId).toBe(series.id);
+  });
 });
