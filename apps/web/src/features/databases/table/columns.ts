@@ -36,12 +36,15 @@ export function clampWidth(width: number): number {
 /**
  * The table's columns: Name first, then the view's visible properties in its order, leaving out
  * properties the viewer can't see (`visibleIds`, from the query answer) and ones that are gone.
- * Properties the view doesn't list are hidden.
+ * Properties the view doesn't list are hidden. `widths` overrides saved widths (while resizing);
+ * `start` is where the first column begins (after the selection column), px.
  */
 export function tableColumns(
   properties: readonly Property[],
   view: View,
   visibleIds: readonly Id[],
+  widths: Readonly<Partial<Record<Id, number>>> = {},
+  start = 0,
 ): TableColumn[] {
   const options = tableOptions(view);
   const canSee = new Set(visibleIds);
@@ -59,11 +62,11 @@ export function tableColumns(
   }
   const frozenAt =
     options.frozenUpTo === null ? -1 : picked.findIndex((p) => p.id === options.frozenUpTo);
-  let left = 0;
+  let left = start;
   return picked.map((property, index) => {
     const setting = settings.get(property.id);
     const fallback = property.config.type === 'title' ? NAME_WIDTH : COLUMN_WIDTH;
-    const width = clampWidth(setting?.width ?? fallback);
+    const width = clampWidth(widths[property.id] ?? setting?.width ?? fallback);
     const column: TableColumn = {
       property,
       width,
@@ -74,4 +77,40 @@ export function tableColumns(
     left += width;
     return column;
   });
+}
+
+/**
+ * Every property the viewer can see, in the view's order: Name, the ones the view lists, then the
+ * rest. The Properties menu lists them to show or hide.
+ */
+export function propertyOrder(
+  properties: readonly Property[],
+  view: View,
+  visibleIds: readonly Id[],
+): Property[] {
+  const canSee = new Set(visibleIds);
+  const byId = new Map(properties.map((p) => [p.id, p]));
+  const name = properties.find((p) => p.config.type === 'title');
+  const out: Property[] = name ? [name] : [];
+  const seen = new Set(out.map((p) => p.id));
+  const add = (property: Property | undefined) => {
+    if (!property || seen.has(property.id) || !canSee.has(property.id)) return;
+    seen.add(property.id);
+    out.push(property);
+  };
+  for (const setting of view.properties) add(byId.get(setting.propertyId));
+  for (const property of properties) add(property);
+  return out;
+}
+
+/**
+ * Where a column dragged to `x` (px from the table's left edge) lands: before the first column
+ * whose middle is right of it, or at the end (null). Name stays first.
+ */
+export function dropTarget(columns: readonly TableColumn[], x: number): Id | null {
+  for (const column of columns) {
+    if (column.property.config.type === 'title') continue;
+    if (x < column.left + column.width / 2) return column.property.id;
+  }
+  return null;
 }

@@ -1,6 +1,7 @@
 import { Button, buttonClasses, Spinner } from '@carehub/ui';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
+import { ApiError } from '../../../lib/api';
 import { LearningApiError } from '../data';
 
 // Whole-screen states for the learner's screens: loading, a message, and why a course didn't load.
@@ -78,7 +79,11 @@ export function LoadFailed({ error, what, retry }: LoadFailedProps) {
   return (
     <ScreenMessage
       title={`This ${what} didn't load`}
-      text={error instanceof LearningApiError ? error.message : 'Reload the page, then try again.'}
+      text={
+        error instanceof LearningApiError || error instanceof ApiError
+          ? error.message
+          : 'Reload the page, then try again.'
+      }
     >
       <Button onClick={retry} className="max-md:h-11">
         Try again

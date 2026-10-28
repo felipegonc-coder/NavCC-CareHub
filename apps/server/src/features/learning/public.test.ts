@@ -12,10 +12,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   bindAssignmentSources,
   createAssignments,
-  todayIn,
   type CourseProgress,
 } from './assignments/service';
 import { memorySources, only } from './assignments/testing';
+import { learningToday } from './day';
 import { isLearningEnabled, listLearningDueDates, listMyLearning } from './public';
 
 // Fictional people and courses only. Calendar and Home pass the signed-in person's own id
@@ -25,8 +25,9 @@ const trainer = '00000000-0000-4000-8000-00000000000a';
 const tara = '00000000-0000-4000-8000-00000000000b';
 const omar = '00000000-0000-4000-8000-00000000000c';
 const frontDesk = 'group-front-desk';
-const timeZone = 'UTC';
-const today = todayIn(timeZone).today;
+// Days are Learning days (decision 0317): a profile zone a day ahead changes nothing.
+const timeZone = 'Pacific/Kiritimati';
+const today = learningToday();
 const day = (offset: number) => addDays(today, offset);
 
 const calls = sampleStandardCourse;

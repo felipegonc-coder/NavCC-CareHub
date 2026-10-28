@@ -14,6 +14,7 @@ import {
 import { plainText } from './richtext';
 import type { ReadValue } from './row';
 import type { Aggregate, ComputedValue, EvalContext, Id, Property, RichText } from './types';
+import { VERIFICATION_LABELS, verificationState } from './verification';
 
 /** One value inside a cell. Numbers stay exact decimals. */
 export type Item =
@@ -59,7 +60,8 @@ function computedItems(v: ComputedValue, out: Item[]): void {
 
 /**
  * Reads the values inside one cell of `prop`; an empty cell gives none, a checkbox always one.
- * Options give their names, a checklist the share done, an ID with a prefix its text ("QA-12").
+ * Options give their names, a checklist the share done, an ID with a prefix its text ("QA-12"),
+ * a verification its state ("Verified", "Expired" or "Not verified", always one).
  * Formula and rollup errors give none; relation links the viewer can't open don't count.
  */
 export function itemReader(prop: Property, ctx: EvalContext): (v: ReadValue) => Item[] {
@@ -120,6 +122,8 @@ export function itemReader(prop: Property, ctx: EvalContext): (v: ReadValue) => 
       };
     case 'button':
       return () => [];
+    case 'verification':
+      return (v) => textItem(VERIFICATION_LABELS[verificationState(v)]);
   }
 }
 
