@@ -1,22 +1,5 @@
-import type { APIResponse, Locator, Page, Request } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect } from '../_support/index.js';
-
-/**
- * Sends a request the screens made, such as Avery's change, again as the person signed in on
- * `page`, with that person's cookies and CSRF token: a direct request the screens never offer.
- */
-export async function sendAgainAs(page: Page, request: Request): Promise<APIResponse> {
-  const cookies = await page.context().cookies();
-  const csrf = cookies.find((cookie) => cookie.name.endsWith('carehub_csrf'))?.value ?? '';
-  const headers: Record<string, string> = {
-    'X-CSRF-Token': csrf,
-    Origin: new URL(request.url()).origin,
-  };
-  const type = request.headers()['content-type'];
-  if (type) headers['Content-Type'] = type;
-  const data = request.postDataBuffer() ?? undefined;
-  return page.request.fetch(request.url(), { method: request.method(), headers, data });
-}
 
 /** The parts of Settings → Data (Data settings spec, section 2). */
 export type Part =
