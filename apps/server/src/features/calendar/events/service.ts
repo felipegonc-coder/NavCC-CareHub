@@ -18,6 +18,7 @@ import { addDays, todayIn } from '@carehub/team-time';
 import { httpError } from '../../../core/errors';
 import type { Db, Tx } from '../../../db';
 import { publishToUsers } from '../../live';
+import type { MeetingEvent } from '../../meetings';
 import {
   eventCardKey,
   sendNotice,
@@ -31,6 +32,7 @@ import { getSettings } from '../settings/service';
 import { cardOf } from './cards';
 import { planDelete, planDuplicate, planEdit, planReply } from './edit';
 import { eventItems, eventJson } from './items';
+import { meetingOf } from './meetings';
 import { checkAnswers, checkChanges } from './limits';
 import { civilOf, seriesOf, windowOf, type Schedule, type Window } from './model';
 import {
@@ -315,6 +317,23 @@ export async function duplicateEvent(
   notify(id, [viewer.id, ...idsOf(people)]);
   await tell(invites(viewer, id, idsOf(people)));
   return getEvent(db, viewer, id);
+}
+
+/**
+ * Meeting notes (features/meetings) ask for the occurrence they're for (see `meetingOf`): only an
+ * event in that workspace, and only the people invited who are still members, not guests.
+ */
+export async function lookupMeetingEvent(
+  db: Db | Tx,
+  target: { workspaceId: string; eventId: string; occurrence?: string | undefined },
+  now: Date = new Date(),
+): Promise<MeetingEvent | null> {
+  const event = await findEvent(db, target.eventId);
+  if (!event || event.workspaceId !== target.workspaceId) return null;
+  const meeting = meetingOf(event, target.occurrence, now);
+  if (!meeting) return null;
+  const members = await membersAmong(db, event.workspaceId, meeting.memberIds);
+  return { ...meeting, memberIds: meeting.memberIds.filter((id) => members.has(id)) };
 }
 
 /** Event cards under notices, for the person reading them (Calendar's ids only). */
