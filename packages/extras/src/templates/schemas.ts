@@ -82,8 +82,8 @@ export interface GalleryResponse {
   categories: string[];
   /** May save pages as workspace templates (the Templates permission). */
   canSave: boolean;
-  /** The team spaces the person is in, for "Who can use it". */
-  spaces: TemplateSpace[];
+  /** The team spaces the person is in, for "Who can use it"; none are offered without it. */
+  spaces?: TemplateSpace[];
 }
 
 /** GET /api/templates/:id: the read-only preview. */

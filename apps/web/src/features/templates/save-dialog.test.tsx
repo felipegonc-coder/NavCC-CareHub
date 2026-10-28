@@ -6,7 +6,7 @@ import { SaveTemplateDialog } from './save-dialog';
 import { openSaveAsTemplate, saveAllowed } from './save-store';
 import { slots } from './slots';
 import { audienceChoices, audienceFrom, audienceValue, categoryChoices } from './template-fields';
-import { fakeClient, GALLERY, PAGE_ID, renderAt, SUPPORT_SPACE_ID } from './test-utils';
+import { fakeClient, GALLERY, PAGE_ID, renderAt, SPACES, SUPPORT_SPACE_ID } from './test-utils';
 
 const page = { id: PAGE_ID, title: 'Q4 launch' };
 
@@ -95,7 +95,7 @@ describe('the template form parts', () => {
     const support = { type: 'space' as const, spaceId: SUPPORT_SPACE_ID };
     expect(audienceFrom(audienceValue(support))).toEqual(support);
     expect(audienceFrom(audienceValue({ type: 'everyone' }))).toEqual({ type: 'everyone' });
-    expect(audienceChoices(GALLERY.spaces).map((choice) => choice.label)).toEqual([
+    expect(audienceChoices(SPACES).map((choice) => choice.label)).toEqual([
       'Everyone in the workspace',
       'Members of Support',
     ]);

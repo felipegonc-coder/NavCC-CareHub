@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { TemplateCardMenu } from './card-menu';
-import { card, CARDS, GALLERY, LAUNCH_ID, renderAt } from './test-utils';
+import { card, CARDS, GALLERY, LAUNCH_ID, renderAt, SPACES } from './test-utils';
 
 const launch = CARDS[0]!;
 
@@ -14,7 +14,7 @@ async function choose(name: string, item: string) {
 
 function renderMenu(template = launch) {
   return renderAt(
-    <TemplateCardMenu card={template} spaces={GALLERY.spaces} categories={GALLERY.categories} />,
+    <TemplateCardMenu card={template} spaces={SPACES} categories={GALLERY.categories} />,
   );
 }
 

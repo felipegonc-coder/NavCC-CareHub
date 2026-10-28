@@ -5,6 +5,7 @@ import type {
   GalleryResponse,
   SaveTemplateInput,
   TemplatePreviewResponse,
+  TemplateSpace,
   UpdateTemplateInput,
 } from '@carehub/extras/templates/schemas';
 import { ToastProvider } from '@carehub/ui';
@@ -70,11 +71,13 @@ export const CARDS: TemplateCard[] = [
 
 export const SUPPORT_SPACE_ID = '3e9a1c55-8b2d-4f70-9c1e-5a4b3c2d1e0f';
 
+export const SPACES: TemplateSpace[] = [{ id: SUPPORT_SPACE_ID, name: 'Support' }];
+
 export const GALLERY: GalleryResponse = {
   templates: CARDS,
   categories: ['Made in this workspace', 'Meetings', 'Projects', 'Knowledge', 'Team', 'Support'],
   canSave: true,
-  spaces: [{ id: SUPPORT_SPACE_ID, name: 'Support' }],
+  spaces: SPACES,
 };
 
 export function previewOf(id: string): TemplatePreviewResponse {
