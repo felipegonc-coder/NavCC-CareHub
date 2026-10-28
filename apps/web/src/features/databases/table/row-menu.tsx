@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@carehub/ui';
 import { TABLE_TEXT } from './messages';
+import type { DropMark } from './row-drop';
 
 /** What the row menu does. Absent moves can't happen (the first or last row); no moves: sorted. */
 export interface RowMenuItems {
@@ -67,7 +68,9 @@ export function RowHandle({
           className={cn(
             'flex h-6 w-4 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-fill-hover',
             draggable ? 'cursor-grab' : 'cursor-pointer',
-            'opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100 data-[state=open]:opacity-100 max-md:hidden',
+            'opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100 data-[state=open]:opacity-100',
+            // On phones a long press on the row opens the menu: the handle is an invisible anchor.
+            'max-md:pointer-events-none max-md:invisible max-md:absolute max-md:inset-0 max-md:h-auto max-md:w-auto',
           )}
         >
           <GripVertical aria-hidden className="size-4" />
@@ -116,5 +119,24 @@ export function RowHandle({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Where a dragged row would land: a line between rows, or a box around a group (sorted views). */
+export function RowDropMark({ mark }: { mark: DropMark }) {
+  return mark.kind === 'line' ? (
+    <div
+      aria-hidden
+      data-row-drop=""
+      style={{ top: mark.y }}
+      className="pointer-events-none absolute inset-x-0 z-30 h-0.5 -translate-y-px bg-primary"
+    />
+  ) : (
+    <div
+      aria-hidden
+      data-row-drop=""
+      style={{ top: mark.top, height: mark.bottom - mark.top }}
+      className="pointer-events-none absolute inset-x-0 z-30 rounded-sm ring-2 ring-inset ring-primary"
+    />
   );
 }
