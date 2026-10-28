@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -18,10 +19,8 @@ import {
   type Id,
   type Property,
   type ReadValue,
-  type Row,
   type SelectOption,
   type View,
-  type ViewPropertySetting,
 } from '@carehub/databases';
 import { can, canChangeProperty } from '@carehub/databases/access';
 import { pageUrl } from '@carehub/shared';
@@ -30,18 +29,20 @@ import {
   type LayoutProps,
   type NewRow,
   type QueryGroup,
-  type QueryRow,
   type RowPlace,
-  type ViewData,
 } from '../contract';
+import { isApiError, UNKNOWN_ERROR_MESSAGE } from '../api';
 import {
   CELL_TEXT,
   CellEditor,
   CellView,
+  PropertyMenu,
   rowCell,
+  usePropertyActions,
   type CellContext,
   type CommitDetails,
   type PersonChoice,
+  type PropertyMenuEvent,
 } from './cell-adapter';
 import { BulkBar } from './bulk-bar';
 import {
@@ -56,21 +57,36 @@ import {
   type CellBox,
 } from './clipboard';
 import { collapsedStorageKey, useCollapsedGroups } from './collapsed';
-import {
-  clampWidth,
-  dropTarget,
-  propertyOrder,
-  tableColumns,
-  tableOptions,
-  type TableColumn,
-} from './columns';
-import { DRAG_START, followDrag, followPointer } from './drag';
+import { dropTarget, propertyOrder, tableColumns, tableOptions, type TableColumn } from './columns';
+import { DRAG_START, followPointer } from './drag';
 import { missingOptions, sameStored, withSavedOptions } from './edits';
 import { TotalsRow } from './footer';
-import { HeaderCell, PropertiesMenu, type ColumnChanges } from './header';
+import { columnItems, HeaderCell, PropertiesMenu } from './header';
 import { EditHistory, type AddedRow, type Step, type ValueChange, type Write } from './history';
+import {
+  asQueryRow,
+  BULK_TYPES,
+  buildSections,
+  cellKey,
+  inAnswer,
+  lineKey,
+  NO_TYPING,
+  numberRows,
+  OWN_PRESS,
+  sameCell,
+  SELECT_KEY,
+  SELECT_WIDTH,
+  withValues,
+  type CellAt,
+  type Created,
+  type Editing,
+  type Line,
+  type Section,
+} from './lines';
 import { TABLE_TEXT } from './messages';
-import { isOpen, isTopLevel, siblingIds, visibleRows } from './nesting';
+import { isOpen, isTopLevel, siblingIds } from './nesting';
+import { longPress } from './long-press';
+import { NestToggle } from './nest-toggle';
 import { Notice } from './notice';
 import { readPaste, withSavedIds, type PasteResult } from './paste';
 import { WRITES_AT_ONCE, writeQueue } from './queue';
@@ -83,7 +99,7 @@ import {
   type RowDrop,
   type RowTarget,
 } from './row-drop';
-import { RowHandle, type RowMenuItems } from './row-menu';
+import { RowDropMark, RowHandle, type RowMenuItems } from './row-menu';
 import {
   allTicked,
   extendTo,
@@ -93,121 +109,35 @@ import {
   tick,
   type RowSelection,
 } from './selection';
-import { moveSetting, withCalculation, withSetting, withTableOptions } from './view-settings';
-
-/** One row on screen. A row can sit in several groups (multi-select), so lines have their own key. */
-interface Line {
-  key: string;
-  row: QueryRow;
-  /** A row made here that the newer answer leaves out: "Hidden by filter". */
-  hidden: boolean;
-}
-
-/** The whole list (key '') or one group. */
-interface Section {
-  key: string;
-  group: QueryGroup | null;
-  lines: Line[];
-  collapsed: boolean;
-  nextCursor: string | null;
-}
-
-interface CellAt {
-  line: string;
-  propertyId: Id;
-}
-
-interface Editing extends CellAt {
-  initialText?: string;
-}
-
-/** A row made with New, kept on screen until the answer has it. */
-interface Created {
-  row: QueryRow;
-  sectionKey: string;
-  /** The answer when it was made: a newer answer without it means a filter hides it. */
-  data: ViewData;
-}
-
-const lineKey = (sectionKey: string, rowId: Id) => JSON.stringify([sectionKey, rowId]);
-const cellKey = (line: string, propertyId: Id) => JSON.stringify([line, propertyId]);
-
-/** Types that can't be typed into a cell to start editing it. */
-const NO_TYPING = new Set(['checkbox', 'files', 'button']);
-
-/** Elements inside a cell that handle their own presses. */
-const OWN_PRESS = 'button, a, input, textarea, select, [data-cell-editor]';
-
-/** The selection column in the active-cell state, and its width (px, as `w-11`). */
-const SELECT_KEY = '#select';
-const SELECT_WIDTH = 44;
-
-/** Types "Set property" can give every ticked row at once. */
-const BULK_TYPES = new Set([
-  'text',
-  'number',
-  'select',
-  'multi_select',
-  'status',
-  'date',
-  'checkbox',
-  'url',
-  'email',
-  'phone',
-]);
-
-function asQueryRow(row: Row): QueryRow {
-  return {
-    id: row.id,
-    title: row.title,
-    icon: row.icon ?? null,
-    formId: row.formId ?? null,
-    values: row.values,
-    computed: {},
-    hiddenLinks: {},
-    color: { row: null, cells: {} },
-    createdAt: row.createdAt,
-    createdBy: row.createdBy,
-    editedAt: row.editedAt,
-    editedBy: row.editedBy,
-    uniqueNumber: row.uniqueNumber,
-  };
-}
-
-function withValues(
-  row: QueryRow,
-  properties: readonly Property[],
-  values: Partial<Record<Id, unknown>>,
-): QueryRow {
-  let next = row;
-  for (const [id, value] of Object.entries(values)) {
-    next =
-      properties.find((p) => p.id === id)?.config.type === 'title'
-        ? { ...next, title: typeof value === 'string' ? value : '' }
-        : { ...next, values: { ...next.values, [id]: value } };
-  }
-  return next;
-}
-
-/** Same stored value; an empty Name is '' or null. */
-function sameCell(property: Property, a: unknown, b: unknown): boolean {
-  const plain = (v: unknown) => (property.config.type === 'title' && v === '' ? null : v);
-  return sameStored(plain(a), plain(b));
-}
-
-function inAnswer(data: ViewData, rowId: Id): boolean {
-  if (data.groups) return data.groups.some((g) => g.rows.some((r) => r.id === rowId));
-  return data.rows.some((r) => r.id === rowId);
-}
+import { useColumnTools } from './use-column-tools';
+import {
+  NO_SPAN,
+  piecesOf,
+  ROW_GUESS,
+  useScreenSpans,
+  VIRTUAL_FROM,
+  type ListOnScreen,
+  type ScreenLists,
+} from './virtual';
+import { withCalculation } from './view-settings';
 
 /** The Table layout: rows and columns, grouped or not, with editing in the cells. */
+
 export default function TableLayout({ meta, view, data, viewer, actions, readOnly }: LayoutProps) {
   const options = tableOptions(view);
   // Ticking rows is for people who can change them: Delete and Set property.
   const canSelect = !readOnly && can('edit_rows', meta.viewerAccess, { locked: meta.locked });
   const start = canSelect ? SELECT_WIDTH : 0;
-  // A column's width while its edge is dragged, and until saving it is done.
-  const [resize, setResize] = useState<{ propertyId: Id; width: number } | null>(null);
+  // The view with the changes made since it last came in, so quick changes build on each other.
+  const viewNow = useRef(view);
+  const changeView = (make: (current: View) => Partial<View>): Promise<void> => {
+    const patch = make(viewNow.current);
+    viewNow.current = { ...viewNow.current, ...patch };
+    return actions.updateView(patch).catch(() => undefined);
+  };
+  const grid = useRef<HTMLDivElement>(null);
+  const tools = useColumnTools(changeView, () => grid.current?.getBoundingClientRect().left ?? 0);
+  const { resize, moving, menuFor, setMenuFor } = tools;
   const widths = useMemo(() => (resize ? { [resize.propertyId]: resize.width } : {}), [resize]);
   const columns = useMemo(
     () => tableColumns(meta.properties, view, data.propertyIds, widths, start),
@@ -238,13 +168,14 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const [active, setActive] = useState<CellAt | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ key: string } | null>(null);
-  const [menuFor, setMenuFor] = useState<Id | null>(null);
   const [selection, setSelection] = useState<RowSelection>(NO_SELECTION);
   // A block of cells runs from this cell to the active one (Shift+arrows, Shift-click).
   const [range, setRange] = useState<CellAt | null>(null);
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
   // Undo and redo: the person's changes in this database while it's open here.
   const [history] = useState(() => new EditHistory());
+  // Rename, type change, insert, duplicate and delete in the columns' menus (W3-3's PropertyMenu).
+  const propertyActions = usePropertyActions(meta.id);
   // Row writes go out a few at a time and in order (a paste can change 500 rows).
   const [queue] = useState(() => writeQueue(WRITES_AT_ONCE));
   // The workspace's people: Person editors list them, and pasted names are found among them.
@@ -258,22 +189,19 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       () => people ?? [],
     );
   const notices = useRef(0);
-  // A header being dragged to a new place: where the pointer is, px from the table's left edge.
-  const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
   // The row menu that's open (by line), and a row being dragged to another place.
   const [rowMenu, setRowMenu] = useState<string | null>(null);
   const [rowDrag, setRowDrag] = useState<{ line: string; drop: RowDrop | null } | null>(null);
   const rowDragged = useRef(false);
+  // On touch screens a long press on a row opens its menu (the handle is hidden on phones).
+  const [press] = useState(longPress);
+  const selectAllId = useId();
   // The cell that gets focus when the row menu closes.
   const afterMenu = useRef<CellAt | null>(null);
   const rowEls = useRef(new Map<string, HTMLDivElement>());
   const sectionEls = useRef(new Map<string, HTMLDivElement>());
   const cells = useRef(new Map<string, HTMLDivElement>());
-  const grid = useRef<HTMLDivElement>(null);
   const dragStop = useRef<(() => void) | null>(null);
-  const dragged = useRef(false);
-  // The view with the changes made since it last came in, so quick changes build on each other.
-  const viewNow = useRef(view);
 
   useEffect(() => {
     viewNow.current = view;
@@ -293,6 +221,20 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     [],
   );
 
+  // The browser's own menu stays shut while a long press opens the row's.
+  useEffect(() => {
+    const element = grid.current;
+    if (!element) return undefined;
+    const shut = (event: Event) => {
+      if (press.busy()) event.preventDefault();
+    };
+    element.addEventListener('contextmenu', shut);
+    return () => {
+      element.removeEventListener('contextmenu', shut);
+      press.end();
+    };
+  }, [press]);
+
   // Rows made here leave the local list once the answer has them.
   useEffect(() => {
     setCreated((list) => {
@@ -301,46 +243,23 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     });
   }, [data]);
 
-  const sections = useMemo<Section[]>(() => {
-    const section = (
-      key: string,
-      group: QueryGroup | null,
-      rows: readonly QueryRow[],
-      nextCursor: string | null,
-    ): Section => {
-      const shown = new Set(rows.map((r) => r.id));
-      const showing = nested ? visibleRows(rows, (r) => isOpen(r, chosenOpen)) : rows;
-      const lines: Line[] = showing.map((row) => ({
-        key: lineKey(key, row.id),
-        row,
-        hidden: false,
-      }));
-      for (const c of created) {
-        if (c.sectionKey !== key || shown.has(c.row.id)) continue;
-        shown.add(c.row.id);
-        lines.push({
-          key: lineKey(key, c.row.id),
-          row: c.row,
-          hidden: c.data !== data && !data.refreshing,
-        });
-      }
-      return {
-        key,
-        group,
-        lines,
-        collapsed: group !== null && collapsed.has(group.collapsedKey),
-        nextCursor,
-      };
-    };
-    if (data.groups) {
-      return data.groups
-        .filter((g) => !g.hidden)
-        .map((g) => section(g.key, g, g.rows, g.nextCursor));
-    }
-    return [section('', null, data.rows, data.nextCursor)];
-  }, [data, created, collapsed, nested, chosenOpen]);
+  const sections = useMemo(
+    () =>
+      buildSections({
+        data,
+        created,
+        collapsed,
+        open: nested ? (row) => isOpen(row, chosenOpen) : null,
+      }),
+    [data, created, collapsed, nested, chosenOpen],
+  );
 
   const lines = useMemo(() => sections.flatMap((s) => (s.collapsed ? [] : s.lines)), [sections]);
+  // Every row the table has, once each: a column's menu counts the values a change would clear.
+  const loadedRows = useMemo(
+    () => [...new Map(sections.flatMap((s) => s.lines.map((l) => [l.row.id, l.row]))).values()],
+    [sections],
+  );
   const lineAt = useMemo(() => new Map(lines.map((line, index) => [line.key, index])), [lines]);
   // A row menu closes when its row goes (to Trash, or out of the view), so it can't come back open.
   useEffect(() => {
@@ -389,6 +308,49 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     : first && firstColumn
       ? cellKey(first.key, firstColumn.property.id)
       : null;
+
+  // Past 1,000 rows only the rows near the screen are drawn, with gaps as high as the others.
+  const virtual = lines.length > VIRTUAL_FROM;
+  const heights = useRef(new Map<string, number>());
+  const heightStats = useRef({ sum: 0, count: 0 });
+  const anchors = useRef(new Map<string, HTMLDivElement>());
+  const rowGuess = () =>
+    heightStats.current.count > 0 ? heightStats.current.sum / heightStats.current.count : ROW_GUESS;
+  const heightOf = (line: Line | undefined) =>
+    (line && heights.current.get(line.key)) ?? rowGuess();
+  const readLists = (): ScreenLists => {
+    const guess = rowGuess();
+    let resized = false;
+    for (const [key, element] of rowEls.current) {
+      const height = element.getBoundingClientRect().height;
+      if (height <= 0) continue;
+      const before = heights.current.get(key);
+      if (Math.abs((before ?? guess) - height) >= 1) resized = true;
+      heightStats.current.sum += height - (before ?? 0);
+      heightStats.current.count += before === undefined ? 1 : 0;
+      heights.current.set(key, height);
+    }
+    if (Math.abs(rowGuess() - guess) >= 1) resized = true;
+    const lists = new Map<string, ListOnScreen>();
+    for (const section of sections) {
+      const anchor = anchors.current.get(section.key);
+      if (section.collapsed || !anchor) continue;
+      const top = anchor.getBoundingClientRect().top;
+      lists.set(section.key, { top, heights: section.lines.map(heightOf) });
+    }
+    return { lists, resized };
+  };
+  const spans = useScreenSpans(virtual, readLists);
+  // Rows drawn wherever they are: the active and edited cells', an open menu's, a dragged one.
+  const pinned = new Set<string>();
+  for (const key of [
+    activeShown ? active.line : first?.key,
+    editing?.line,
+    rowMenu,
+    rowDrag?.line,
+  ]) {
+    if (key) pinned.add(key);
+  }
 
   // The block of cells from the range's first cell to the active one, while both are on screen.
   const columnAt = (propertyId: Id) => columns.findIndex((c) => c.property.id === propertyId);
@@ -882,55 +844,6 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       .finally(() => setAdding(null));
   };
 
-  const changeView = (make: (current: View) => Partial<View>): Promise<void> => {
-    const patch = make(viewNow.current);
-    viewNow.current = { ...viewNow.current, ...patch };
-    return actions.updateView(patch).catch(() => undefined);
-  };
-
-  /** The view's property settings with one changed (Name, always shown, gets a visible one). */
-  const settingsWith = (
-    current: View,
-    property: Property,
-    patch: Partial<Omit<ViewPropertySetting, 'propertyId'>>,
-  ) => {
-    const listedHere = current.properties.some((s) => s.propertyId === property.id);
-    const full =
-      !listedHere && property.config.type === 'title' ? { visible: true, ...patch } : patch;
-    return withSetting(current.properties, property.id, full);
-  };
-
-  const columnChanges = (column: TableColumn): ColumnChanges => ({
-    width: (width) =>
-      void changeView((v) => ({
-        properties: settingsWith(v, column.property, { width: clampWidth(width) }),
-      })),
-    wrap: (wrap) =>
-      void changeView((v) => ({ properties: settingsWith(v, column.property, { wrap }) })),
-    freeze: (frozen) =>
-      void changeView((v) => ({
-        table: withTableOptions(v, { frozenUpTo: frozen ? column.property.id : null }),
-      })),
-    hide: () =>
-      void changeView((v) => ({
-        properties: settingsWith(v, column.property, { visible: false }),
-      })),
-  });
-
-  const showColumn = (property: Property, shown: boolean) =>
-    void changeView((v) => ({ properties: settingsWith(v, property, { visible: shown }) }));
-
-  // "Wrap cells" is for every column: the columns' own wrap settings go.
-  const wrapCells = (wrap: boolean) =>
-    void changeView((v) => ({
-      table: withTableOptions(v, { wrapCells: wrap }),
-      properties: v.properties.map((setting) => {
-        const next = { ...setting };
-        delete next.wrap;
-        return next;
-      }),
-    }));
-
   // "Set property" lists what the viewer can change (Name, files, people and relations aside).
   const bulkProperties = listed.filter(
     (property) => BULK_TYPES.has(property.config.type) && canEdit(property),
@@ -962,10 +875,25 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     actions.trashRows(ids).catch(() => undefined);
   };
 
+  /** Copies rows (the copies come back with the next answer); the ticked rows stay ticked. */
+  const duplicate = (ids: Id[]) => {
+    actions.duplicateRows(ids).catch(() => undefined);
+  };
+
+  /** The ticked rows, top to bottom as the table shows them. */
+  const duplicateSelected = () => duplicate([...lineOf.keys()].filter((id) => selected.has(id)));
+
   /** A toast from the table (it needs the kit's ToastProvider, which the app has). */
   const say = (text: string) => {
     notices.current += 1;
     setNotice({ id: notices.current, text });
+  };
+
+  // A property that changed type or went: undo can't write its old values back.
+  const propertyChanged = (event: PropertyMenuEvent) => {
+    if (event.kind === 'type_changed' || event.kind === 'deleted') {
+      history.forgetProperty(event.property.id);
+    }
   };
 
   const gridTop = () => grid.current?.getBoundingClientRect().top ?? 0;
@@ -978,18 +906,23 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       const box = sectionEls.current.get(section.key)?.getBoundingClientRect();
       if (!box) continue;
       const rows: MeasuredRow[] = [];
+      // With virtual rows some aren't drawn: the edge after a drawn one lands before the next.
+      let edge: number | null = null;
       for (const line of section.collapsed ? [] : section.lines) {
-        const r = rowEls.current.get(line.key)?.getBoundingClientRect();
-        if (!r) continue;
         const place = !nested || isTopLevel(line.row);
-        rows.push({ rowId: line.row.id, top: r.top - top, bottom: r.bottom - top, place });
+        const r = rowEls.current.get(line.key)?.getBoundingClientRect();
+        if (r) rows.push({ rowId: line.row.id, top: r.top - top, bottom: r.bottom - top, place });
+        else if (edge !== null) rows.push({ rowId: line.row.id, top: edge, bottom: edge, place });
+        edge = r ? r.bottom - top : null;
       }
+      const last = section.lines.at(-1);
       measured.push({
         key: section.key,
         top: box.top - top,
         bottom: box.bottom - top,
         rows,
-        more: section.nextCursor !== null,
+        // The end of the list is a place only when its last row is drawn and nothing is left to load.
+        more: section.nextCursor !== null || (last !== undefined && !rowEls.current.has(last.key)),
       });
     }
     return measured;
@@ -1118,71 +1051,10 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         actions.openRow(line.row.id);
       },
       copyLink: () => copyLink(line.row.id),
+      duplicate: canAdd ? () => duplicate([line.row.id]) : undefined,
       moves: manual ? { up: step(-1), down: step(1) } : null,
       remove: () => trashLine(line),
     };
-  };
-
-  const gridX = (clientX: number) => clientX - (grid.current?.getBoundingClientRect().left ?? 0);
-
-  const startResize = (event: PointerEvent<HTMLDivElement>, column: TableColumn) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    dragStop.current?.();
-    const { property, width: start } = column;
-    dragStop.current = followDrag(event.clientX, {
-      move: (dx) => setResize({ propertyId: property.id, width: clampWidth(start + dx) }),
-      end: (dx, _x, cancelled) => {
-        dragStop.current = null;
-        const width = clampWidth(start + dx);
-        if (cancelled || width === start) {
-          setResize(null);
-          return;
-        }
-        setResize({ propertyId: property.id, width });
-        void changeView((v) => ({ properties: settingsWith(v, property, { width }) })).then(() =>
-          setResize((r) => (r?.propertyId === property.id ? null : r)),
-        );
-      },
-    });
-  };
-
-  // Dragging a header moves the column; a press without a drag opens its menu (on click).
-  const startMove = (event: PointerEvent<HTMLButtonElement>, column: TableColumn) => {
-    dragged.current = false;
-    if (event.button !== 0 || event.pointerType === 'touch') return;
-    event.preventDefault();
-    if (column.property.config.type === 'title') return;
-    dragStop.current?.();
-    const propertyId = column.property.id;
-    const startColumns = columns;
-    dragStop.current = followDrag(event.clientX, {
-      move: (dx, clientX) => {
-        if (!dragged.current && Math.abs(dx) < DRAG_START) return;
-        dragged.current = true;
-        setMoving({ propertyId, x: gridX(clientX) });
-      },
-      end: (_dx, clientX, cancelled) => {
-        dragStop.current = null;
-        setMoving(null);
-        if (!dragged.current || cancelled) return;
-        const beforeId = dropTarget(startColumns, gridX(clientX));
-        const order = startColumns.map((c) => c.property.id);
-        const at = order.indexOf(propertyId);
-        if (beforeId === propertyId || (beforeId !== null && order[at + 1] === beforeId)) return;
-        if (beforeId === null && at === order.length - 1) return;
-        void changeView((v) => ({ properties: moveSetting(v.properties, propertyId, beforeId) }));
-      },
-    });
-  };
-
-  const pressHeader = (column: TableColumn) => {
-    if (dragged.current) {
-      dragged.current = false;
-      return;
-    }
-    setMenuFor(column.property.id);
   };
 
   const toggleGroup = (group: QueryGroup) => toggleCollapsed(group.collapsedKey);
@@ -1191,42 +1063,6 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const toggleRow = (line: Line) => {
     const open = isOpen(line.row, chosenOpen);
     setChosenOpen((map) => new Map(map).set(line.row.id, !open));
-  };
-
-  /** Before the Name: one step in per level, and the arrow when the row has sub-items. */
-  const renderNesting = (line: Line, propertyId: Id) => {
-    const row = line.row;
-    const steps = Array.from({ length: row.depth ?? 0 }, (_, level) => (
-      <span key={level} aria-hidden className="w-5 shrink-0" />
-    ));
-    if ((row.childCount ?? 0) === 0) {
-      return (
-        <>
-          {steps}
-          <span aria-hidden className="w-5 shrink-0 max-md:w-11" />
-        </>
-      );
-    }
-    const open = isOpen(row, chosenOpen);
-    const Arrow = open ? ChevronDown : ChevronRight;
-    return (
-      <>
-        {steps}
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-expanded={open}
-          aria-label={TABLE_TEXT.subItemsOf(row.title || CELL_TEXT.untitled)}
-          onClick={() => {
-            toggleRow(line);
-            focusCell(line.key, propertyId);
-          }}
-          className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-fill-hover max-md:size-11"
-        >
-          <Arrow aria-hidden className="size-4" />
-        </button>
-      </>
-    );
   };
 
   // Frozen columns stay in place; so does Name on phones (`left` only counts once it's sticky).
@@ -1355,7 +1191,16 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          {isName && nested && renderNesting(line, property.id)}
+          {isName && nested && (
+            <NestToggle
+              row={line.row}
+              open={isOpen(line.row, chosenOpen)}
+              onToggle={() => {
+                toggleRow(line);
+                focusCell(line.key, property.id);
+              }}
+            />
+          )}
           <CellView
             property={property}
             value={cell.value}
@@ -1413,37 +1258,93 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
 
   const cellClass = (column: TableColumn) => cn(lineClass, frozenClass(column));
   const colCount = columns.length + (canSelect ? 1 : 0);
-  const renderWide = (content: ReactNode) => (
-    <div role="row" className="flex">
+  const renderWide = (content: ReactNode, rowIndex?: number) => (
+    <div role="row" aria-rowindex={rowIndex || undefined} className="flex">
       <div role="gridcell" aria-colspan={colCount} className="sticky left-0 px-1 py-1">
         {content}
       </div>
     </div>
   );
 
+  // With virtual rows, screen readers get each row's number and the count (header and footers too).
+  const numbers = virtual ? numberRows(sections, canAdd) : null;
+  const bottomTotals = canEditViews || Object.keys(data.totals).length > 0;
+
+  /** A finger held on a row opens its menu (not in an editor, nor from the menu's own portal). */
+  const pressRow = (event: PointerEvent<HTMLDivElement>, line: Line) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !event.currentTarget.contains(target)) return;
+    if (editing?.line === line.key || target.closest('input, textarea, [contenteditable]')) return;
+    press.start(event, () => openRowMenu(line, { line: line.key, propertyId: SELECT_KEY }));
+  };
+
+  /** The click as the finger lifts after a long press isn't a tap on the cell under it. */
+  const afterPress = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof Node) || !event.currentTarget.contains(target)) return;
+    if (!press.takeClick()) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const renderLine = (line: Line, section: Section, rowIndex?: number) => (
+    <div
+      key={line.key}
+      ref={keep(rowEls.current, line.key)}
+      role="row"
+      aria-rowindex={rowIndex}
+      data-row-id={line.row.id}
+      aria-selected={canSelect ? selected.has(line.row.id) : undefined}
+      onPointerDown={canSelect ? (event) => pressRow(event, line) : undefined}
+      onPointerMove={canSelect ? (event) => press.move(event) : undefined}
+      onPointerUp={canSelect ? () => press.end() : undefined}
+      onPointerCancel={canSelect ? () => press.end() : undefined}
+      onClickCapture={canSelect ? afterPress : undefined}
+      className={cn(
+        'group/row flex border-b border-border',
+        canSelect && 'max-md:select-none',
+        line.row.context && 'text-muted',
+        rowDrag?.line === line.key && 'opacity-50',
+      )}
+    >
+      {canSelect && renderSelect(line, section)}
+      {columns.map((column, index) => renderCell(line, column, index))}
+    </div>
+  );
+
+  /** A section's rows: all of them, or with virtual rows those near the screen and gaps. */
+  const renderLines = (section: Section, first: number) => {
+    if (!virtual) return section.lines.map((line) => renderLine(line, section));
+    const drawn = new Set<number>();
+    section.lines.forEach((line, index) => {
+      if (pinned.has(line.key)) drawn.add(index);
+    });
+    const pieces = piecesOf(
+      section.lines.length,
+      (index) => heightOf(section.lines[index]),
+      spans.get(section.key) ?? NO_SPAN,
+      drawn,
+    );
+    return [
+      <div key="#top" ref={keep(anchors.current, section.key)} data-rows-top="" aria-hidden />,
+      ...pieces.map((piece) => {
+        if ('gap' in piece) {
+          return <div key={`#gap-${piece.gap}`} aria-hidden style={{ height: piece.height }} />;
+        }
+        const line = section.lines[piece.line];
+        return line ? renderLine(line, section, first + piece.line) : null;
+      }),
+    ];
+  };
+
   const renderSection = (section: Section) => {
     const group = section.group;
     const groupKey = group?.key;
     const loading = data.loadingMore.includes(loadMoreKey(groupKey));
+    const at = numbers?.of.get(section.key);
     const body = (
       <>
-        {section.lines.map((line) => (
-          <div
-            key={line.key}
-            ref={keep(rowEls.current, line.key)}
-            role="row"
-            data-row-id={line.row.id}
-            aria-selected={canSelect ? selected.has(line.row.id) : undefined}
-            className={cn(
-              'group/row flex border-b border-border',
-              line.row.context && 'text-muted',
-              rowDrag?.line === line.key && 'opacity-50',
-            )}
-          >
-            {canSelect && renderSelect(line, section)}
-            {columns.map((column, index) => renderCell(line, column, index))}
-          </div>
-        ))}
+        {renderLines(section, at?.first ?? 0)}
         {section.nextCursor !== null &&
           renderWide(
             <Button
@@ -1459,6 +1360,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             >
               {TABLE_TEXT.loadMore}
             </Button>,
+            at?.more,
           )}
         {canAdd &&
           renderWide(
@@ -1472,6 +1374,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
               <Plus aria-hidden className="size-4" />
               {TABLE_TEXT.newRow}
             </Button>,
+            at?.add,
           )}
         {group && Object.keys(group.totals).length > 0 && (
           <TotalsRow
@@ -1480,6 +1383,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             placeOf={placeOf}
             cellClass={cellClass}
             leadClass={canSelect ? selectClass : undefined}
+            rowIndex={at?.totals}
           />
         )}
       </>
@@ -1499,7 +1403,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         ref={keep(sectionEls.current, section.key)}
         aria-label={group.label}
       >
-        <div role="row" className="flex">
+        <div role="row" aria-rowindex={at?.head || undefined} className="flex">
           <div role="gridcell" aria-colspan={colCount} className="sticky left-0 px-1 pt-4 pb-1">
             <button
               type="button"
@@ -1538,23 +1442,35 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           role="grid"
           aria-label={view.name}
           aria-colcount={colCount}
+          aria-rowcount={numbers ? numbers.last + (bottomTotals ? 1 : 0) : undefined}
           aria-multiselectable
           aria-readonly={readOnly || undefined}
           className="relative w-max min-w-full text-small text-fg"
         >
           <div role="rowgroup">
-            <div role="row" className="flex border-b border-border">
+            <div
+              role="row"
+              aria-rowindex={numbers ? 1 : undefined}
+              className="flex border-b border-border"
+            >
               {canSelect && (
                 <div role="columnheader" className={cn(selectClass, 'min-h-9 max-md:min-h-11')}>
                   {/* Room for the rows' handles, so the boxes line up. */}
                   <span aria-hidden className="w-4 shrink-0 max-md:hidden" />
-                  <Checkbox
-                    checked={allState}
-                    aria-label={TABLE_TEXT.selectAll}
-                    onCheckedChange={() =>
-                      setSelection(allState === true ? NO_SELECTION : selectAll(lines))
-                    }
-                  />
+                  {/* The label fills the cell on phones, so the box has a 44 px target. */}
+                  <label
+                    htmlFor={selectAllId}
+                    className="flex items-center justify-center max-md:size-11"
+                  >
+                    <Checkbox
+                      id={selectAllId}
+                      checked={allState}
+                      aria-label={TABLE_TEXT.selectAll}
+                      onCheckedChange={() =>
+                        setSelection(allState === true ? NO_SELECTION : selectAll(lines))
+                      }
+                    />
+                  </label>
                 </div>
               )}
               {columns.map((column) => (
@@ -1564,14 +1480,41 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
                   style={placeOf(column)}
                   className={cellClass(column)}
                   editable={canEditViews}
-                  frozenHere={options.frozenUpTo === column.property.id}
-                  menuOpen={menuFor === column.property.id}
-                  onMenuOpenChange={(open) => setMenuFor(open ? column.property.id : null)}
-                  onPress={() => pressHeader(column)}
+                  menu={(button) => (
+                    <PropertyMenu
+                      meta={meta}
+                      property={column.property}
+                      actions={propertyActions}
+                      view={view}
+                      updateView={(patch) => changeView(() => patch)}
+                      rows={loadedRows}
+                      ctx={ctx}
+                      people={people}
+                      viewItems={columnItems({
+                        column,
+                        editable: canEditViews,
+                        frozenHere: options.frozenUpTo === column.property.id,
+                        grouped: view.grouping?.propertyId === column.property.id,
+                        change: tools.columnChanges(column),
+                      })}
+                      open={menuFor === column.property.id}
+                      onOpenChange={(open) =>
+                        setMenuFor((now) =>
+                          open ? column.property.id : now === column.property.id ? null : now,
+                        )
+                      }
+                      onChanged={propertyChanged}
+                      onError={(error) =>
+                        say(isApiError(error) ? error.message : UNKNOWN_ERROR_MESSAGE)
+                      }
+                    >
+                      {button}
+                    </PropertyMenu>
+                  )}
+                  onPress={() => tools.pressHeader(column)}
                   moving={moving?.propertyId === column.property.id}
-                  onMoveStart={(event) => startMove(event, column)}
-                  onResizeStart={(event) => startResize(event, column)}
-                  change={columnChanges(column)}
+                  onMoveStart={(event) => tools.startMove(event, column, columns)}
+                  onResizeStart={(event) => tools.startResize(event, column)}
                 />
               ))}
               {canEditViews && (
@@ -1580,15 +1523,15 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
                     properties={listed}
                     shown={shown}
                     wrapCells={options.wrapCells}
-                    onShow={showColumn}
-                    onWrapCells={wrapCells}
+                    onShow={tools.showColumn}
+                    onWrapCells={tools.wrapCells}
                   />
                 </div>
               )}
             </div>
           </div>
           {sections.map(renderSection)}
-          {(canEditViews || Object.keys(data.totals).length > 0) && (
+          {bottomTotals && (
             <div role="rowgroup">
               <TotalsRow
                 columns={columns}
@@ -1603,6 +1546,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
                   }))
                 }
                 testId="db-totals"
+                rowIndex={numbers ? numbers.last + 1 : undefined}
               />
             </div>
           )}
@@ -1613,25 +1557,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
               className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-primary"
             />
           )}
-          {rowDrag?.drop &&
-            (rowDrag.drop.mark.kind === 'line' ? (
-              <div
-                aria-hidden
-                data-row-drop=""
-                style={{ top: rowDrag.drop.mark.y }}
-                className="pointer-events-none absolute inset-x-0 z-30 h-0.5 -translate-y-px bg-primary"
-              />
-            ) : (
-              <div
-                aria-hidden
-                data-row-drop=""
-                style={{
-                  top: rowDrag.drop.mark.top,
-                  height: rowDrag.drop.mark.bottom - rowDrag.drop.mark.top,
-                }}
-                className="pointer-events-none absolute inset-x-0 z-30 rounded-sm ring-2 ring-inset ring-primary"
-              />
-            ))}
+          {rowDrag?.drop && <RowDropMark mark={rowDrag.drop.mark} />}
         </div>
       </div>
       {selected.size > 0 && (
@@ -1641,6 +1567,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           ctx={ctx}
           canCreateOptions={canEditStructure}
           onSet={setForSelected}
+          onDuplicate={canAdd ? duplicateSelected : undefined}
           onTrash={trashSelected}
           onClear={() => setSelection(NO_SELECTION)}
         />
