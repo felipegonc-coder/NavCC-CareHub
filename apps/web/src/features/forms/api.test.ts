@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type HttpMethod, type RequestJson } from '../databases/api';
-import { createFormsClient, DEFAULT_CONFIRMATION, loadFillForm, parseFillForm } from './api';
+import {
+  createFormsClient,
+  DEFAULT_CONFIRMATION,
+  loadFillForm,
+  parseFillForm,
+  publicCoverUrl,
+} from './api';
 import { fillForm, mockFormsClient, NOT_FOUND } from './test-utils';
 
 function fakeRequest(answer: unknown) {
@@ -34,6 +40,23 @@ describe('createFormsClient', () => {
         body: { answers: { 'prop-name': 'Avery Lin' } },
       },
     ]);
+  });
+
+  it('uses the public route for a form anyone can fill in', async () => {
+    const { request, calls } = fakeRequest(fillForm({ audience: 'anyone' }, { respondent: null }));
+    const client = createFormsClient(request);
+    const data = await client.getPublicForm('ab/c');
+    expect(data.form.audience).toBe('anyone');
+    await client.submitPublicResponse('code-123', { 'prop-name': 'Avery Lin' });
+    expect(calls).toEqual([
+      { method: 'GET', path: '/api/forms/public/ab%2Fc', body: undefined },
+      {
+        method: 'POST',
+        path: '/api/forms/public/code-123/responses',
+        body: { answers: { 'prop-name': 'Avery Lin' } },
+      },
+    ]);
+    expect(publicCoverUrl('ab/c')).toBe('/api/forms/public/ab%2Fc/cover');
   });
 
   it('searches people and rows for the pickers', async () => {
@@ -112,13 +135,39 @@ describe('parseFillForm', () => {
 describe('loadFillForm', () => {
   it('opens the form for the person signed in', async () => {
     const client = mockFormsClient();
-    await expect(loadFillForm(client, 'code-123')).resolves.toMatchObject({ kind: 'form' });
+    await expect(loadFillForm(client, 'code-123')).resolves.toMatchObject({
+      kind: 'form',
+      signedOut: false,
+    });
     expect(client.getForm).toHaveBeenCalledWith('code-123');
+    expect(client.getPublicForm).not.toHaveBeenCalled();
   });
 
   it('asks to sign in when nobody is signed in', async () => {
     const client = mockFormsClient();
     client.getForm.mockRejectedValue(unauthorized());
+    await expect(loadFillForm(client, 'code-123')).resolves.toEqual({ kind: 'sign_in' });
+    expect(client.getPublicForm).toHaveBeenCalledWith('code-123');
+  });
+
+  it('opens a form anyone can fill in with nobody signed in', async () => {
+    const client = mockFormsClient();
+    client.getForm.mockRejectedValue(unauthorized());
+    client.getPublicForm.mockResolvedValue(fillForm({ audience: 'anyone' }, { respondent: null }));
+    await expect(loadFillForm(client, 'code-123')).resolves.toMatchObject({
+      kind: 'form',
+      signedOut: true,
+    });
+  });
+
+  it('asks to sign in when the public route says so', async () => {
+    const client = mockFormsClient();
+    client.getForm.mockRejectedValue(unauthorized());
+    client.getPublicForm.mockResolvedValueOnce(
+      fillForm({}, { gate: { state: 'sign_in', message: null }, respondent: null }),
+    );
+    await expect(loadFillForm(client, 'code-123')).resolves.toEqual({ kind: 'sign_in' });
+    client.getPublicForm.mockRejectedValueOnce(new ApiError(403, 'forbidden', 'Sign in first.'));
     await expect(loadFillForm(client, 'code-123')).resolves.toEqual({ kind: 'sign_in' });
   });
 
@@ -129,7 +178,10 @@ describe('loadFillForm', () => {
 
   it('passes other failures on', async () => {
     const client = mockFormsClient();
-    client.getForm.mockRejectedValue(new ApiError(404, 'not_found', NOT_FOUND));
+    client.getForm.mockRejectedValueOnce(new ApiError(404, 'not_found', NOT_FOUND));
     await expect(loadFillForm(client, 'code-123')).rejects.toThrow(NOT_FOUND);
+    client.getForm.mockRejectedValueOnce(unauthorized());
+    client.getPublicForm.mockRejectedValueOnce(new ApiError(0, 'offline', 'Offline.'));
+    await expect(loadFillForm(client, 'code-123')).rejects.toThrow('Offline.');
   });
 });
