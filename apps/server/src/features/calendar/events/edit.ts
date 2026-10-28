@@ -23,8 +23,22 @@ import { civilOf, seriesOf, type EventFields, type Schedule } from './model';
 /** Everything an edit can change on one event. */
 export type EventState = Schedule & EventFields & { people: StoredPerson[] };
 
-/** The edited event and, after This and following, the new series from the chosen occurrence. */
-export type EditPlan = { event: EventState; split: EventState | null };
+/**
+ * Where an occurrence is after an edit: in the edited event or the split, under its key there
+ * (null when that event doesn't repeat).
+ */
+export type Place = { in: 'event' | 'split'; key: OccurrenceKey | null };
+
+/**
+ * The edited event and, after This and following, the new series from the chosen occurrence.
+ * `placeOf` says where an occurrence went (for null, the whole event), or null when it's gone, so
+ * reminders can follow.
+ */
+export type EditPlan = {
+  event: EventState;
+  split: EventState | null;
+  placeOf: (key: OccurrenceKey | null) => Place | null;
+};
 
 const FIRST_DATE = '0001-01-01';
 const LAST_DATE = '9999-12-31';
@@ -182,9 +196,19 @@ function stopRepeating(
     people,
   };
   const before = edit.scope === 'following' ? splitSeries(series, key).before : null;
-  if (!before) return { event: single, split: null };
+  if (!before) {
+    const placeOf = (k: OccurrenceKey | null): Place | null =>
+      k === null || k === key ? { in: 'event', key: null } : null;
+    return { event: single, split: null, placeOf };
+  }
   const kept = moveReplies(event.people, (k) => (k < key ? k : null));
-  return { event: { ...stateOf(event), ...scheduleOf(before), people: kept }, split: single };
+  const earlier = { ...stateOf(event), ...scheduleOf(before), people: kept };
+  const placeOf = (k: OccurrenceKey | null): Place | null => {
+    if (k === null) return wholeIn('event', earlier);
+    if (k === key) return { in: 'split', key: null };
+    return k < key ? { in: 'event', key: k } : null;
+  };
+  return { event: earlier, split: single, placeOf };
 }
 
 /** "All events" or "This and following": team-repeat moves the occurrences and their keys. */
@@ -204,7 +228,13 @@ function editSeries(event: StoredEvent, series: Series<EventFields>, key: string
     const next = editAll(series, key, change);
     const keys = next.mapKeys(repliedKeys(people));
     const moved = moveReplies(people, (k) => keys.get(k) ?? null);
-    return { event: { ...edited, ...scheduleOf(next.series), people: moved }, split: null };
+    const all = { ...edited, ...scheduleOf(next.series), people: moved };
+    const placeOf = (k: OccurrenceKey | null): Place | null => {
+      if (k === null) return wholeIn('event', all);
+      const to = next.mapKeys([k]).get(k);
+      return to ? { in: 'event', key: to } : null;
+    };
+    return { event: all, split: null, placeOf };
   }
   const next = editFollowing(series, key, change);
   const keys = next.mapKeys(repliedKeys(event.people));
@@ -213,27 +243,58 @@ function editSeries(event: StoredEvent, series: Series<EventFields>, key: string
     return move?.series === part ? move.key : null;
   };
   const after = { ...edited, ...scheduleOf(next.after), people: moveReplies(people, to('after')) };
-  if (!next.before) return { event: after, split: null };
-  const kept = moveReplies(event.people, to('before'));
-  return { event: { ...stateOf(event), ...scheduleOf(next.before), people: kept }, split: after };
+  const kept = (before: Series<EventFields>) => ({
+    ...stateOf(event),
+    ...scheduleOf(before),
+    people: moveReplies(event.people, to('before')),
+  });
+  const earlier = next.before ? kept(next.before) : null;
+  const placeOf = (k: OccurrenceKey | null): Place | null => {
+    if (k === null) return wholeIn('event', earlier ?? after);
+    const move = next.mapKeys([k]).get(k);
+    if (!move) return null;
+    return { in: move.series === 'after' && earlier ? 'split' : 'event', key: move.key };
+  };
+  return earlier
+    ? { event: earlier, split: after, placeOf }
+    : { event: after, split: null, placeOf };
 }
 
 /** The first occurrence's key, or the first one still there. */
-function firstKey(series: Series<EventFields>): OccurrenceKey {
+export function firstKey(series: Series<EventFields>): OccurrenceKey {
   if (occurrenceAt(series, series.start)) return series.start;
   const [first] = expand(series, { from: FIRST_DATE, to: LAST_DATE, limit: 1 }).occurrences;
   return first?.key ?? series.start;
 }
 
+/** Reminders on the whole event stay with it, on its first occurrence once it repeats. */
+function wholeIn(part: Place['in'], state: EventState): Place {
+  const series = seriesOf(state);
+  return { in: part, key: series ? firstKey(series) : null };
+}
+
 /** What an edit does. Repeating events need a scope; All events with no occurrence: the first. */
 export function planEdit(event: StoredEvent, edit: EditEvent): EditPlan {
   const series = seriesOf(event);
-  if (!series) return { event: editSingle(event, edit), split: null };
+  if (!series) {
+    const single = editSingle(event, edit);
+    return {
+      event: single,
+      split: null,
+      placeOf: (k) => (k === null ? wholeIn('event', single) : null),
+    };
+  }
   if (!edit.scope) throw needsScope();
   const key = edit.occurrence ?? firstKey(series);
   return checked(() => {
-    if (edit.scope === 'one')
-      return { event: editOccurrence(event, series, key, edit), split: null };
+    if (edit.scope === 'one') {
+      const one = editOccurrence(event, series, key, edit);
+      return {
+        event: one,
+        split: null,
+        placeOf: (k) => (k === null ? wholeIn('event', one) : { in: 'event', key: k }),
+      };
+    }
     if (edit.repeat === null) return stopRepeating(event, series, key, edit);
     return editSeries(event, series, key, edit);
   });

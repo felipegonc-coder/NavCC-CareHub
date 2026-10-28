@@ -41,6 +41,9 @@ const profileOf = (profiles: Profiles, id: string): Member =>
 export const layerOf = (event: { people: readonly unknown[] }) =>
   event.people.length > 0 ? BUILT_IN_LAYERS.meetings : BUILT_IN_LAYERS.myEvents;
 
+/** An event's title outside the Calendar screen (notice cards, the Reminders list). */
+export const shownTitle = (title: string) => title.trim() || '(No title)';
+
 /** A person's answer for one occurrence (their own for it, else the series one), or the series'. */
 export function replyFor(person: StoredPerson, key: string | null): StoredReply | null {
   const own = key === null ? undefined : person.occurrenceReplies[key];

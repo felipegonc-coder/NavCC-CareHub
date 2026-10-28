@@ -19,10 +19,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Ids are uuids; anything else can't be one of ours (and would be a database error). */
 export const isUuid = (value: string) => UUID.test(value);
 
-async function withPeople(
+async function withPeople<Row extends typeof calEvents.$inferSelect>(
   db: Database,
-  rows: (typeof calEvents.$inferSelect)[],
-): Promise<EventRecord[]> {
+  rows: Row[],
+): Promise<(Row & EventRecord)[]> {
   if (rows.length === 0) return [];
   const people = await db
     .select()
@@ -55,6 +55,13 @@ export async function findEvent(
     .where(and(eq(calEvents.id, id), isNull(calEvents.cancelledAt)));
   const [event] = await withPeople(db, lock ? await query.for('update') : await query);
   return event ?? null;
+}
+
+/** Events by id, cancelled ones too. Ids that can't be ours are skipped. */
+export async function eventsById(db: Database, ids: readonly string[]) {
+  const wanted = [...new Set(ids)].filter(isUuid);
+  if (wanted.length === 0) return [];
+  return withPeople(db, await db.select().from(calEvents).where(inArray(calEvents.id, wanted)));
 }
 
 /** Events the person organizes or is invited to that may show in the window. */

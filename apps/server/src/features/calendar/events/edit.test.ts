@@ -236,6 +236,73 @@ describe('planEdit', () => {
   });
 });
 
+describe('where occurrences go after an edit (for reminders)', () => {
+  const tue = (day: string) => `2026-${day}T10:00`;
+
+  it('keeps the whole event in place, on its first occurrence once it repeats', () => {
+    const renamed = planEdit(single, { title: 'Renamed' });
+    expect(renamed.placeOf(null)).toEqual({ in: 'event', key: null });
+    expect(renamed.placeOf(tue('10-27'))).toBeNull();
+    const daily = planEdit(single, { repeat: { freq: 'daily', interval: 1, count: 3 } });
+    expect(daily.placeOf(null)).toEqual({ in: 'event', key: tue('10-27') });
+  });
+
+  it('keeps every key after This event', () => {
+    const moved = planEdit(weekly, {
+      scope: 'one',
+      occurrence: tue('10-27'),
+      allDay: false,
+      start: '2026-10-28T15:00:00.000Z',
+      end: '2026-10-28T16:00:00.000Z',
+    });
+    expect(moved.placeOf(tue('10-27'))).toEqual({ in: 'event', key: tue('10-27') });
+    expect(moved.placeOf(null)).toEqual({ in: 'event', key: tue('10-20') });
+  });
+
+  it('follows All events to their new keys', () => {
+    const later = planEdit(weekly, {
+      scope: 'all',
+      occurrence: tue('10-27'),
+      allDay: false,
+      start: '2026-10-27T17:00:00.000Z',
+      end: '2026-10-27T18:00:00.000Z',
+    });
+    expect(later.placeOf(tue('11-03'))).toEqual({ in: 'event', key: '2026-11-03T11:00' });
+    expect(later.placeOf('2026-10-21T10:00')).toBeNull();
+  });
+
+  it('moves the chosen occurrence and later ones into the new series', () => {
+    const renamed = planEdit(weekly, {
+      scope: 'following',
+      occurrence: tue('11-03'),
+      title: 'New',
+    });
+    expect(renamed.placeOf(tue('10-27'))).toEqual({ in: 'event', key: tue('10-27') });
+    expect(renamed.placeOf(tue('11-03'))).toEqual({ in: 'split', key: tue('11-03') });
+    expect(renamed.placeOf(tue('11-10'))).toEqual({ in: 'split', key: tue('11-10') });
+    const fromFirst = planEdit(weekly, {
+      scope: 'following',
+      occurrence: tue('10-20'),
+      title: 'All',
+    });
+    expect(fromFirst.placeOf(tue('11-10'))).toEqual({ in: 'event', key: tue('11-10') });
+  });
+
+  it('keeps only the chosen occurrence, alone, when repeating stops', () => {
+    const all = planEdit(weekly, { scope: 'all', occurrence: tue('10-27'), repeat: null });
+    expect(all.placeOf(tue('10-27'))).toEqual({ in: 'event', key: null });
+    expect(all.placeOf(tue('11-03'))).toBeNull();
+    const following = planEdit(weekly, {
+      scope: 'following',
+      occurrence: tue('11-03'),
+      repeat: null,
+    });
+    expect(following.placeOf(tue('10-27'))).toEqual({ in: 'event', key: tue('10-27') });
+    expect(following.placeOf(tue('11-03'))).toEqual({ in: 'split', key: null });
+    expect(following.placeOf(tue('11-10'))).toBeNull();
+  });
+});
+
 describe('planDelete', () => {
   it('removes one occurrence and its answers', () => {
     const left = planDelete(weekly, { scope: 'one', occurrence: '2026-10-27T10:00' });
