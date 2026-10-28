@@ -25,7 +25,25 @@ import { msToZoned, zonedToMs, zoneFromTzid } from './zones';
 
 export const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_MAX_EVENTS = 5000; // the spec's limit per calendar within the date window
-const MAX_LIST = 1000; // attendees, RDATEs or EXDATEs kept per event
+const MAX_LIST = 1000; // ATTENDEE lines read, and RDATEs or EXDATEs kept, per event
+
+/**
+ * The longest values kept, in UTF-16 code units like the API's checks. The first five are the
+ * API's LIMITS (team-calendar-api), so a synced event fits wherever a Care Hub event does.
+ * Longer text is shortened; longer links and addresses, which wouldn't work cut, are left out.
+ */
+export const READ_LIMITS = {
+  title: 1000,
+  location: 1000,
+  description: 8000,
+  videoUrl: 2000,
+  people: 200, // attendees per event
+  name: 200, // an attendee's or the calendar's name
+  calendarText: 1000, // the calendar's description, color and method
+  email: 254, // the longest address mail can carry (RFC 5321)
+  uid: 255, // longer UIDs are replaced by a hash of them
+  rrule: 1000,
+} as const;
 const MAX_WARNINGS = 50;
 const MAX_CUSTOM_ZONES = 20; // custom VTIMEZONEs read per file
 const MAX_LINES = 400_000; // content lines per file: about 40 MB of a typical calendar
@@ -39,6 +57,11 @@ export interface ParseOptions {
   now?: Date;
   /** Charset of byte input, from the Content-Type header. UTF-8 by default. */
   charset?: string;
+  /**
+   * The calendar owner's addresses. Their attendee gets `self: true`, and is kept even past the
+   * attendee limit.
+   */
+  ownAddresses?: readonly string[];
 }
 
 export interface CalendarInfo {
@@ -76,6 +99,7 @@ interface Context {
   zone: (tzid: string) => Zone;
   warn: (message: string) => void;
   hasMethod: boolean;
+  own: ReadonlySet<string>; // lower case
 }
 
 /** Reads a calendar. Throws IcalParseError only when the input is too large or not iCalendar. */
@@ -116,6 +140,7 @@ export function parseCalendar(input: string | Uint8Array, options: ParseOptions 
     end: options.window.end.getTime() + DAY_MS,
   };
   const maxEvents = options.maxEvents ?? DEFAULT_MAX_EVENTS;
+  const own = new Set((options.ownAddresses ?? []).map((a) => a.trim().toLowerCase()));
   const kept = new Map<string, ExternalEvent>();
   let skipped = 0;
   let truncated = false;
@@ -157,6 +182,7 @@ export function parseCalendar(input: string | Uint8Array, options: ParseOptions 
       zone,
       warn,
       hasMethod: first(calendar, 'METHOD') !== undefined,
+      own,
     };
     for (const component of calendar.children) {
       if (component.name !== 'VEVENT') continue;
@@ -212,20 +238,29 @@ const param = (p: ContentLine | undefined, name: string) =>
   p?.params.get(name)?.join(',').trim().toUpperCase();
 
 function readCalendarInfo(calendar: Component): CalendarInfo {
-  const text = (...names: string[]) => {
+  const text = (names: string[], max: number = READ_LIMITS.calendarText) => {
     for (const name of names) {
       const value = unescapeText(first(calendar, name)?.value ?? '').trim();
-      if (value) return value;
+      if (value) return clip(value, max);
     }
     return undefined;
   };
   return compact({
-    name: text('NAME', 'X-WR-CALNAME'),
-    description: text('X-WR-CALDESC', 'DESCRIPTION'),
-    color: text('COLOR', 'X-APPLE-CALENDAR-COLOR'),
-    timeZone: zoneFromTzid(text('X-WR-TIMEZONE') ?? ''),
-    method: text('METHOD')?.toUpperCase(),
+    name: text(['NAME', 'X-WR-CALNAME'], READ_LIMITS.name),
+    description: text(['X-WR-CALDESC', 'DESCRIPTION']),
+    color: text(['COLOR', 'X-APPLE-CALENDAR-COLOR']),
+    timeZone: zoneFromTzid(text(['X-WR-TIMEZONE']) ?? ''),
+    method: text(['METHOD'])?.toUpperCase(),
   });
+}
+
+/** Cuts text to `max` code units, ending in "…", without splitting a surrogate pair. */
+export function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let end = max - 1;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end--; // a pair's first half: leave the pair out
+  return `${text.slice(0, end)}…`;
 }
 
 function readEvent(c: Component, ctx: Context): ExternalEvent | string {
@@ -243,27 +278,43 @@ function readEvent(c: Component, ctx: Context): ExternalEvent | string {
     ctx.warn('A RANGE=THISANDFUTURE change was read as a change to one occurrence.');
   }
   let uid = first(c, 'UID')?.value.trim();
+  const hash = (seed: string) => createHash('sha256').update(seed).digest('hex').slice(0, 32);
   if (!uid) {
-    const seed = [startLine.value, text('SUMMARY'), recurrenceLine?.value].join('\n');
-    uid = `nouid-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
+    uid = `nouid-${hash([startLine.value, text('SUMMARY'), recurrenceLine?.value].join('\n'))}`;
     ctx.warn('An event without a UID was given a UID made from its start and title.');
+  }
+  // Warnings name the event by the start of its UID, quoted, since it's the calendar's text.
+  const label = `Event ${JSON.stringify(uid.slice(0, 60))}`;
+  if (uid.length > READ_LIMITS.uid) {
+    uid = `longuid-${hash(uid)}`;
+    ctx.warn(
+      `${label} has a UID longer than ${READ_LIMITS.uid} characters; a shorter one was made from it.`,
+    );
   }
 
   const rrule = first(c, 'RRULE')
     ?.value.trim()
     .replace(/^RRULE:/i, '');
   const validRule =
-    rrule && /(^|;)FREQ=(SECONDLY|MINUTELY|HOURLY|DAILY|WEEKLY|MONTHLY|YEARLY)(;|$)/i.test(rrule);
+    rrule &&
+    rrule.length <= READ_LIMITS.rrule &&
+    /(^|;)FREQ=(SECONDLY|MINUTELY|HOURLY|DAILY|WEEKLY|MONTHLY|YEARLY)(;|$)/i.test(rrule);
   if (rrule && !validRule)
-    ctx.warn(`Event ${uid} has an invalid RRULE; it was read as a single event.`);
-  if (all(c, 'RRULE').length > 1)
-    ctx.warn(`Event ${uid} has several RRULEs; only the first is used.`);
-  if (first(c, 'EXRULE')) ctx.warn(`Event ${uid} has an EXRULE, which is ignored.`);
+    ctx.warn(`${label} has an invalid RRULE; it was read as a single event.`);
+  if (all(c, 'RRULE').length > 1) ctx.warn(`${label} has several RRULEs; only the first is used.`);
+  if (first(c, 'EXRULE')) ctx.warn(`${label} has an EXRULE, which is ignored.`);
   const rdates = all(c, 'RDATE').flatMap((p) => readTimes(p, ctx));
   const exdates = all(c, 'EXDATE').flatMap((p) => readTimes(p, ctx));
   if (Math.max(rdates.length, exdates.length) > MAX_LIST)
-    ctx.warn(`Event ${uid} has more than ${MAX_LIST} RDATEs or EXDATEs.`);
+    ctx.warn(`${label} has more than ${MAX_LIST} RDATEs or EXDATEs.`);
 
+  // Text past the limits is shortened, with one warning for the event.
+  let shortened = false;
+  const keep = (value: string | undefined, max: number) => {
+    if (value === undefined || value.length <= max) return value;
+    shortened = true;
+    return clip(value, max);
+  };
   const description = text('DESCRIPTION');
   const location = text('LOCATION');
   const conference = c.props
@@ -278,12 +329,16 @@ function readEvent(c: Component, ctx: Context): ExternalEvent | string {
         Number(/VIDEO/.test(param(a, 'FEATURE') ?? '')),
     )
     .map((p) => p.value);
-  const videoLink = findVideoLink({
+  let videoLink = findVideoLink({
     conference,
     url: first(c, 'URL')?.value,
     location,
     description: [description, text('X-ALT-DESC')].filter(Boolean).join('\n'),
   })?.url;
+  if (videoLink && videoLink.length > READ_LIMITS.videoUrl) {
+    videoLink = undefined;
+    ctx.warn(`${label} has a video link longer than Care Hub keeps; it was left out.`);
+  }
 
   const status = (first(c, 'STATUS')?.value.trim().toUpperCase() ?? '') as string;
   const transp = first(c, 'TRANSP')?.value.trim().toUpperCase();
@@ -292,7 +347,7 @@ function readEvent(c: Component, ctx: Context): ExternalEvent | string {
   const sequence = Number(first(c, 'SEQUENCE')?.value.trim());
   const organizerLine = first(c, 'ORGANIZER');
   const organizerEmail = organizerLine && emailOf(organizerLine);
-  const attendees = all(c, 'ATTENDEE')
+  const everyone = all(c, 'ATTENDEE')
     .slice(0, MAX_LIST)
     .flatMap((p): ExternalAttendee[] => {
       const email = emailOf(p);
@@ -302,7 +357,7 @@ function readEvent(c: Component, ctx: Context): ExternalEvent | string {
       return [
         compact({
           email,
-          name: name || undefined,
+          name: keep(name || undefined, READ_LIMITS.name),
           response:
             partstat === 'ACCEPTED'
               ? 'accepted'
@@ -315,20 +370,30 @@ function readEvent(c: Component, ctx: Context): ExternalEvent | string {
             organizerEmail && email.toLowerCase() === organizerEmail.toLowerCase()
               ? true
               : undefined,
+          self: ctx.own.has(email.toLowerCase()) ? true : undefined,
         }),
       ];
     });
+  // The first ones are kept, and the calendar's owner even if they come later.
+  const attendees = everyone.slice(0, READ_LIMITS.people);
+  if (everyone.length > READ_LIMITS.people) {
+    const owner = everyone.slice(READ_LIMITS.people).find((a) => a.self);
+    if (owner && !attendees.some((a) => a.self)) attendees[READ_LIMITS.people - 1] = owner;
+    ctx.warn(
+      `${label} has more than ${READ_LIMITS.people} attendees; only ${READ_LIMITS.people} were kept.`,
+    );
+  }
   const updated = first(c, 'LAST-MODIFIED') ?? (ctx.hasMethod ? undefined : first(c, 'DTSTAMP'));
   const updatedValue = updated && parseIcalDateTime(updated.value);
 
-  return compact({
+  const event = compact({
     uid,
     recurrenceId,
     status:
       status === 'CANCELLED' ? 'cancelled' : status === 'TENTATIVE' ? 'tentative' : 'confirmed',
-    title: text('SUMMARY') ?? '',
-    description: description || undefined,
-    location: location || undefined,
+    title: keep(text('SUMMARY'), READ_LIMITS.title) ?? '',
+    description: keep(description || undefined, READ_LIMITS.description),
+    location: keep(location || undefined, READ_LIMITS.location),
     videoLink,
     start,
     end: readEnd(c, start, ctx),
@@ -352,6 +417,8 @@ function readEvent(c: Component, ctx: Context): ExternalEvent | string {
     organizerEmail,
     attendees: attendees.length > 0 ? attendees : undefined,
   } satisfies ExternalEvent);
+  if (shortened) ctx.warn(`${label} has text longer than Care Hub keeps; it was shortened.`);
+  return event;
 }
 
 /** Reads DTSTART, DTEND, RECURRENCE-ID, or a list of EXDATEs or RDATEs (a PERIOD keeps its start). */
@@ -491,7 +558,9 @@ function emailOf(line: ContentLine): string | undefined {
     // Keep the undecoded address.
   }
   email = email?.trim();
-  return email && /^[^\s@]+@[^\s@]+$/.test(email) ? email : undefined;
+  return email && email.length <= READ_LIMITS.email && /^[^\s@]+@[^\s@]+$/.test(email)
+    ? email
+    : undefined;
 }
 
 /** Drops undefined properties, so results compare and serialize cleanly. */

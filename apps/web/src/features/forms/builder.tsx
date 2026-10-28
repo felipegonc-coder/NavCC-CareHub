@@ -13,15 +13,14 @@ import {
 import {
   LIMITS,
   TYPE_LABELS,
-  fromPlainText,
-  plainText,
   type FormDefinition,
   type Id,
   type Property,
 } from '@carehub/databases';
 import { addableProperties } from '@carehub/databases/forms';
 import { problemText } from './api';
-import { CommitInput, CommitTextarea, NativeSelect } from './controls';
+import { CommitInput, NativeSelect } from './controls';
+import { RichTextField } from './rich-editor';
 import {
   NEW_QUESTION_TYPES,
   addQuestion,
@@ -166,13 +165,12 @@ export function FormBuilder({
           value={def.title}
           onCommit={(title) => onSave({ ...def, title: title.trim() || databaseTitle })}
         />
-        <CommitTextarea
+        <RichTextField
           aria-label="Form description"
           placeholder="Description"
-          rows={2}
           maxLength={LIMITS.formDescription}
-          value={plainText(def.description)}
-          onCommit={(t) => onSave({ ...def, description: fromPlainText(t) })}
+          value={def.description}
+          onCommit={(description) => onSave({ ...def, description })}
         />
       </div>
 

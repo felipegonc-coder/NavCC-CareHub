@@ -1,4 +1,5 @@
 import {
+  allDayReminderTime,
   combine,
   datePart,
   daysBetween,
@@ -22,6 +23,9 @@ const UNIT_MINUTES = { days: 1440, hours: 60, minutes: 1 } as const;
 export type BeforeUnit = keyof typeof UNIT_MINUTES;
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** 2 hours is 120 minutes. */
+export const minutesOf = (amount: number, unit: BeforeUnit): number => amount * UNIT_MINUTES[unit];
 
 /** "Today at 3:30 PM" from "today at 3:30 PM". */
 export const sentence = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
@@ -54,21 +58,25 @@ export function splitBefore(minutes: number): { amount: number; unit: BeforeUnit
 }
 
 /**
- * An event reminder's time, in words: "At the start", "10 minutes before", "1 day before", or
- * (negative minutes, all-day events) "On the day at 9:00 AM".
+ * A timed event's reminder time, in words: "At the start", "10 minutes before", "1 day before".
+ * Negative minutes are a time on the day of an all-day event (see allDayLabel).
  */
 export function beforeLabel(minutesBefore: number, prefs: TimeSettings): string {
   if (minutesBefore === 0) return 'At the start';
-  if (minutesBefore < 0) return `On the day at ${formatTime(onTheDayTime(minutesBefore), prefs)}`;
+  if (minutesBefore < 0) return allDayLabel(minutesBefore, prefs);
   const { amount, unit } = splitBefore(minutesBefore);
   return `${plural(amount, unit.slice(0, -1))} before`;
 }
 
-/** All-day events: -540 minutes before the start is "09:00" on the day. */
-export function onTheDayTime(minutesBefore: number): string {
-  const minute = Math.max(-minutesBefore, 0);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(Math.floor(minute / 60))}:${pad(minute % 60)}`;
+/**
+ * An all-day event's reminder time, counted from 00:00 on the day: "On the day at 9:00 AM" (-540),
+ * "The day before at 9:00 AM" (900), "3 days before at 8:30 AM".
+ */
+export function allDayLabel(minutesBefore: number, prefs: TimeSettings): string {
+  const { days, time } = allDayReminderTime(minutesBefore);
+  const at = formatTime(time, prefs);
+  if (days === 0) return `On the day at ${at}`;
+  return `${days === 1 ? 'The day' : `${days} days`} before at ${at}`;
 }
 
 /** The date and time inputs' values for `instant` in `timeZone`. */

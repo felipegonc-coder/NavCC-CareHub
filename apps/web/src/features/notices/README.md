@@ -22,6 +22,24 @@ title. The chat has no `<main>` or page heading; its headings start at `h3`. It 
 Both hooks share one request (`GET /api/notices/summary`) and stay current: they refetch when the
 server sends `notices-changed` and after the live connection comes back.
 
+### Notice settings (Settings → Notifications, spec 3.3)
+
+For the switches in Settings. Settings are per person and workspace, and every kind is on
+until the person changes it.
+
+- `NOTICE_SETTINGS`: `{ key, label, hint? }` for each switch, in order: Comments on pages I follow
+  (`comments`), Edits on pages I follow (`edits`, hint "At most one summary per page per hour"),
+  Form responses (`formResponses`) and Automation messages (`automations`).
+- `ALWAYS_ON_NOTICES`: the labels shown as always on, without switches: Mentions and replies,
+  Reminders and access requests.
+- `useNoticeSettings()`: the person's `NoticeSettings` (`Record<NoticeSettingKey, boolean>`). It
+  refetches on `notice-settings-changed`, so their other tabs follow, and after a reconnect.
+- `useChangeNoticeSettings()`: `mutate({ comments: false })` sends only what changed. The switch
+  moves at once and moves back, with `isError` set, when the server refuses.
+
+A kind that's turned off stops reaching the 🔔 chat. Pausing notifications doesn't change these
+settings.
+
 ## The chat
 
 - Oldest at the top, newest at the bottom, under day dividers (Today, Yesterday, then the date)
@@ -47,16 +65,21 @@ server sends `notices-changed` and after the live connection comes back.
 
 All under `/api/notices` (server part 2b): `GET /` (`filter`, `before`, `limit`), `GET /summary`,
 `POST /read` (`{ through }`), `POST /read-all`, `POST /:id/read` and `POST /:id/actions`
-(`{ button, choice? }`). The types in `api.ts` mirror the server's views in
+(`{ button, choice? }`), and `GET`/`PATCH /settings` (`{ settings }`; the `PATCH` body is the
+change). The types in `api.ts` mirror the server's views in
 `apps/server/src/features/notices/types.ts`.
 
 ## Not yet
 
 - Times use the default time settings until the person's own settings reach the web app.
 - Muting the 🔔 Care Hub row (`useNoticesMute()`) comes later.
+- `/api/notices/settings` comes with the server's notices routes. Until then `useNoticeSettings()`
+  returns an error.
 
 ## Tests
 
 `chat.test.ts` (days, ordering, arrivals, cards, read state), `hooks.test.tsx` (one shared request,
 live refresh, marking read) and `NoticesChatView.test.tsx` (chips, paging, reading, buttons,
 keyboard, loading, errors, empty states) run against the fake server in `testServer.ts`.
+`settings.test.tsx` checks the notice settings hooks (load, change, undo on error, other tabs)
+against a small fake of `/api/notices/settings`.

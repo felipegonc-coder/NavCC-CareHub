@@ -10,7 +10,14 @@ import { defaultTemplate } from '@carehub/databases/templates';
 import { pageUrl } from '@carehub/shared';
 import { personChoice } from '../api';
 import { findQueryRow, savedOptionIds } from '../cache';
-import { cellContext, type OpenMode, type ViewActions, type ViewData } from '../contract';
+import {
+  cellContext,
+  type OpenMode,
+  type PanelName,
+  type PanelTarget,
+  type ViewActions,
+  type ViewData,
+} from '../contract';
 import {
   membersQuery,
   useAddOptions,
@@ -41,6 +48,8 @@ export interface ViewActionsInput {
   loadMore(groupKey?: string, subGroupKey?: string): Promise<void>;
   /** Opens a row in a peek or page. Absent: goes to the row's page. */
   onOpenRow?: (rowId: Id, mode: OpenMode) => void;
+  /** Shows a toolbar panel (Panels.show). */
+  openPanel(panel: PanelName, target?: PanelTarget, opener?: HTMLElement | null): void;
 }
 
 /** "Moved to Trash." or "Moved 3 rows to Trash." */
@@ -88,10 +97,11 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
 
       async createRow(newRow = {}) {
         const { input, createRow } = now();
+        // null stays: it asks for an empty row, where leaving it out means the view's default.
         const templateId =
           newRow.templateId === undefined
             ? defaultTemplate(input.savedView, input.meta)?.id
-            : (newRow.templateId ?? undefined);
+            : newRow.templateId;
         try {
           return await createRow.mutateAsync({
             title: newRow.title,
@@ -207,6 +217,10 @@ export function useViewActions(input: ViewActionsInput): ViewActions {
         } catch (error) {
           refused(error);
         }
+      },
+
+      openPanel(panel, target, opener) {
+        now().input.openPanel(panel, target, opener);
       },
     };
   }, []);
