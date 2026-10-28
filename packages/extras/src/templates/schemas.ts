@@ -70,12 +70,20 @@ export const useTemplateSchema = z.object({
 });
 export type UseTemplateInput = z.infer<typeof useTemplateSchema>;
 
+/** A team space whose members a template can be for ("Members of a space"). */
+export interface TemplateSpace {
+  id: string;
+  name: string;
+}
+
 /** GET /api/templates */
 export interface GalleryResponse {
   templates: TemplateCard[];
   categories: string[];
   /** May save pages as workspace templates (the Templates permission). */
   canSave: boolean;
+  /** The team spaces the person is in, for "Who can use it". */
+  spaces: TemplateSpace[];
 }
 
 /** GET /api/templates/:id: the read-only preview. */
