@@ -105,8 +105,11 @@ export async function settleEdits(db: Db | Tx, pageId: string, at: Date): Promis
     .where(eq(historyEdits.pageId, pageId));
 }
 
-/** The page's unsaved edits, locked until the transaction ends (null when it's locked already). */
-async function lockEdits(tx: Tx, pageId: string, skipLocked: boolean): Promise<Edits | null> {
+/**
+ * The page's unsaved edits, locked until the transaction ends (null with skipLocked, when another
+ * transaction holds them). The lock also keeps naming and restoring one at a time per page.
+ */
+export async function lockEdits(tx: Tx, pageId: string, skipLocked = false): Promise<Edits | null> {
   await tx.insert(historyEdits).values({ pageId }).onConflictDoNothing();
   const [row] = await tx
     .select()
@@ -166,14 +169,19 @@ async function insertVersion(
   return { id: row.id, pageId, kind: fields.kind, createdAt: row.createdAt };
 }
 
-async function newestDigest(tx: Tx, pageId: string): Promise<string | null> {
+async function newestVersion(tx: Tx, pageId: string) {
   const [row] = await tx
-    .select({ digest: historyVersions.digest })
+    .select({
+      id: historyVersions.id,
+      kind: historyVersions.kind,
+      createdAt: historyVersions.createdAt,
+      digest: historyVersions.digest,
+    })
     .from(historyVersions)
     .where(eq(historyVersions.pageId, pageId))
-    .orderBy(desc(historyVersions.createdAt))
+    .orderBy(desc(historyVersions.createdAt), desc(historyVersions.id))
     .limit(1);
-  return row?.digest ?? null;
+  return row ?? null;
 }
 
 /**
@@ -182,23 +190,41 @@ async function newestDigest(tx: Tx, pageId: string): Promise<string | null> {
  * The version covers the edits that aren't in one yet, so no automatic version follows for them.
  * Returns null when the page has no versions (missing, in Trash, a database).
  */
-export async function saveVersionNow(
+export function saveVersionNow(
   tx: Db | Tx,
   pageId: string,
   options: SaveVersionOptions,
+): Promise<SavedVersion | null> {
+  return saveBeforeVersion(tx, pageId, { reason: options.reason, by: options.by });
+}
+
+/**
+ * saveVersionNow, and with `skipIfUnchanged` (versions the editor asks for) no new version when
+ * nothing changed since the newest one, which is returned instead.
+ */
+export async function saveBeforeVersion(
+  tx: Db | Tx,
+  pageId: string,
+  options: SaveVersionOptions & { skipIfUnchanged?: boolean },
 ): Promise<SavedVersion | null> {
   if (!isVersionReason(options.reason)) throw new TypeError('Unknown version reason.');
   // stand-in: without the page model and the content API (#49, #200) there's nothing to copy.
   if (!hasPageModel() || !historyContent()) return null;
   const page = await historyPages().getPage(tx, pageId);
   if (!canHaveVersions(page)) return null;
+  const reason = options.reason;
   return (tx as Db).transaction(async (inner) => {
-    const edits = await lockEdits(inner, pageId, false);
+    const edits = await lockEdits(inner, pageId);
     const snapshot = await takeSnapshot(inner, page);
     if (!snapshot) return null;
     const now = new Date();
+    const newest = options.skipIfUnchanged ? await newestVersion(inner, pageId) : null;
+    if (newest && newest.digest === snapshot.digest) {
+      await settleEdits(inner, pageId, now);
+      return { id: newest.id, pageId, kind: newest.kind, createdAt: newest.createdAt };
+    }
     const version = await insertVersion(inner, pageId, snapshot, {
-      kind: kindForReason(options.reason),
+      kind: kindForReason(reason),
       editorIds: edits?.editorIds ?? [],
       createdBy: options.by,
       createdAt: now,
@@ -221,7 +247,7 @@ async function saveAutomaticVersion(
     const snapshot = canHaveVersions(page) ? await takeSnapshot(tx, page) : null;
     let version: SavedVersion | null = null;
     // A stretch that ends where the last version did (typed, then undone) isn't kept twice.
-    if (snapshot && snapshot.digest !== (await newestDigest(tx, pageId))) {
+    if (snapshot && snapshot.digest !== (await newestVersion(tx, pageId))?.digest) {
       version = await insertVersion(tx, pageId, snapshot, {
         kind: 'automatic',
         editorIds: edits.editorIds,

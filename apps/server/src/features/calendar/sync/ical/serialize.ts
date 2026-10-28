@@ -9,6 +9,10 @@ import { formatIcalDate, formatIcalDateTime, formatIcalUtc, parseCivil } from '.
 import type { Civil } from './values';
 import { writeVTimezone } from './vtimezone';
 
+/** Years of time zone rules written before and after the current one. */
+const ZONE_YEARS_BEFORE = 2;
+const ZONE_YEARS_AFTER = 3;
+
 export interface SerializeOptions {
   prodId?: string;
   now?: Date; // DTSTAMP; defaults to now
@@ -25,15 +29,14 @@ export function serializeCalendar(
     `PRODID:${clean(options.prodId ?? '-//Care Hub//Calendar//EN')}`,
     'CALSCALE:GREGORIAN',
   ];
-  const years = new Map<string, { from: number; to: number }>();
-  for (const time of events.flatMap(timesOf)) {
-    if (time.kind !== 'zoned') continue;
-    const year = civil(time.dateTime).year;
-    const range = years.get(time.timeZone) ?? { from: year, to: year };
-    years.set(time.timeZone, { from: Math.min(range.from, year), to: Math.max(range.to, year) });
-  }
-  for (const [zone, { from, to }] of years) {
-    lines.push(...writeVTimezone(zone, from - 1, Math.max(to, now.getUTCFullYear()) + 2));
+  const zones = new Set<string>();
+  for (const time of events.flatMap(timesOf)) if (time.kind === 'zoned') zones.add(time.timeZone);
+  // A fixed window around now, whatever years the events are in: an event in year 1000 would
+  // otherwise cost a lookup for every day since then. The last rules stay open, so later dates
+  // are still right.
+  const year = now.getUTCFullYear();
+  for (const zone of zones) {
+    lines.push(...writeVTimezone(zone, year - ZONE_YEARS_BEFORE, year + ZONE_YEARS_AFTER));
   }
   const ordered = [...events].sort((a, b) => Number(!!a.recurrenceId) - Number(!!b.recurrenceId));
   for (const event of ordered) lines.push(...writeEvent(event, now));
@@ -58,7 +61,9 @@ function writeEvent(e: ExternalEvent, now: Date): string[] {
     const groups = new Map<string, ExternalTime[]>();
     for (const time of times ?? []) {
       const key = time.kind === 'zoned' ? `zoned ${time.timeZone}` : time.kind;
-      groups.set(key, [...(groups.get(key) ?? []), time]);
+      const group = groups.get(key);
+      if (group) group.push(time);
+      else groups.set(key, [time]);
     }
     for (const group of groups.values()) out.push(timeLine(name, group));
   }
