@@ -11,7 +11,7 @@ export const MAX_TEXT_CHARS = 1_000_000;
 export const MAX_ATTRIBUTE_CHARS = 1_000_000;
 /** The longest string an attribute or mark may hold, addresses included. */
 export const MAX_VALUE_CHARS = 8_192;
-/** How often, at most, a page near MAX_PAGE_BYTES is measured again: measuring copies it. */
+/** How often, at most, a page near a limit is measured again: measuring copies it. */
 export const MEASURE_EVERY_MS = 5_000;
 /**
  * Added to the estimate for each struct and each deleted range in an update, on top of its
@@ -96,7 +96,7 @@ const TOO_DEEP: Position = {
   depth: MAX_DEPTH,
 };
 
-/** When each page was last measured for its size in bytes. */
+/** When each page was last measured. */
 const measuredAt = new WeakMap<Y.Doc, number>();
 
 /**
@@ -109,9 +109,9 @@ const measuredAt = new WeakMap<Y.Doc, number>();
  * Every update counts toward the page's size, deleted content and deletes too. When the estimate
  * passes MAX_BLOCKS or MAX_PAGE_BYTES, the update is applied to a copy of the page and measured.
  * It's refused if it leaves the page past MAX_BLOCKS, or past MAX_PAGE_BYTES without making it
- * smaller (so a page that's too large can still be cut down). A page is measured for its size in
- * bytes at most once every MEASURE_EVERY_MS (`now` is the time in milliseconds); in between,
- * updates that may take it past MAX_PAGE_BYTES are refused.
+ * smaller (so a page that's too large can still be cut down). A page is measured at most once
+ * every MEASURE_EVERY_MS (`now` is the time in milliseconds); in between, updates that may take
+ * it past a limit are refused.
  */
 export function checkUpdate(
   update: Uint8Array,
@@ -179,13 +179,11 @@ export function checkUpdate(
   const tooManyBlocks = added > 0 && estimate.blocks > MAX_BLOCKS;
   const tooLarge = estimate.bytes > MAX_PAGE_BYTES;
   if (!tooManyBlocks && !tooLarge) return { ok: true, size: estimate };
-  if (tooLarge) {
-    const last = measuredAt.get(doc);
-    if (last !== undefined && now >= last && now < last + MEASURE_EVERY_MS) {
-      return { ok: false, reason: 'too large', tooLong: true };
-    }
-    measuredAt.set(doc, now);
+  const last = measuredAt.get(doc);
+  if (last !== undefined && now >= last && now < last + MEASURE_EVERY_MS) {
+    return { ok: false, reason: tooManyBlocks ? 'too many blocks' : 'too large', tooLong: true };
   }
+  measuredAt.set(doc, now);
   const after = measureAfter(update, doc, info);
   if (tooManyBlocks && after.blocks > MAX_BLOCKS) {
     return { ok: false, reason: 'too many blocks', tooLong: true };
