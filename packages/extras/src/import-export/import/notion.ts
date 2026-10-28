@@ -37,12 +37,16 @@ const withoutEnding = (path: string) => path.replace(/\.md$/i, '').replace(CSV, 
 
 /** A file or folder name without Notion's id: "Tasks 0f3c…e1" is "Tasks". */
 export const notionName = (name: string) => name.replace(ID, '').trim() || name;
-const idOf = (path: string) => ID.exec(withoutEnding(path))?.[1]?.toLowerCase();
+/** The id after a file or folder name ("Tasks 0f3c…e1"), in lowercase. */
+export const notionId = (name: string) => ID.exec(name)?.[1]?.toLowerCase();
+/** The id of the page a notion.so link points at, in lowercase. */
+export const notionLinkId = (href: string) => NOTION_URL.exec(href)?.[1]?.toLowerCase();
+const idOf = (path: string) => notionId(withoutEnding(path));
 
 /** Links to notion.so pages that are in the export, as plan links. */
 function notionLinks(markdown: string, keyOfId: ReadonlyMap<string, string>): string {
   return markdown.replace(/(\]\(\s*)(https?:\/\/[^)\s]+)/g, (whole, start: string, url: string) => {
-    const id = NOTION_URL.exec(url)?.[1]?.toLowerCase();
+    const id = notionLinkId(url);
     const key = id === undefined ? undefined : keyOfId.get(id);
     return key === undefined ? whole : `${start}${planLink(key)}`;
   });
@@ -120,12 +124,13 @@ interface Table {
   rowPages: Map<string, { row: PlanRow; text: string }>;
 }
 
-/** The pages, databases, files and problems of a Notion export. */
-export function planNotion(entries: readonly UploadEntry[]): ImportPlan {
+/**
+ * A Notion export's files: the text of the ones `reads` matches, by path, the others with their
+ * names in the zip, and what's refused or skipped. Throws when it has nothing to read.
+ */
+export function exportFiles(entries: readonly UploadEntry[], reads: RegExp) {
   const problems: ImportProblem[] = [];
-  const documents = new Map<string, string>();
-  /** CSV files by their database's folder ("Callbacks <id>"). */
-  const csvs = new Map<string, { path: string; text: string }>();
+  const texts = new Map<string, string>();
   const assets = new Map<string, string>();
   let zips = 0;
   for (const entry of entries) {
@@ -138,22 +143,35 @@ export function planNotion(entries: readonly UploadEntry[]): ImportPlan {
     } else if (/\.zip$/i.test(path)) {
       zips += 1;
       problems.push({ file: path, what: 'Skipped', why: "Zips inside zips aren't opened." });
-    } else if (entry.text !== undefined && /\.md$/i.test(path)) {
-      documents.set(path, entry.text);
-    } else if (entry.text !== undefined && CSV.test(path)) {
-      const folder = path.replace(CSV, '');
-      if (/_all\.csv$/i.test(path) || !csvs.has(folder))
-        csvs.set(folder, { path, text: entry.text });
+    } else if (entry.text !== undefined && reads.test(path)) {
+      texts.set(path, entry.text);
     } else {
       assets.set(path, entry.path);
     }
   }
-  if (documents.size === 0 && csvs.size === 0) {
+  if (texts.size === 0) {
     throw new ImportFileError(
       zips > 0
         ? 'its pages are in a zip inside it, so unzip it first'
         : "this zip isn't a Notion export",
     );
+  }
+  return { texts, assets, problems };
+}
+
+/** The pages, databases, files and problems of a Notion export. */
+export function planNotion(entries: readonly UploadEntry[]): ImportPlan {
+  const { texts, assets, problems } = exportFiles(entries, /\.(md|csv)$/i);
+  const documents = new Map<string, string>();
+  /** CSV files by their database's folder ("Callbacks <id>"). */
+  const csvs = new Map<string, { path: string; text: string }>();
+  for (const [path, text] of texts) {
+    if (/\.md$/i.test(path)) {
+      documents.set(path, text);
+      continue;
+    }
+    const folder = path.replace(CSV, '');
+    if (/_all\.csv$/i.test(path) || !csvs.has(folder)) csvs.set(folder, { path, text });
   }
 
   let count = 0;
