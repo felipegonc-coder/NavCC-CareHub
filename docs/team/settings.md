@@ -15,6 +15,12 @@ Secrets live only in the server's settings file. They never go in the repository
 | `PUSH_VAPID_SUBJECT` | push | A contact for the push services: a `mailto:` address or an `https://` URL | Same as above |
 | `CALENDAR_SECRET_KEY` | calendar | Encrypts stored calendar tokens, iCloud app-specific passwords and private calendar links (32 random bytes, base64) | Connecting calendars is off: "Calendar connections aren't set up yet." |
 | `MODELS_DIR` | meetings | Folder with the speech model files Care Hub serves for private, in-browser transcription | Transcription is off: "Transcription isn't set up yet." |
+| `TZ` | status | The server's time zone: the nightly backup time, and the uptime days for people who aren't signed in | `America/Denver` |
+| `BACKUP_AT` | status | When the nightly backup runs (HH:MM in `TZ`), shown as "Next backup" | `02:00` |
+| `BACKUPS_DIR` | status | The backup service's folder: its results in `runs/`, and `requests/now` to ask for a backup | `/data/backups`. Without that folder: "Backups aren't set up on this server." |
+| `FILES_DIR` | status | The files folder: the Status page checks it can write there, and shows the free disk space | File storage shows "Not checked" |
+| `CAREHUB_VERSION` | status | The version number under Version | `0.0.0-dev` |
+| `CAREHUB_BUILD_DATE` | status | The build date under Version: a date or an ISO time, such as `2026-10-27T08:00:00Z`. A core setting (decision 0007, section 2.3) that the image build sets (#3) | "Not recorded" |
 
 ## Making the values
 
@@ -29,6 +35,8 @@ Secrets live only in the server's settings file. They never go in the repository
 - Google: an OAuth client of type "Web application" with the redirect URL `<CAREHUB_PUBLIC_URL>/api/calendar/google/callback`. Care Hub only reads calendars and events, so it asks for read-only access and never changes anything in Google. Set the client's publishing status to "In production": in "Testing", sign-ins end after 7 days. Step-by-step setup: `docs/team/google-sign-in-setup.md` (comes with the Google pull requests).
 
 ## Lines for `deploy/.env.example`
+
+The Status page needs no new lines. In the deploy files (#3), `TZ` and `BACKUP_AT` are in `deploy/.env.example`, the image sets `FILES_DIR`, `CAREHUB_VERSION` and `CAREHUB_BUILD_DATE`, and `deploy/docker-compose.yml` mounts the backups at `/data/backups`.
 
 ```sh
 # --- Team tools (all optional; a missing value switches only that feature off) ---

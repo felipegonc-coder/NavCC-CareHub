@@ -5,7 +5,14 @@
 // (only `tokens` on a successful connection).
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { type FetchLike, parseRetryAfter, readJson } from './http';
+import {
+  type FetchLike,
+  SIGN_IN_MAX_BYTES,
+  TransportError,
+  parseRetryAfter,
+  readJson,
+  timeLimit,
+} from './http';
 
 export const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -40,6 +47,7 @@ export const GOOGLE_SIGN_IN_MESSAGES = {
   revoked: 'Google needs you to sign in again.',
   'invalid-grant': 'Google needs you to sign in again.',
   network: "Couldn't reach Google. Care Hub will try again shortly.",
+  timeout: "Google didn't answer in time. Care Hub will try again shortly.",
   unavailable: "Google isn't answering right now. Care Hub will try again shortly.",
   'rate-limited': 'Google asked Care Hub to slow down. Care Hub will try again shortly.',
   'unexpected-response': "Google sent an answer Care Hub didn't understand. Please try again.",
@@ -88,7 +96,7 @@ export interface NeedsReconnect {
 }
 export interface TemporaryError {
   kind: 'temporary-error';
-  reason: 'network' | 'unavailable' | 'rate-limited' | 'unexpected-response';
+  reason: 'network' | 'timeout' | 'unavailable' | 'rate-limited' | 'unexpected-response';
   message: string;
   retryAfterMs?: number;
 }
@@ -139,6 +147,8 @@ const CLIENT_ERRORS = ['invalid_client', 'unauthorized_client', 'redirect_uri_mi
 export interface GoogleOAuthOptions {
   fetch: FetchLike;
   now?: () => Date;
+  /** Each call's time limit; GOOGLE_TIMEOUT_MS unless a test sets it. */
+  timeoutMs?: number;
 }
 
 export function createGoogleOAuth(settings: GoogleSettings, options: GoogleOAuthOptions) {
@@ -147,30 +157,38 @@ export function createGoogleOAuth(settings: GoogleSettings, options: GoogleOAuth
   const client = clientId && clientSecret ? { clientId, clientSecret } : undefined;
   const now = options.now ?? (() => new Date());
 
-  const post = (url: string, form: Record<string, string>) =>
-    options.fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-      body: new URLSearchParams(form).toString(),
-    });
+  /** Posts a form to Google within the time and size limits. */
+  async function post(url: string, form: Record<string, string>) {
+    const limit = timeLimit(undefined, options.timeoutMs);
+    try {
+      const response = await options.fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          accept: 'application/json',
+        },
+        body: new URLSearchParams(form).toString(),
+        signal: limit.signal,
+      });
+      return { response, body: await readJson(response, SIGN_IN_MAX_BYTES) };
+    } catch (error) {
+      if (error instanceof TransportError) return temporary('unexpected-response');
+      return temporary(limit.timedOut() ? 'timeout' : 'network');
+    }
+  }
 
   type Issued = Omit<GoogleTokens, 'refreshToken'> & { refreshToken?: string };
   async function requestTokens(
     form: Record<string, string>,
   ): Promise<{ kind: 'issued'; tokens: Issued } | Exclude<TokenOutcome, { kind: 'connected' }>> {
     if (!client) return notConfigured('missing-settings');
-    let response: Response;
-    let body: unknown;
-    try {
-      response = await post(GOOGLE_TOKEN_URL, {
-        client_id: client.clientId,
-        client_secret: client.clientSecret,
-        ...form,
-      });
-      body = await readJson(response);
-    } catch {
-      return temporary('network');
-    }
+    const reply = await post(GOOGLE_TOKEN_URL, {
+      client_id: client.clientId,
+      client_secret: client.clientSecret,
+      ...form,
+    });
+    if ('kind' in reply) return reply;
+    const { response, body } = reply;
     if (response.ok) {
       const parsed = tokenSchema.safeParse(body);
       if (!parsed.success) return temporary('unexpected-response');
@@ -282,12 +300,9 @@ export function createGoogleOAuth(settings: GoogleSettings, options: GoogleOAuth
 
   /** Ends the grant in Google. Works without client settings; an unknown token counts as done. */
   async function revoke(token: string): Promise<{ kind: 'revoked' } | TemporaryError> {
-    let response: Response;
-    try {
-      response = await post(GOOGLE_REVOKE_URL, { token });
-    } catch {
-      return temporary('network');
-    }
+    const reply = await post(GOOGLE_REVOKE_URL, { token });
+    if ('kind' in reply) return reply;
+    const { response } = reply;
     if (response.status === 429) {
       return temporary(
         'rate-limited',
