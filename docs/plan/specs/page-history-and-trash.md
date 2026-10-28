@@ -1,6 +1,6 @@
 # Page history and Trash
 
-_Copied from the Notion spec (https://app.notion.com/p/419e65be43744e149b7d979b0deb54ea) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > 🕘 Phase 1 · Notion parity · Depends on: Pages and blocks, live co-editing, Roles and permissions · Used by: Databases (row history, deleted rows), Import and export (undo import), Sidebar (Trash entry), Search (Search in Trash) · Periods set in Data settings
 
@@ -101,7 +101,7 @@ Nothing is lost by mistake. Care Hub keeps versions of every page that people ca
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **HT-01** Edit "Refund steps" for a minute, wait 2 minutes, then open Page history. → One new version, with your name on it.
 2. ⭐ **HT-09** Move "Policies" and its sub-pages to Trash, press Undo, then trash it again and restore it from Trash. → Each time it comes back in the same place, with its sub-pages and comments.

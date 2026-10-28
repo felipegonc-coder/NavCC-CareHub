@@ -2,17 +2,22 @@ import { apiFor, expect, needs, onlyIn, signInAs, test } from '../_support/index
 import {
   adminOnlyFields,
   clickAndCapture,
+  noteStatusFetches,
   openStatus,
   overallWords,
   parts,
   readableDays,
   recordApiAnswers,
+  refreshes,
+  seriousAxeFindings,
   statusMain,
   uptimePercent,
 } from './status-page.js';
 
 // Status page spec, Done means and section 7. /status is public: signed out, it shows only the
 // overall status and the 30-day uptime (ST-D1). Avery, the seeded site admin, sees the rest.
+// ST-03 and ST-05 stop the test server's database or app, so they run by hand only, from
+// test-server.e2e.ts.
 
 test.describe('Status page, signed out', () => {
   onlyIn('desktop-light');
@@ -53,6 +58,42 @@ test.describe('Status page, signed out', () => {
       for (const { path, body } of answers) {
         expect(adminOnlyFields(body), `${path} answered more than status and uptime`).toEqual([]);
       }
+    });
+  });
+
+  test('ST-09 signed out, /status asks for fresh numbers every 30 seconds', async ({ page }) => {
+    // 140 half-second steps of the page's clock, each with a moment of real time for the answer.
+    test.slow();
+    const fetchTimes = await noteStatusFetches(page);
+    await page.clock.install();
+    await openStatus(page);
+    await expect
+      .poll(async () => (await fetchTimes()).length, {
+        message: 'the page should load its numbers from the server',
+      })
+      .toBeGreaterThan(0);
+
+    await test.step('over 70 seconds, a refresh every 30 seconds', async () => {
+      // The page's clock stops, and the test moves it on half a second at a time.
+      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 100);
+      for (let step = 0; step < 140; step += 1) {
+        await page.clock.runFor(500);
+        await page.waitForTimeout(100);
+      }
+      const times = refreshes(await fetchTimes());
+      const gaps = times.slice(1).map((time, i) => (time - (times[i] ?? time)) / 1_000);
+      expect(gaps.length, 'refreshes after the first load').toBeGreaterThanOrEqual(2);
+      // Each gap may be up to a step longer when the page waits for an answer before it schedules
+      // the next refresh; the first one also holds the moment it took to stop the clock.
+      expect(
+        gaps.filter((gap, i) => gap < 29.5 || gap > (i === 0 ? 33 : 31.5)),
+        `seconds between refreshes: ${gaps.join(', ')}`,
+      ).toEqual([]);
+    });
+
+    await test.step('the numbers still show', async () => {
+      await expect(statusMain(page).getByText(overallWords).first()).toBeVisible();
+      await expect(statusMain(page).getByText(uptimePercent).first()).toBeVisible();
     });
   });
 });
@@ -157,5 +198,30 @@ test.describe('Status page, site admin', () => {
       }
       await context.close();
     });
+  });
+});
+
+// ST-09's axe part, signed out and as a site admin, on a desktop in light mode and a phone in dark
+// mode (the two looks with the most differences).
+test.describe('Status page, axe', () => {
+  onlyIn('desktop-light', 'phone-dark');
+  needs('statusPage');
+
+  test('ST-09 signed out, axe finds no serious problems on /status', async ({ page }) => {
+    await openStatus(page);
+    await expect(statusMain(page).getByText(uptimePercent).first()).toBeVisible();
+    expect(await seriousAxeFindings(page)).toEqual([]);
+  });
+});
+
+test.describe('Status page, axe for a site admin', () => {
+  onlyIn('desktop-light', 'phone-dark');
+  needs('signIn', 'statusPage');
+
+  test('ST-09 for a site admin, axe finds no serious problems on /status', async ({ page }) => {
+    await signInAs(page, 'admin');
+    await openStatus(page);
+    await expect(statusMain(page).getByRole('button', { name: 'Back up now' })).toBeVisible();
+    expect(await seriousAxeFindings(page)).toEqual([]);
   });
 });
