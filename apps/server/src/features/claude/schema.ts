@@ -21,7 +21,7 @@ export const claudeUsage = pgTable('claude_usage', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** stand-in for workspace settings: claude.workspaceApproved, claude.<feature> and more. */
+/** stand-in for workspace settings: the switches, the monthly limit and more. */
 export const claudeSettings = pgTable(
   'claude_settings',
   {
