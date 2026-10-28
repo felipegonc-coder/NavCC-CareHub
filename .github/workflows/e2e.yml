@@ -170,12 +170,15 @@ jobs:
 
       # CAREHUB_TEST_HOOKS=1 turns on the test-only routes the browser tests use (such as Learning's
       # due dates, #247); only browser-test runs set it. The Claude key is fictional, and every
-      # Claude request goes to the stub above.
+      # Claude request goes to the stub above. COOKIE_SECURE=false for now: with Secure cookies the
+      # CSRF cookie is named __Host-carehub_csrf, which the web app doesn't read yet, so every write
+      # from the screens would be refused (403). The server allows it only with an http://127.0.0.1
+      # or http://localhost address, like this one.
       - name: Start the server
         id: server
         if: steps.gate.outputs.run == 'true'
         run: |
-          NODE_ENV=production CAREHUB_PUBLIC_URL=$E2E_BASE_URL PORT=38080 HOST=127.0.0.1 \
+          NODE_ENV=production CAREHUB_PUBLIC_URL=$E2E_BASE_URL PORT=38080 HOST=127.0.0.1 COOKIE_SECURE=false \
             CAREHUB_TEST_HOOKS=1 ANTHROPIC_API_KEY=test-key-not-real ANTHROPIC_BASE_URL=http://127.0.0.1:4599 \
             nohup node apps/server/dist/index.js > "$RUNNER_TEMP/server-output.log" 2>&1 &
           pid=$!
