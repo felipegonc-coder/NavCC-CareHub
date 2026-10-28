@@ -79,13 +79,15 @@ describe('Layout panel words', () => {
     expect(COLOR_TEXT.intro).toBe(
       'Color rows, or one property’s cells, when a condition matches. The first rule that matches wins.',
     );
+    expect(COLOR_TEXT.readOnly).toBe('Only people who can edit this view change its color rules.');
     expect([COLOR_TEXT.none, COLOR_TEXT.add, COLOR_TEXT.back]).toEqual([
       'No color rules yet.',
       'Add color rule',
       'Back',
     ]);
     expect([COLOR_TEXT.count(1), COLOR_TEXT.count(3)]).toEqual(['1 rule', '3 rules']);
-    expect([COLOR_TEXT.target, COLOR_TEXT.row, COLOR_TEXT.color]).toEqual([
+    expect([COLOR_TEXT.when, COLOR_TEXT.target, COLOR_TEXT.row, COLOR_TEXT.color]).toEqual([
+      'When',
       'Apply to',
       'Whole row',
       'Color',

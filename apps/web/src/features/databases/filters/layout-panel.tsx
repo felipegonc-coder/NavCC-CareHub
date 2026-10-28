@@ -1,16 +1,19 @@
 /**
- * The Layout panel's view settings (Databases spec 2, 3.2, 3.3 and 3.13), from the toolbar's "…" →
- * Layout: where rows open, the load limit, page icons, wrapping, how the view tabs show, sub-items
- * and the layout's own options. Each change is one updateView patch, saved for everyone, so only
- * people who can edit the view make them.
+ * The Layout panel's view settings (Databases spec 2, 3.2, 3.3, 3.13 and 3.14), from the toolbar's
+ * "…" → Layout: where rows open, the load limit, page icons, wrapping, how the view tabs show,
+ * sub-items, the layout's own options, and a page for conditional color. Each change is one
+ * updateView patch, saved for everyone, so only people who can edit the view make them.
  */
-import type { CardPreview, DatabaseMeta, Id, Property, View } from '@carehub/databases';
-import { Switch } from '@carehub/ui';
-import { useId, useMemo, useState } from 'react';
+import type { CardPreview, DatabaseMeta, Id, Property, View, Viewer } from '@carehub/databases';
+import { Button, Switch } from '@carehub/ui';
+import { ChevronRight } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ViewChange } from '../api';
+import type { PersonChoice } from '../cells';
 import { NativeSelect } from '../cells/controls';
 import type { ViewActions } from '../contract';
 import { withTableOptions } from '../table/view-settings';
+import { ColorRules } from './color-rules';
 import {
   boardOptions,
   calendarOptions,
@@ -27,30 +30,71 @@ import {
 import {
   CARD_PREVIEW_LABELS,
   CARD_SIZE_LABELS,
+  COLOR_TEXT,
   LAYOUT_TEXT,
   OPEN_MODE_LABELS,
   SUB_ITEMS_LABELS,
   TABS_AS_LABELS,
 } from './layout-text';
+import { panelContext } from './types';
 
 export interface LayoutPanelProps {
   meta: DatabaseMeta;
   view: View;
+  viewer: Viewer;
   actions: Pick<ViewActions, 'updateView'>;
   /** Changes are saved for everyone (Can edit, Lock structure off, online); otherwise read only. */
   canEditViews: boolean;
   /** The properties the viewer can see (the query answer's propertyIds); all when absent. */
   propertyIds?: readonly Id[] | undefined;
+  /** People to pick in color rules' Person conditions, besides "Me". */
+  people?: readonly PersonChoice[] | undefined;
+  /** Titles of related rows (the query answer's rowTitles), for color rules' Relation conditions. */
+  rowTitles?: Readonly<Record<Id, string>> | undefined;
 }
 
 type Choices<K extends string> = readonly (readonly [K, string])[];
 
 const CARD_SIZES = ['s', 'm', 'l'] as const;
 const TABS_AS = ['tabs', 'dropdown'] as const;
+const NO_PEOPLE: readonly PersonChoice[] = [];
 const labelled = <K extends string>(keys: readonly K[], labels: Readonly<Record<K, string>>) =>
   keys.map((k) => [k, labels[k]] as const);
 
-export function LayoutPanel({ meta, view, actions, canEditViews, propertyIds }: LayoutPanelProps) {
+export function LayoutPanel(props: LayoutPanelProps) {
+  const { meta, view, viewer, people = NO_PEOPLE, rowTitles } = props;
+  // 'back': the settings again, after the color rules, with focus on the button that opened them.
+  const [page, setPage] = useState<'settings' | 'colors' | 'back'>('settings');
+  const ctx = useMemo(
+    () => panelContext({ meta, viewer, people, rowTitles }),
+    [meta, viewer, people, rowTitles],
+  );
+  if (page === 'colors' && layoutSettings(view.layout, meta).colors) {
+    return (
+      <ColorRules
+        meta={meta}
+        view={view}
+        actions={props.actions}
+        canEdit={props.canEditViews}
+        propertyIds={props.propertyIds}
+        people={people}
+        ctx={ctx}
+        onBack={() => setPage('back')}
+      />
+    );
+  }
+  return <Settings {...props} focusColors={page === 'back'} onColors={() => setPage('colors')} />;
+}
+
+function Settings({
+  meta,
+  view,
+  actions,
+  canEditViews,
+  propertyIds,
+  focusColors,
+  onColors,
+}: LayoutPanelProps & { focusColors: boolean; onColors(): void }) {
   // The panel keeps its own copy so quick changes build on each other; a newer saved view (or a
   // rollback after the server refused) replaces it.
   const [saved, setSaved] = useState(view);
@@ -72,7 +116,7 @@ export function LayoutPanel({ meta, view, actions, canEditViews, propertyIds }: 
 
   const has = layoutSettings(current.layout, meta);
   const general = [has.openPagesIn, has.loadLimit, has.showPageIcon, has.wrapText, has.tabsAs];
-  if (!general.some(Boolean) && !has.subItems && has.options === null) {
+  if (!general.some(Boolean) && !has.subItems && has.options === null && !has.colors) {
     return <p className="text-small text-muted">{LAYOUT_TEXT.noSettings}</p>;
   }
   const subItems = current.subItems ?? 'nested';
@@ -152,6 +196,41 @@ export function LayoutPanel({ meta, view, actions, canEditViews, propertyIds }: 
           save={save}
         />
       </fieldset>
+      {has.colors && (
+        <ColorsButton
+          count={current.colorRules?.length ?? 0}
+          focus={focusColors}
+          onOpen={onColors}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Opens the Conditional color page, and says how many rules the view has. */
+function ColorsButton({ count, focus, onOpen }: { count: number; focus: boolean; onOpen(): void }) {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  const id = useId();
+  useEffect(() => {
+    if (focus) ref.current?.focus();
+  }, [focus]);
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
+      <Button
+        ref={ref}
+        variant="ghost"
+        size="sm"
+        aria-describedby={count > 0 ? id : undefined}
+        onClick={onOpen}
+      >
+        {COLOR_TEXT.title}
+        <ChevronRight aria-hidden className="size-4" />
+      </Button>
+      {count > 0 && (
+        <span id={id} className="text-label text-muted">
+          {COLOR_TEXT.count(count)}
+        </span>
+      )}
     </div>
   );
 }
