@@ -19,11 +19,11 @@ import {
   type Property,
   type ReadValue,
   type Row,
+  type SelectOption,
   type View,
   type ViewPropertySetting,
 } from '@carehub/databases';
 import { can, canChangeProperty } from '@carehub/databases/access';
-import { readCell, type ImportContext } from '@carehub/databases/csv';
 import {
   loadMoreKey,
   type LayoutProps,
@@ -39,6 +39,7 @@ import {
   rowCell,
   type CellContext,
   type CommitDetails,
+  type PersonChoice,
 } from './cell-adapter';
 import { BulkBar } from './bulk-bar';
 import {
@@ -47,6 +48,7 @@ import {
   fromTsv,
   inBox,
   pastedValues,
+  personFinder,
   titleFinder,
   toTsv,
   type CellBox,
@@ -61,12 +63,13 @@ import {
   type TableColumn,
 } from './columns';
 import { DRAG_START, followDrag } from './drag';
-import { sameStored, withoutNewOptions } from './edits';
+import { missingOptions, sameStored, withSavedOptions } from './edits';
 import { TotalsRow } from './footer';
 import { HeaderCell, PropertiesMenu, type ColumnChanges } from './header';
-import { EditHistory, type AddedRow, type Step, type ValueChange } from './history';
+import { EditHistory, type AddedRow, type Step, type ValueChange, type Write } from './history';
 import { TABLE_TEXT } from './messages';
 import { Notice } from './notice';
+import { readPaste, withSavedIds, type PasteResult } from './paste';
 import { WRITES_AT_ONCE, writeQueue } from './queue';
 import {
   allTicked,
@@ -140,31 +143,6 @@ const BULK_TYPES = new Set([
   'phone',
 ]);
 
-/** Types a pasted value can go into (read as CSV import reads them). */
-const PASTE_TYPES = new Set([
-  'title',
-  'text',
-  'number',
-  'select',
-  'multi_select',
-  'status',
-  'date',
-  'checkbox',
-  'url',
-  'email',
-  'phone',
-  'person',
-  'relation',
-  'checklist',
-]);
-
-/** One value to write: the history keeps what it replaces. */
-interface Write {
-  row: QueryRow;
-  property: Property;
-  value: unknown;
-}
-
 function asQueryRow(row: Row): QueryRow {
   return {
     id: row.id,
@@ -208,9 +186,6 @@ function inAnswer(data: ViewData, rowId: Id): boolean {
   if (data.groups) return data.groups.some((g) => g.rows.some((r) => r.id === rowId));
   return data.rows.some((r) => r.id === rowId);
 }
-
-/** Most rows one paste changes, updated and added together (as for POST /rows/bulk). */
-const PASTE_ROWS = 500;
 
 /** The Table layout: rows and columns, grouped or not, with editing in the cells. */
 export default function TableLayout({ meta, view, data, viewer, actions, readOnly }: LayoutProps) {
@@ -256,6 +231,16 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const [history] = useState(() => new EditHistory());
   // Row writes go out a few at a time and in order (a paste can change 500 rows).
   const [queue] = useState(() => writeQueue(WRITES_AT_ONCE));
+  // The workspace's people: Person editors list them, and pasted names are found among them.
+  const [people, setPeople] = useState<readonly PersonChoice[]>();
+  const loadPeople = () =>
+    actions.searchPeople('').then(
+      (list) => {
+        setPeople(list);
+        return list;
+      },
+      () => people ?? [],
+    );
   const notices = useRef(0);
   // A header being dragged to a new place: where the pointer is, px from the table's left edge.
   const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
@@ -416,14 +401,22 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   };
 
   /**
-   * One updateValues per row, through the queue. Rows made here show the values until the answer
-   * has them.
+   * One updateValues per row, through the queue, with the typed options the properties don't have
+   * yet. Rows made here show the values until the answer has them.
    */
   const writeValues = (values: readonly ValueChange[], side: 'before' | 'after') => {
     const byRow = new Map<Id, Partial<Record<Id, unknown>>>();
+    const typed = new Map<Id, Partial<Record<Id, readonly SelectOption[]>>>();
     for (const change of values) {
       const rowId = history.idOf(change.rowId);
       byRow.set(rowId, { ...byRow.get(rowId), [change.propertyId]: change[side] });
+      if (side === 'after' && change.options) {
+        const property = meta.properties.find((p) => p.id === change.propertyId);
+        const missing = missingOptions(property, change.options);
+        if (missing.length > 0) {
+          typed.set(rowId, { ...typed.get(rowId), [change.propertyId]: missing });
+        }
+      }
     }
     for (const [rowId, patch] of byRow) {
       setCreated((list) =>
@@ -433,25 +426,31 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             )
           : list,
       );
-      queue(() => actions.updateValues(rowId, patch)).catch(() => undefined);
+      const newOptions = typed.get(rowId);
+      queue(() =>
+        newOptions
+          ? actions.updateValues(rowId, patch, newOptions)
+          : actions.updateValues(rowId, patch),
+      ).catch(() => undefined);
     }
   };
 
   /** Every change to values goes through here: one call is one step for Ctrl+Z. */
   const change = (writes: readonly Write[], added: readonly AddedRow[] = []) => {
     const values: ValueChange[] = [];
-    for (const { row, property, value } of writes) {
+    for (const { row, property, value, options } of writes) {
       const before = rowCell(row, property).value;
       if (!sameCell(property, before, value)) {
-        values.push({ rowId: row.id, propertyId: property.id, before, after: value });
+        const typed = options && options.length > 0 ? { options } : {};
+        values.push({ rowId: row.id, propertyId: property.id, before, after: value, ...typed });
       }
     }
     history.record({ values, added });
     writeValues(values, 'after');
   };
 
-  const save = (line: Line, property: Property, value: unknown) =>
-    change([{ row: line.row, property, value }]);
+  const save = (line: Line, property: Property, value: unknown, options?: SelectOption[]) =>
+    change([{ row: line.row, property, value, options }]);
 
   /** Makes rows a step added, one after another so they keep their order. */
   const makeRows = async (added: readonly AddedRow[]) => {
@@ -520,6 +519,13 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     save(line, property, rowCell(line.row, property).value !== true);
   };
 
+  /** Opens a cell's editor; a Person editor lists the workspace's people. */
+  const openEditor = (line: Line, property: Property, initialText?: string) => {
+    if (property.config.type === 'person') void loadPeople();
+    setActive({ line: line.key, propertyId: property.id });
+    setEditing({ line: line.key, propertyId: property.id, initialText });
+  };
+
   const startEditing = (line: Line, property: Property, initialText?: string) => {
     setRange(null);
     if (property.config.type === 'checkbox') {
@@ -527,8 +533,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       return;
     }
     if (canEdit(property)) {
-      setActive({ line: line.key, propertyId: property.id });
-      setEditing({ line: line.key, propertyId: property.id, initialText });
+      openEditor(line, property, initialText);
     } else if (property.config.type === 'title' && initialText === undefined) {
       actions.openRow(line.row.id);
     }
@@ -586,8 +591,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       focusCell(line.key, property.id);
       toggle(line, property);
     } else if (canEdit(property)) {
-      setActive({ line: line.key, propertyId: property.id });
-      setEditing({ line: line.key, propertyId: property.id });
+      openEditor(line, property);
     } else {
       focusCell(line.key, property.id);
     }
@@ -645,63 +649,58 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
 
   /**
    * Ctrl+V: a block from a spreadsheet, from the active cell (or the block of cells' top left; a
-   * single value fills the block). Values are read as CSV import reads them, rows are added after
-   * the last one, and values that don't fit are skipped and counted, as are those past the first
-   * PASTE_ROWS rows. One step for Ctrl+Z.
+   * single value fills the block), read as CSV import reads it (see readPaste). Rows are added
+   * after the last one and options a Select needs are added first. One step for Ctrl+Z.
    */
   const paste = (text: string, line: Line, columnIndex: number) => {
     const clip = fromTsv(text);
     if (clip.length === 0) return;
     const top = box ? box.top : (lineAt.get(line.key) ?? 0);
-    const left = box ? box.left : Math.max(0, columnIndex);
-    const importCtx: ImportContext = {
-      viewer,
-      findUser: () => undefined,
-      findRows: titleFinder({
-        databaseId: meta.id,
-        properties: meta.properties,
-        rows: [...lineOf.values()].map((l) => l.row),
-        rowTitles: data.rowTitles,
-      }),
-    };
-    const writes: Write[] = [];
-    const newRows = new Map<number, NewRow>();
-    let skipped = 0;
-    for (const { row, column, text: value } of pastedValues(clip, top, left, box)) {
-      const property = columns[column]?.property;
-      const target = lines[row];
-      if (
-        row - top >= PASTE_ROWS ||
-        !property ||
-        !canEdit(property) ||
-        !PASTE_TYPES.has(property.config.type) ||
-        (!target && !canAdd)
-      ) {
-        if (value.trim() !== '') skipped += 1;
-        continue;
-      }
-      const read = readCell(property, value, importCtx);
-      // Until the view can add options to a property, values that need new ones are skipped.
-      if (!read.ok || (read.newOptions?.length ?? 0) > 0) {
-        skipped += 1;
-        continue;
-      }
-      if (target) {
-        writes.push({ row: target.row, property, value: read.value });
-      } else if (read.value !== null) {
-        const input = newRows.get(row) ?? {};
-        newRows.set(
-          row,
-          property.config.type === 'title'
-            ? { ...input, title: String(read.value) }
-            : { ...input, values: { ...input.values, [property.id]: read.value } },
-        );
-      }
+    const values = pastedValues(clip, top, box ? box.left : Math.max(0, columnIndex), box);
+    const read = (list: readonly PersonChoice[]) =>
+      readPaste(values, {
+        lines,
+        properties: columns.map((c) => c.property),
+        top,
+        canEdit,
+        canAdd,
+        canAddOptions: canEditStructure,
+        ctx: {
+          viewer,
+          // The workspace's people, and the names the answer has.
+          findUser: personFinder([
+            ...list,
+            ...Object.entries(data.people ?? {}).map(([id, p]) => ({ id, name: p.name })),
+          ]),
+          findRows: titleFinder({
+            databaseId: meta.id,
+            properties: meta.properties,
+            rows: [...lineOf.values()].map((l) => l.row),
+            rowTitles: data.rowTitles,
+          }),
+        },
+      });
+    const forPeople = values.some((v) => columns[v.column]?.property.config.type === 'person');
+    if (forPeople && people === undefined) void loadPeople().then((list) => fill(read(list)));
+    else fill(read(people ?? []));
+  };
+
+  /** Writes what a paste read, once the options it needs are added. */
+  const fill = (pasted: PasteResult) => {
+    if (pasted.newOptions.size > 0) {
+      const adding = [...pasted.newOptions].map(([propertyId, options]) =>
+        queue(() => actions.addOptions(propertyId, options)).then(
+          (saved) => [propertyId, saved] as const,
+          () => [propertyId, null] as const,
+        ),
+      );
+      void Promise.all(adding).then((saved) => fill(withSavedIds(pasted, new Map(saved))));
+      return;
     }
     // New rows go to the last group shown, unless a pasted value says which group.
     const last = sections.filter((s) => !s.collapsed && s.lines.length > 0).at(-1);
     const grouping = view.grouping?.propertyId;
-    const added = [...newRows.values()].map((input): AddedRow => ({
+    const added = pasted.newRows.map((input): AddedRow => ({
       input: {
         ...input,
         // Pasted rows are plain rows, as imported ones are.
@@ -714,11 +713,11 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       rowId: null,
       undone: false,
     }));
-    change(writes, added);
+    change(pasted.writes, added);
     if (added.length > 0) void makeRows(added);
-    if (skipped > 0) {
+    if (pasted.skipped > 0) {
       notices.current += 1;
-      setNotice({ id: notices.current, text: TABLE_TEXT.skipped(skipped) });
+      setNotice({ id: notices.current, text: TABLE_TEXT.skipped(pasted.skipped) });
     }
   };
 
@@ -886,19 +885,18 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   );
 
   const setForSelected = (property: Property, value: unknown, details: CommitDetails) => {
-    // Until the view can add options, a new one isn't set (a Select keeps each row's value).
-    const next = withoutNewOptions(value, undefined, details.newOptions);
-    if (
-      next === undefined ||
-      (!isEmptyValue(value as ReadValue) && isEmptyValue(next as ReadValue))
-    )
+    const rows = [...selected].flatMap((id) => lineOf.get(id)?.row ?? []);
+    const set = (next: unknown) => change(rows.map((row) => ({ row, property, value: next })));
+    const typed = details.newOptions ?? [];
+    if (typed.length === 0) {
+      set(value);
       return;
-    const writes: Write[] = [];
-    for (const id of selected) {
-      const line = lineOf.get(id);
-      if (line) writes.push({ row: line.row, property, value: next });
     }
-    change(writes);
+    // Options typed here are added once, then every row gets the value.
+    void queue(() => actions.addOptions(property.id, typed)).then(
+      (saved) => set(withSavedOptions(value, saved)),
+      () => undefined,
+    );
   };
 
   const trashSelected = () => {
@@ -1117,10 +1115,11 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             ctx={ctx}
             initialText={editing?.initialText}
             canCreateOptions={canEditStructure}
+            people={people}
             onCommit={(value, details) => {
-              // Until the view can add options to the property, new ones are left out.
-              const next = withoutNewOptions(value, cell.value, details.newOptions);
-              if (details.changed && !sameStored(next, cell.value)) save(line, property, next);
+              if (details.changed && !sameStored(value, cell.value)) {
+                save(line, property, value, details.newOptions);
+              }
               finishEditing(line, property, details.move);
             }}
             onCancel={(details) => finishEditing(line, property, details?.move)}
