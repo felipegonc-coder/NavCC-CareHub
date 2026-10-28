@@ -4,7 +4,7 @@ import { createLimit } from './limit';
 /** A task that runs until it's finished by hand. */
 function gate() {
   let finish = (): void => undefined;
-  let fail = (_error: Error): void => undefined;
+  let fail: (error: Error) => void = () => undefined;
   const done = new Promise<string>((resolve, reject) => {
     finish = () => resolve('done');
     fail = reject;
