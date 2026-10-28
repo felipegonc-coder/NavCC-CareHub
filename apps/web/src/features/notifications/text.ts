@@ -30,6 +30,11 @@ export const TEXT = {
   notSaved: (field: string) => `Couldn't save "${field}". Try again.`,
   settingsFailed: "Couldn't load your notification settings.",
 
+  notices: 'Notices',
+  noticesHint: 'Choose which notices arrive in your 🔔 Care Hub chat.',
+  alwaysOn: 'Always on',
+  noticesFailed: "Couldn't load your notice settings.",
+
   pause: 'Pause notifications',
   pauseButton: 'Pause',
   pauseHint: 'Notices still arrive in the 🔔 chat, quietly.',

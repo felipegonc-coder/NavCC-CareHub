@@ -1,8 +1,10 @@
 import { ToastProvider } from '@carehub/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../lib/api';
+import { setLiveClientForTest } from '../live/client';
+import { createFakeLive } from '../live/testSource';
 import type { NotificationPreferences, NotificationsClient, PauseEnds, PushDevice } from './api';
 import { NotificationSettings } from './NotificationSettings';
 import { PUSH_PROBLEM_TEXT, type PushResult, type PushStatus } from './push-client';
@@ -20,6 +22,53 @@ beforeAll(() => {
   Element.prototype.scrollIntoView ??= () => undefined;
   Element.prototype.hasPointerCapture ??= () => false;
   Element.prototype.releasePointerCapture ??= () => undefined;
+});
+
+const realFetch = globalThis.fetch;
+
+/** The notices server's `/api/notices/settings`, which the Notices group reads and changes. */
+function createNoticesServer() {
+  const server = {
+    settings: { comments: true, edits: true, formResponses: true, automations: true },
+    /** Answers 404, as before the server has the route. */
+    missing: false,
+    /** The next change is refused. */
+    refuseNext: false,
+    changes: [] as unknown[],
+  };
+  const json = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url !== '/api/notices/settings' || server.missing) {
+      return json(404, { error: { code: 'not_found', message: 'Not found.' } });
+    }
+    if ((init?.method ?? 'GET') === 'GET') return json(200, { settings: server.settings });
+    const change = JSON.parse(String(init?.body)) as Partial<typeof server.settings>;
+    server.changes.push(change);
+    if (server.refuseNext) {
+      server.refuseNext = false;
+      return json(500, { error: { code: 'unexpected', message: 'The server broke.' } });
+    }
+    server.settings = { ...server.settings, ...change };
+    return json(200, { settings: server.settings });
+  };
+  return server;
+}
+
+let notices: ReturnType<typeof createNoticesServer>;
+
+beforeEach(() => {
+  notices = createNoticesServer();
+  setLiveClientForTest(createFakeLive().client);
+});
+
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  setLiveClientForTest(null);
 });
 
 const LAPTOP: PushDevice = {
@@ -183,6 +232,74 @@ describe('NotificationSettings: Messages', () => {
     ).toBeInTheDocument();
     fireEvent.click(within(section('Messages')).getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('combobox', { name: 'Notify me about' })).toBeInTheDocument();
+  });
+});
+
+describe('NotificationSettings: notices', () => {
+  it('has a switch for each kind, on until turned off, and the kinds that are always on', async () => {
+    notices.settings.automations = false;
+    show(fakes());
+    const group = await screen.findByRole('region', { name: 'Notices' });
+    expect(
+      within(group).getByText('Choose which notices arrive in your 🔔 Care Hub chat.'),
+    ).toBeInTheDocument();
+    expect(
+      await within(group).findByRole('switch', { name: 'Comments on pages I follow' }),
+    ).toBeChecked();
+    const edits = within(group).getByRole('switch', { name: 'Edits on pages I follow' });
+    expect(edits).toBeChecked();
+    expect(edits).toHaveAccessibleDescription('At most one summary per page per hour');
+    expect(within(group).getByRole('switch', { name: 'Form responses' })).toBeChecked();
+    expect(within(group).getByRole('switch', { name: 'Automation messages' })).not.toBeChecked();
+    expect(within(group).getAllByRole('switch')).toHaveLength(4);
+    const alwaysOn = within(group).getByRole('list', { name: 'Always on' });
+    expect(
+      within(alwaysOn)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Mentions and replies', 'Reminders and access requests']);
+  });
+
+  it('turns a kind off, sending only that change, and says "Saved"', async () => {
+    show(fakes());
+    const group = await screen.findByRole('region', { name: 'Notices' });
+    const comments = await within(group).findByRole('switch', {
+      name: 'Comments on pages I follow',
+    });
+    fireEvent.click(comments);
+    await waitFor(() => expect(notices.changes).toEqual([{ comments: false }]));
+    expect(await within(group).findByText('Saved')).toBeInTheDocument();
+    expect(comments).not.toBeChecked();
+    expect(notices.settings.comments).toBe(false);
+  });
+
+  it("puts a switch back and names it when the change can't be saved", async () => {
+    notices.refuseNext = true;
+    show(fakes());
+    const group = await screen.findByRole('region', { name: 'Notices' });
+    const forms = await within(group).findByRole('switch', { name: 'Form responses' });
+    fireEvent.click(forms);
+    expect(
+      await within(group).findByText('Couldn\'t save "Form responses". Try again.'),
+    ).toBeInTheDocument();
+    expect(forms).toBeChecked();
+    expect(within(group).queryByText('Saved')).not.toBeInTheDocument();
+  });
+
+  it("offers Retry when the notice settings can't be loaded", async () => {
+    notices.missing = true;
+    show(fakes());
+    const group = await screen.findByRole('region', { name: 'Notices' });
+    expect(
+      await within(group).findByText("Couldn't load your notice settings."),
+    ).toBeInTheDocument();
+    expect(within(group).queryByRole('switch')).not.toBeInTheDocument();
+
+    notices.missing = false;
+    fireEvent.click(within(group).getByRole('button', { name: 'Retry' }));
+    expect(
+      await within(group).findByRole('switch', { name: 'Comments on pages I follow' }),
+    ).toBeChecked();
   });
 });
 
