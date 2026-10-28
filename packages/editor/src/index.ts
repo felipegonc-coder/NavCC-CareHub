@@ -1,5 +1,7 @@
 export { BlockEditor } from './BlockEditor';
 export type { BlockEditorProps } from './BlockEditor';
+export { BLOCK_ID, blockIdAt, findBlock, withBlockIds } from './schema';
+export { revealBlock } from './reveal';
 export { createBlockExtensions, DEFAULT_PLACEHOLDER } from './extensions';
 export type { BlockExtensionsOptions } from './extensions';
 export { filterSlashItems, mergeSlashItems } from './slash';
@@ -14,6 +16,7 @@ export type {
   CollabProvider,
   EditorUser,
   LinkPicker,
+  NodeViewEntry,
   NodeViews,
   SlashItem,
 } from './types';

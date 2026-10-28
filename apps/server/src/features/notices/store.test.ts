@@ -213,6 +213,38 @@ describe.skipIf(!hasDatabase)('notices on Postgres', () => {
     ]);
   });
 
+  it('keeps up to 3 cards in order, and a grouped notice takes the new ones', async () => {
+    const avery = await person();
+    const [planId, formId, notesId] = [randomUUID(), randomUUID(), randomUUID()];
+    const event = { type: 'event', eventId: 'evt_42', occurrenceStart: '2026-11-02' } as const;
+    const groupKey = `automations:${randomUUID()}`;
+    const cards = [
+      { type: 'page', pageId: planId },
+      event,
+      { type: 'page', pageId: formId },
+    ] as const;
+    await notice(avery, { kind: 'automation', groupKey, cards });
+    expect(await list(avery)).toMatchObject([
+      { card: cards[0], extraCards: [event, { type: 'page', pageId: formId }] },
+    ]);
+
+    await notice(avery, { kind: 'automation', groupKey, card: { type: 'page', pageId: notesId } });
+    expect(await list(avery)).toMatchObject([
+      { count: 2, card: { type: 'page', pageId: notesId }, extraCards: [] },
+    ]);
+  });
+
+  it('refuses more than 3 cards, and more cards without a first one', async () => {
+    const avery = await person();
+    const page = { type: 'page', pageId: randomUUID() } as const;
+    const row = { workspaceId, userId: avery.id, sender: 'Care Hub', title: 'Cards' };
+    const insert = (cards: Pick<typeof notices.$inferInsert, 'card' | 'extraCards'>) =>
+      test.db.insert(notices).values({ ...row, kind: 'alert', ...cards });
+    await expect(insert({ card: page, extraCards: [page, page, page] })).rejects.toThrow();
+    await expect(insert({ extraCards: [page] })).rejects.toThrow();
+    await expect(insert({ card: page, extraCards: [page, page] })).resolves.toBeDefined();
+  });
+
   it('gives one notice to features such as push, or null', async () => {
     const avery = await person();
     const pageId = randomUUID();
