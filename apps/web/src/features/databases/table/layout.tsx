@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -31,12 +30,10 @@ import {
   type QueryGroup,
   type RowPlace,
 } from '../contract';
-import { isApiError, UNKNOWN_ERROR_MESSAGE } from '../api';
 import {
   CELL_TEXT,
   CellEditor,
   CellView,
-  PropertyMenu,
   rowCell,
   usePropertyActions,
   type CellContext,
@@ -58,10 +55,9 @@ import {
 } from './clipboard';
 import { collapsedStorageKey, useCollapsedGroups } from './collapsed';
 import { dropTarget, propertyOrder, tableColumns, tableOptions, type TableColumn } from './columns';
-import { DRAG_START, followPointer } from './drag';
 import { missingOptions, sameStored, withSavedOptions } from './edits';
 import { TotalsRow } from './footer';
-import { columnItems, HeaderCell, PropertiesMenu } from './header';
+import { TableHeader } from './header-row';
 import { EditHistory, type AddedRow, type Step, type ValueChange, type Write } from './history';
 import {
   asQueryRow,
@@ -90,15 +86,7 @@ import { NestToggle } from './nest-toggle';
 import { Notice } from './notice';
 import { readPaste, withSavedIds, type PasteResult } from './paste';
 import { WRITES_AT_ONCE, writeQueue } from './queue';
-import {
-  rowDropAt,
-  samePlace,
-  stepPlace,
-  type MeasuredRow,
-  type MeasuredSection,
-  type RowDrop,
-  type RowTarget,
-} from './row-drop';
+import { samePlace, stepPlace, type RowTarget } from './row-drop';
 import { RowDropMark, RowHandle, type RowMenuItems } from './row-menu';
 import {
   allTicked,
@@ -110,6 +98,7 @@ import {
   type RowSelection,
 } from './selection';
 import { useColumnTools } from './use-column-tools';
+import { useRowDrag } from './use-row-drag';
 import {
   NO_SPAN,
   piecesOf,
@@ -135,8 +124,12 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     return actions.updateView(patch).catch(() => undefined);
   };
   const grid = useRef<HTMLDivElement>(null);
-  const tools = useColumnTools(changeView, () => grid.current?.getBoundingClientRect().left ?? 0);
-  const { resize, moving, menuFor, setMenuFor } = tools;
+  const tools = useColumnTools(
+    changeView,
+    () => grid.current?.getBoundingClientRect().left ?? 0,
+    actions,
+  );
+  const { resize, moving } = tools;
   const widths = useMemo(() => (resize ? { [resize.propertyId]: resize.width } : {}), [resize]);
   const columns = useMemo(
     () => tableColumns(meta.properties, view, data.propertyIds, widths, start),
@@ -188,19 +181,15 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       () => people ?? [],
     );
   const notices = useRef(0);
-  // The row menu that's open (by line), and a row being dragged to another place.
+  // The row menu that's open (by line).
   const [rowMenu, setRowMenu] = useState<string | null>(null);
-  const [rowDrag, setRowDrag] = useState<{ line: string; drop: RowDrop | null } | null>(null);
-  const rowDragged = useRef(false);
   // On touch screens a long press on a row opens its menu (the handle is hidden on phones).
   const [press] = useState(longPress);
-  const selectAllId = useId();
   // The cell that gets focus when the row menu closes.
   const afterMenu = useRef<CellAt | null>(null);
   const rowEls = useRef(new Map<string, HTMLDivElement>());
   const sectionEls = useRef(new Map<string, HTMLDivElement>());
   const cells = useRef(new Map<string, HTMLDivElement>());
-  const dragStop = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     viewNow.current = view;
@@ -211,14 +200,6 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   useEffect(() => {
     if (focusRequest) cells.current.get(focusRequest.key)?.focus();
   }, [focusRequest]);
-
-  useEffect(
-    () => () => {
-      dragStop.current?.();
-      dragStop.current = null;
-    },
-    [],
-  );
 
   // The browser's own menu stays shut while a long press opens the row's.
   useEffect(() => {
@@ -293,6 +274,16 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const canMoveRows = canSelect && (manual || data.groups !== null);
   // Nested, only top-level rows are dragged (sub-items move with their parent, or from the menu).
   const canDrag = (line: Line) => canMoveRows && (!nested || isTopLevel(line.row));
+  const rowDrag = useRowDrag({
+    grid,
+    sections,
+    rowEls: rowEls.current,
+    sectionEls: sectionEls.current,
+    nested,
+    manual,
+    canDrag,
+    move: (line, from, target, among) => moveLine(line, from, target, among),
+  });
 
   // The one cell Tab stops on (roving tabindex): the active cell, or the first one.
   const first = lines[0];
@@ -346,7 +337,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     activeShown ? active.line : first?.key,
     editing?.line,
     rowMenu,
-    rowDrag?.line,
+    rowDrag.shown?.line,
   ]) {
     if (key) pinned.add(key);
   }
@@ -895,38 +886,6 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     }
   };
 
-  const gridTop = () => grid.current?.getBoundingClientRect().top ?? 0;
-
-  /** The sections and their rows as drawn now, px from the table's top edge. */
-  const measureSections = (): MeasuredSection[] => {
-    const top = gridTop();
-    const measured: MeasuredSection[] = [];
-    for (const section of sections) {
-      const box = sectionEls.current.get(section.key)?.getBoundingClientRect();
-      if (!box) continue;
-      const rows: MeasuredRow[] = [];
-      // With virtual rows some aren't drawn: the edge after a drawn one lands before the next.
-      let edge: number | null = null;
-      for (const line of section.collapsed ? [] : section.lines) {
-        const place = !nested || isTopLevel(line.row);
-        const r = rowEls.current.get(line.key)?.getBoundingClientRect();
-        if (r) rows.push({ rowId: line.row.id, top: r.top - top, bottom: r.bottom - top, place });
-        else if (edge !== null) rows.push({ rowId: line.row.id, top: edge, bottom: edge, place });
-        edge = r ? r.bottom - top : null;
-      }
-      const last = section.lines.at(-1);
-      measured.push({
-        key: section.key,
-        top: box.top - top,
-        bottom: box.bottom - top,
-        rows,
-        // The end of the list is a place only when its last row is drawn and nothing is left to load.
-        more: section.nextCursor !== null || (last !== undefined && !rowEls.current.has(last.key)),
-      });
-    }
-    return measured;
-  };
-
   /** Moves a row to another place in manual order, or into another group. */
   const moveLine = (line: Line, from: Section, target: RowTarget, among: readonly Id[]) => {
     if (samePlace(target, from.key, among, line.row.id, manual)) return;
@@ -947,57 +906,14 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     );
   };
 
-  // Dragging a row's handle moves the row; a press without a drag opens its menu (on click).
-  const startRowDrag = (event: PointerEvent<HTMLButtonElement>, line: Line, section: Section) => {
-    rowDragged.current = false;
-    if (!canDrag(line) || event.button !== 0 || event.pointerType === 'touch') return;
-    dragStop.current?.();
-    const measured = measureSections();
-    const start = { x: event.clientX, y: event.clientY };
-    const dropAt = (y: number) => rowDropAt(measured, y - gridTop(), manual);
-    let moved = false;
-    let shown: RowDrop | null = null;
-    dragStop.current = followPointer(start, {
-      move: (point) => {
-        if (!moved && Math.hypot(point.x - start.x, point.y - start.y) < DRAG_START) return;
-        moved = true;
-        const drop = dropAt(point.y);
-        if (
-          shown &&
-          drop &&
-          shown.sectionKey === drop.sectionKey &&
-          shown.beforeRowId === drop.beforeRowId
-        )
-          return;
-        shown = drop;
-        setRowDrag({ line: line.key, drop });
-      },
-      end: (point, cancelled) => {
-        dragStop.current = null;
-        setRowDrag(null);
-        if (!moved) return;
-        // The click after a drag isn't a press.
-        rowDragged.current = true;
-        window.setTimeout(() => {
-          rowDragged.current = false;
-        }, 0);
-        const drop = dropAt(point.y);
-        const among = section.lines
-          .filter((l) => !nested || isTopLevel(l.row))
-          .map((l) => l.row.id);
-        if (!cancelled && drop) moveLine(line, section, drop, among);
-      },
-    });
-  };
-
   const openRowMenu = (line: Line, focusAfter: CellAt) => {
     afterMenu.current = focusAfter;
     setRowMenu(line.key);
   };
 
   const pressHandle = (line: Line) => {
-    if (rowDragged.current) {
-      rowDragged.current = false;
+    if (rowDrag.dragged.current) {
+      rowDrag.dragged.current = false;
       return;
     }
     openRowMenu(line, { line: line.key, propertyId: SELECT_KEY });
@@ -1096,7 +1012,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     // Clicks in the row menu (a portal) bubble here too; they aren't presses on the cell.
     const target = event.target;
     if (!(target instanceof Node) || !event.currentTarget.contains(target)) return;
-    if (rowDragged.current) return;
+    if (rowDrag.dragged.current) return;
     tickLine(line, event.shiftKey);
     focusCell(line.key, SELECT_KEY);
   };
@@ -1135,7 +1051,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             else setRowMenu(null);
           }}
           draggable={canDrag(line)}
-          onPressStart={(event) => startRowDrag(event, line, section)}
+          onPressStart={(event) => rowDrag.start(event, line, section)}
           onPress={() => pressHandle(line)}
           items={rowMenu === line.key ? rowItems(line, section) : null}
           onClosed={closedRowMenu}
@@ -1303,7 +1219,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         'group/row flex border-b border-border',
         canSelect && 'max-md:select-none',
         line.row.context && 'text-muted',
-        rowDrag?.line === line.key && 'opacity-50',
+        rowDrag.shown?.line === line.key && 'opacity-50',
       )}
     >
       {canSelect && renderSelect(line, section)}
@@ -1423,7 +1339,6 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     );
   };
 
-  const shown = new Set(columns.map((c) => c.property.id));
   const target = moving ? dropTarget(columns, moving.x) : undefined;
   const indicator =
     target === undefined
@@ -1446,90 +1361,37 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           aria-readonly={readOnly || undefined}
           className="relative w-max min-w-full text-small text-fg"
         >
-          <div role="rowgroup">
-            <div
-              role="row"
-              aria-rowindex={numbers ? 1 : undefined}
-              className="flex border-b border-border"
-            >
-              {canSelect && (
-                <div role="columnheader" className={cn(selectClass, 'min-h-9 max-md:min-h-11')}>
-                  {/* Room for the rows' handles, so the boxes line up. */}
-                  <span aria-hidden className="w-4 shrink-0 max-md:hidden" />
-                  {/* The label fills the cell on phones, so the box has a 44 px target. */}
-                  <label
-                    htmlFor={selectAllId}
-                    className="flex items-center justify-center max-md:size-11"
-                  >
-                    <Checkbox
-                      id={selectAllId}
-                      checked={allState}
-                      aria-label={TABLE_TEXT.selectAll}
-                      onCheckedChange={() =>
-                        setSelection(allState === true ? NO_SELECTION : selectAll(lines))
-                      }
-                    />
-                  </label>
-                </div>
-              )}
-              {columns.map((column) => (
-                <HeaderCell
-                  key={column.property.id}
-                  column={column}
-                  style={placeOf(column)}
-                  className={cellClass(column)}
-                  editable={canEditViews}
-                  menu={(button) => (
-                    <PropertyMenu
-                      meta={meta}
-                      property={column.property}
-                      actions={propertyActions}
-                      view={view}
-                      updateView={(patch) => changeView(() => patch)}
-                      rows={loadedRows}
-                      ctx={ctx}
-                      people={people}
-                      viewItems={columnItems({
-                        column,
-                        editable: canEditViews,
-                        frozenHere: options.frozenUpTo === column.property.id,
-                        grouped: view.grouping?.propertyId === column.property.id,
-                        calculation: view.calculations[column.property.id],
-                        change: tools.columnChanges(column),
-                      })}
-                      open={menuFor === column.property.id}
-                      onOpenChange={(open) =>
-                        setMenuFor((now) =>
-                          open ? column.property.id : now === column.property.id ? null : now,
-                        )
-                      }
-                      onChanged={propertyChanged}
-                      onError={(error) =>
-                        say(isApiError(error) ? error.message : UNKNOWN_ERROR_MESSAGE)
-                      }
-                    >
-                      {button}
-                    </PropertyMenu>
-                  )}
-                  onPress={() => tools.pressHeader(column)}
-                  moving={moving?.propertyId === column.property.id}
-                  onMoveStart={(event) => tools.startMove(event, column, columns)}
-                  onResizeStart={(event) => tools.startResize(event, column)}
-                />
-              ))}
-              {canEditViews && (
-                <div role="columnheader" className="flex shrink-0 items-center px-1">
-                  <PropertiesMenu
-                    properties={listed}
-                    shown={shown}
-                    wrapCells={options.wrapCells}
-                    onShow={tools.showColumn}
-                    onWrapCells={tools.wrapCells}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
+          <TableHeader
+            view={view}
+            columns={columns}
+            properties={listed}
+            editable={canEditViews}
+            selectAll={
+              canSelect
+                ? {
+                    className: selectClass,
+                    checked: allState,
+                    onToggle: () =>
+                      setSelection(allState === true ? NO_SELECTION : selectAll(lines)),
+                  }
+                : null
+            }
+            rowIndex={numbers ? 1 : undefined}
+            placeOf={placeOf}
+            cellClass={cellClass}
+            tools={tools}
+            menu={{
+              meta,
+              actions: propertyActions,
+              view,
+              updateView: (patch) => changeView(() => patch),
+              rows: loadedRows,
+              ctx,
+              people,
+              onChanged: propertyChanged,
+            }}
+            say={say}
+          />
           {sections.map(renderSection)}
           {bottomTotals && (
             <div role="rowgroup">
@@ -1557,7 +1419,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
               className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-primary"
             />
           )}
-          {rowDrag?.drop && <RowDropMark mark={rowDrag.drop.mark} />}
+          {rowDrag.shown?.drop && <RowDropMark mark={rowDrag.shown.drop.mark} />}
         </div>
       </div>
       {selected.size > 0 && (

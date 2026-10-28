@@ -5,6 +5,7 @@ export const TABLE_TEXT = {
   hiddenByFilter: 'Hidden by filter',
   open: 'Open',
   /** The table's items in a column's menu. */
+  filter: 'Filter',
   sortAscending: 'Sort ascending',
   sortDescending: 'Sort descending',
   groupBy: 'Group by',

@@ -14,4 +14,5 @@ export type {
   CommitDetails,
   PersonChoice,
   PropertyMenuEvent,
+  PropertyMenuProps,
 } from '../cells';
