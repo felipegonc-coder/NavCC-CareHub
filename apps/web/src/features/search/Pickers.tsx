@@ -164,16 +164,16 @@ export function InChip(props: {
 
 /** Created by and Edited by: people who made or last changed pages the person can open. */
 export function PeopleChip(props: {
-  role: SearchPeopleQuery['role'];
+  field: SearchPeopleQuery['role'];
   ids: string[] | undefined;
   names: Names;
   onChange: (ids: string[], names: Names) => void;
 }) {
   const ids = props.ids ?? [];
-  const chip = props.role === 'created' ? 'Created by' : 'Edited by';
+  const chip = props.field === 'created' ? 'Created by' : 'Edited by';
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
-  const people = usePeople(props.role, text, open);
+  const people = usePeople(props.field, text, open);
   const items = withPicked(ids, props.names, people.data?.people ?? [], 'Someone picked before');
   return (
     <ChipPopover

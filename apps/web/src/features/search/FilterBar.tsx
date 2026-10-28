@@ -76,13 +76,13 @@ export function FilterBar({
       />
       <InChip ids={filters.in} names={names} onChange={(ids, more) => set({ in: ids }, more)} />
       <PeopleChip
-        role="created"
+        field="created"
         ids={filters.createdBy}
         names={names}
         onChange={(ids, more) => set({ createdBy: ids }, more)}
       />
       <PeopleChip
-        role="edited"
+        field="edited"
         ids={filters.editedBy}
         names={names}
         onChange={(ids, more) => set({ editedBy: ids }, more)}
