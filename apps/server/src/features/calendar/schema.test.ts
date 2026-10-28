@@ -38,6 +38,17 @@ describe.skipIf(!hasDatabase)('calendar tables', () => {
         );
         expect(inDatabase, config.name).toEqual(inDrizzle);
       }
+      // A video link longer than the API takes is refused, like a long title.
+      const link = `https://example.com/${'x'.repeat(2000)}`;
+      await expect(
+        pool.query(
+          `INSERT INTO cal_events (workspace_id, organizer_id, video_url, all_day, time_zone,
+             start_civil, end_civil, range_start)
+           VALUES (gen_random_uuid(), gen_random_uuid(), $1, false, 'UTC', '2026-10-27T10:00',
+             '2026-10-27T11:00', now())`,
+          [link],
+        ),
+      ).rejects.toThrow(/cal_events_video_url_length/);
     } finally {
       await pool.end();
       await database.drop();

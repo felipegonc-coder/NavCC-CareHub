@@ -45,6 +45,8 @@ services:
       PUSH_VAPID_SUBJECT: ${PUSH_VAPID_SUBJECT:-}
       CALENDAR_SECRET_KEY: ${CALENDAR_SECRET_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      CLAUDE_MONTHLY_REQUESTS: ${CLAUDE_MONTHLY_REQUESTS:-}
       MODELS_DIR: ${MODELS_DIR:-}
     expose: ['3000'] # only for Caddy, on the front network
     networks: [front, back]
