@@ -2,8 +2,8 @@
 // npm run lint: ESLint over the repository. Like `eslint . --max-warnings=0`, it fails on any error
 // or warning, except carehub/no-one-off-styles warnings, which only the lane folders get (see
 // eslint.config.js). Those are listed, and shown next to the line in the pull request, but pass
-// until 2026-10-29. After that the rule is an error everywhere and `lint` can go back to
-// `eslint . --max-warnings=0`.
+// until the lanes switch over (decision 0008). After that the rule is an error everywhere and
+// `lint` can go back to `eslint . --max-warnings=0`.
 import path from 'node:path';
 import process from 'node:process';
 import { ESLint } from 'eslint';
@@ -33,7 +33,7 @@ for (const result of results) {
   }
 }
 if (passing > 0) {
-  console.log(`${passing} one-off style warning(s) in lane folders. They fail from 2026-10-29.`);
+  console.log(`${passing} one-off style warning(s) in lane folders. They become errors later.`);
 }
 if (failing > 0) {
   console.error(`ESLint found ${failing} problem(s); errors and warnings both fail.`);

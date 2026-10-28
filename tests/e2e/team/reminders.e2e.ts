@@ -49,6 +49,8 @@ test.describe('Reminders list', () => {
     await expect(changedItem).toBeVisible();
 
     await changedItem.getByRole('button', { name: /^Delete reminder/ }).click();
+    const confirm = page.getByRole('alertdialog', { name: 'Delete this reminder?' });
+    await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(changedItem).toBeHidden();
   });
 });

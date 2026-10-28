@@ -1,5 +1,12 @@
 import {
   Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -99,20 +106,32 @@ export function RemindersScreen() {
   const remove = useDeleteReminder();
   const { toast } = useToast();
   const [editing, setEditing] = useState<Reminder | null>(null);
+  const [deleting, setDeleting] = useState<Reminder | null>(null);
   const pendingHeading = useRef<HTMLHeadingElement>(null);
+  // The Edit or Delete button that opened a dialog.
+  const opener = useRef<HTMLElement | null>(null);
+
+  /** Focus goes back to the dialog's button, or to Pending once its reminder is gone. */
+  function returnFocus(event: Event) {
+    event.preventDefault();
+    (opener.current?.isConnected ? opener.current : pendingHeading.current)?.focus();
+  }
 
   function deleteReminder(reminder: Reminder) {
     remove.mutate(reminder.id, {
       onSuccess: () => {
-        pendingHeading.current?.focus();
+        opener.current = null;
+        setDeleting(null);
         toast({ title: 'Reminder deleted', variant: 'success' });
       },
-      onError: (error) =>
+      onError: (error) => {
+        setDeleting(null);
         toast({
           title: "Couldn't delete the reminder",
           description: error.message,
           variant: 'danger',
-        }),
+        });
+      },
     });
   }
 
@@ -137,14 +156,23 @@ export function RemindersScreen() {
                 prefs={prefs}
                 actions={
                   <>
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(reminder)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(event) => {
+                        opener.current = event.currentTarget;
+                        setEditing(reminder);
+                      }}
+                    >
                       Edit<VisuallyHidden> reminder: {name}</VisuallyHidden>
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
-                      loading={remove.isPending && remove.variables === reminder.id}
-                      onClick={() => deleteReminder(reminder)}
+                      onClick={(event) => {
+                        opener.current = event.currentTarget;
+                        setDeleting(reminder);
+                      }}
                     >
                       Delete<VisuallyHidden> reminder: {name}</VisuallyHidden>
                     </Button>
@@ -183,7 +211,34 @@ export function RemindersScreen() {
       <h1 className="text-title">Reminders</h1>
       {body}
       {editing && (
-        <EditReminderDialog reminder={editing} prefs={prefs} onClose={() => setEditing(null)} />
+        <EditReminderDialog
+          reminder={editing}
+          prefs={prefs}
+          onClose={() => setEditing(null)}
+          onCloseAutoFocus={returnFocus}
+        />
+      )}
+      {deleting && (
+        <Dialog open onOpenChange={(open) => !open && setDeleting(null)}>
+          <DialogContent role="alertdialog" onCloseAutoFocus={returnFocus}>
+            <DialogHeader>
+              <DialogTitle>Delete this reminder?</DialogTitle>
+              <DialogDescription>{reminderTitle(deleting)}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="secondary">Cancel</Button>
+              </DialogClose>
+              <Button
+                variant="danger"
+                loading={remove.isPending}
+                onClick={() => deleteReminder(deleting)}
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </main>
   );

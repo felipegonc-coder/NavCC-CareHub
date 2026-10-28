@@ -161,7 +161,10 @@ function CheckboxEditor({ property, value, onCommit, onCancel }: CellEditorProps
   );
 }
 
-/** Formulas, rollups, created and edited time and by, IDs and buttons: shown, never edited. */
+/**
+ * Formulas, rollups, created and edited time and by, IDs, buttons and verifications: shown, never
+ * edited.
+ */
 function ReadOnlyEditor({
   property,
   value,

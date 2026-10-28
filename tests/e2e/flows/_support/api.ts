@@ -3,6 +3,16 @@ import { test } from './test.js';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
+/** The CSRF cookie: plain over HTTP, with the __Host- prefix when cookies are Secure (0007, 3.1). */
+const CSRF_COOKIES: ReadonlySet<string> = new Set(['carehub_csrf', '__Host-carehub_csrf']);
+
+/** The CSRF token of the person signed in on `page`, for the X-CSRF-Token header. */
+export async function csrfTokenOf(page: Page): Promise<string> {
+  const baseURL = test.info().project.use.baseURL ?? '';
+  const cookies = await page.context().cookies(baseURL || undefined);
+  return cookies.find((cookie) => CSRF_COOKIES.has(cookie.name))?.value ?? '';
+}
+
 /**
  * Calls the Care Hub API as the person signed in on `page`. It shares the page's cookies and sends
  * the CSRF header and Origin that state-changing requests need (docs/decisions/0007, section 3.1).
@@ -11,9 +21,7 @@ type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  */
 export async function apiFor(page: Page) {
   const baseURL = test.info().project.use.baseURL ?? '';
-  const cookies = await page.context().cookies(baseURL || undefined);
-  const csrf = cookies.find((cookie) => cookie.name === 'carehub_csrf')?.value ?? '';
-  const headers = { 'X-CSRF-Token': csrf, Origin: new URL(baseURL).origin };
+  const headers = { 'X-CSRF-Token': await csrfTokenOf(page), Origin: new URL(baseURL).origin };
 
   /** The raw response, for checks on the status code (for example 403 or 404). */
   const send = (method: Method, path: string, data?: unknown): Promise<APIResponse> =>
