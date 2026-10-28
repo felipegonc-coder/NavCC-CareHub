@@ -84,3 +84,28 @@ The two environment lines go in the browser-test workflow (`.github/`), on the e
   - `POST /write` with `{ pageId, action, tone?, selection, at?, prompt? }` answers `{ text }` (Markdown).
   - `POST /write/applied` with `{ pageId, action, placement }` answers 204, for page history's "(with Claude)".
 - **Screens:** none in `tests/e2e/extras/screens.ts` yet. Writing help can only be on once the stub's environment lines are in the browser-test workflow.
+
+### Assistant panel
+
+- **Turning it on:** an Admin ticks "Approved for this workspace" and switches on the assistant in Settings → Claude. Within 5 seconds people with Use Claude get the button "Open Claude" (✨, bottom right) and, on a desktop, "Claude" in the sidebar. With the switch off neither shows, and switching it off closes an open panel and stops a question on its way (CL-01, CL-04, CL-05).
+- **Opening and closing:** "Open Claude", "Claude" in the sidebar, or Ctrl+Alt+J (⌘⌥J on a Mac). The panel is the region "Claude". "Close", Esc and the shortcut close it, and focus goes back to what opened it (CL-18).
+- **The header:** "Chats" (then "Back to the chat"), a heading ("New chat" or the chat's title), "New chat", the menu "Show as: …" (desktop only) and "Close".
+  - "Floating" is 400 × 600 at the bottom right. "Side panel" is on the right, 320 to 640 px wide: drag its left edge, or use "Wider" and "Narrower" in the menu. "Full screen" covers the page.
+  - The choice is kept per person on the device (`localStorage` key `carehub.claude.assistant.<user id>`). A narrow window always shows Full screen.
+- **Asking:** the textbox "Question" (Enter sends, Shift+Enter adds a line) and the button "Send".
+  - "What Claude may read: …" offers "This page" (the default on a page, `/p/<id>`), "All pages I can open" and "No pages".
+  - "Add a page", or typing @, opens "Find a page": up to 5 pages, found with Search as the person. Each shows as a chip with "Remove <title>".
+- **While Claude answers:** the region "Conversation" shows the question, "Claude is writing…" and "Stop". Stop or Esc puts the question back in the box and keeps nothing; closing the panel stops it too. Screen readers hear "Claude is writing…", then the answer, through a `status` region.
+- **Answers:** drawn from Markdown, then "Sources" (links to `/p/<id>`), "Copy" and, while a page the person can edit is open, "Add to page" (one Ctrl+Z undoes it). In Full screen, following a source closes the panel.
+  - The stub's answer has no "Sources:" line, so every page Claude read is listed. To list only the first, queue `answerNext('Refunds take five working days.\nSources: 1')`. With This page, source 1 is the open page.
+- **Chats:** only their owner sees them (someone else's chat is 403, for Admins too).
+  - "Chats" shows the list "Your chats", last used first. A row opens its chat; "More for <title>" has "Rename" (dialog "Rename chat", field "Name", "Save") and "Delete" (dialog "Delete this chat?", "Delete").
+  - With none: "No chats yet. Ask a question to start one."
+  - A chat holds 50 questions. After that, "New chat" takes the box's place.
+  - Chats past the days an Admin chose in Settings → Claude are deleted before each answer and every hour (CL-D3).
+- **Errors (CL-16, CL-17):** a question containing `STUB-429` or `STUB-500` shows "Claude isn't available right now." with "Try again" in the conversation. `STUB-SLOW` shows the same within 75 seconds.
+- **Endpoints (under `/api/claude/assistant`, Use Claude on every request, else 403):**
+  - `GET /chats` answers `{ chats }`, and `GET /chats/:chatId` answers `{ chat, messages }`.
+  - `PATCH /chats/:chatId` with `{ title }` answers `{ chat }`. `DELETE /chats/:chatId` answers 204.
+  - `POST /ask` with `{ chatId?, question, scope, pageId?, pageIds }` answers `{ chat, question, answer }`. The answer's `sources` are `{ id, title }` pages.
+- **Screens:** none in `tests/e2e/extras/screens.ts` yet, for the same reason as writing help.
