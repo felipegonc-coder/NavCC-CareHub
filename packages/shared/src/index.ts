@@ -8,4 +8,4 @@ export * from './urls';
 
 export * from './permissions';
 
-// feature: pages
+export * from './pages';

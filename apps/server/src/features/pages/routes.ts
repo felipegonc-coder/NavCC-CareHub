@@ -1,6 +1,9 @@
 // The page model's HTTP routes and `app.requirePageAccess` (decision 0007, sections 3.3 and 4.1).
 import fp from 'fastify-plugin';
+import { getDefaultWorkspace } from '../workspaces';
 import { requirePageAccess } from './access';
+import { spaceRoutes } from './space-routes';
+import { setUpWorkspaceSpaces } from './spaces';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -18,7 +21,11 @@ declare module 'fastify' {
 export default fp(
   async (app) => {
     app.decorate('requirePageAccess', requirePageAccess);
-    // Spaces, pages, Trash, favorites and recent pages come in the next pull requests.
+    // A new workspace starts with the Open default space "General" (SB-01).
+    const workspace = await getDefaultWorkspace(app.db);
+    if (workspace) await setUpWorkspaceSpaces(app.db, workspace.id);
+    spaceRoutes(app);
+    // Pages, Trash, favorites and recent pages come in the next pull requests.
   },
   { name: 'carehub-pages', fastify: '5.x', dependencies: ['carehub-auth'] },
 );
