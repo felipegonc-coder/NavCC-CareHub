@@ -36,7 +36,8 @@ export interface KnowledgePorts {
   ): Promise<Map<string, AccessLevel>>;
   // stand-in: the database's meta from features/databases/api.ts (W2-2), null unless `wiki`.
   getBase(db: Executor, databaseId: string): Promise<WikiBase | null>;
-  // stand-in: a system read of one row from features/databases/api.ts, null unless in a wiki.
+  // stand-in: a system read of one row from features/databases/api.ts, null unless in a wiki
+  // (and for archived rows: reviews and notices skip them).
   getRow(db: Executor, rowId: string): Promise<WikiRow | null>;
   // stand-in: updateRows(tx, { databaseId, rowIds, values, actorUserId, source: 'knowledge' })
   // from features/databases/api.ts, which lets the knowledge base write its built-in properties.
@@ -54,6 +55,37 @@ export interface KnowledgePorts {
   // stand-in: the people with at least `min` on a page, from features/pages (#49): reports on a
   // page without an owner go to the knowledge base's Full access people.
   usersWithAccess(db: Executor, pageId: string, min: AccessLevel): Promise<string[]>;
+  // stand-in: the workspace's wiki databases, from features/databases/api.ts (W2-2).
+  listBases(db: Executor, workspaceId: string): Promise<WikiBase[]>;
+  // stand-in: a system read of every row of a wiki database (at most 5,000), from
+  // features/databases/api.ts, without archived rows.
+  listRows(db: Executor, databaseId: string): Promise<WikiRow[]>;
+  // stand-in: getPage(db, pageId) from features/pages (#49), null when there's no such page or
+  // it's archived.
+  getPage(db: Executor, pageId: string): Promise<PageSummary | null>;
+  // stand-in: a page's direct sub-pages, without archived ones, from features/pages (#49).
+  childPages(db: Executor, pageId: string): Promise<string[]>;
+  // stand-in: makeWiki(tx, pageId, by) from features/databases/api.ts (W2-2): the page becomes a
+  // wiki database at the same ID, its content the Home section, each direct sub-page a row, with
+  // the four built-in properties.
+  makeWiki(tx: Tx, input: { pageId: string; by: string }): Promise<void>;
+  // stand-in: unmakeWiki(tx, databaseId, by) from features/databases/api.ts: the rows become
+  // sub-pages again and the built-in properties go.
+  unmakeWiki(tx: Tx, input: { databaseId: string; by: string }): Promise<void>;
+  // stand-in: from features/pages (#49): only people with Can edit or Full access keep the page.
+  // A draft that becomes a sub-page again stays hidden from readers.
+  keepForEditors(tx: Tx, input: { pageId: string; by: string }): Promise<void>;
+  // stand-in: core's role permissions (decision 0007, section 3.2): whether the person's role in
+  // the workspace has the Create permission (`pages.create`).
+  canCreatePages(db: Executor, userId: string, workspaceId: string): Promise<boolean>;
+}
+
+export interface PageSummary {
+  id: string;
+  workspaceId: string;
+  title: string;
+  /** Only a page (not a database or a row) can become a knowledge base. */
+  kind: 'page' | 'database' | 'row';
 }
 
 const unavailable = () => httpError(409, 'conflict', "Knowledge bases aren't available yet.");
@@ -69,6 +101,20 @@ const denyAll: KnowledgePorts = {
     throw unavailable();
   },
   usersWithAccess: async () => [],
+  listBases: async () => [],
+  listRows: async () => [],
+  getPage: async () => null,
+  childPages: async () => [],
+  makeWiki: async () => {
+    throw unavailable();
+  },
+  unmakeWiki: async () => {
+    throw unavailable();
+  },
+  keepForEditors: async () => {
+    throw unavailable();
+  },
+  canCreatePages: async () => false,
 };
 
 let ports: KnowledgePorts = denyAll;

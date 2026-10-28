@@ -124,6 +124,8 @@ export interface SendNoticeResult {
   duplicate?: true;
   /** Set when the person isn't in the workspace (any more): nothing was saved. */
   dropped?: true;
+  /** Set when the person turned this kind of notice off in Settings: nothing was saved. */
+  turnedOff?: true;
 }
 
 export type SendNotice = (input: SendNoticeInput) => Promise<SendNoticeResult>;
@@ -141,6 +143,23 @@ export interface NoticeCreatedEvent {
 
 /** The live event type published to a person whenever their notices change. */
 export const NOTICES_CHANGED_EVENT = 'notices-changed';
+
+/**
+ * The kinds of notices a person can turn off in Settings → Notifications (Settings spec 3.3),
+ * each for one workspace. Mentions, replies, reminders and access requests are always on.
+ * - `comments`: comments and suggested edits on pages they follow (`comment`, `suggestion`).
+ * - `edits`: summaries of edits to pages they follow (`edit_summary`).
+ * - `formResponses`: responses to their forms. No kind uses it yet: Forms' `form_response` kind
+ *   comes in its own change.
+ * - `automations`: messages from automations (`automation`).
+ */
+export type NoticeSettingKey = 'comments' | 'edits' | 'formResponses' | 'automations';
+
+/** On (true) or off for each; every kind is on until the person turns it off. */
+export type NoticeSettings = Record<NoticeSettingKey, boolean>;
+
+/** The live event type published to a person when their notice settings change. */
+export const NOTICE_SETTINGS_CHANGED_EVENT = 'notice-settings-changed';
 
 /** What an action handler receives when the notice's owner clicks one of its action buttons. */
 export interface NoticeActionContext {
