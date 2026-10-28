@@ -89,6 +89,7 @@ export async function runImport(
       const result = await applyPlan(tx, {
         userId,
         target: destination.target,
+        source,
         plan,
         files,
         signal: ctx.signal,
