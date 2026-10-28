@@ -63,6 +63,57 @@ const webpOf = (...chunks: Uint8Array[]) => {
   return join('RIFF', size, body);
 };
 
+const u16 = (n: number) => [n >> 8, n & 0xff];
+const u32 = (n: number) => [n >>> 24, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+const box = (type: string, ...data: Part[]) => {
+  const body = join(...data);
+  return join(u32(body.length + 8), type, body);
+};
+/** A box with a version and flags. */
+const full = (type: string, version: number, ...data: Part[]) =>
+  box(type, [version, 0, 0, 0], ...data);
+const exifItem = (data: Uint8Array) => join(u32(6), 'Exif\0\0', data);
+
+/**
+ * A HEIF picture (HEIC or AVIF) with its picture and XMP in mdat and its EXIF in the meta box's
+ * idat, or split in two parts when `split`.
+ */
+function heif(brand: string, exif: Uint8Array, xmp: Part, split = false): Uint8Array {
+  const picture = [1, 2, 3, 4];
+  const xmpBytes = join(xmp);
+  const half = exif.length >> 1;
+  const exifAt = split
+    ? [u16(2), u32(0), u32(half), u32(half), u32(exif.length - half)]
+    : [u16(1), u32(0), u32(exif.length)];
+  const meta = (mdat: number) =>
+    full(
+      'meta',
+      0,
+      full('hdlr', 0, u32(0), 'pict', u32(0), u32(0), u32(0), '\0'),
+      full(
+        'iinf',
+        0,
+        u16(3),
+        full('infe', 2, u16(1), u16(0), 'hvc1', '\0'),
+        full('infe', 2, u16(2), u16(0), 'Exif', '\0'),
+        full('infe', 2, u16(3), u16(0), 'mime', 'XMP\0', 'application/rdf+xml\0'),
+      ),
+      // Offsets and lengths of 4 bytes; item, how it's stored (0 in the file, 1 in idat), file.
+      full(
+        'iloc',
+        1,
+        [0x44, 0],
+        u16(3),
+        [...u16(1), ...u16(0), ...u16(0), ...u16(1), ...u32(mdat), ...u32(picture.length)],
+        [...u16(2), ...u16(1), ...u16(0), ...exifAt.flat()],
+        [...u16(3), ...u16(0), ...u16(0), ...u16(1), ...u32(mdat + 4), ...u32(xmpBytes.length)],
+      ),
+      box('idat', exif),
+    );
+  const ftyp = box('ftyp', brand, u32(0), 'mif1', brand);
+  return join(ftyp, meta(ftyp.length + meta(0).length + 8), box('mdat', picture, xmpBytes));
+}
+
 describe("photos' location data", () => {
   it('wipes the GPS fields of TIFF data in either byte order, and keeps the rest', () => {
     for (const little of [true, false]) {
@@ -126,8 +177,33 @@ describe("photos' location data", () => {
     );
   });
 
+  it('wipes the GPS fields of HEIC and AVIF pictures in place, and blanks their XMP', () => {
+    const xmp = '<x:xmpmeta><exif:GPSLatitude>39,44N</exif:GPSLatitude></x:xmpmeta>';
+    const wiped = tiff(false);
+    wiped.fill(0, GPS);
+    for (const brand of ['heic', 'avif']) {
+      const photo = heif(brand, exifItem(tiff(false)), xmp);
+      expect(withoutLocation(photo)).toEqual(heif(brand, exifItem(wiped), ' '.repeat(xmp.length)));
+      expect(photo).toEqual(heif(brand, exifItem(tiff(false)), xmp));
+    }
+  });
+
+  it("leaves out a HEIC's EXIF whole when it can't be read safely", () => {
+    const exif = exifItem(tiff(true));
+    const blank = new Uint8Array(exif.length);
+    expect(withoutLocation(heif('heic', exif, '<x/>', true))).toEqual(
+      heif('heic', blank, '    ', true),
+    );
+    const damaged = exifItem(join('II*\0', [200, 0, 0, 0]));
+    expect(withoutLocation(heif('heic', damaged, '<x/>'))).toEqual(
+      heif('heic', new Uint8Array(damaged.length), '    '),
+    );
+  });
+
   it('leaves other files as they are', () => {
     const file = join('%PDF-1.7 Exif');
     expect(withoutLocation(file)).toBe(file);
+    const video = box('ftyp', 'isom', u32(0), 'isom', 'mp42');
+    expect(withoutLocation(video)).toBe(video);
   });
 });
