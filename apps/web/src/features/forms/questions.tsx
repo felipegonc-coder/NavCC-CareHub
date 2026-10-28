@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -558,7 +559,9 @@ function FilesControl({
   const nextKey = useRef(0);
   const room = LIMITS.formFiles - files.length - pending.length;
 
-  useEffect(() => {
+  // Before paint, in the same commit that lists a finished file: the form never sees the file
+  // and an upload still counted at once (sending right then would say it's still uploading).
+  useLayoutEffect(() => {
     onUploads(prop.id, pending.length);
   }, [onUploads, prop.id, pending.length]);
   useEffect(() => () => onUploads(prop.id, 0), [onUploads, prop.id]);
