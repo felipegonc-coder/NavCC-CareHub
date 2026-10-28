@@ -7,7 +7,7 @@ import { logOptions, maskLogLine, maskText, maskUrl, serializeRequest } from './
 const CODE = 'Xq3vT9kLm2Pw8RzY4bN1cA';
 const ID = '0b7e3c1a-5d2f-4e8b-9a6c-3f1d2e4b5a69';
 /** A made-up link code in the shape of a UUID, which only a link word hides. */
-const TOKEN = '6f1c2b9e-8a4d-4c3b-9e7f-1a2b3c4d5e6f';
+const UUID_CODE = '6f1c2b9e-8a4d-4c3b-9e7f-1a2b3c4d5e6f';
 
 describe('maskUrl', () => {
   it('hides the rest of a form link, in the web app and in the API', () => {
@@ -60,7 +60,7 @@ describe('maskUrl', () => {
   });
 
   it('hides everything after a share, invite, feed or reset word, whatever the code looks like', () => {
-    expect(maskUrl(`/share/${TOKEN}`)).toEqual({ url: '/share/***', code: true });
+    expect(maskUrl(`/share/${UUID_CODE}`)).toEqual({ url: '/share/***', code: true });
     expect(maskUrl(`/invite/${CODE}`)).toEqual({ url: '/invite/***', code: true });
     expect(maskUrl('/api/example/invites/k3x9/accept')).toEqual({
       url: '/api/example/invites/***',
@@ -70,7 +70,7 @@ describe('maskUrl', () => {
       url: '/api/calendar/feed/***',
       code: true,
     });
-    expect(maskUrl(`/api/calendar/feeds/${TOKEN}/events.ics`)).toEqual({
+    expect(maskUrl(`/api/calendar/feeds/${UUID_CODE}/events.ics`)).toEqual({
       url: '/api/calendar/feeds/***',
       code: true,
     });
@@ -136,7 +136,7 @@ describe('maskText', () => {
       'Open https://carehub.example.test/forms/***?from=***',
     );
     expect(maskText(`back to /sign-in?next=%2Fforms%2F${CODE}`)).toBe('back to /sign-in?next=***');
-    expect(maskText(`Error: no link /share/${TOKEN}\n    at open (/app/server.js:1:2)`)).toBe(
+    expect(maskText(`Error: no link /share/${UUID_CODE}\n    at open (/app/server.js:1:2)`)).toBe(
       'Error: no link /share/***\n    at open (/app/server.js:1:2)',
     );
   });
@@ -167,7 +167,7 @@ describe('maskLogLine', () => {
         rawPacket: { type: 'Buffer', data: [71, 69, 84, 32, 47] },
       },
       error: { type: 'Error', cause: { message: `/api/forms/public/${CODE}` } },
-      msg: `Route GET:/share/${TOKEN} not found`,
+      msg: `Route GET:/share/${UUID_CODE} not found`,
     })}\n`;
     const masked = maskLogLine(line);
     expect(masked.endsWith('}\n')).toBe(true);
@@ -307,6 +307,11 @@ describe('the Fastify log', () => {
   });
 });
 
+// CI always has Postgres, so there the whole-server test below runs instead of being skipped.
+it.runIf(Boolean(process.env.CI))('has a database in CI, for the whole-server test', () => {
+  expect(hasDatabase).toBe(true);
+});
+
 describe.skipIf(!hasDatabase)('the server log', () => {
   it('never shows a link code, or who answered a form', async () => {
     const lines: string[] = [];
@@ -335,7 +340,7 @@ describe.skipIf(!hasDatabase)('the server log', () => {
         `/api/forms/public/${CODE}/fail`,
         `/sign-in?next=%2Fforms%2F${CODE}`,
         `/invite/${CODE}`,
-        `/share/${TOKEN}`,
+        `/share/${UUID_CODE}`,
         `/api/example/${CODE}`,
       ]) {
         await app.inject({ method: 'GET', url });
@@ -349,7 +354,7 @@ describe.skipIf(!hasDatabase)('the server log', () => {
       expect(answer.statusCode).toBe(200);
 
       const log = lines.join('');
-      for (const secret of [CODE, TOKEN, person.id, email]) {
+      for (const secret of [CODE, UUID_CODE, person.id, email]) {
         expect(log, secret).not.toContain(secret);
       }
       expect(log).toContain("Couldn't open /api/forms/***");

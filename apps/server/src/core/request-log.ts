@@ -137,7 +137,12 @@ export function serializeRequest(request: LoggedRequest): RequestLogLine {
   return line;
 }
 
-/** The server's logger settings: request lines from serializeRequest, and maskLogLine on every line. */
+/**
+ * The server's logger settings: request lines from serializeRequest, and maskLogLine on every line.
+ * Masking only sees the text, so on a link-code path (forms, and share, invite and feed links) no
+ * code may add the user id or the IP address to a log line: a per-IP rate limiter there must log
+ * without the address.
+ */
 export function logOptions() {
   return { serializers: { req: serializeRequest }, hooks: { streamWrite: maskLogLine } };
 }
