@@ -16,7 +16,7 @@ export function PlayerScreen() {
 
 /** The player for a learner: the live course, their progress and the events they send. */
 function LivePlayer({ courseId, lessonId }: { courseId: Id; lessonId: Id }) {
-  const { course, state, emit, error, retry } = useLearnerCourse(courseId);
+  const { course, state, pending, emit, error, retry } = useLearnerCourse(courseId);
   if (!course || !state) {
     if (!error) return <ScreenLoading label="Loading lesson" />;
     return <LoadFailed error={error} what="lesson" retry={retry} />;
@@ -24,7 +24,16 @@ function LivePlayer({ courseId, lessonId }: { courseId: Id; lessonId: Id }) {
   if (!course.lessons.some((lesson) => lesson.id === lessonId)) {
     return <LessonNotFound courseId={courseId} />;
   }
-  return <Player course={course} state={state} lessonId={lessonId} mode="learn" emit={emit} />;
+  return (
+    <Player
+      course={course}
+      state={state}
+      lessonId={lessonId}
+      mode="learn"
+      emit={emit}
+      waiting={pending.length}
+    />
+  );
 }
 
 function LessonNotFound({ courseId }: { courseId?: Id }) {
