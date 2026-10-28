@@ -3,7 +3,14 @@
 // before a time, or at 9:00 AM in each person's own time zone for a date without one; once, even
 // when two runs overlap; only to people who can still open the row; never more than a day late;
 // and a date that moved without an event is checked again. Fictional people only.
-import { defaultConfig, newProperty, type DateReminder, type DateValue } from '@carehub/databases';
+import {
+  defaultConfig,
+  newId,
+  newProperty,
+  type DateReminder,
+  type DateValue,
+  type Property,
+} from '@carehub/databases';
 import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
@@ -17,6 +24,7 @@ import {
   reminderTime,
   sendDueReminders,
 } from './reminders-task';
+import type { DatabaseSettings } from './record';
 import { changeDatabase, loadDatabase } from './store';
 
 type Minutes = Extract<DateReminder, { minutesBefore: number }>['minutesBefore'];
@@ -87,6 +95,9 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
   let workspaceId: string;
   let spaceId: string;
   let visitsId: string;
+  let inspectionsId: string;
+  /** A Date property only Morgan can see. */
+  let payday: Property;
   const people = {} as Record<'admin' | 'sam' | 'jordan' | 'avery' | 'casey', TestUser>;
 
   const visit = newProperty('Visit', defaultConfig('date'));
@@ -94,6 +105,9 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
   const assignee = newProperty('Assignee', defaultConfig('person'));
   const helpers = newProperty('Helpers', defaultConfig('person'));
   const notes = newProperty('Notes', defaultConfig('text'));
+  // Inspections: only its row access rule lets the inspector open a row.
+  const when = newProperty('When', defaultConfig('date'));
+  const inspector = newProperty('Inspector', defaultConfig('person'));
 
   // Stand-ins for the roles pull request's tables (decision 0007 names) until it lands.
   async function standInWorkspace() {
@@ -132,10 +146,34 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
   const nameOf = (userId: string) =>
     Object.entries(people).find(([, user]) => user.id === userId)?.[0] ?? userId;
 
-  async function addRow(title: string, values: Record<string, unknown>, who = people.admin) {
+  async function newDatabase(parentId: string, title: string): Promise<string> {
+    const res = await injectAs(app, people.admin, {
+      method: 'POST',
+      url: '/api/databases',
+      payload: { parentId, inline: false, title },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json().id as string;
+  }
+
+  async function addProperties(databaseId: string, change: Partial<DatabaseSettings>) {
+    const current = await loadDatabase(db, databaseId);
+    if (!current) throw new Error('The test database is missing.');
+    await changeDatabase(db, databaseId, current.version, (record) => ({
+      ...change,
+      properties: [...record.properties, ...(change.properties ?? [])],
+    }));
+  }
+
+  async function addRow(
+    title: string,
+    values: Record<string, unknown>,
+    who = people.admin,
+    databaseId = visitsId,
+  ) {
     const res = await injectAs(app, who, {
       method: 'POST',
-      url: `/api/databases/${visitsId}/rows`,
+      url: `/api/databases/${databaseId}/rows`,
       payload: { title, values },
     });
     expect(res.statusCode).toBe(201);
@@ -173,7 +211,8 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
     }>(sql`
       SELECT property_id, user_id, fire_at, sent_at IS NOT NULL AS sent
       FROM db_reminders WHERE row_id = ${rowId}`);
-    const propertyName = (id: string) => [visit, due].find((p) => p.id === id)?.name ?? id;
+    const propertyName = (id: string) =>
+      [visit, due, when, payday].find((p) => p.id === id)?.name ?? id;
     return rows
       .map((r) => {
         const when = new Date(r.fire_at).toISOString();
@@ -221,18 +260,17 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
       UPDATE users SET time_zone = 'America/Los_Angeles', use_24h = true
       WHERE id = ${people.jordan.id}`);
 
-    const res = await injectAs(app, people.admin, {
-      method: 'POST',
-      url: '/api/databases',
-      payload: { parentId: page.rows[0]!.id, inline: false, title: 'Visits' },
+    payday = {
+      ...newProperty('Payday', defaultConfig('date')),
+      access: { see: [{ type: 'user', id: people.admin.id }], change: null },
+    };
+    visitsId = await newDatabase(page.rows[0]!.id, 'Visits');
+    await addProperties(visitsId, { properties: [visit, due, assignee, helpers, notes, payday] });
+    inspectionsId = await newDatabase(page.rows[0]!.id, 'Inspections');
+    await addProperties(inspectionsId, {
+      properties: [when, inspector],
+      accessRules: [{ id: newId(), propertyId: inspector.id, level: 'view' }],
     });
-    expect(res.statusCode).toBe(201);
-    visitsId = res.json().id;
-    const current = await loadDatabase(db, visitsId);
-    if (!current) throw new Error('The test database is missing.');
-    await changeDatabase(db, visitsId, current.version, (record) => ({
-      properties: [...record.properties, visit, due, assignee, helpers, notes],
-    }));
   });
 
   afterEach(async () => {
@@ -278,6 +316,54 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
       'jordan Visit 2030-10-28T15:00:00.000Z sent',
       'sam Visit 2030-10-28T15:00:00.000Z sent',
     ]);
+
+    // A day after their time, sent entries go.
+    expect(await sweep('2030-10-29T15:00:01.000Z')).toBe(0);
+    expect(await entries(leak)).toEqual([]);
+  });
+
+  it('reminds someone who can open the row only through a row access rule', async () => {
+    // Casey isn't in the space: the rule on Inspector is what opens the row to them.
+    const backflow = await addRow(
+      'Backflow test',
+      { [when.id]: at('2031-03-03T15:00:00.000Z', 10), [inspector.id]: [people.casey.id] },
+      people.admin,
+      inspectionsId,
+    );
+    expect(await entries(backflow)).toEqual(['casey When 2031-03-03T14:50:00.000Z']);
+    expect(await sweep('2031-03-03T14:50:00.000Z')).toBe(1);
+    expect(remindersAbout(backflow)).toEqual([reminder('casey', 'When: Mar 3, 2031 8:00 AM')]);
+
+    // A locked account gets none.
+    const valve = await addRow(
+      'Valve check',
+      { [when.id]: at('2031-03-04T15:00:00.000Z', 10), [inspector.id]: [people.casey.id] },
+      people.admin,
+      inspectionsId,
+    );
+    await db.execute(sql`UPDATE users SET locked_at = now() WHERE id = ${people.casey.id}`);
+    try {
+      expect(await sweep('2031-03-04T14:50:00.000Z')).toBe(0);
+      expect(remindersAbout(valve)).toEqual([]);
+      expect(await entries(valve)).toEqual([]);
+    } finally {
+      await db.execute(sql`UPDATE users SET locked_at = NULL WHERE id = ${people.casey.id}`);
+    }
+  });
+
+  it("drops a reminder whose Date property the person can't see", async () => {
+    const payroll = await addRow('Payroll run', {
+      [payday.id]: day('2031-04-15', 1),
+      [assignee.id]: [people.sam.id, people.admin.id],
+    });
+    expect(await entries(payroll)).toEqual([
+      'admin Payday 2031-04-14T15:00:00.000Z',
+      'sam Payday 2031-04-14T13:00:00.000Z',
+    ]);
+    expect(await sweep('2031-04-14T13:00:00.000Z')).toBe(0);
+    expect(await sweep('2031-04-14T15:00:00.000Z')).toBe(1);
+    expect(remindersAbout(payroll)).toEqual([reminder('admin', 'Payday: Apr 15, 2031')]);
+    expect(await entries(payroll)).toEqual(['admin Payday 2031-04-14T15:00:00.000Z sent']);
   });
 
   it('reminds whoever set it, at 9:00 AM their time, when the row names nobody', async () => {

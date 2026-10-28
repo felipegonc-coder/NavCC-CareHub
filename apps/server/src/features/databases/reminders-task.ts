@@ -3,8 +3,9 @@
 // reminder when there are none: some minutes before a date with a time, or at 9:00 AM in each
 // person's own time zone some days before a date without one. Row events (after the commit)
 // refresh the row's coming reminders in db_reminders, one entry per person; a task every minute
-// sends the due ones to the people who can still open the row. Each entry is checked and marked
-// sent in one transaction, and the notice goes after the commit, so a reminder fires once.
+// sends the due ones to the people who can still open the row and see the Date property (locked
+// accounts get none). Each entry is checked and marked sent in one transaction, and the notice
+// goes after the commit, so a reminder fires once; sent entries go a day after their time.
 import {
   DEFAULT_TIME_ZONE,
   addDays,
@@ -17,7 +18,7 @@ import {
   type Property,
   type Row,
 } from '@carehub/databases';
-import { atLeast } from '@carehub/databases/access';
+import { atLeast, canSeeProperty } from '@carehub/databases/access';
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db, Tx } from '../../db';
@@ -26,7 +27,7 @@ import { NOTICE_LIMITS, sendNotice, type SendNoticeInput } from '../notices';
 import { getAccessForPages } from '../pages';
 import type { RowUpdatedEvent } from './events';
 import { isUuid, type DatabaseRecord } from './record';
-import { loadDatabase, loadRows, uuidList, type Executor } from './store';
+import { loadDatabase, loadPropertyViewer, loadRows, uuidList, type Executor } from './store';
 
 /** A reminder's notice: generic words, the Date property's name and when, and the row's card. */
 export const REMINDER_NOTICES = {
@@ -39,6 +40,8 @@ export const REMINDERS_TASK = 'databases.reminders';
 export const REMINDERS_EVERY_MS = 60_000;
 /** A reminder found more than this late (the server was down) is dropped instead of sent. */
 export const REMINDER_LATE_MS = 24 * 60 * 60_000;
+/** Sent entries stay this long after their time (a save then can't add them again), then go. */
+export const SENT_KEPT_MS = 24 * 60 * 60_000;
 /** Dates without a time remind at this hour in each person's time zone. */
 const DAY_REMINDER_HOUR = 9;
 /** Due entries checked per transaction, and transactions per run at most. */
@@ -114,7 +117,8 @@ async function setterOf(db: Executor, row: Row, propertyId: string): Promise<str
 async function loadPeople(db: Executor, ids: readonly string[]): Promise<Map<string, Person>> {
   if (ids.length === 0) return new Map();
   const { rows } = await db.execute<{ id: string; time_zone: string; use_24h: boolean }>(sql`
-    SELECT id, time_zone, use_24h FROM users WHERE id = ANY(${uuidList(ids)})`);
+    SELECT id, time_zone, use_24h FROM users
+    WHERE id = ANY(${uuidList(ids)}) AND locked_at IS NULL`);
   return new Map(
     rows.map((r) => [
       r.id,
@@ -163,6 +167,15 @@ export async function refreshReminders(
   // Most databases have no dates: nothing to do (entries of a deleted Date property drop when due).
   const settings = await loadDatabase(db, databaseId);
   if (!settings?.properties.some((p) => p.config.type === 'date')) return;
+  // Most rows (an import's, say) have no reminders and nothing coming: no transaction for them.
+  const [current] = settings.inTrash ? [] : await loadRows(db, databaseId, [rowId]);
+  if (!current) return;
+  if (remindingDates(settings, current).length === 0) {
+    const { rows } = await db.execute<{ coming: boolean }>(sql`
+      SELECT EXISTS (SELECT 1 FROM db_reminders WHERE row_id = ${rowId} AND sent_at IS NULL
+        AND fire_at > ${iso(now)}::timestamptz) AS coming`);
+    if (!rows[0]?.coming) return;
+  }
   await db.transaction(async (tx) => {
     // One refresh per row at a time, so two quick edits can't leave both sets behind.
     const key = `databases.reminders:${rowId}`;
@@ -236,8 +249,25 @@ interface Taken {
 }
 
 /**
+ * Whether this person can open the row (their level from the page model with the database's row
+ * access rules, as the rows routes check it) and see the Date property (its access list).
+ */
+async function canSee(
+  tx: Tx,
+  record: DatabaseRecord,
+  rowId: string,
+  prop: Property,
+  userId: string,
+) {
+  const levels = await getAccessForPages(tx, userId, [rowId]);
+  if (!atLeast(levels.get(rowId), 'view')) return false;
+  return canSeeProperty(prop, await loadPropertyViewer(tx, userId, record.workspaceId));
+}
+
+/**
  * Takes up to one batch of due entries: each is sent (marked sent here) when the row still asks
- * for it, it's at most a day late and its person can open the row; otherwise it's dropped.
+ * for it, it's at most a day late and its person can open the row and see the Date property;
+ * otherwise it's dropped.
  */
 async function takeDue(tx: Tx, now: Date): Promise<Taken> {
   const { rows: due } = await tx.execute<DueRow>(sql`
@@ -283,8 +313,8 @@ async function takeDue(tx: Tx, now: Date): Promise<Taken> {
         taken.refresh.set(rowId, databaseId);
         continue;
       }
-      const levels = await getAccessForPages(tx, entry.user_id, [rowId]);
-      if (now.getTime() - want.fireAt > REMINDER_LATE_MS || !atLeast(levels.get(rowId), 'view')) {
+      const late = now.getTime() - want.fireAt > REMINDER_LATE_MS;
+      if (late || !(await canSee(tx, record, rowId, prop, entry.user_id))) {
         dropped.push(entry.id);
         continue;
       }
@@ -325,6 +355,11 @@ export async function sendDueReminders(
     }
     if (!taken.full) break;
   }
+  await app.db.execute(sql`
+    DELETE FROM db_reminders WHERE id IN (
+      SELECT id FROM db_reminders
+      WHERE sent_at IS NOT NULL AND fire_at < ${iso(now.getTime() - SENT_KEPT_MS)}::timestamptz
+      LIMIT ${BATCH * BATCHES})`);
   return count;
 }
 
