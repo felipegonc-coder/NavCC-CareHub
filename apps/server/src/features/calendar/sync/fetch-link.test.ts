@@ -391,6 +391,125 @@ describe('fetchCalendarLink', () => {
   });
 });
 
+describe('fetchCalendarLink with test origins', () => {
+  const testOrigins = ['http://127.0.0.1:4598', 'http://localhost:4597'];
+  const local: Resolver = async (hostname) =>
+    hostname === 'localhost'
+      ? [
+          { address: '::1', family: 6 },
+          { address: '127.0.0.1', family: 4 },
+        ]
+      : resolver()(hostname);
+
+  it('lets links to exactly these origins use http and loopback addresses', async () => {
+    const { requests, transport } = server(() => reply(200, {}, ICS));
+    for (const link of ['http://127.0.0.1:4598/avery.ics', 'http://localhost:4597/sam.ics']) {
+      const result = await fetchCalendarLink(link, { testOrigins, resolve: local, transport });
+      expect(result.status).toBe('ok');
+    }
+    expect(requests.map((r) => [r.url.href, r.addresses])).toEqual([
+      ['http://127.0.0.1:4598/avery.ics', [{ address: '127.0.0.1', family: 4 }]],
+      [
+        'http://localhost:4597/sam.ics',
+        [
+          { address: '::1', family: 6 },
+          { address: '127.0.0.1', family: 4 },
+        ],
+      ],
+    ]);
+    expect(toHttpsUrl('http://127.0.0.1:4598/a.ics', testOrigins).protocol).toBe('http:');
+  });
+
+  it('refuses every other http link or local address, as without them', async () => {
+    const elsewhere: Resolver = async () => [{ address: '93.184.216.34', family: 4 }];
+    const cases: [string, FetchLinkOptions, string][] = [
+      ['http://127.0.0.1:4598/a.ics', {}, 'invalid-link'],
+      ['http://127.0.0.1:4599/a.ics', { testOrigins }, 'invalid-link'],
+      ['http://calendar.example.com/a.ics', { testOrigins }, 'invalid-link'],
+      ['https://127.0.0.1:4598/a.ics', { testOrigins }, 'blocked-address'],
+      ['webcal://127.0.0.1:4598/a.ics', { testOrigins }, 'blocked-address'],
+      ['http://sam:fictional@127.0.0.1:4598/a.ics', { testOrigins }, 'invalid-link'],
+      ['http://localhost:4597/a.ics', { testOrigins, resolve: elsewhere }, 'blocked-address'],
+      ['http://10.0.0.5:4598/a.ics', { testOrigins: ['http://10.0.0.5:4598'] }, 'invalid-link'],
+      [
+        'http://calendar.example.com:4598/a.ics',
+        { testOrigins: ['http://calendar.example.com:4598'] },
+        'invalid-link',
+      ],
+    ];
+    const { requests, transport } = server(() => reply(200, {}, ICS));
+    for (const [link, options, code] of cases) {
+      const error = await failure(link, { resolve: local, transport, ...options });
+      expect([link, error.code]).toEqual([link, code]);
+    }
+    expect(requests).toEqual([]);
+  });
+
+  it('checks redirects to and from them like any other', async () => {
+    const followed = server(
+      () => reply(302, { location: 'http://127.0.0.1:4598/b.ics' }),
+      () => reply(302, { location: '/c.ics' }),
+      () => reply(200, {}, ICS),
+    );
+    await fetchCalendarLink(LINK, { testOrigins, resolve: local, transport: followed.transport });
+    expect(followed.requests.map((r) => r.url.href)).toEqual([
+      LINK,
+      'http://127.0.0.1:4598/b.ics',
+      'http://127.0.0.1:4598/c.ics',
+    ]);
+    for (const [location, code] of [
+      ['http://127.0.0.1:4599/a.ics', 'invalid-link'],
+      ['http://calendar.example.com/a.ics', 'invalid-link'],
+      ['http://sam:fictional@127.0.0.1:4598/a.ics', 'invalid-link'],
+      ['https://internal.example.net/a.ics', 'blocked-address'],
+    ]) {
+      const { requests, transport } = server(() => reply(302, { location }));
+      const error = await failure('http://127.0.0.1:4598/a.ics', {
+        testOrigins,
+        resolve: local,
+        transport,
+      });
+      expect([location, error.code]).toEqual([location, code]);
+      expect(requests).toHaveLength(1);
+    }
+  });
+
+  it('keeps the size and time limits', async () => {
+    const link = 'http://127.0.0.1:4598/a.ics';
+    const big = server(() => reply(200, {}, [Buffer.alloc(2000, 0x41)]));
+    expect(
+      (await failure(link, { testOrigins, maxBytes: 1000, transport: big.transport })).code,
+    ).toBe('too-large');
+    const hanging: Transport = ({ signal }) =>
+      new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+    expect((await failure(link, { testOrigins, timeoutMs: 30, transport: hanging })).code).toBe(
+      'timeout',
+    );
+  });
+
+  it('fetches from a stand-in on this computer over plain http', async () => {
+    const standIn = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/calendar; charset=utf-8', etag: '"v1"' });
+      res.end(ICS);
+    });
+    await new Promise<void>((resolve) => standIn.listen(0, '127.0.0.1', resolve));
+    try {
+      const origin = `http://127.0.0.1:${(standIn.address() as AddressInfo).port}`;
+      const result = await fetchCalendarLink(`${origin}/avery.ics`, { testOrigins: [origin] });
+      expect(result).toEqual({
+        status: 'ok',
+        body: Buffer.from(ICS),
+        charset: 'utf-8',
+        etag: '"v1"',
+      });
+      expect((await failure(`${origin}/avery.ics`, {})).code).toBe('invalid-link');
+    } finally {
+      standIn.closeAllConnections();
+      await new Promise((resolve) => standIn.close(resolve));
+    }
+  });
+});
+
 describe('toHttpsUrl', () => {
   it('reads webcal links as https and drops the fragment', () => {
     expect(toHttpsUrl(' webcals://calendar.example.com/a.ics#top ').href).toBe(

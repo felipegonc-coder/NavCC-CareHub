@@ -345,6 +345,57 @@ describe('membership', () => {
   });
 });
 
+describe('notice settings', () => {
+  const allOff = { comments: false, edits: false, formResponses: false, automations: false };
+
+  it('saves nothing and tells no one for a kind the person turned off', async () => {
+    const { store, log, send } = setup();
+    await store.changeSettings(averysChat, { comments: false }, new Date());
+    await expect(send(comment())).resolves.toEqual({
+      noticeId: '',
+      grouped: false,
+      turnedOff: true,
+    });
+    await expect(
+      send(comment({ kind: 'suggestion', title: 'Suggested an edit' })),
+    ).resolves.toMatchObject({ turnedOff: true });
+    expect(store.records).toHaveLength(0);
+    expect(log).toEqual([]);
+
+    await send(comment({ kind: 'edit_summary', title: 'Edited a page you follow' }));
+    expect(store.records.map((notice) => notice.kind)).toEqual(['edit_summary']);
+  });
+
+  it('turns kinds off in one workspace only', async () => {
+    const { store, send } = setup();
+    await store.changeSettings(averysChat, allOff, new Date());
+    await send(comment({ workspaceId: otherWorkspaceId }));
+    expect(store.records.map((notice) => notice.workspaceId)).toEqual([otherWorkspaceId]);
+    await expect(
+      store.getSettings({ workspaceId: otherWorkspaceId, userId: avery }),
+    ).resolves.toEqual({ comments: true, edits: true, formResponses: true, automations: true });
+  });
+
+  it('always sends mentions, replies, reminders and access requests', async () => {
+    const { store, send } = setup();
+    await store.changeSettings(averysChat, allOff, new Date());
+    for (const kind of ['mention', 'reply', 'reminder', 'access_request'] as const) {
+      await expect(send(comment({ kind, groupKey: kind }))).resolves.toMatchObject({
+        grouped: false,
+      });
+    }
+    expect(store.records).toHaveLength(4);
+  });
+
+  it('changes only the settings it is given', async () => {
+    const { store } = setup();
+    await store.changeSettings(averysChat, { edits: false }, new Date());
+    await expect(
+      store.changeSettings(averysChat, { automations: false }, new Date()),
+    ).resolves.toEqual({ comments: true, edits: false, formResponses: true, automations: false });
+  });
+});
+
 describe('sendNotice', () => {
   it('needs the notices routes to be running', async () => {
     await expect(sendNotice(comment())).rejects.toThrow("Notices aren't running");
