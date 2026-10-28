@@ -18,5 +18,6 @@ export {
   type Snippet,
   type TextRange,
 } from './snippet';
+export { lettersOff, suggestText } from './suggest';
 export { COMMON_WORDS, searchWords, SEARCH_WORDS_MAX } from './words';
 export * from './schemas';

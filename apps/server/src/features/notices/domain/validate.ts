@@ -14,6 +14,7 @@ export const NOTICE_LIMITS = {
   text: 4000,
   icon: 32,
   groupKey: 200,
+  idempotencyKey: 200,
   buttons: 3,
   buttonLabel: 40,
   href: 500,
@@ -46,7 +47,9 @@ export interface ValidNotice {
   text: string | null;
   card: NoticeCard | null;
   buttons: NoticeButton[];
+  /** Always null for a mention: mentions never group. */
   groupKey: string | null;
+  idempotencyKey: string | null;
 }
 
 const ORIGIN = 'https://carehub.invalid';
@@ -147,6 +150,7 @@ export const sendNoticeInputSchema = z.strictObject({
     .max(NOTICE_LIMITS.buttons, `At most ${NOTICE_LIMITS.buttons} buttons.`)
     .optional(),
   groupKey: optionalText(NOTICE_LIMITS.groupKey),
+  idempotencyKey: optionalText(NOTICE_LIMITS.idempotencyKey),
 });
 
 const blankToNull = (value: string | undefined): string | null =>
@@ -172,6 +176,8 @@ export function parseSendNoticeInput(input: unknown): ValidNotice {
     text: blankToNull(notice.text),
     card: notice.card ?? null,
     buttons: notice.buttons ?? [],
-    groupKey: blankToNull(notice.groupKey),
+    // Each mention is its own notice (Comments and mentions CM-08).
+    groupKey: notice.kind === 'mention' ? null : blankToNull(notice.groupKey),
+    idempotencyKey: blankToNull(notice.idempotencyKey),
   };
 }

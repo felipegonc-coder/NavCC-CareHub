@@ -314,4 +314,10 @@ test.describe('Sidebar: Favorites', () => {
       }
     });
   });
+
+  test('SB-11 a person can have up to 100 favorites, and a 101st star is refused', () => {
+    // The plan: star 99 fictional pages through the favorites route, then the 100th and the 101st
+    // with ☆ in the top bar. Starring 100 pages on the screens would take minutes.
+    test.fixme(true, 'Waiting for the favorites API');
+  });
 });

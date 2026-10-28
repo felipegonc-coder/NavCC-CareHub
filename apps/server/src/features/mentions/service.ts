@@ -12,7 +12,7 @@ import {
   type CreateMentionInput,
   type MentionView,
 } from '@carehub/shared';
-import { and, desc, eq, gt, inArray } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { users } from '../auth/schema';
@@ -33,6 +33,12 @@ const TOKEN = /<@([\w-]{1,64})>/g;
 const notFound = () => httpError(404, 'not_found');
 /** The same person in the same block again this soon (an undo and redo, a re-render): no new notice. */
 const REPEAT_MS = 5 * 60_000;
+/**
+ * Page text is the editor's word, so one person's mentions there notify at most 20 times a minute,
+ * and the same person at most 30 times an hour (#224). Past that they're saved `quiet`, so typing
+ * never fails.
+ */
+export const PAGE_MENTION_LIMITS = { perMinute: 20, perPersonPerHour: 30 } as const;
 
 export function toMentionView(mention: Mention): MentionView {
   return {
@@ -70,7 +76,8 @@ function queueSend(tx: Tx, mention: Mention) {
 /**
  * Someone typed @person into page text. The notice waits 10 seconds, so deleting the mention
  * (`cancelMention`) stops it. For someone who can't open the page it's 409 unless `notify` is
- * false ("Mention without notifying"): the editor asks first.
+ * false ("Mention without notifying"): the editor asks first. Past `PAGE_MENTION_LIMITS` the
+ * mention is saved `quiet`.
  */
 export async function mentionInPage(db: Db, by: string, input: CreateMentionInput) {
   const page = await openPage(db, by, input.pageId, 'edit');
@@ -84,7 +91,11 @@ export async function mentionInPage(db: Db, by: string, input: CreateMentionInpu
     throw httpError(409, 'conflict', `${person.name} can't open this page.`);
   }
   return db.transaction(async (tx) => {
+    let quiet = !notify;
     if (notify) {
+      // One mention at a time from each person, so the repeat check and the limits hold.
+      const key = `mentions:${by}`;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
       const [recent] = await tx
         .select()
         .from(mentions)
@@ -100,6 +111,7 @@ export async function mentionInPage(db: Db, by: string, input: CreateMentionInpu
         .orderBy(desc(mentions.createdAt))
         .limit(1);
       if (recent) return { mention: recent, created: false };
+      quiet = await pastLimits(tx, by, person.id);
     }
     const [mention] = await tx
       .insert(mentions)
@@ -110,14 +122,37 @@ export async function mentionInPage(db: Db, by: string, input: CreateMentionInpu
         userId: person.id,
         mentionedBy: by,
         snippet: input.snippet,
-        status: notify ? 'waiting' : 'quiet',
-        sendAt: notify ? new Date(Date.now() + MENTION_DELAY_MS) : null,
+        status: quiet ? 'quiet' : 'waiting',
+        sendAt: quiet ? null : new Date(Date.now() + MENTION_DELAY_MS),
       })
       .returning();
     if (!mention) throw new Error('The mention was not saved.');
-    if (notify) await queueSend(tx, mention);
+    if (!quiet) await queueSend(tx, mention);
     return { mention, created: true };
   });
+}
+
+/** Whether one more page-text notice from `by` to `userId` is past `PAGE_MENTION_LIMITS`. */
+async function pastLimits(tx: Tx, by: string, userId: string): Promise<boolean> {
+  const lastMinute = gt(mentions.createdAt, sql`now() - interval '1 minute'`);
+  const [row] = await tx
+    .select({
+      lastMinute: sql<number>`count(*) FILTER (WHERE ${lastMinute})`.mapWith(Number),
+      toPerson: sql<number>`count(*) FILTER (WHERE ${eq(mentions.userId, userId)})`.mapWith(Number),
+    })
+    .from(mentions)
+    .where(
+      and(
+        eq(mentions.mentionedBy, by),
+        isNotNull(mentions.blockId),
+        inArray(mentions.status, ['waiting', 'sent']),
+        gt(mentions.createdAt, sql`now() - interval '1 hour'`),
+      ),
+    );
+  return (
+    (row?.lastMinute ?? 0) >= PAGE_MENTION_LIMITS.perMinute ||
+    (row?.toPerson ?? 0) >= PAGE_MENTION_LIMITS.perPersonPerHour
+  );
 }
 
 /** The mention was deleted from the page text: a notice still waiting won't go. */

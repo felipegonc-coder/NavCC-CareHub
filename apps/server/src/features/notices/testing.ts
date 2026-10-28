@@ -1,9 +1,11 @@
 // Test helpers for notices: an in-memory store with the same rules as the Postgres one.
 import { randomUUID } from 'node:crypto';
+import { matchesFilter } from './domain/filters';
 import { planNotice } from './domain/grouping';
 import type { ValidNotice } from './domain/validate';
 import { isNoticeOwner, type NoticeRecord } from './domain/view';
 import { bindNoticesRuntime, type NoticeScope, type NoticeStore } from './service';
+import type { SendNoticeResult } from './types';
 
 export type MemoryNoticeStore = NoticeStore & { readonly records: NoticeRecord[] };
 
@@ -19,6 +21,8 @@ export function bindMemoryNotices(): { store: MemoryNoticeStore; unbind: () => v
 
 export function createMemoryNoticeStore(): MemoryNoticeStore {
   const records: NoticeRecord[] = [];
+  /** Idempotency keys, by JSON `[userId, workspaceId, key]`, and the notice each one sent. */
+  const keys = new Map<string, string>();
   let lastPosition = 0;
   const chat = (scope: NoticeScope) =>
     records
@@ -35,41 +39,59 @@ export function createMemoryNoticeStore(): MemoryNoticeStore {
     buttons: notice.buttons,
   });
 
+  const add = (notice: ValidNotice, now: Date): SendNoticeResult => {
+    const candidate =
+      notice.groupKey === null
+        ? undefined
+        : chat(notice).find(
+            (record) => record.groupKey === notice.groupKey && record.kind === notice.kind,
+          );
+    const plan = planNotice(candidate ?? null, now);
+    if (plan.type === 'group' && candidate) {
+      Object.assign(candidate, content(notice), {
+        position: ++lastPosition,
+        count: plan.count,
+        latestAt: now,
+        readAt: null,
+      });
+      return { noticeId: candidate.id, grouped: true };
+    }
+    const record: NoticeRecord = {
+      id: randomUUID(),
+      workspaceId: notice.workspaceId,
+      userId: notice.userId,
+      ...content(notice),
+      groupKey: notice.groupKey,
+      position: ++lastPosition,
+      count: 1,
+      createdAt: now,
+      latestAt: now,
+      readAt: null,
+    };
+    records.push(record);
+    return { noticeId: record.id, grouped: false };
+  };
+
   return {
     records,
     async save(notice, now) {
-      const candidate =
-        notice.groupKey === null
-          ? undefined
-          : chat(notice).find((record) => record.groupKey === notice.groupKey);
-      const plan = planNotice(candidate ?? null, now);
-      if (plan.type === 'group' && candidate) {
-        Object.assign(candidate, content(notice), {
-          position: ++lastPosition,
-          count: plan.count,
-          latestAt: now,
-          readAt: null,
-        });
-        return { noticeId: candidate.id, grouped: true };
+      const key =
+        notice.idempotencyKey === null
+          ? null
+          : JSON.stringify([notice.userId, notice.workspaceId, notice.idempotencyKey]);
+      const earlier = key === null ? undefined : keys.get(key);
+      // Keys last as long as their notice.
+      if (earlier !== undefined && records.some((record) => record.id === earlier)) {
+        return { noticeId: earlier, grouped: false, duplicate: true };
       }
-      const record: NoticeRecord = {
-        id: randomUUID(),
-        workspaceId: notice.workspaceId,
-        userId: notice.userId,
-        ...content(notice),
-        groupKey: notice.groupKey,
-        position: ++lastPosition,
-        count: 1,
-        createdAt: now,
-        latestAt: now,
-        readAt: null,
-      };
-      records.push(record);
-      return { noticeId: record.id, grouped: false };
+      const result = add(notice, now);
+      if (key !== null) keys.set(key, result.noticeId);
+      return result;
     },
-    async list(scope, { limit, before }) {
+    async list(scope, { limit, before, filter = 'all' }) {
       return chat(scope)
         .filter((record) => before === undefined || record.position < before)
+        .filter((record) => matchesFilter(filter, record))
         .slice(0, limit)
         .map((record) => ({ ...record }));
     },
@@ -78,7 +100,7 @@ export function createMemoryNoticeStore(): MemoryNoticeStore {
     },
     async markRead(scope, target, now) {
       const ids = 'noticeIds' in target ? new Set(target.noticeIds) : null;
-      const through = 'through' in target ? target.through : Number.NEGATIVE_INFINITY;
+      const through = 'through' in target ? target.through : Number.POSITIVE_INFINITY;
       let changed = 0;
       for (const record of chat(scope)) {
         if (record.readAt !== null) continue;
@@ -88,9 +110,9 @@ export function createMemoryNoticeStore(): MemoryNoticeStore {
       }
       return changed;
     },
-    async ownerOf(noticeId) {
+    async get(noticeId) {
       const record = records.find((candidate) => candidate.id === noticeId);
-      return record ? { workspaceId: record.workspaceId, userId: record.userId } : null;
+      return record ? { ...record } : null;
     },
   };
 }
