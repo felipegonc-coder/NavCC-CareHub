@@ -18,7 +18,7 @@ Switch and approval changes go to the Security log (`logSecurityEvent`; for now 
 
 ## Server API (`apps/server/src/features/claude/index.ts`)
 
-- `isClaudeFeatureOn(db, workspaceId, feature): Promise<boolean>` checks the key, the approval and the switch. `claudeFeaturesOn(db, workspaceId)` does it for every feature at once.
+- `isClaudeFeatureOn(db, workspaceId, feature): Promise<boolean>` checks the key, the approval and the switch. `claudeFeaturesOn(db, workspaceId)` does it for every feature at once, from one read of the workspace's settings.
 - `askClaude(db, { workspaceId, userId, feature, system, instruction, documents?, selection?, maxTokens? }): Promise<{ text }>`
 - `askClaudeJson(db, { ...the same, schema }): Promise<{ data }>` asks for JSON and checks it with the caller's zod schema. If it doesn't match, it throws `bad_output`.
 - `ClaudeError` has `reason` (`ClaudeErrorReason`) and plain-words `message`. Routes answer `CLAUDE_ERRORS[reason]` with `details: { reason }`.
@@ -31,20 +31,29 @@ Switch and approval changes go to the Security log (`logSecurityEvent`; for now 
 
 The `documents` are `{ title, text }` pairs the **server** loaded by ID after the access check. A caller never passes text a client says came from a page; only the person's own selection comes from the client. The model and the largest `max_tokens` are set on the server. `maxTokens` can only lower that limit for one feature.
 
-The numbers (core PR 1):
+The numbers (core PR 1, and core PR 5 for requests at once):
 
 - `MAX_TOKENS` is 2,048, and a request holds at most `MAX_REQUEST_CHARS` (60,000) characters.
-- Each person can send 30 requests in any 10 minutes.
+- Each person can send 30 requests in any 10 minutes, and have at most 3 (`PERSON_IN_FLIGHT`) waiting on Claude at once, in any workspace. Past either limit they get `user_rate_limit`.
 - The monthly cap counts the calendar month in America/Denver.
-- Every request sent is a row in `claude_usage`, failures included. Refusals before sending aren't.
+- Every request is a row in `claude_usage` from before it's sent, failures included. Refusals before sending leave no row.
 
-The switches and the OK are what Admins save in Settings → Claude. Until the roles PR (#55) binds `canUseClaude` with `configureClaude`, nobody has `claude.use`, so nothing is sent. Until the page model (#49) binds `pages`, no page counts as open. Tests bind fakes the same way and put the old ones back with the function `configureClaude` returns.
+How the caps hold when requests arrive together:
+
+1. Before anything is sent, `askClaude` opens a transaction of its own on the app's database (never the caller's transaction) and takes Postgres advisory locks for the workspace and then the person.
+2. Under the locks it checks the monthly cap, the person's 30 in 10 minutes and their 3 at once, then inserts the row as `pending`. Requests that arrive together wait for the locks in turn, so only as many pass as the caps allow.
+3. After the call, the same row gets how it ended: `ok` or `bad_output` with Anthropic's token counts, or the failure's reason with 0 tokens. It still counts toward the caps.
+4. A row left `pending` (the server stopped mid-request) stops counting as waiting after 3 minutes (`IN_FLIGHT_MS`), longer than the client's longest try. It still counts toward the caps.
+
+The row stays even if the caller's work rolls back. Still pass `db`, not a transaction: the reservation needs a connection of its own.
+
+The switches and the OK are what Admins save in Settings → Claude. The Claude routes bind the app's database (`db`) with `configureClaude` when they register; until it's bound, nothing is sent (`unavailable`). Until the roles PR (#55) binds `canUseClaude` with `configureClaude`, nobody has `claude.use`, so nothing is sent. Until the page model (#49) binds `pages`, no page counts as open. `access.settingsOn(db, workspaceId, keys)` says which of the keys are on, in one read. Tests bind fakes the same way (including `db`) and put the old ones back with the function `configureClaude` returns.
 
 ## Settings → Claude (`/api/claude`)
 
 Every route needs a signed-in person (401 otherwise). The shapes are in `@carehub/extras/claude/settings`.
 
-- `GET /status` answers `ClaudeStatus`, `{ on: { writing_help, assistant, fields, meeting_summary, learning_help } }`: what the person can use in their workspace now (the key, the OK, the switch and `claude.use`). The web app asks every 5 seconds and hides what's off, so a feature switched off disappears within 5 seconds.
+- `GET /status` answers `ClaudeStatus`, `{ on: { writing_help, assistant, fields, meeting_summary, learning_help } }`: what the person can use in their workspace now (the key, the OK, the switch and `claude.use`). The web app asks every 5 seconds and hides what's off, so a feature switched off disappears within 5 seconds. It reads the workspace's settings once, not once per feature.
 - `GET /settings` answers `ClaudeSettingsView`, for the workspace's Admins only (403 for anyone else):
   - `keySet` says whether the server has the key. The key itself never leaves the server.
   - `model`, `navApproved`, `switches`, and `chatRetentionDays`: null for kept until deleted (CL-D3), or 30, 90 or 365.
@@ -76,7 +85,7 @@ Stand-ins until other lanes land (core PR 3):
 
 - **One way out:**
   - Only `features/claude/server` calls Claude, with the built-in fetch, `redirect: 'error'`, a 30 s timeout, and the fixed URL `https://api.anthropic.com/v1/messages`.
-  - `ANTHROPIC_BASE_URL` may point it at a local stub for tests, and only at loopback addresses.
+  - `ANTHROPIC_BASE_URL` may point it at a local stub for tests: it's read only while test hooks are on (`CAREHUB_TEST_HOOKS=1`, never in production), and only `http://127.0.0.1:<port>` is accepted.
   - There's no SDK and no new package.
 - **The key:**
   - It comes only from server settings.
@@ -91,7 +100,8 @@ Stand-ins until other lanes land (core PR 3):
   - No raw HTML. Links go through `safeHref`. No images or embeds are rendered from Claude's output.
   - An accepted suggestion goes through the same checks as typed content: the editor path and #183's `checkUpdate`, or field validation.
 - **Limits:**
-  - Each workspace has a monthly cap (`CLAUDE_MONTHLY_REQUESTS`, default 3,000; CL-D2), and each person has a rate limit so one person can't use the whole cap.
+  - Each workspace has a monthly cap (`CLAUDE_MONTHLY_REQUESTS`, default 3,000; CL-D2), and each person has a rate limit (so one person can't use the whole cap) and a limit on requests waiting at once.
+  - The caps hold when requests arrive together: each request is reserved under advisory locks before it's sent (see "The numbers" above).
   - Each request has a size cap.
   - 429 and 5xx are retried at most twice, with backoff; 4xx otherwise is never retried.
 - **Auto-fill (CL-D4, default By hand):**

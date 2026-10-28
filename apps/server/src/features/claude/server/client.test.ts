@@ -26,7 +26,8 @@ function fakeRuntime(replies: Array<Response | Error>) {
       monthlyRequests: 3000,
       url: CLAUDE_MESSAGES_URL,
     }),
-    access: { isSettingOn: async () => true, canUseClaude: async () => true },
+    db: undefined,
+    access: { settingsOn: async (_db, _id, keys) => new Set(keys), canUseClaude: async () => true },
     pages: { canOpenPage: async () => true },
     fetch: async (url, init) => {
       calls.push({ url, init });
@@ -175,18 +176,36 @@ describe('readClaudeSettings', () => {
     });
   });
 
-  it('accepts a stub only on a loopback address, and never repeats the key', () => {
-    const env = { ANTHROPIC_API_KEY: KEY, ANTHROPIC_BASE_URL: 'http://127.0.0.1:4010/' };
+  it('accepts a stub only on 127.0.0.1 while test hooks are on, and never repeats the key', () => {
+    const env = {
+      ANTHROPIC_API_KEY: KEY,
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:4010/',
+      CAREHUB_TEST_HOOKS: '1',
+    };
     expect(readClaudeSettings({ env, log }).url).toBe('http://127.0.0.1:4010/v1/messages');
     for (const outside of [
       'https://claude.example.test',
       'http://10.0.0.5:4010',
+      'http://localhost:4010',
       'http://localhost.example.test:80',
     ]) {
       const settings = readClaudeSettings({ env: { ...env, ANTHROPIC_BASE_URL: outside }, log });
       expect(settings.url).toBe('https://api.anthropic.com/v1/messages');
     }
-    expect(warnings).toHaveLength(3);
+    expect(warnings).toHaveLength(4);
     expect(warnings.join('\n')).not.toContain(KEY);
+  });
+
+  it("doesn't even read the stub's address without test hooks", () => {
+    warnings.length = 0;
+    for (const hooks of [undefined, '0']) {
+      const env = { ANTHROPIC_BASE_URL: 'http://127.0.0.1:4010', CAREHUB_TEST_HOOKS: hooks };
+      expect(readClaudeSettings({ env, log }).url).toBe('https://api.anthropic.com/v1/messages');
+      const elsewhere = { ...env, ANTHROPIC_BASE_URL: 'https://claude.example.test' };
+      expect(readClaudeSettings({ env: elsewhere, log }).url).toBe(
+        'https://api.anthropic.com/v1/messages',
+      );
+    }
+    expect(warnings).toEqual([]);
   });
 });

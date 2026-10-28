@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { CLAUDE_APPROVAL_KEY, claudeSwitchKey } from '@carehub/extras/claude';
 import { eq } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -6,7 +7,15 @@ import { z } from 'zod';
 import { createDatabase, runMigrations, type DatabaseConnection, type Db } from '../../../db';
 import { createTestDatabase, createUser, hasDatabase } from '../../../testing';
 import { claudeUsage } from '../schema';
-import { askClaude, askClaudeJson, isClaudeFeatureOn, MAX_TOKENS, PERSON_REQUESTS } from './ask';
+import {
+  askClaude,
+  askClaudeJson,
+  claudeFeaturesOn,
+  isClaudeFeatureOn,
+  MAX_TOKENS,
+  PERSON_IN_FLIGHT,
+  PERSON_REQUESTS,
+} from './ask';
 import { ClaudeError } from './errors';
 import { MAX_REQUEST_CHARS } from './prompt';
 import { configureClaude } from './runtime';
@@ -35,12 +44,32 @@ async function outcome(request: Promise<unknown>): Promise<string> {
   }
 }
 
+/** Waits, a little at a time, until `check` holds. */
+async function until(check: () => boolean): Promise<void> {
+  const giveUp = Date.now() + 4_000;
+  while (!check()) {
+    if (Date.now() > giveUp) throw new Error('Gave up waiting.');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+/** A promise that stays open until `open()`, so requests can be held at Claude. */
+function gate() {
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { open, opened };
+}
+
 interface Setup {
   apiKey?: string | undefined;
   off?: readonly string[];
   canUse?: boolean;
   monthlyRequests?: number;
   replies?: Response[];
+  /** Claude doesn't answer until this settles. */
+  held?: Promise<void>;
 }
 
 describe.skipIf(!hasDatabase)('askClaude', () => {
@@ -79,12 +108,15 @@ describe.skipIf(!hasDatabase)('askClaude', () => {
           monthlyRequests: options.monthlyRequests ?? 3000,
           url: CLAUDE_MESSAGES_URL,
         }),
+        db,
         access: {
-          isSettingOn: async (_db, id, key) => id === workspaceId && !options.off?.includes(key),
+          settingsOn: async (_db, id, keys) =>
+            new Set(id === workspaceId ? keys.filter((key) => !options.off?.includes(key)) : []),
           canUseClaude: async () => options.canUse ?? true,
         },
         fetch: async (_url, init) => {
           bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          await options.held;
           return replies.shift() ?? answer('Fine.');
         },
         sleep: async () => {},
@@ -200,7 +232,93 @@ describe.skipIf(!hasDatabase)('askClaude', () => {
     const down = () => new Response('{}', { status: 503 });
     const { workspaceId } = setUp({ replies: [down(), down(), down()] });
     expect(await outcome(askClaude(db, request(workspaceId, sam.id)))).toBe('unavailable');
-    expect(await usageOf(workspaceId)).toMatchObject([{ status: 'unavailable', inputTokens: 0 }]);
+    expect(await usageOf(workspaceId)).toMatchObject([
+      { status: 'unavailable', inputTokens: 0, outputTokens: 0 },
+    ]);
+  });
+
+  it('holds the monthly cap when many people ask at the same moment', async () => {
+    const people = await Promise.all(Array.from({ length: 10 }, () => createUser(db)));
+    const { workspaceId, bodies } = setUp({ monthlyRequests: 4 });
+    const outcomes = await Promise.all(
+      people.map((person) => outcome(askClaude(db, request(workspaceId, person.id)))),
+    );
+    expect(outcomes.filter((result) => result === 'sent')).toHaveLength(4);
+    expect(outcomes.filter((result) => result === 'monthly_cap')).toHaveLength(6);
+    expect(bodies).toHaveLength(4);
+    expect(await usageOf(workspaceId)).toHaveLength(4);
+  });
+
+  it("holds each person's limit when their requests arrive at the same moment", async () => {
+    const sam = await createUser(db);
+    const { workspaceId, bodies } = setUp();
+    await db.insert(claudeUsage).values(
+      Array.from({ length: PERSON_REQUESTS - 1 }, () => ({
+        workspaceId: randomUUID(),
+        userId: sam.id,
+        feature: 'assistant' as const,
+        status: 'ok' as const,
+        createdAt: new Date(),
+      })),
+    );
+    const outcomes = await Promise.all(
+      [1, 2, 3].map(() => outcome(askClaude(db, request(workspaceId, sam.id)))),
+    );
+    expect(outcomes.sort()).toEqual(['sent', 'user_rate_limit', 'user_rate_limit']);
+    expect(bodies).toHaveLength(1);
+  });
+
+  it('lets each person wait on only a few requests at once', async () => {
+    const sam = await createUser(db);
+    const riley = await createUser(db);
+    const claude = gate();
+    const { workspaceId, bodies } = setUp({ held: claude.opened });
+    const settled: string[] = [];
+    const asking = Array.from({ length: PERSON_IN_FLIGHT + 3 }, () =>
+      outcome(askClaude(db, request(workspaceId, sam.id))).then((result) => {
+        settled.push(result);
+        return result;
+      }),
+    );
+    await until(() => bodies.length === PERSON_IN_FLIGHT && settled.length === 3);
+    expect(settled).toEqual(['user_rate_limit', 'user_rate_limit', 'user_rate_limit']);
+    const waiting = await usageOf(workspaceId);
+    expect(waiting.map((row) => row.status)).toEqual(
+      Array.from({ length: PERSON_IN_FLIGHT }, () => 'pending'),
+    );
+    const rileyAsks = outcome(askClaude(db, request(workspaceId, riley.id)));
+    await until(() => bodies.length === PERSON_IN_FLIGHT + 1);
+
+    claude.open();
+    expect(await rileyAsks).toBe('sent');
+    const outcomes = await Promise.all(asking);
+    expect(outcomes.filter((result) => result === 'sent')).toHaveLength(PERSON_IN_FLIGHT);
+    expect(await outcome(askClaude(db, request(workspaceId, sam.id)))).toBe('sent');
+    const rows = await usageOf(workspaceId);
+    expect(rows).toHaveLength(PERSON_IN_FLIGHT + 2);
+    expect(rows.every((row) => row.status === 'ok' && row.inputTokens === 10)).toBe(true);
+  });
+
+  it("keeps the usage row when the caller's transaction rolls back", async () => {
+    const sam = await createUser(db);
+    const { workspaceId } = setUp();
+    const rolledBack = new Error('The caller changed its mind.');
+    await expect(
+      db.transaction(async (tx) => {
+        await askClaude(tx, request(workspaceId, sam.id));
+        throw rolledBack;
+      }),
+    ).rejects.toBe(rolledBack);
+    expect(await usageOf(workspaceId)).toMatchObject([{ status: 'ok', inputTokens: 10 }]);
+  });
+
+  it("sends nothing until the app's database is bound", async () => {
+    const sam = await createUser(db);
+    const { workspaceId, bodies } = setUp();
+    restores.push(configureClaude({ db: undefined }));
+    expect(await outcome(askClaude(db, request(workspaceId, sam.id)))).toBe('unavailable');
+    expect(bodies).toHaveLength(0);
+    expect(await usageOf(workspaceId)).toEqual([]);
   });
 
   it("checks JSON answers with the caller's schema", async () => {
@@ -253,5 +371,33 @@ describe.skipIf(!hasDatabase)('askClaude', () => {
         [randomUUID()],
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe('claudeFeaturesOn', () => {
+  it("reads the workspace's settings once for every feature", async () => {
+    let reads = 0;
+    const restore = configureClaude({
+      settings: () => ({
+        apiKey: KEY,
+        model: 'claude-test',
+        monthlyRequests: 3000,
+        url: CLAUDE_MESSAGES_URL,
+      }),
+      access: {
+        settingsOn: async () => {
+          reads += 1;
+          return new Set([CLAUDE_APPROVAL_KEY, claudeSwitchKey('writing_help')]);
+        },
+        canUseClaude: async () => true,
+      },
+    });
+    try {
+      const on = await claudeFeaturesOn({} as Db, randomUUID());
+      expect(reads).toBe(1);
+      expect(Object.entries(on).filter(([, isOn]) => isOn)).toEqual([['writing_help', true]]);
+    } finally {
+      restore();
+    }
   });
 });
