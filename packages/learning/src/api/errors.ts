@@ -1,7 +1,16 @@
 import { z } from 'zod';
 
-/** One problem with the input, e.g. `{ path: 'lessons[0].title', message: 'Add a title.' }`. */
-export const ApiIssueSchema = z.object({ path: z.string(), message: z.string() });
+/**
+ * One problem with the input, e.g. `{ path: 'lessons[0].title', message: 'Add a title.' }`. Publish problems
+ * also name the lesson, block and question they are in, so Studio can take the author there.
+ */
+export const ApiIssueSchema = z.object({
+  path: z.string(),
+  message: z.string(),
+  lessonId: z.string().optional(),
+  blockId: z.string().optional(),
+  questionId: z.string().optional(),
+});
 export type ApiIssue = z.infer<typeof ApiIssueSchema>;
 
 /**

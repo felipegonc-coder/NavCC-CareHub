@@ -1,6 +1,6 @@
 # Databases and Forms: plan and parts
 
-Goal: databases and forms match Notion option for option by **Fri Oct 30** (last PR open that day; anything not merged by Oct 31 is dropped). Core first, then depth. Every merge leaves `main` working. Read [README.md](README.md) (clean room, folders, toolkit) first. The v2 specs win over [additions.md](additions.md) (see its header).
+Goal: databases and forms match Notion option for option. Core first, then depth. Every merge leaves `main` working. Read [README.md](README.md) (clean room, folders, toolkit) first. The v2 specs win over [additions.md](additions.md) (see its header).
 
 ## Waves
 
@@ -128,12 +128,13 @@ Next free slots, in order:
 
 ## Wave 2: server (as soon as a working copy of main and the core APIs are there)
 
-Felipe's bar for Friday is "everything": a working basic version of every feature on main before any one is polished. Storage, routes and rights: [decision 0200](../decisions/0200-databases-storage-and-api.md).
+The bar is "everything": a working basic version of every feature on main before any one is polished. Storage, routes and rights: [decision 0200](../decisions/0200-databases-storage-and-api.md).
 
 - **db-server-schema**: migrations and Drizzle tables, DatabaseMeta for the viewer (property access applied), databases, properties (type changes, deleted-property restore), views, templates, access rules, lock, version conflicts, live `schema-changed`, share-link guard, seed data.
 - **db-server-rows**: rows (create with prefill and templates, edit, bulk edit, trash, restore, duplicate), value checks, two-way relations, ID numbers, manual order, row history, Person notices, events, live `rows-changed`, `api.ts` for Team tools, the row access resolver, `page.kindChanged`, search text.
 - **db-server-query**: query and chart routes on the view engine, a row cache per database, formulas and rollups (with loop guards and time budgets, big queries off the main thread), relation titles and the relation picker.
-- **db-server-jobs**: CSV and Excel import and export jobs (with Undo import), buttons (press and Undo), applying templates, repeating templates, date reminders.
+- **db-server-import-export** (W2-4): CSV and Excel import and export jobs (with Undo import), parsing in a worker with memory and time limits.
+- **db-server-automations** (W2-6): buttons (press and Undo), date reminders, applying templates, repeating templates.
 - **forms-server**: the form by link, submit (only mapped, shown questions), the gate (closed, full, one response), anonymous with nothing stored about the sender, notices, Change link. Forms anyone can fill in (public routes) and anonymous uploads, both off by default per form, under the security reviewer's conditions in decision 0200.
 
 Interfaces from other lanes (build against these; wire up when they're on main):
@@ -146,7 +147,7 @@ Interfaces from other lanes (build against these; wire up when they're on main):
 
 ## Wave 3: web (as soon as the web skeleton, design kit and slots are on main)
 
-Every colour, font, size and spacing comes from the design kit tokens; no one-off styles (Felipe restyles later). Use the test hooks in [decision 0200](../decisions/0200-databases-storage-and-api.md#web) so the Testing lane's flows can find things.
+Every colour, font, size and spacing comes from the design kit tokens; no one-off styles (restyled later). Use the test hooks in [decision 0200](../decisions/0200-databases-storage-and-api.md#web) so the Testing lane's flows can find things.
 
 - **db-web-shell**: database page and inline block (`nodeViews.database`, `packages/editor/src/lanes/databases.ts`), view tabs or dropdown, toolbar (New with templates, filter and sort chips, search, Share with Row access and Property access), empty, loading, blocked and error states, live refetch, "Changed for you only", the API client and data hooks.
 - **db-web-table**: the grid (resize, freeze, reorder, wrap, selection, keyboard, copy and paste, undo), totals footer, sub-items rows.

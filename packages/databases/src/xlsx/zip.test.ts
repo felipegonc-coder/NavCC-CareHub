@@ -160,6 +160,64 @@ describe('readZip refuses before inflating', () => {
   });
 });
 
+describe('readZip refuses as damaged, so that every zip reader sees the same files', () => {
+  it('names that repeat, ignoring case', () => {
+    const twice = (a: string, b: string) =>
+      problemOf([
+        { name: a, data: 'Avery Lin' },
+        { name: b, data: 'Jordan Park' },
+      ]);
+    expect(twice('xl/workbook.xml', 'XL/Workbook.xml')).toBe('damaged');
+    expect(twice('xl\\workbook.xml', 'xl/workbook.xml')).toBe('damaged');
+    expect(twice('xl/workbook.xml', 'xl/workbook.xml.rels')).toBe('ok');
+  });
+
+  it('local headers that disagree with the central directory', () => {
+    const entry = { name: 'xl/a.xml', data: REVIEWS };
+    expect(problemOf([{ ...entry, local: { name: 'xl/b.xml' } }])).toBe('damaged');
+    expect(problemOf([{ ...entry, local: { method: 8 } }])).toBe('damaged');
+    expect(problemOf([{ ...entry, local: { crc: 1 } }])).toBe('damaged');
+    expect(problemOf([{ ...entry, local: { size: 3 } }])).toBe('damaged');
+    // With a data descriptor, the local header has no CRC-32 or sizes to compare.
+    expect(problemOf([{ ...entry, dataDescriptor: true }])).toBe('ok');
+    expect(problemOf([{ ...entry, dataDescriptor: true, local: { name: 'xl/b.xml' } }])).toBe(
+      'damaged',
+    );
+  });
+
+  it('entries that share bytes with each other or the central directory', () => {
+    const a = { name: 'xl/a.xml', data: 'Avery Lin' };
+    const b = { name: 'xl/b.xml', data: 'Jordan Park' };
+    expect(problemOf([a, b, { ...b, name: 'xl/c.xml', centralOnly: true, offset: 0 }])).toBe(
+      'damaged',
+    );
+    // b's local header and data, hidden inside a's data.
+    const hidden = zipFile([b]).subarray(0, 30 + 8 + 11);
+    expect(problemOf([{ ...a, data: hidden }])).toBe('ok');
+    expect(
+      problemOf([
+        { ...a, data: hidden },
+        { ...b, centralOnly: true, offset: 30 + 8 },
+      ]),
+    ).toBe('damaged');
+    expect(problemOf([a, { ...b, compressedSize: 12 }])).toBe('damaged');
+  });
+
+  it('also when reading an entry', () => {
+    const zip = open(zipFile([{ name: 'xl/a.xml', data: 'Avery Lin' }]));
+    const entry = zip.entries[0];
+    if (!entry) throw new Error('no entry');
+    expect(readZipEntry(zip, { ...entry, name: 'xl/b.xml' }, inflate)).toEqual({
+      ok: false,
+      problem: 'damaged',
+    });
+    expect(readZipEntry(zip, { ...entry, method: 8 }, inflate)).toEqual({
+      ok: false,
+      problem: 'damaged',
+    });
+  });
+});
+
 describe('readZipEntry checks what it unpacks', () => {
   const entryProblem = (entry: FixtureEntry, inflater: InflateRaw = inflate) => {
     const zip = open(zipFile([entry]));

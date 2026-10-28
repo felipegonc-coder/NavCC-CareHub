@@ -2,7 +2,6 @@ import {
   addDays,
   expandAssignments,
   IsoDateSchema,
-  isoDateInTimeZone,
   myLearning,
   PersonIdSchema,
   type Assignment,
@@ -16,8 +15,8 @@ import {
   type MyLearningItem,
   type MyLearningResponse,
 } from '@carehub/learning';
-import { DEFAULT_TIME_ZONE } from '@carehub/shared';
 import type { z } from 'zod';
+import { LEARNING_DAY_ZONE, learningToday } from '../day';
 import { httpError } from '../errors';
 import type { AssignmentRow, AssignmentStore, LearnerRow, NewAssignmentRow } from './store';
 
@@ -68,22 +67,6 @@ export function bindAssignmentSources(sources: AssignmentSources | null): void {
 /** What `bindAssignmentSources` set, or null when the Learning API isn't running. */
 export function boundAssignmentSources(): AssignmentSources | null {
   return bound;
-}
-
-/** Today in `timeZone`, or in Care Hub's default zone when that isn't a known IANA zone. */
-export function todayIn(
-  timeZone: string | undefined,
-  now = new Date(),
-): { today: string; timeZone: string } {
-  const at = now.toISOString();
-  if (timeZone) {
-    try {
-      return { today: isoDateInTimeZone(at, timeZone), timeZone };
-    } catch {
-      // An unknown zone: fall back to the default below.
-    }
-  }
-  return { today: isoDateInTimeZone(at, DEFAULT_TIME_ZONE), timeZone: DEFAULT_TIME_ZONE };
 }
 
 type Actor = { userId: string; workspaceId: string };
@@ -358,7 +341,7 @@ export async function learnerAssignments(
       if (row.dueInDays !== null) {
         let start = since.get(`${row.id} ${learnerId}`);
         if (start === undefined) {
-          start = row.userIds.includes(learnerId) ? todayIn(undefined, row.createdAt).today : today;
+          start = row.userIds.includes(learnerId) ? learningToday(row.createdAt) : today;
           firstSeen.push({ assignmentId: row.id, userId: learnerId, since: start });
         }
         dueDate = addDays(start, row.dueInDays);
@@ -412,12 +395,15 @@ function entryOf(item: MyLearningItem<Course, Enrollment>): MyLearningEntry {
   };
 }
 
-/** One person's My learning (GET /me), from their own assignments and progress only. */
+/**
+ * One person's My learning (GET /me), from their own assignments and progress only. Finish times
+ * count as days in `timeZone` (on time or late): the Learning day's zone (decision 0317).
+ */
 export async function myLearningFor(
   sources: AssignmentSources,
   person: Actor,
   today: string,
-  timeZone: string,
+  timeZone: string = LEARNING_DAY_ZONE,
 ): Promise<MyLearningResponse> {
   const { userId, workspaceId } = person;
   const { assignments, progress } = await learnerAssignments(sources, workspaceId, today, userId);

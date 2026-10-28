@@ -86,6 +86,30 @@ describe('connections', () => {
     expect(tab.events()).toEqual([]);
   });
 
+  it('knows whether a user has a tab open', () => {
+    makeHub();
+    expect(hub.hasOpenTabs('user-avery')).toBe(false);
+    const first = hub.connect('user-avery', testSink().sink);
+    const second = hub.connect('user-avery', testSink().sink);
+    hub.connect('user-sam', testSink().sink);
+    expect(hub.hasOpenTabs('user-avery')).toBe(true);
+    first.disconnect();
+    expect(hub.hasOpenTabs('user-avery')).toBe(true);
+    second.disconnect();
+    expect(hub.hasOpenTabs('user-avery')).toBe(false);
+    expect(hub.hasOpenTabs('user-sam')).toBe(true);
+  });
+
+  it('stops counting a tab once it is dropped as a slow client', () => {
+    makeHub({ maxQueuedFrames: 1 });
+    const tab = testSink();
+    hub.connect('user-avery', tab.sink);
+    tab.accept = false;
+    for (const type of ['a', 'b', 'c']) hub.publishToUsers(['user-avery'], { type });
+    expect(tab.ended).toBe(true);
+    expect(hub.hasOpenTabs('user-avery')).toBe(false);
+  });
+
   it('ends every stream on closeAll', () => {
     makeHub();
     const tabs = [testSink(), testSink()];

@@ -166,6 +166,24 @@ describe('AppShell', () => {
     expect(screen.getByRole('navigation', { name: 'Sidebar' })).toBeVisible();
   });
 
+  it('shows the offline banner under the top bar while the browser is offline', () => {
+    const offline = "You're offline. Changes that need the server are paused.";
+    renderShell('/');
+    expect(screen.queryByText(offline)).not.toBeInTheDocument();
+
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    expect(screen.getByText(offline)).toBeVisible();
+
+    Reflect.deleteProperty(window.navigator, 'onLine');
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(screen.queryByText(offline)).not.toBeInTheDocument();
+  });
+
   it('shows Not found for a path nothing matches', () => {
     renderShell('/nowhere');
     expect(screen.getByRole('heading', { level: 1, name: 'Not found' })).toBeVisible();
