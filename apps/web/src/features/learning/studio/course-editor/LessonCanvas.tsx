@@ -7,6 +7,7 @@ import {
   moveBlockBy,
   renameLesson,
   updateBlock,
+  updateLesson,
   updateLessonDetails,
 } from '@carehub/learning';
 import type { Block, Course, Lesson } from '@carehub/learning';
@@ -16,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BlockEditorFor } from '../editors/registry';
 import { studioHelp } from '../help-slots';
 import { blockLabel } from '../labels';
+import { QuizLessonEditor } from '../quiz';
 import { BlockPicker } from './BlockPicker';
 import { NumberField, TitleField } from './parts';
 import { SortableList, useSortableItem } from './sortable';
@@ -143,7 +145,10 @@ function BlockCard({
   );
 }
 
-/** The selected lesson: its title and blocks, each with move, duplicate, delete and add-below. */
+/**
+ * The selected lesson: its title, then its blocks (each with move, duplicate, delete and add-below) or, for a quiz,
+ * the quiz editor.
+ */
 export function LessonCanvas(
   props: Pick<EditorActions, 'edit' | 'remove'> & {
     course: Course;
@@ -224,9 +229,13 @@ export function LessonCanvas(
         <LessonHelp course={course} lessonId={lesson.id} edit={edit} flush={props.flush} />
       )}
       {lesson.kind === 'quiz' ? (
-        <p className="rounded border border-border p-4 text-small text-muted">
-          Quiz questions and settings are edited here once the quiz editor is ready.
-        </p>
+        <QuizLessonEditor
+          lesson={lesson}
+          course={course}
+          onChange={(next) =>
+            edit((c) => updateLesson(c, lesson.id, () => next), { group: `quiz:${lesson.id}` })
+          }
+        />
       ) : (
         <>
           {blocks.length === 0 && (

@@ -1,6 +1,6 @@
 import { checkPublishable, sampleCourses } from '@carehub/learning';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StudioError } from '../data/client';
 import type { StudioClient } from '../data/client';
 import { StudioScreen } from '../index';
@@ -33,6 +33,22 @@ const editorOpened = () =>
       /^\/learning\/studio\/courses\/[^/]+$/,
     ),
   );
+
+/** GET /api/auth/me says the person's profile is in `timeZone`. Other requests get a 404. */
+function withProfileZone(timeZone: string) {
+  const me = JSON.stringify({ user: { id: 'user-kai', name: 'Kai Example', timeZone } });
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+    Promise.resolve(
+      input === '/api/auth/me'
+        ? new Response(me, { headers: { 'Content-Type': 'application/json' } })
+        : new Response(null, { status: 404 }),
+    ),
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('Studio course list', () => {
   it('is one screen with its title, and says how to start when there are no courses', async () => {
@@ -146,6 +162,26 @@ describe('Studio course list', () => {
       'Copy of Hand hygiene basics',
       'Hand hygiene basics',
     ]);
+  });
+
+  it("shows the day a course was edited in the person's time zone", async () => {
+    withProfileZone('Pacific/Honolulu');
+    const client = testStudioClient();
+    await client.createCourse({ type: 'standard', title: 'Hand hygiene basics' });
+    const [course] = await client.listCourses();
+    if (!course) throw new Error('Expected a course');
+    // The test clock's morning of 27 October in UTC is still the 26th in Honolulu, not in Denver.
+    const day = (timeZone: string) =>
+      new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone }).format(
+        new Date(course.updatedAt),
+      );
+    expect(day('Pacific/Honolulu')).not.toBe(day('America/Denver'));
+
+    renderStudio('/learning/studio', { client });
+    const link = await screen.findByRole('link', { name: 'Hand hygiene basics' });
+    await waitFor(() =>
+      expect(link.closest('li')).toHaveTextContent(`Edited ${day('Pacific/Honolulu')}`),
+    );
   });
 
   it('says what went wrong and tries again', async () => {

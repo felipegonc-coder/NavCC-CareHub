@@ -1,6 +1,7 @@
 import { Button, Field, Input } from '@carehub/ui';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
+import { LEARNING_DAY_ZONE, useProfileTimeZone } from '../../data/timeZone';
 import type { StudioCourseSummary } from '../data/client';
 import { useCourseAction, useStudioCourses } from '../data/queries';
 import type { CourseAction } from '../data/queries';
@@ -23,8 +24,6 @@ const DONE: Record<CourseAction, (title: string) => string> = {
   unarchive: (title) => `“${title}” is back with your courses.`,
 };
 
-const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
-
 /** Courses matching the filter and every word of the search. */
 function visible(courses: StudioCourseSummary[], filter: Filter, search: string) {
   const words = search.toLowerCase().split(/\s+/).filter(Boolean);
@@ -42,6 +41,12 @@ export function CourseList() {
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [done, setDone] = useState('');
+  // The day each course was last edited, in the person's profile zone (decision 0317).
+  const timeZone = useProfileTimeZone() ?? LEARNING_DAY_ZONE;
+  const dateFormat = useMemo(
+    () => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone }),
+    [timeZone],
+  );
   const courses = useStudioCourses(filter === 'archived');
   const action = useCourseAction();
   const shown = visible(courses.data ?? [], filter, search);
