@@ -1,11 +1,13 @@
-// HTTP for pages (decision 0007, section 4.1): making, opening and changing pages, and page
-// cards. Who may do what: Pages and blocks 5 and the Sidebar spec 5.
+// HTTP for pages (decision 0007, section 4.1): making, opening, changing and moving pages, and
+// page cards. Who may do what: Pages and blocks 5 and the Sidebar spec 5.
 import {
   atLeast,
   createPageSchema,
   hasPermission,
+  movePageSchema,
   pageCardsSchema,
   updatePageSchema,
+  type AccessChangeJson,
   type CreatePageInput,
   type PageCardsJson,
   type PageJson,
@@ -14,9 +16,26 @@ import {
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { httpError } from '../../core/errors';
-import { pageAccessOf, resolvePages, viewerFor, type Executor, type Viewer } from './access';
+import { recheckSubscriptions } from '../live';
+import {
+  pageAccessOf,
+  resolvePages,
+  resolveSpace,
+  viewerFor,
+  type Executor,
+  type Viewer,
+} from './access';
 import { cardsFor } from './cards';
-import { forbidden, notFound, spaceArchived } from './http';
+import { forbidden, invalid, notFound, spaceArchived } from './http';
+import { pageChanged, treeChanged } from './live';
+import {
+  lockMoves,
+  movePage,
+  ownAccessPages,
+  whoCanOpen,
+  type MovedPage,
+  type PageMove,
+} from './move';
 import { grantCreator, insertPage, readPage, updatePage } from './pages';
 import { spacePlace } from './spaces';
 
@@ -41,6 +60,72 @@ async function checkPlace(tx: Executor, viewer: Viewer, input: CreatePageInput) 
     if (space.archived) throw spaceArchived();
     if (space.ownersOnlyTopLevel && space.role !== 'owner' && !space.isAdmin) throw forbidden();
   }
+}
+
+/** Can edit where a moved page goes (Sidebar spec 5): on the parent, or at the space's top. */
+export async function checkTarget(tx: Executor, viewer: Viewer, move: PageMove) {
+  if (move.parentId === null) {
+    if (move.spaceId === undefined) throw invalid('Choose a page or a space to move it to.');
+    await checkPlace(tx, viewer, { spaceId: move.spaceId });
+    if (!atLeast(await resolveSpace(tx, viewer, move.spaceId), 'edit')) throw forbidden();
+    return;
+  }
+  await checkPlace(tx, viewer, { parentId: move.parentId });
+}
+
+const people = (count: number) => (count === 1 ? '1 person' : `${count} people`);
+
+/** 409 before a move that changes who can open the page (SB-04): the confirm's words. */
+function accessChange({ losing, gaining }: AccessChangeJson) {
+  const message =
+    gaining === 0
+      ? `${people(losing)} will lose access.`
+      : losing === 0
+        ? `${people(gaining)} will gain access.`
+        : `${people(losing)} will lose access and ${gaining} will gain it.`;
+  return httpError(409, 'conflict', message, { losing, gaining });
+}
+
+/**
+ * A move with every rule, for the move route and Trash's "Move to" (Sidebar spec 5): Can edit
+ * where it goes, the service's checks, and the 409 question when it changes who can open the page
+ * or a page under it that keeps its own access. Full access on the page is the caller's check.
+ */
+export async function checkedMove(
+  tx: Executor,
+  viewer: Viewer,
+  pageId: string,
+  move: PageMove,
+  confirmed: boolean,
+) {
+  await lockMoves(tx, pageId);
+  await checkTarget(tx, viewer, move);
+  const pages = await ownAccessPages(tx, pageId);
+  const before = await whoCanOpen(tx, pages);
+  const moved = await movePage(tx, pageId, move, viewer.userId);
+  const after = await whoCanOpen(tx, pages);
+  // People with a page they could open before and not after (and the other way round).
+  const dropped = (from: Set<string>, to: Set<string>) =>
+    new Set([...from].filter((pair) => !to.has(pair)).map((pair) => pair.split(' ')[1]!));
+  const losing = [...dropped(before, after)];
+  const gaining = dropped(after, before).size;
+  if (!confirmed && losing.length + gaining > 0) {
+    throw accessChange({ losing: losing.length, gaining });
+  }
+  return { moved, losing };
+}
+
+/** After a move's commit: `page.updated`, `page.kindChanged` if it changed kind, and nudges. */
+export function announceMove(app: FastifyInstance, moved: MovedPage, by: string): void {
+  const { pageId, workspaceId, from, to } = moved;
+  const changes = (['spaceId', 'parentId', 'kind'] as const).filter((key) => from[key] !== to[key]);
+  app.events.emit('page.updated', { pageId, workspaceId, by, changes: [...changes, 'position'] });
+  if (from.kind !== to.kind) {
+    app.events.emit('page.kindChanged', { pageId, workspaceId, from: from.kind, to: to.kind, by });
+  }
+  treeChanged(from.spaceId);
+  if (to.spaceId !== from.spaceId) treeChanged(to.spaceId);
+  pageChanged(pageId);
 }
 
 export function pageRoutes(app: FastifyInstance): void {
@@ -82,6 +167,7 @@ export function pageRoutes(app: FastifyInstance): void {
       kind,
       by: viewer.userId,
     });
+    treeChanged(spaceId);
     return reply.code(201).send(await readPage(db, viewer, pageId, page.level));
   });
 
@@ -104,9 +190,29 @@ export function pageRoutes(app: FastifyInstance): void {
       if (rows[0]?.locked && !unlocking && named.some((key) => key !== 'locked')) throw locked();
       await updatePage(tx, pageId, changes, viewer.userId);
     });
+    const page = await readPage(db, viewer, pageId, level);
     if (named.length > 0) {
       app.events.emit('page.updated', { pageId, workspaceId, by: viewer.userId, changes: named });
+      pageChanged(pageId);
+      const inTree = page.kind !== 'row' && !page.isInline;
+      if (inTree && (named.includes('title') || named.includes('icon'))) treeChanged(page.spaceId);
     }
+    return page;
+  });
+
+  // Full access on the page and Can edit where it goes. Rows and inline databases move too (the
+  // database's and the editor's "Move to"), with everything under them.
+  const canMove = { preHandler: app.requirePageAccess('full') };
+  app.post('/api/pages/:id/move', canMove, async (request): Promise<PageJson> => {
+    const { confirmAccessChange = false, ...move } = movePageSchema.parse(request.body);
+    const { pageId } = pageAccessOf(request);
+    const viewer = await viewerFor(request);
+    const { moved, losing } = await db.transaction((tx) =>
+      checkedMove(tx, viewer, pageId, move, confirmAccessChange),
+    );
+    announceMove(app, moved, viewer.userId);
+    for (const userId of losing) void recheckSubscriptions(userId);
+    const level = (await resolvePages(db, viewer, [pageId])).get(pageId)?.level ?? 'none';
     return readPage(db, viewer, pageId, level);
   });
 
