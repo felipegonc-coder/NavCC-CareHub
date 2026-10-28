@@ -13,12 +13,6 @@ function unwrap<T>(reply: unknown, key: string): T {
   return reply as T;
 }
 
-/** The signed-in person's user ID (GET /api/auth/me). */
-export async function myUserId(page: Page): Promise<string> {
-  const me = await (await apiFor(page)).get<{ user: { id: string } }>('/api/auth/me');
-  return me.user.id;
-}
-
 /** A fictional page in the person's private space. Returns its ID. */
 export async function createPage(page: Page, title: string): Promise<string> {
   type Space = { id: string; kind?: string; type?: string; name?: string };
