@@ -4,10 +4,12 @@ import { ClaudeError } from './errors';
 import type { ClaudeRuntime } from './runtime';
 
 // The only code that calls Claude (docs/extras/claude.md, "Security rules"): the built-in fetch,
-// redirects refused, a 30 s timeout, no tools, and a log line with only a status and an error type.
+// redirects refused, 60 s for the whole request with its retries, no tools, and a log line with
+// only a status and an error type.
 
 export const ANTHROPIC_VERSION = '2023-06-01';
-export const REQUEST_TIMEOUT_MS = 30_000;
+/** How long a request waits for Claude, retries included (Claude features spec, section 3.6). */
+export const REQUEST_TIMEOUT_MS = 60_000;
 /** 429 and 5xx are tried again at most this many times. Other 4xx answers never are. */
 export const MAX_RETRIES = 2;
 const BACKOFF_MS = [1_000, 3_000];
@@ -47,13 +49,15 @@ export async function sendToClaude(
     messages: [{ role: 'user', content: request.user }],
   });
 
+  const deadline = runtime.now().getTime() + REQUEST_TIMEOUT_MS;
+  const timeLeft = () => deadline - runtime.now().getTime();
   for (let attempt = 0; ; attempt += 1) {
     let response: Response;
     try {
       response = await runtime.fetch(url, {
         method: 'POST',
         redirect: 'error',
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(Math.max(1, timeLeft())),
         headers: {
           'content-type': 'application/json',
           'anthropic-version': ANTHROPIC_VERSION,
@@ -69,8 +73,10 @@ export async function sendToClaude(
     if (response.ok) return readReply(runtime, response);
 
     logFailure(runtime, response.status, await errorType(response));
-    if (isRetryable(response.status) && attempt < MAX_RETRIES) {
-      await runtime.sleep(retryDelay(response, attempt));
+    const delay = retryDelay(response, attempt);
+    // No retry once its wait would use up what's left of the 60 s.
+    if (isRetryable(response.status) && attempt < MAX_RETRIES && delay < timeLeft()) {
+      await runtime.sleep(delay);
       continue;
     }
     throw new ClaudeError(reasonFor(response.status));
