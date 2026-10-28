@@ -5,6 +5,8 @@ export interface MeasuredRow {
   rowId: Id;
   top: number;
   bottom: number;
+  /** false: a dragged row can't land right before it (sub-items in a nested view). */
+  place?: boolean;
 }
 
 /** The whole list or one group as drawn, px from the table's top edge (header to last button). */
@@ -47,14 +49,15 @@ export function rowDropAt(
   const section =
     sections.find((s) => y >= s.top && y < s.bottom) ?? (y < first.top ? first : last);
   const rows = section.rows;
-  if (!manual || rows.length === 0) {
+  const before = rows.filter((r) => r.place !== false);
+  if (!manual || before.length === 0) {
     return {
       sectionKey: section.key,
       beforeRowId: null,
       mark: { kind: 'box', top: section.top, bottom: section.bottom },
     };
   }
-  const places: { beforeRowId: Id | null; y: number }[] = rows.map((r) => ({
+  const places: { beforeRowId: Id | null; y: number }[] = before.map((r) => ({
     beforeRowId: r.rowId,
     y: r.top,
   }));

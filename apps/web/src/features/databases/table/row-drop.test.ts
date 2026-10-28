@@ -48,6 +48,19 @@ describe('rowDropAt', () => {
     expect(rowDropAt([more], 150, true)?.beforeRowId).toBe('drain');
   });
 
+  it('skips rows a dragged row cannot land before (sub-items), but ends after the last line', () => {
+    const nested: MeasuredSection = {
+      ...todo,
+      rows: todo.rows.map((r) => (r.rowId === 'drain' ? { ...r, place: false } : r)),
+    };
+    expect(rowDropAt([nested], 78, true)?.beforeRowId).toBe('tap');
+    expect(rowDropAt([nested], 70, true)?.beforeRowId).toBe('boiler');
+    expect(rowDropAt([nested], 150, true)).toMatchObject({
+      beforeRowId: null,
+      mark: { kind: 'line', y: 148 },
+    });
+  });
+
   it('only picks the group when sorted, or when the group shows no rows', () => {
     expect(rowDropAt([todo, done], 60, false)).toEqual({
       sectionKey: 'todo',
