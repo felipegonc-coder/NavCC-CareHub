@@ -122,18 +122,23 @@ course) calls Extras' shared Claude client on the server: `askClaude`, `askClaud
 Its feature key is `learning_help` (workspace setting `claude.learning_help`). The whole Care Hub has one key, one
 monthly cap, one usage log split by feature, and one admin page (Settings → Claude).
 - Off by default. While it's off, Learning shows no Claude buttons.
-- Authors only (`learning.author`), in Studio. The shared client also needs `claude.use`.
+- Authors only (`learning.build`), in Studio. The shared client also needs `claude.use`.
 - The server loads the course text itself, by course, lesson and block id, after Learning's own access check, and
   passes it as `documents`. It never sends text the browser says came from a course, so Studio saves the draft first.
 - Only course content is sent: titles, lesson and block text. Never learner names, emails, answers, scores or
   progress.
 - Summaries, key points, quiz questions and course drafts use `askClaudeJson` with Learning's own zod schemas, then
-  the normal course checks. The reply is untrusted text: no raw HTML, links go through `safeHref`, and nothing is
-  saved until the author accepts it.
+  the normal course checks. The reply is untrusted text: no raw HTML, a link in it keeps only its text, and nothing
+  is saved until the author accepts it.
 - A `ClaudeError` is answered with the shared client's `claudeHttpError(reason)`: its status, code and plain
   words, plus `details: { reason }`.
 - Writing help on part of a block passes it as `selection`, cut on the server from the saved block text: the
   browser sends the block id and where the selection starts and ends in its plain text, never the text itself.
+- Every help request carries the draft's `revision`, and the server answers 409 when the saved draft has changed
+  since, so the selection always matches the saved text.
+- A first draft of a course starts from the author's own short description (with a length cap), sent as their
+  instruction, never as a document. Drafting from a knowledge-base page waits until Pages has a page loader with
+  its access checks on main.
 
 ## 0316 · Right answers go out only after an attempt, in the paper's ids
 Adds to 0302 and 0314.
