@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GROUP_WINDOW_MS, groupLockKey, planNotice } from './grouping';
+import { chatLockKey, GROUP_WINDOW_MS, planNotice } from './grouping';
 
 const noticeId = '3f1c2d4e-0000-4000-8000-00000000a001';
 const latestAt = new Date('2026-10-27T09:00:00.000Z');
@@ -36,20 +36,18 @@ describe('planNotice', () => {
   });
 });
 
-describe('groupLockKey', () => {
-  it('is different for each person, workspace and key', () => {
-    const notice = {
+describe('chatLockKey', () => {
+  it('is different for each person and workspace, and the same for the same chat', () => {
+    const chat = {
       workspaceId: '3f1c2d4e-0000-4000-8000-00000000c0de',
       userId: '3f1c2d4e-0000-4000-8000-0000000a7e51',
-      groupKey: 'comments:page-1',
     };
     const keys = new Set([
-      groupLockKey(notice),
-      groupLockKey({ ...notice, userId: '3f1c2d4e-0000-4000-8000-00000000005a' }),
-      groupLockKey({ ...notice, workspaceId: '3f1c2d4e-0000-4000-8000-00000000c0df' }),
-      groupLockKey({ ...notice, groupKey: 'comments:page-2' }),
+      chatLockKey(chat),
+      chatLockKey({ ...chat, userId: '3f1c2d4e-0000-4000-8000-00000000005a' }),
+      chatLockKey({ ...chat, workspaceId: '3f1c2d4e-0000-4000-8000-00000000c0df' }),
     ]);
-    expect(keys.size).toBe(4);
-    expect(groupLockKey(notice)).toBe(groupLockKey({ ...notice }));
+    expect(keys.size).toBe(3);
+    expect(chatLockKey({ ...chat })).toBe(chatLockKey(chat));
   });
 });

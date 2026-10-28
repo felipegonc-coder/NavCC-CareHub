@@ -1,9 +1,11 @@
+import { timePart, toCivil } from '@carehub/team-time';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { errorHandler } from '../../core/errors';
+import { createTestApp, createUser, hasDatabase, injectAs } from '../../testing';
 import { createTestSubscription, type TestSubscription } from './protocol/testing';
 import { generateVapidKeys } from './protocol/vapid';
-import pushRoutes from './routes';
+import pushRoutes, { TEST_COOLDOWN_MS } from './routes';
 import { PUSH_OFF_MESSAGE, resolvePushConfig, type PushConfig } from './settings';
 import { createMemoryPushStore, type MemoryPushStore } from './testing';
 
@@ -15,7 +17,8 @@ const endpoint = 'https://fcm.googleapis.com/fcm/send/fictional-laptop';
 
 let app: FastifyInstance | undefined;
 let store: MemoryPushStore;
-const clock = Date.UTC(2026, 9, 27, 15, 0);
+let clock = Date.UTC(2026, 9, 27, 15, 0);
+const sent: { endpoint: string; body: Uint8Array }[] = [];
 
 function on(): PushConfig {
   const keys = generateVapidKeys();
@@ -28,6 +31,7 @@ function on(): PushConfig {
 
 async function build(config: PushConfig = on()): Promise<FastifyInstance> {
   store = createMemoryPushStore();
+  sent.length = 0;
   app = Fastify();
   app.setErrorHandler(errorHandler);
   await app.register(pushRoutes, {
@@ -35,23 +39,33 @@ async function build(config: PushConfig = on()): Promise<FastifyInstance> {
     store,
     config,
     now: () => new Date(clock),
+    fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+      sent.push({ endpoint: String(input), body: init?.body as Uint8Array });
+      return new Response(null, { status: 201 });
+    }) as typeof fetch,
     getUserId: (request) => {
       const user = request.headers['x-test-user'];
       return typeof user === 'string' ? user : null;
+    },
+    getTimeZone: (request) => {
+      const zone = request.headers['x-test-zone'];
+      return typeof zone === 'string' ? zone : null;
     },
   });
   return app;
 }
 
 function call(
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   url: string,
   user?: string,
   body?: Record<string, unknown>,
+  timeZone?: string,
 ) {
   if (!app) throw new Error('Call build() first.');
   const headers: Record<string, string> = { 'user-agent': chrome };
   if (user) headers['x-test-user'] = user;
+  if (timeZone) headers['x-test-zone'] = timeZone;
   return app.inject({
     method,
     url: `/api/push${url}`,
@@ -81,7 +95,10 @@ describe('push routes', () => {
       ['GET', '/key'],
       ['GET', '/subscriptions'],
       ['DELETE', '/subscriptions'],
+      ['POST', '/test'],
       ['GET', '/preferences'],
+      ['PUT', '/pause'],
+      ['DELETE', '/pause'],
     ] as const) {
       const response = await call(method, url);
       expect(response.statusCode, url).toBe(401);
@@ -148,6 +165,9 @@ describe('/api/push/subscriptions', () => {
     expect(response.json()).toMatchObject({
       error: { code: 'conflict', message: PUSH_OFF_MESSAGE },
     });
+    const test = await call('POST', '/test', avery);
+    expect(test.statusCode).toBe(409);
+    expect(test.json()).toMatchObject({ error: { message: PUSH_OFF_MESSAGE } });
   });
 
   it('deletes this browser by endpoint, and another device by id', async () => {
@@ -164,19 +184,156 @@ describe('/api/push/subscriptions', () => {
   });
 });
 
+describe('POST /api/push/test', () => {
+  it("sends a test notification to the person's browsers, then waits before another", async () => {
+    await build();
+    const browser = createTestSubscription();
+    await subscribe(avery, browser);
+    const response = await call('POST', '/test', avery);
+    expect(response.json()).toEqual({ sent: 1, removed: 0, failed: 0 });
+    expect(sent.map((request) => request.endpoint)).toEqual([endpoint]);
+    expect(
+      JSON.parse(new TextDecoder().decode(browser.decrypt(sent[0]?.body ?? new Uint8Array()))),
+    ).toEqual({
+      title: 'Care Hub',
+      body: 'Test notification · Notifications work on this device.',
+      url: '/settings/notifications',
+      tag: 'push-test',
+    });
+    const again = await call('POST', '/test', avery);
+    expect(again.statusCode).toBe(429);
+    expect(again.json()).toMatchObject({ error: { code: 'rate_limited' } });
+    expect((await call('POST', '/test', sam)).json()).toEqual({ sent: 0, removed: 0, failed: 0 });
+    clock += TEST_COOLDOWN_MS;
+    expect((await call('POST', '/test', avery)).statusCode).toBe(200);
+  });
+});
+
 describe('/api/push/preferences', () => {
   it('starts from the defaults and changes only what is sent', async () => {
     await build();
     expect((await call('GET', '/preferences', avery)).json()).toEqual({
-      preferences: { notifyAbout: 'all', showText: true },
+      preferences: { notifyAbout: 'all', showText: true, pause: null },
     });
     const changed = await call('PATCH', '/preferences', avery, { showText: false });
-    expect(changed.json()).toEqual({ preferences: { notifyAbout: 'all', showText: false } });
+    expect(changed.json()).toEqual({
+      preferences: { notifyAbout: 'all', showText: false, pause: null },
+    });
     expect((await call('GET', '/preferences', avery)).json()).toEqual(changed.json());
     expect((await call('GET', '/preferences', sam)).json()).toEqual({
-      preferences: { notifyAbout: 'all', showText: true },
+      preferences: { notifyAbout: 'all', showText: true, pause: null },
     });
     const unknown = await call('PATCH', '/preferences', avery, { notifyAbout: 'everything' });
     expect(unknown.statusCode).toBe(400);
+  });
+});
+
+describe('/api/push/pause', () => {
+  const HOUR = 60 * 60 * 1000;
+  const pauseOf = async (user: string) =>
+    (await call('GET', '/preferences', user)).json().preferences.pause;
+
+  beforeEach(() => {
+    clock = Date.UTC(2026, 9, 27, 15, 0); // 9:00 AM in Denver
+  });
+
+  it('pauses for an hour, which then reads as no pause', async () => {
+    await build();
+    const until = new Date(clock + HOUR).toISOString();
+    const paused = await call('PUT', '/pause', avery, { ends: 'in_an_hour' });
+    expect(paused.json()).toEqual({
+      preferences: { notifyAbout: 'all', showText: true, pause: { until } },
+    });
+    expect(await pauseOf(avery)).toEqual({ until });
+    expect(await pauseOf(sam)).toBeNull();
+    clock += HOUR;
+    expect(await pauseOf(avery)).toBeNull();
+  });
+
+  it("pauses until 8:00 AM tomorrow in the person's time zone", async () => {
+    await build();
+    const london = await call('PUT', '/pause', sam, { ends: 'tomorrow_8am' }, 'Europe/London');
+    expect(london.json().preferences.pause).toEqual({ until: '2026-10-28T08:00:00.000Z' });
+    // Without a time zone: America/Denver.
+    const denver = await call('PUT', '/pause', avery, { ends: 'tomorrow_8am' });
+    expect(denver.json().preferences.pause).toEqual({ until: '2026-10-28T14:00:00.000Z' });
+  });
+
+  it('pauses until turned back on, also while push is off, and turns back on', async () => {
+    await build(resolvePushConfig({}));
+    await call('PATCH', '/preferences', avery, { notifyAbout: 'mentions' });
+    const paused = await call('PUT', '/pause', avery, { ends: 'when_turned_on' });
+    expect(paused.json().preferences.pause).toEqual({ until: null });
+    clock += 30 * 24 * HOUR;
+    expect(await pauseOf(avery)).toEqual({ until: null });
+    const resumed = await call('DELETE', '/pause', avery);
+    expect(resumed.json()).toEqual({
+      preferences: { notifyAbout: 'mentions', showText: true, pause: null },
+    });
+    expect(await pauseOf(avery)).toBeNull();
+  });
+
+  it('still sends the test notification, which the person asked for', async () => {
+    await build();
+    await subscribe(avery, createTestSubscription());
+    await call('PUT', '/pause', avery, { ends: 'when_turned_on' });
+    const response = await call('POST', '/test', avery);
+    expect(response.json()).toEqual({ sent: 1, removed: 0, failed: 0 });
+  });
+
+  it('refuses other lengths, and settings changes leave a pause alone', async () => {
+    await build();
+    for (const body of [{ ends: 'forever' }, { until: '2026-10-27T16:00:00.000Z' }, {}]) {
+      const refused = await call('PUT', '/pause', avery, body);
+      expect(refused.statusCode, JSON.stringify(body)).toBe(400);
+      expect(refused.json()).toMatchObject({ error: { code: 'invalid' } });
+    }
+    const viaSettings = await call('PATCH', '/preferences', avery, { pause: null });
+    expect(viaSettings.statusCode).toBe(400);
+    expect(await pauseOf(avery)).toBeNull();
+
+    await call('PUT', '/pause', avery, { ends: 'in_an_hour' });
+    await call('PATCH', '/preferences', avery, { showText: false });
+    expect(await pauseOf(avery)).toEqual({ until: new Date(clock + HOUR).toISOString() });
+  });
+});
+
+describe.skipIf(!hasDatabase)('/api/push in the app', () => {
+  it('is registered behind sign-in, with push off until the keys are set', async () => {
+    const testApp = await createTestApp();
+    try {
+      const riley = await createUser(testApp.db, { name: 'Riley Chen' });
+      const signedOut = await testApp.app.inject({ method: 'GET', url: '/api/push/key' });
+      expect(signedOut.statusCode).toBe(401);
+      const key = await injectAs(testApp.app, riley, { method: 'GET', url: '/api/push/key' });
+      expect(key.json()).toEqual({ publicKey: null });
+      const saved = await injectAs(testApp.app, riley, {
+        method: 'PATCH',
+        url: '/api/push/preferences',
+        payload: { notifyAbout: 'mentions' },
+      });
+      expect(saved.json()).toEqual({
+        preferences: { notifyAbout: 'mentions', showText: true, pause: null },
+      });
+      // Riley has the default time zone, America/Denver.
+      const paused = await injectAs(testApp.app, riley, {
+        method: 'PUT',
+        url: '/api/push/pause',
+        payload: { ends: 'tomorrow_8am' },
+      });
+      const { until } = paused.json().preferences.pause;
+      expect(timePart(toCivil(new Date(until), 'America/Denver'))).toBe('08:00');
+      const resumed = await injectAs(testApp.app, riley, {
+        method: 'DELETE',
+        url: '/api/push/pause',
+      });
+      expect(resumed.json().preferences).toEqual({
+        notifyAbout: 'mentions',
+        showText: true,
+        pause: null,
+      });
+    } finally {
+      await testApp.close();
+    }
   });
 });

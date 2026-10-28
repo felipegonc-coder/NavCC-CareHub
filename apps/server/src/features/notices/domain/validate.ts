@@ -14,7 +14,9 @@ export const NOTICE_LIMITS = {
   text: 4000,
   icon: 32,
   groupKey: 200,
+  idempotencyKey: 200,
   buttons: 3,
+  cards: 3,
   buttonLabel: 40,
   href: 500,
   action: 100,
@@ -44,9 +46,14 @@ export interface ValidNotice {
   icon: string | null;
   title: string;
   text: string | null;
+  /** The first card (from `card` or `cards`). */
   card: NoticeCard | null;
+  /** The second and third cards, in order: empty with one card or none. */
+  extraCards: NoticeCard[];
   buttons: NoticeButton[];
+  /** Always null for a mention: mentions never group. */
   groupKey: string | null;
+  idempotencyKey: string | null;
 }
 
 const ORIGIN = 'https://carehub.invalid';
@@ -142,11 +149,17 @@ export const sendNoticeInputSchema = z.strictObject({
   title: notBlank(NOTICE_LIMITS.title),
   text: optionalText(NOTICE_LIMITS.text),
   card: card.optional(),
+  cards: z
+    .array(card)
+    .min(1, 'Leave cards out for a notice without cards.')
+    .max(NOTICE_LIMITS.cards, `At most ${NOTICE_LIMITS.cards} cards.`)
+    .optional(),
   buttons: z
     .array(button)
     .max(NOTICE_LIMITS.buttons, `At most ${NOTICE_LIMITS.buttons} buttons.`)
     .optional(),
   groupKey: optionalText(NOTICE_LIMITS.groupKey),
+  idempotencyKey: optionalText(NOTICE_LIMITS.idempotencyKey),
 });
 
 const blankToNull = (value: string | undefined): string | null =>
@@ -161,6 +174,10 @@ export function parseSendNoticeInput(input: unknown): ValidNotice {
     );
   }
   const notice = result.data;
+  if (notice.card && notice.cards) {
+    throw new NoticeInputError(['cards: Use card or cards, not both.']);
+  }
+  const [first = null, ...extraCards] = notice.cards ?? (notice.card ? [notice.card] : []);
   return {
     workspaceId: notice.workspaceId,
     userId: notice.userId,
@@ -170,8 +187,11 @@ export function parseSendNoticeInput(input: unknown): ValidNotice {
     icon: blankToNull(notice.icon),
     title: notice.title,
     text: blankToNull(notice.text),
-    card: notice.card ?? null,
+    card: first,
+    extraCards,
     buttons: notice.buttons ?? [],
-    groupKey: blankToNull(notice.groupKey),
+    // Each mention is its own notice (Comments and mentions CM-08).
+    groupKey: notice.kind === 'mention' ? null : blankToNull(notice.groupKey),
+    idempotencyKey: blankToNull(notice.idempotencyKey),
   };
 }
