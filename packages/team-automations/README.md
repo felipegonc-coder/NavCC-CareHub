@@ -1,8 +1,8 @@
 # @carehub/team-automations
 
 Automations for the Team tools lane: the parts both the server and the web app need. Spec:
-Automations (v2). There are three: schedules (`schedule`), what an automation is made of
-(`automation`) and the checks on saving one (`validate`).
+Automations (v2). There are four: schedules (`schedule`), what an automation is made of
+(`automation`), the checks on saving one (`validate`) and what the API answers (`api`).
 
 Import by file, such as `@carehub/team-automations/schedule`. Everything is pure, built on
 `@carehub/team-time` and zod; the caller passes `now`.
@@ -59,6 +59,7 @@ Triggers and actions are stored as JSON, so new kinds need no migration.
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `automationInput`                     | The zod schema for a new automation. It fills in `enabled: true`, no conditions and no variables                                                                                                           |
 | `automationChanges`                   | The same fields, each one optional, for a change                                                                                                                                                           |
+| `automationListQuery`                 | The list's filters from the query string: `databaseId`, `ownerUserId`, `enabled` (`'true'` or `'false'`)                                                                                                   |
 | `automationProblems(automation, now)` | The rules zod can't check, each with its field's `path`: `'Pick at least one recipient.'`, `'Write a message.'`, `'Conditions need a database trigger.'`, `'A Person property needs a database trigger.'`… |
 | `Problem`, `AutomationInput`          | The types                                                                                                                                                                                                  |
 
@@ -66,3 +67,10 @@ Zod's own messages are worded for the editor too: `'Give it a name.'`, `'Add at 
 `'Add up to 10 actions.'`… Schedule problems come from `scheduleProblems`. A time or end date
 that has passed counts only while the automation is on, so a finished Once automation can still be
 renamed.
+
+## API answers: `api`
+
+What `/api/automations` sends, with times as ISO strings: `AutomationView` (the automation, its
+`nextRunAt`, `pausedReason` and `lastRun`), `RunView` (a run in the history: kind, times, result,
+source, steps, recipients and error) and the bodies `AutomationListResponse` (`{ automations }`),
+`AutomationResponse` (`{ automation }`) and `RunListResponse` (`{ runs }`).

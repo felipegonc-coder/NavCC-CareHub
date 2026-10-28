@@ -9,6 +9,7 @@ import { useStudioDraft } from '../data/queries';
 import { previewPath } from '../labels';
 import { courseEditorReducer, initCourseEditor } from '../state/course-editor';
 import { ErrorState, LoadingState } from '../states';
+import { CourseSettings } from './CourseSettings';
 import { LessonCanvas } from './LessonCanvas';
 import { Outline } from './Outline';
 import { SaveState, UndoNotice } from './parts';
@@ -35,8 +36,10 @@ function Editor({ draft }: { draft: StudioDraft }) {
   const course = state.history.present;
   const saving = useDraftAutosave(course.id, draft.revision, course);
   const [notice, setNotice] = useState<{ message: string; after: Course } | null>(null);
+  const [view, setView] = useState<'lesson' | 'settings'>('lesson');
 
   const edit = useCallback<EditorActions['edit']>((change, options: EditOptions = {}) => {
+    if (options.select?.lessonId) setView('lesson');
     dispatch({ type: 'edit', edit: change, at: Date.now(), ...options });
   }, []);
   const actions: EditorActions = {
@@ -47,7 +50,10 @@ function Editor({ draft }: { draft: StudioDraft }) {
       dispatch({ type: 'edit', edit: () => next });
       setNotice({ message, after: next });
     },
-    select: (lessonId) => dispatch({ type: 'select', lessonId }),
+    select: (lessonId) => {
+      setView('lesson');
+      dispatch({ type: 'select', lessonId });
+    },
   };
   const preview = async () => {
     await saving.flush();
@@ -115,14 +121,24 @@ function Editor({ draft }: { draft: StudioDraft }) {
         </div>
       )}
       <div className="flex flex-1 flex-col md:flex-row">
-        <Outline {...actions} course={course} lessonId={state.lessonId} />
-        <LessonCanvas
-          key={state.lessonId}
+        <Outline
           {...actions}
           course={course}
-          lesson={course.lessons.find((lesson) => lesson.id === state.lessonId)}
-          blockId={state.blockId}
+          lessonId={view === 'lesson' ? state.lessonId : null}
+          settingsOpen={view === 'settings'}
+          onSettings={() => setView('settings')}
         />
+        {view === 'settings' ? (
+          <CourseSettings course={course} edit={edit} />
+        ) : (
+          <LessonCanvas
+            key={state.lessonId}
+            {...actions}
+            course={course}
+            lesson={course.lessons.find((lesson) => lesson.id === state.lessonId)}
+            blockId={state.blockId}
+          />
+        )}
       </div>
     </main>
   );

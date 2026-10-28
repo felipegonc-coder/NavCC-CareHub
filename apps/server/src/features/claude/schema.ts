@@ -1,9 +1,9 @@
 import { CLAUDE_ERROR_REASONS, CLAUDE_FEATURES } from '@carehub/extras/claude';
-import { integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from '../auth/schema';
 
-// Mirrors migrations/202610271330_claude_usage.sql, which is the source of truth (schema.test.ts
-// compares them).
+// Mirrors migrations/202610271330_claude_usage.sql and 202610271400_claude_settings.sql, which are
+// the source of truth (server/ask.test.ts and server/admin.test.ts compare them).
 
 /** 'ok', or why a request that was sent failed. */
 export const CLAUDE_USAGE_STATUSES = ['ok', ...CLAUDE_ERROR_REASONS] as const;
@@ -20,3 +20,16 @@ export const claudeUsage = pgTable('claude_usage', {
   outputTokens: integer('output_tokens').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** stand-in for workspace settings: claude.workspaceApproved, claude.<feature> and more. */
+export const claudeSettings = pgTable(
+  'claude_settings',
+  {
+    workspaceId: uuid('workspace_id').notNull(),
+    key: text('key').notNull(),
+    value: jsonb('value').notNull(),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.key] })],
+);

@@ -2,10 +2,11 @@
 import { randomUUID } from 'node:crypto';
 import { matchesFilter } from './domain/filters';
 import { planNotice } from './domain/grouping';
+import { DEFAULT_NOTICE_SETTINGS, pickNoticeSettings } from './domain/settings';
 import type { ValidNotice } from './domain/validate';
 import { isNoticeOwner, type NoticeRecord } from './domain/view';
 import { bindNoticesRuntime, type NoticeScope, type NoticeStore } from './service';
-import type { SendNoticeResult } from './types';
+import type { NoticeSettings, SendNoticeResult } from './types';
 
 export type MemoryNoticeStore = NoticeStore & { readonly records: NoticeRecord[] };
 
@@ -23,6 +24,9 @@ export function createMemoryNoticeStore(): MemoryNoticeStore {
   const records: NoticeRecord[] = [];
   /** Idempotency keys, by JSON `[userId, workspaceId, key]`, and the notice each one sent. */
   const keys = new Map<string, string>();
+  /** Notice settings, by JSON `[userId, workspaceId]`. */
+  const settings = new Map<string, NoticeSettings>();
+  const settingsKey = (scope: NoticeScope) => JSON.stringify([scope.userId, scope.workspaceId]);
   let lastPosition = 0;
   const chat = (scope: NoticeScope) =>
     records
@@ -114,6 +118,18 @@ export function createMemoryNoticeStore(): MemoryNoticeStore {
     async get(noticeId) {
       const record = records.find((candidate) => candidate.id === noticeId);
       return record ? { ...record } : null;
+    },
+    async getSettings(scope) {
+      return { ...(settings.get(settingsKey(scope)) ?? DEFAULT_NOTICE_SETTINGS) };
+    },
+    async changeSettings(scope, change) {
+      // Only the switches: whatever else the change carries is left out.
+      const changed = {
+        ...(settings.get(settingsKey(scope)) ?? DEFAULT_NOTICE_SETTINGS),
+        ...pickNoticeSettings(change),
+      };
+      settings.set(settingsKey(scope), changed);
+      return { ...changed };
     },
   };
 }
