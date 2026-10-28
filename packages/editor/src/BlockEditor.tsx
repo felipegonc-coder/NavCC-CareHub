@@ -22,6 +22,11 @@ export interface BlockEditorProps {
   ydoc: Y.Doc;
   /** XML fragment in `ydoc` that holds the blocks (default `PAGE_FIELD`, "default"). */
   field?: string;
+  /**
+   * The ID of the page shown. "/" menu entries get it when they run (`context.pageId`), for things
+   * they make on the page, like an inline database. Can change at any time.
+   */
+  pageId?: string | null;
   /** The collab provider of `ydoc`. With `user`, carets and selections show for everyone. */
   provider?: CollabProvider | null;
   /** You, as others see you next to your caret. */
@@ -45,7 +50,10 @@ export interface BlockEditorProps {
   slashItems?: SlashItem[];
   /** More ways to choose a link target in the link panel, like "Link to a lesson". */
   linkPickers?: LinkPicker[];
-  /** More buttons in the selection toolbar, after the formatting ones. */
+  /**
+   * More buttons in the selection toolbar: `comment` right after Link, the others after the
+   * formatting buttons. Items with `readOnly` also show when `editable` is false.
+   */
   bubbleItems?: BubbleItem[];
   /**
    * More behavior that isn't a node or mark, like shortcuts or plugins. Read when the editor is
@@ -61,6 +69,7 @@ export interface BlockEditorProps {
 export function BlockEditor({
   ydoc,
   field = PAGE_FIELD,
+  pageId = null,
   provider,
   user,
   editable = true,
@@ -120,18 +129,27 @@ export function BlockEditor({
   }, [slashMenu, slashItems]);
 
   useEffect(() => {
+    slashMenu.setPageId(pageId);
+  }, [slashMenu, pageId]);
+
+  useEffect(() => {
     if (editor) latest.current.onReady?.(editor);
   }, [editor]);
 
   if (!editor) return null;
+  const toolbar = editable || (bubbleItems?.some((item) => item.readOnly) ?? false);
   return (
     <div className={className ? `ch-block-editor ${className}` : 'ch-block-editor'}>
       <EditorContent editor={editor} />
-      {editable && (
-        <>
-          <SlashMenu editor={editor} store={slashMenu} />
-          <SelectionToolbar editor={editor} linkPickers={linkPickers} bubbleItems={bubbleItems} />
-        </>
+      {editable && <SlashMenu editor={editor} store={slashMenu} />}
+      {toolbar && (
+        <SelectionToolbar
+          key={editable ? 'edit' : 'view'}
+          editor={editor}
+          readOnly={!editable}
+          linkPickers={linkPickers}
+          bubbleItems={bubbleItems}
+        />
       )}
     </div>
   );

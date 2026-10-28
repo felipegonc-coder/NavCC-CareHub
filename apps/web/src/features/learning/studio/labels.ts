@@ -1,5 +1,5 @@
-import { COURSE_TYPES } from '@carehub/learning';
-import type { CourseType } from '@carehub/learning';
+import { blockCatalog, COURSE_TYPES } from '@carehub/learning';
+import type { Block, CourseType } from '@carehub/learning';
 import type { StudioCourseSummary } from './data/client';
 
 /** Each course type's name and what its preset sets up, for New course and the course list. */
@@ -46,3 +46,12 @@ export const editorPath = (courseId: string): string =>
 /** The course editor's address with `lessonId` open. */
 export const lessonPath = (courseId: string, lessonId: string): string =>
   `${editorPath(courseId)}?lesson=${encodeURIComponent(lessonId)}`;
+
+/** The course preview's address. */
+export const previewPath = (courseId: string): string => `${editorPath(courseId)}/preview`;
+
+/** "Paragraph", "Image", "Knowledge check"… for a block. */
+export function blockLabel(block: Block): string {
+  if (block.type === 'knowledge_check') return 'Knowledge check';
+  return blockCatalog.find((entry) => entry.key === block.type)?.label ?? block.type;
+}

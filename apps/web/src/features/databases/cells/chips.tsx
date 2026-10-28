@@ -1,7 +1,15 @@
-import type { FileRef, Id, OptionColor, SelectOption, TextColor } from '@carehub/databases';
+import {
+  isSafeWebLink,
+  type FileRef,
+  type Id,
+  type OptionColor,
+  type SelectOption,
+  type TextColor,
+  type VerificationState,
+} from '@carehub/databases';
 import { hiddenRowsText } from '@carehub/databases/values';
 import { Avatar, cn, colorClasses } from '@carehub/ui';
-import { Check, FileText, Lock, Paperclip } from 'lucide-react';
+import { BadgeCheck, Check, FileText, Lock, Paperclip } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { isImageFile } from './logic';
 import { CELL_TEXT } from './messages';
@@ -133,7 +141,10 @@ export function HiddenRowsChip({ count }: { count: number }) {
   );
 }
 
-/** A file or web link: pictures show a thumbnail; it opens in a new tab when it has an address. */
+/**
+ * A file or web link: pictures show a thumbnail; it opens in a new tab when it has an address. A
+ * web link opens only when it's http or https (isSafeWebLink), as in URL cells; else it's a name.
+ */
 export function FileChip({
   file,
   ctx,
@@ -143,7 +154,8 @@ export function FileChip({
   ctx: CellContext;
   children?: ReactNode;
 }) {
-  const href = file.url ?? ctx.fileHref?.(file);
+  const href =
+    file.url === undefined ? ctx.fileHref?.(file) : isSafeWebLink(file.url) ? file.url : undefined;
   const cls = 'inline-flex min-w-0 shrink-0 items-center gap-1 rounded bg-fill px-1.5 text-small';
   const content = (
     <>
@@ -186,6 +198,38 @@ export function CheckMark({ checked }: { checked: boolean }) {
       )}
     >
       {checked && <Check aria-hidden strokeWidth={3} className="size-3" />}
+    </span>
+  );
+}
+
+/**
+ * A verification: Verified in green with a check, Expired in orange, Not verified in grey text (a
+ * state, not an empty cell). `text` says it in full ("Verified by Avery Lin until Jan 20, 2027").
+ */
+export function VerificationBadge({
+  state,
+  text,
+  wrap = false,
+}: {
+  state: VerificationState;
+  text: string;
+  wrap?: boolean;
+}) {
+  const fit = wrap ? 'break-words' : 'truncate';
+  if (state === 'none') {
+    return <span className={cn('min-w-0 text-small text-muted', fit)}>{text}</span>;
+  }
+  const c = colors(state === 'verified' ? 'green' : 'orange');
+  return (
+    <span
+      className={cn(
+        'inline-flex min-w-0 max-w-full shrink-0 items-center gap-1 rounded px-1.5 text-small',
+        c.bg,
+        c.text,
+      )}
+    >
+      {state === 'verified' && <BadgeCheck aria-hidden className="size-3.5 shrink-0" />}
+      <span className={cn('min-w-0', fit)}>{text}</span>
     </span>
   );
 }

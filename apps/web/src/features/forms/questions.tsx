@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -45,6 +46,10 @@ export interface QuestionProps {
   onUploads(propertyId: Id, count: number): void;
   formId: Id;
   databaseId: Id;
+  /** The form's fill token, if it came with one: it goes with each upload. */
+  fill?: string | undefined;
+  /** A files question's note above its files (to add them again after the page reloaded). */
+  note?: string | undefined;
 }
 
 interface Ids {
@@ -438,7 +443,7 @@ function DateControl({
 // ---------------------------------------------------------------- people and rows
 
 /** Looks things up as the person types, a moment after they stop. */
-function useSearch<T>(lookup: (q: string) => Promise<T[]>, query: string, enabled: boolean) {
+export function useSearch<T>(lookup: (q: string) => Promise<T[]>, query: string, enabled: boolean) {
   const [found, setFound] = useState<{ query: string; items: T[] } | null>(null);
   useEffect(() => {
     if (!enabled) return;
@@ -538,18 +543,25 @@ function FilesControl({
   onUpdate,
   onUploads,
   formId,
+  fill,
+  note,
   ids,
 }: QuestionProps & { ids: Ids }) {
   const client = useFormsClient();
   const { prop } = asked;
   const files = filesOf(value);
+  const noteId = `${ids.box}-note`;
+  const describedBy =
+    [ids.describedBy, note ? noteId : null].filter(Boolean).join(' ') || undefined;
   const [pending, setPending] = useState<Pending[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const nextKey = useRef(0);
   const room = LIMITS.formFiles - files.length - pending.length;
 
-  useEffect(() => {
+  // Before paint, in the same commit that lists a finished file: the form never sees the file
+  // and an upload still counted at once (sending right then would say it's still uploading).
+  useLayoutEffect(() => {
     onUploads(prop.id, pending.length);
   }, [onUploads, prop.id, pending.length]);
   useEffect(() => () => onUploads(prop.id, 0), [onUploads, prop.id]);
@@ -559,7 +571,7 @@ function FilesControl({
     const key = nextKey.current;
     setPending((list) => [...list, { key, name: file.name }]);
     try {
-      const saved = await client.uploadFile(file, { scope: formUploadScope(formId) });
+      const saved = await client.uploadFile(file, { scope: formUploadScope(formId), fill });
       const ref: FileRef = toFileRef(saved);
       onUpdate(prop.id, (previous) => [...filesOf(previous), ref]);
     } catch (failure) {
@@ -582,13 +594,18 @@ function FilesControl({
 
   return (
     <div className="flex flex-col gap-2">
+      {note && (
+        <p id={noteId} className="text-small text-fg">
+          {note}
+        </p>
+      )}
       <input
         ref={input}
         id={ids.control}
         type="file"
         multiple
         className="hidden"
-        aria-describedby={ids.describedBy}
+        aria-describedby={describedBy}
         onChange={(event) => {
           add(event.target.files);
           event.target.value = '';
@@ -617,7 +634,7 @@ function FilesControl({
         <Button
           variant="secondary"
           size="sm"
-          aria-describedby={ids.describedBy}
+          aria-describedby={describedBy}
           aria-invalid={error ? true : undefined}
           disabled={room <= 0}
           onClick={() => input.current?.click()}

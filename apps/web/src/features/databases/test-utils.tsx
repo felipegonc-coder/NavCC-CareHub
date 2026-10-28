@@ -9,12 +9,20 @@ import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { vi, type Mock } from 'vitest';
 import type { Id, Row } from '@carehub/databases';
-import { ApiError, type DatabaseClient, type RowDetail, type RowValues } from './api';
+import {
+  ApiError,
+  personChoice,
+  type DatabaseClient,
+  type Member,
+  type RowDetail,
+  type RowValues,
+} from './api';
 import type { LayoutProps, ViewActions } from './contract';
 import {
   fixtureRow,
   groupedByStatus,
   jobsDatabase,
+  jobsMembers,
   jobsRows,
   queryData,
   testViewer,
@@ -43,9 +51,18 @@ function changedRow(rowId: Id, values: RowValues): Row {
   return { ...before, values: { ...before.values, ...values } };
 }
 
+/** The fixture's people whose name or email has `q` in it, ignoring case. */
+function membersMatching(q = ''): Member[] {
+  const query = q.trim().toLowerCase();
+  return jobsMembers().filter(
+    (m) => m.name.toLowerCase().includes(query) || m.email.toLowerCase().includes(query),
+  );
+}
+
 /**
  * Every method is a vi.fn answering from the fixture: the Jobs database, its rows (the board view
- * grouped by Status) and `{ ok: true }`. Change one with `client.query.mockResolvedValue(...)`.
+ * grouped by Status), its people and `{ ok: true }`. Change one with
+ * `client.query.mockResolvedValue(...)`.
  */
 export function mockClient(): MockClient {
   const meta = async () => jobsDatabase();
@@ -56,13 +73,14 @@ export function mockClient(): MockClient {
     updateDatabase: meta,
     createProperty: meta,
     updateProperty: async () => ({ ...jobsDatabase(), cleared: 0 }),
+    undoTypeChange: meta,
     deleteProperty: meta,
     restoreProperty: meta,
     duplicateProperty: meta,
-    createView: meta,
+    createView: async () => ({ ...jobsDatabase(), viewId: 'view-new' }),
     updateView: meta,
     deleteView: meta,
-    duplicateView: meta,
+    duplicateView: async () => ({ ...jobsDatabase(), viewId: 'view-copy' }),
     orderViews: meta,
     query: async (_databaseId, { viewId }) =>
       viewId === VIEWS.board ? groupedByStatus() : queryData(),
@@ -84,7 +102,7 @@ export function mockClient(): MockClient {
       jobsRows()
         .filter((r) => r.title.toLowerCase().includes(q.toLowerCase()))
         .map((r) => ({ id: r.id, title: r.title, icon: null })),
-    createTemplate: meta,
+    createTemplate: async () => ({ ...jobsDatabase(), templateId: 'template-new' }),
     updateTemplate: meta,
     deleteTemplate: meta,
     applyTemplate: async (_databaseId, _templateId, rowId) => savedRow(rowId),
@@ -100,6 +118,7 @@ export function mockClient(): MockClient {
     getPublicForm: async () => ({}),
     submitPublicForm: ok,
     changeFormLink: async () => ({ linkCode: 'new-link-code' }),
+    listMembers: async (q) => membersMatching(q),
   };
   return Object.fromEntries(
     Object.entries(answers).map(([name, answer]) => [name, vi.fn(answer)]),
@@ -115,11 +134,21 @@ export function mockActions(): MockActions {
     updateValues: vi.fn<ViewActions['updateValues']>(async (rowId, values) =>
       changedRow(rowId, values),
     ),
+    addOptions: vi.fn<ViewActions['addOptions']>(async (_propertyId, options) =>
+      Object.fromEntries(options.map((o) => [o.id, o.id])),
+    ),
+    searchPeople: vi.fn<ViewActions['searchPeople']>(async (query) =>
+      membersMatching(query).map(personChoice),
+    ),
+    duplicateRows: vi.fn<ViewActions['duplicateRows']>(async (rowIds) =>
+      rowIds.map((rowId, i) => ({ ...savedRow(rowId), id: `${rowId}-copy`, uniqueNumber: 10 + i })),
+    ),
     trashRows: vi.fn<ViewActions['trashRows']>(async () => undefined),
     moveRow: vi.fn<ViewActions['moveRow']>(async () => undefined),
     updateView: vi.fn<ViewActions['updateView']>(async () => undefined),
     setOverride: vi.fn<ViewActions['setOverride']>(),
     loadMore: vi.fn<ViewActions['loadMore']>(async () => undefined),
+    openPanel: vi.fn<ViewActions['openPanel']>(),
   };
 }
 

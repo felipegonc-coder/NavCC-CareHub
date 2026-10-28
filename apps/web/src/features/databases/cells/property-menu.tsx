@@ -20,6 +20,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
+  Popover,
+  PopoverAnchor,
 } from '@carehub/ui';
 import {
   ArrowLeft,
@@ -45,13 +47,14 @@ import {
 import type { QueryRow } from '../contract';
 import { PROPERTY_TEXT } from './messages';
 import type { PropertyActions } from './property-actions';
+import { PropertySettingsPopover, type DatabaseChoice } from './property-settings';
 import {
   addedProperty,
   canChangeProperties,
   checkPropertyName,
   clearedByChange,
   hideInView,
-  NEW_PROPERTY_TYPES,
+  newPropertyTypes,
   placeInView,
   rowsWithValues,
   typeChoices,
@@ -76,7 +79,7 @@ export type PropertyMenuEvent =
   | { kind: 'deleted'; property: Property };
 
 export interface PropertyMenuProps {
-  meta: Pick<DatabaseMeta, 'viewerAccess' | 'locked' | 'properties'>;
+  meta: Pick<DatabaseMeta, 'viewerAccess' | 'locked' | 'properties' | 'wiki'>;
   property: Property;
   actions: PropertyActions;
   /** The view whose header it is: Hide in this view and Insert left or right change its columns. */
@@ -90,15 +93,27 @@ export interface PropertyMenuProps {
   people?: readonly PersonChoice[];
   /** The layout's own items: Filter, Sort, Group by, Calculate, Wrap column. */
   viewItems?: ReactNode;
-  /** Opens the property's settings (Edit property). Shown to people who can change properties. */
+  /**
+   * Opens the property's settings some other way (a formula editor, say). Without it, Edit
+   * property opens PropertySettings by the header. Shown to people who can change properties.
+   */
   onEditProperty?: () => void;
   /** Opens property access (shown with Full access, not for Name). */
   onPropertyAccess?: () => void;
-  /** A two-way relation's other side, named in the delete confirm. */
+  /** A two-way relation's other side, named in the delete confirm and in Edit property. */
   twoWay?: { propertyName: string; databaseTitle: string };
+  /** Databases the viewer can open, for a relation's settings. */
+  databases?: readonly DatabaseChoice[];
   onChanged?: (event: PropertyMenuEvent) => void;
   /** A write the server refused (the menu has closed by then, or the confirm stays open). */
   onError?: (error: unknown) => void;
+  /**
+   * Opens or closes the menu from outside (from the table's header, say). The menu's own closes
+   * come through `onOpenChange`; closing it from outside drops a typed name.
+   */
+  open?: boolean;
+  /** Called when the menu opens or closes, whether `open` is given or not. */
+  onOpenChange?: (open: boolean) => void;
   /** The header button that opens the menu. */
   children: ReactElement;
 }
@@ -132,13 +147,14 @@ function sections(parts: readonly ReactNode[]): ReactNode {
 
 /**
  * The menu of a property's header (spec 2, 3.4): rename it, change its type, edit its settings
- * (`onEditProperty`), hide it in this view, insert a property beside it, duplicate
+ * (PropertySettings, by the header), hide it in this view, insert a property beside it, duplicate
  * it, open its access, or delete it. The layout adds its own items (`viewItems`). Changes that
  * clear or remove values ask first and say how many.
  *
  * Renaming saves when the menu closes; Escape leaves without saving (or goes back from the type
  * and new property lists). Everything but the name needs Can edit or Full access with Lock
- * structure off; without them the menu shows the name and the layout's items.
+ * structure off; without them the menu shows the name and the layout's items. With `open` and
+ * `onOpenChange` the layout can open it too (from the table's header keys, say).
  */
 export function PropertyMenu({
   meta,
@@ -153,11 +169,15 @@ export function PropertyMenu({
   onEditProperty,
   onPropertyAccess,
   twoWay,
+  databases,
   onChanged,
   onError,
+  open,
+  onOpenChange,
   children,
 }: PropertyMenuProps) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const isOpen = open ?? ownOpen;
   const [page, setPage] = useState<Page>({ name: 'main' });
   const [draft, setDraft] = useState(property.name);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -165,6 +185,7 @@ export function PropertyMenu({
   const [newError, setNewError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const field = useRef<HTMLInputElement | null>(null);
   /** Closed with Escape: the typed name isn't saved. */
@@ -202,17 +223,27 @@ export function PropertyMenu({
     });
   };
 
-  const openChange = (next: boolean) => {
-    if (next) {
+  // Each time the menu opens (from its button or from `open`), it starts on its main page.
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) {
       setPage({ name: 'main' });
       setDraft(property.name);
       setDraftError(null);
-      escaped.current = false;
+    }
+  }
+
+  const openChange = (next: boolean) => {
+    if (next) {
       afterClose.current = null;
-    } else if (!escaped.current) {
+    } else if (escaped.current) {
+      escaped.current = false;
+    } else {
       saveName();
     }
-    setOpen(next);
+    if (open === undefined) setOwnOpen(next);
+    onOpenChange?.(next);
   };
 
   /** Runs `then` once the menu, closing by its item, has given focus back. */
@@ -373,9 +404,12 @@ export function PropertyMenu({
       </DropdownMenuItem>,
     );
   }
-  if (editable && onEditProperty) {
+  if (editable) {
     typeItems.push(
-      <DropdownMenuItem key="edit" onSelect={() => later(onEditProperty)}>
+      <DropdownMenuItem
+        key="edit"
+        onSelect={() => later(onEditProperty ?? (() => setEditing(true)))}
+      >
         <Settings2 aria-hidden />
         {PROPERTY_TEXT.editProperty}
       </DropdownMenuItem>,
@@ -489,7 +523,7 @@ export function PropertyMenu({
       </div>,
       <>
         <DropdownMenuLabel>{PROPERTY_TEXT.type}</DropdownMenuLabel>
-        {NEW_PROPERTY_TYPES.map((kind) => (
+        {newPropertyTypes(meta).map((kind) => (
           <DropdownMenuItem
             key={kind}
             onSelect={(event) => {
@@ -511,11 +545,13 @@ export function PropertyMenu({
       : null;
 
   return (
-    <>
-      <DropdownMenu open={open} onOpenChange={openChange}>
-        <DropdownMenuTrigger asChild ref={trigger}>
-          {children}
-        </DropdownMenuTrigger>
+    <Popover open={editing} onOpenChange={setEditing}>
+      <DropdownMenu open={isOpen} onOpenChange={openChange}>
+        <PopoverAnchor asChild>
+          <DropdownMenuTrigger asChild ref={trigger}>
+            {children}
+          </DropdownMenuTrigger>
+        </PopoverAnchor>
         <DropdownMenuContent
           align="start"
           className="w-72 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto"
@@ -540,6 +576,15 @@ export function PropertyMenu({
           </Fragment>
         </DropdownMenuContent>
       </DropdownMenu>
+      <PropertySettingsPopover
+        meta={meta}
+        property={property}
+        actions={actions}
+        databases={databases}
+        twoWay={twoWay}
+        onError={onError}
+        returnFocus={trigger}
+      />
       <Dialog
         open={confirm !== null}
         onOpenChange={(next) => {
@@ -587,6 +632,6 @@ export function PropertyMenu({
           </DialogContent>
         )}
       </Dialog>
-    </>
+    </Popover>
   );
 }

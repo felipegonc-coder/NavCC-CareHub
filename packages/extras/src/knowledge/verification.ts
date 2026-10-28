@@ -45,9 +45,19 @@ export function untilFor(period: VerifyPeriod, today: CivilDate): CivilDate | nu
   }
 }
 
-/** "Until a date" must be after today and within ten years. */
-export function isAllowedUntil(until: CivilDate, today: CivilDate): boolean {
-  return daysBetween(today, until) >= 1 && until <= addMonths(today, MAX_VERIFY_MONTHS);
+/**
+ * "Until a date" must be after today and within ten years. `pastDates` (the server's test hook,
+ * only with CAREHUB_TEST_HOOKS=1) also allows today and earlier days, so a test can make a page
+ * expire without waiting.
+ */
+export function isAllowedUntil(
+  until: CivilDate,
+  today: CivilDate,
+  { pastDates = false }: { pastDates?: boolean } = {},
+): boolean {
+  return (
+    (pastDates || daysBetween(today, until) >= 1) && until <= addMonths(today, MAX_VERIFY_MONTHS)
+  );
 }
 
 export const civilDateSchema = z
