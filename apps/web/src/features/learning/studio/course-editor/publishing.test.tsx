@@ -1,7 +1,7 @@
 import { checkPublishable, sampleCourses } from '@carehub/learning';
 import type { Course } from '@carehub/learning';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StudioClient } from '../data/client';
 import { renderEditor, renderStudio, testStudioClient } from '../test-utils';
 
@@ -42,6 +42,22 @@ async function open(client: StudioClient, courseId: string) {
 const panel = (name: string) => screen.getByRole('region', { name });
 const showMe = (message: string) =>
   fireEvent.click(screen.getByRole('button', { name: `Show me: ${message}` }));
+
+/** GET /api/auth/me says the person's profile is in `timeZone`. Other requests get a 404. */
+function withProfileZone(timeZone: string) {
+  const me = JSON.stringify({ user: { id: 'user-kai', name: 'Kai Example', timeZone } });
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+    Promise.resolve(
+      input === '/api/auth/me'
+        ? new Response(me, { headers: { 'Content-Type': 'application/json' } })
+        : new Response(null, { status: 404 }),
+    ),
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('publishing from the course editor', () => {
   it('lists what to fix in plain words, each with a way to the place', async () => {
@@ -149,5 +165,25 @@ describe('publishing from the course editor', () => {
         ),
       { timeout: 3000 },
     );
+  });
+
+  it("shows when each version was published in the person's time zone", async () => {
+    withProfileZone('Pacific/Honolulu');
+    const { client, courseId, title } = await readyCourse();
+    await client.publish(courseId, { notify: 'none' });
+    const [published] = await client.listVersions(courseId);
+    if (!published) throw new Error('Expected version 1');
+    // The same moment is another day and hour in Denver, the zone used until the profile loads.
+    const when = (timeZone: string) =>
+      new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone })
+        .format(new Date(published.publishedAt))
+        .replace(/\s+/g, ' ');
+    expect(when('Pacific/Honolulu')).not.toBe(when('America/Denver'));
+
+    await open(client, courseId);
+    fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
+    expect(
+      await within(panel('Versions')).findByText(`${when('Pacific/Honolulu')} · ${title}`),
+    ).toBeInTheDocument();
   });
 });

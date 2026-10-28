@@ -1,13 +1,12 @@
 import type { Id } from '@carehub/learning';
 import { Button, Card } from '@carehub/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { JSX } from 'react';
+import { LEARNING_DAY_ZONE, useProfileTimeZone } from '../../data/timeZone';
 import { useStudioClient } from '../context';
 import { studioKeys } from '../data/queries';
 import { ErrorState, LoadingState } from '../states';
-
-const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 /** Props for {@link VersionsPanel}. */
 export type VersionsPanelProps = {
@@ -24,6 +23,12 @@ export function VersionsPanel(props: VersionsPanelProps): JSX.Element {
   const headingId = useId();
   const client = useStudioClient();
   const queryClient = useQueryClient();
+  // When each version was published, in the person's profile zone (decision 0317).
+  const timeZone = useProfileTimeZone() ?? LEARNING_DAY_ZONE;
+  const dateFormat = useMemo(
+    () => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }),
+    [timeZone],
+  );
   const [confirming, setConfirming] = useState<number | null>(null);
   const versions = useQuery({
     queryKey: studioKeys.versions(props.courseId),
