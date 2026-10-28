@@ -3,6 +3,10 @@ import {
   cutHelpSelection,
   HELP_QUESTION_TYPES,
   helpAnswerText,
+  HelpCourseDraftAnswerSchema,
+  helpCourseDraft,
+  helpCourseDraftPrompt,
+  HelpCourseDraftRequestSchema,
   HelpQuestionDraftsSchema,
   helpQuestions,
   HelpQuestionsRequestSchema,
@@ -14,6 +18,7 @@ import {
   helpWritePrompt,
   lessonHelpText,
   type Course,
+  type HelpCourseDraftReply,
   type HelpQuestionsReply,
   type HelpQuestionType,
   type HelpSummary,
@@ -34,10 +39,11 @@ import { requirePermission, viewerOf, type Viewer } from '../auth';
 import { getStudioCourse } from '../courses/service';
 import { errorReply, httpError, parseInput } from '../errors';
 
-// Learning help (decision 0315), under /api/learning/help: writing help, summaries with key points, and quiz
-// questions. Studio only (learning.build); the shared Claude client checks everything else, claude.use and the
-// learning_help switch included. The server reads the saved draft itself, by id, and sends Claude course
-// content only. Nothing here saves: Studio adds an answer to the draft when the author accepts it.
+// Learning help (decision 0315), under /api/learning/help: writing help, summaries with key points, quiz
+// questions and a first course draft. Studio only (learning.build); the shared Claude client checks everything
+// else, claude.use and the learning_help switch included. The server reads the saved draft itself, by id, and
+// sends Claude course content only (for a course draft, only the author's own description). Nothing here
+// saves: Studio adds an answer to the draft when the author accepts it.
 
 const FEATURE = 'learning_help';
 const STALE = 'This course changed since you opened it. Reload, then try again.';
@@ -178,6 +184,27 @@ const helpRoutes: FastifyPluginAsync = async (app) => {
     const questions = helpQuestions(course, asked.slice(0, input.count));
     if (questions.length === 0) throw claudeHttpError('bad_output');
     return { questions };
+  });
+
+  app.post('/course-draft', build, async (request): Promise<HelpCourseDraftReply> => {
+    const input = parseInput(HelpCourseDraftRequestSchema, request.body);
+    const viewer = viewerOf(request);
+    const course = await savedDraft(app.db, viewer, input.courseId, input.revision);
+
+    // The author's own description is the brief: it goes as the selection, never as a document.
+    const { data } = await ask(app.db, viewer, () =>
+      askClaudeJson(app.db, {
+        workspaceId: viewer.workspaceId,
+        userId: viewer.userId,
+        feature: FEATURE,
+        ...helpCourseDraftPrompt(input.lessons),
+        selection: input.description,
+        schema: HelpCourseDraftAnswerSchema,
+      }),
+    );
+    const lessons = helpCourseDraft(course, data.lessons.slice(0, input.lessons));
+    if (lessons.length === 0) throw claudeHttpError('bad_output');
+    return { summary: data.summary, lessons };
   });
 };
 

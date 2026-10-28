@@ -51,14 +51,17 @@ accepts an answer. Shapes live in `help/api.ts`.
 | POST `/help/write` | build | { courseId, revision, lessonId, blockId, action: improve, fix_grammar, change_tone (with tone: professional, friendly, direct or empathetic), shorter, simpler or continue; selection?: { start, end } } → { text } (plain text, no links) |
 | POST `/help/summary` | build | { courseId, revision, lessonId? } → { summary, keyPoints } (one lesson, or the whole course without lessonId; plain lines of at most 500 characters, 1 to 8 key points) |
 | POST `/help/questions` | build | { courseId, revision, lessonId, count? (1 to 10, default 5), types? (single_choice, multiple_choice, true_false) } → { questions: Question[] } (fresh ids; only questions that pass the format and the publish checks of a graded quiz) |
+| POST `/help/course-draft` | build | { courseId, revision, description (the author's own, 1 to 1000 characters), lessons? (1 to 8, default 4) } → { summary, lessons: ContentLesson[] } (fresh ids; headings, paragraphs, lists and callouts; only blocks and lessons that pass the format and the publish checks) |
 
 Offsets are string indexes into `blockHelpText(block)`: the block's text parts, blank ones left out, joined by a
 blank line. Continue writing reads the block up to `selection.end` (or all of it) and answers with the new text
-only. Summary and questions ask for JSON (`askClaudeJson` with the schemas in `help/api.ts`); when no question
-passes the checks, the answer is `bad_output`. Errors: 404 for a course, lesson or block that isn't there; 409
-`conflict` when the saved draft is no longer at `revision` (reload); 400 for a selection outside the block or no
-text to work on. Refusals from the shared client keep its status, code and message (`CLAUDE_ERRORS` in
-`@carehub/extras/claude`) and add `details: { reason }`, for example 409 with `{ reason: 'switched_off' }`.
+only. Summary, questions and course drafts ask for JSON (`askClaudeJson` with the schemas in `help/api.ts`); when no
+question or lesson passes the checks, the answer is `bad_output`. A course draft sends Claude only the author's
+description, as the selection, and facts it doesn't give come back as placeholders in square brackets. Errors: 404
+for a course, lesson or block that isn't there; 409 `conflict` when the saved draft is no longer at `revision`
+(reload); 400 for a selection outside the block or no text to work on. Refusals from the shared client keep its
+status, code and message (`CLAUDE_ERRORS` in `@carehub/extras/claude`) and add `details: { reason }`, for example
+409 with `{ reason: 'switched_off' }`.
 
 Jobs (daily, once the main lane's scheduler or a simple interval exists): reminders for assignments (B4),
 certificate expiry heads-up (B3), review-due reminders for authors (B1). Every notice goes through Team tools'
