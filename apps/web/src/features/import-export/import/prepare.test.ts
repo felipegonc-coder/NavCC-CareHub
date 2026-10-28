@@ -49,7 +49,7 @@ const doc = { doc: { type: 'doc', content: [{ type: 'paragraph' }] } };
 describe('getting a file ready to import', () => {
   it('says why a file is refused before anything is sent', () => {
     expect(fileProblem(source('evernote'), { name: 'Trip.txt', size: 10 })).toBe(
-      'Pick a .enex file from Evernote.',
+      'Pick a .enex file from Evernote, or a .zip of them.',
     );
     expect(fileProblem(html, { name: 'Trip.HTML', size: 100 * 1024 * 1024 + 1 })).toBe(TOO_BIG);
     expect(fileProblem(html, { name: 'Trip.html', size: 0 })).toBe('The file is empty.');
@@ -123,6 +123,23 @@ describe('getting a file ready to import', () => {
       ],
       problems: [{ file: 'Trip/index.html', what: '1 table kept as text', why: 'Because.' }],
     });
+  });
+
+  it('gives the importer the options that were ticked', async () => {
+    const seen: unknown[] = [];
+    const importers = importer(async ({ options }) => {
+      seen.push(options);
+      return {
+        pages: [{ key: 'p1', parent: null, title: 'Trip', content: doc, source: 'Trip.html' }],
+        databases: [],
+        files: [],
+        problems: [],
+      };
+    });
+    const file = new File(['<p>Trip</p>'], 'Trip.html');
+    await prepareUpload(html, file, { importers });
+    await prepareUpload(html, file, { importers, options: { asDatabase: true } });
+    expect(seen).toEqual([{}, { asDatabase: true }]);
   });
 
   it('skips files over 50 MB and refuses plans the server would refuse', async () => {
