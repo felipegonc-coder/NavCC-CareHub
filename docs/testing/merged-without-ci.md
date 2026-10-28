@@ -1,6 +1,6 @@
 # Merged without CI
 
-GitHub Actions minutes ran out on Oct 27, 2026 (around 12:10 UTC), so no CI runs until they come back (decision 0006). Until then the Testing lead merges pull requests that change only `tests/e2e/flows/**` and `docs/testing/**` by hand, after reading every line. They're listed here, oldest first, with the head that was merged. [First full run](first-full-run.md) says how main gets checked once the minutes are back.
+GitHub Actions minutes ran out on Oct 27, 2026 (around 12:10 UTC), so no CI runs until they come back (decision 0006). Until then the Testing lead merges pull requests that change only `tests/e2e/flows/**` and `docs/testing/**` by hand, after reading every line. They're listed here, oldest first, with the head that was merged. [First full run](first-full-run.md) says how main gets checked once CI runs again.
 
 Each pull request below was:
 
@@ -23,5 +23,22 @@ None of them has run against a server yet. The features each check needs are sti
 | #332         | `4bab6e2009b886ca13709341be4713f0b81e97a5` | `c81db6f`     | PB-02, PB-04, PB-35                                                                             |
 | #260         | `214bb903ae6a910387c3a36e6ad3fb63d087869a` | `6403afe`     | DB-09, DB-10, DB-14 to DB-16, FM-01 to FM-04, FM-08, FM-09, FM-11, FM-13, FX-02, FX-04, FLOW-02 |
 | #328         | `c42a610711bcc727a91e7bd7ebdb13a0cf0fd537` | `9eef1cc`     | CM-05, CM-11, CM-12                                                                             |
+| #254         | `574895fc9dd45a1db0b1f143d2dd987d5e605b4f` | `3f77a64`     | AN-01, AN-04, AN-05, SM-01, SM-06, SM-07, FLOW-05, FLOW-08, HR-02                               |
+| #385         | `f7fb3627523f6c907c14a523f6b4d294ed4ea9d1` | `b1d61cb`     | SM-02, SM-03, SM-05, SM-09, SM-10, SM-12, ST-03, ST-05, ST-09                                   |
+| #396         | `83d8af8e4a9e0c622f29fdd7b8c1b22a3907ba3c` | `8dda3e7`     | KB-02, KB-07, KB-08, KB-11, KB-12                                                               |
+| #397         | `ca9ce68c60b7db77bb8413e3aad34567f38c5835` | `edb617b`     | FLOW-04, FLOW-07                                                                                |
+| #411         | `8bc2b39f18b552c805960f724c8f3e0bd3e25771` | `13d78f0`     | TB-05, TB-06, TB-02, TB-13                                                                      |
+| #418         | `1470d3b5a757596f173ede26ffa08a9d5edacce7` | `95a3316`     | RP-10                                                                                           |
+| #420         | `013966c2ba113d58d82e3a57b21deed639865e98` | `3cf03e8`     | SB-11, PB-32 (`fixme` entries)                                                                  |
+| #428         | `32c8e90b73f6647b4ba04a22773f1d839f39ddf5` | `21d96da`     | FLOW-05, FLOW-08, SM-12 (fixes)                                                                 |
+| #453         | `5dbc9670a41f25c1686a4d342009d26005511618` | `5b2c6f7`     | SR-03 (fictional surname)                                                                       |
+| #458         | `72dec8dc4fd291667d596822d7a94cb9b0ccc610` | `09241b3`     | SR-03 (the spec's example)                                                                      |
+
+Notes:
+
+- #385: `settings/security.workspace.e2e.ts` is `fixme` until #369 adds the `workspace` project. ST-03 and ST-05 stop the test server's database or app, so they run by hand only.
+- #396 and #397: KB-07 and FLOW-07 set a "Verified until" day of today or earlier. The server needs a knowledge base test hook for that, and it isn't there yet.
+- #418: `sharing/last-admin.workspace.e2e.ts` is `fixme` until #369 as well.
+- #420 adds `fixme` entries only, for the parts of SB-11 and PB-32 that wait for the favorites API and the `/api/collab` wire format.
 
 Pull requests that change only `docs/testing/` aren't listed.

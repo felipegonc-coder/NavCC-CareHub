@@ -82,6 +82,30 @@ describe('openXlsx', () => {
     ]);
   });
 
+  it('clips each shared string to one character more than a Text property takes', () => {
+    const sst =
+      `<si><t>${'a'.repeat(20_000)}</t></si>` +
+      `<si><t>${'b'.repeat(10_000)}</t></si>` +
+      `<si><t>${'c'.repeat(10_000)}😀d</t></si>` +
+      `<si><r><t>${'x'.repeat(6_000)}</t></r><r><t>${'y'.repeat(6_000)}</t></r></si>` +
+      `<si><t>${'_x0041_'.repeat(12_000)}</t></si>`;
+    expect(open(xlsxFile({ sheets: [{ name: 'A' }], sst })).strings).toEqual([
+      'a'.repeat(10_001),
+      'b'.repeat(10_000),
+      `${'c'.repeat(10_000)}😀`,
+      'x'.repeat(6_000) + 'y'.repeat(4_001),
+      'A'.repeat(10_001),
+    ]);
+  });
+
+  it('refuses more than 1,000,000 shared strings', () => {
+    const sst = '<si/>'.repeat(1_000_000);
+    expect(open(xlsxFile({ sheets: [{ name: 'A' }], sst })).strings).toHaveLength(1_000_000);
+    expect(
+      errorOf(xlsxFile({ sheets: [{ name: 'A' }], sst: `${sst}<si><t>Avery Lin</t></si>` })),
+    ).toBe('This file has more than 1,000,000 different text values.');
+  });
+
   it('reads which cell styles show dates, from cellXfs only', () => {
     const file = open(
       xlsxFile({

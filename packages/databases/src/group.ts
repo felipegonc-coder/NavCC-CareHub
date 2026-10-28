@@ -108,8 +108,8 @@ const RELATIVE = [
   ['later', 'Later'],
 ] as const;
 
-/** Name, Files, Checklist, ID and Button can't be grouped by. */
-const UNGROUPABLE = new Set('title files checklist unique_id button'.split(' '));
+/** Name, Files, Checklist, ID, Button and Verification can't be grouped by. */
+const UNGROUPABLE = new Set('title files checklist unique_id button verification'.split(' '));
 const TEXT_TYPES = new Set('title text url email phone'.split(' '));
 /** Types with a value in every row (anonymous responses aside), so boards don't list "No value". */
 const NEVER_EMPTY = new Set('checkbox created_time edited_time created_by edited_by'.split(' '));
@@ -118,7 +118,7 @@ const MAX_LISTED_RANGES = 100n;
 
 /**
  * True for the types a view can group by (spec 3.2): everything except Name, Files, Checklist,
- * ID and Button. A formula needs a result kind (one without an error).
+ * ID, Button and Verification. A formula needs a result kind (one without an error).
  */
 export function canGroupBy(prop: Property): boolean {
   if (prop.config.type === 'formula') return prop.config.resultKind !== null;
@@ -291,6 +291,7 @@ function atomsOf(s: Setup, v: ReadValue): Atom[] {
     case 'files':
     case 'checklist':
     case 'button':
+    case 'verification':
       return [];
   }
 }
