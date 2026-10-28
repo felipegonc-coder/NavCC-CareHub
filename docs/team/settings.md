@@ -14,7 +14,7 @@ Secrets live only in the server's settings file. They never go in the repository
 | `PUSH_VAPID_PRIVATE_KEY` | push | The private half of that key pair | Same as above |
 | `PUSH_VAPID_SUBJECT` | push | A contact for the push services: a `mailto:` address or an `https://` URL | Same as above |
 | `CALENDAR_SECRET_KEY` | calendar | Encrypts stored calendar tokens, iCloud app-specific passwords and private calendar links (32 random bytes, base64) | Connecting calendars is off: "Calendar connections aren't set up yet." |
-| `MODELS_DIR` | meetings | Folder with the speech model files Care Hub serves for private, in-browser transcription | Transcription is off: "Transcription isn't set up yet." |
+| `MODELS_DIR` | meetings | Folder with the speech model files Care Hub serves, read only, for private in-browser transcription: files directly in it with plain names (no subfolders or links). Model files never go in the repository | Transcription is off: "Transcription isn't set up yet." |
 | `TZ` | status | The server's time zone: the nightly backup time, and the uptime days for people who aren't signed in | `America/Denver` |
 | `BACKUP_AT` | status | When the nightly backup runs (HH:MM in `TZ`), shown as "Next backup" | `02:00` |
 | `BACKUPS_DIR` | status | The backup service's folder: its results in `runs/`, and `requests/now` to ask for a backup | `/data/backups`. Without that folder: "Backups aren't set up on this server." |

@@ -7,6 +7,7 @@ import { takeNotesSchema } from './domain/notes';
 import { takeMeetingNotes } from './service';
 import { notesCore } from './stand-ins';
 import { postgresNotesStore } from './store';
+import transcriptsRoutes from './transcripts/routes';
 import type { NotesCore, Viewer } from './types';
 
 /** Take meeting notes calls a minute for each person: one can make two pages and many grants. */
@@ -38,6 +39,9 @@ const meetingsRoutes: FastifyPluginAsync<MeetingsRoutesOptions> = async (app, op
     const { notes, created } = await takeMeetingNotes(app.db, deps, viewer, input);
     return reply.code(created ? 201 : 200).send({ notes: { id: notes.id, pageId: notes.pageId } });
   });
+
+  // Private transcription: the speech model files.
+  await app.register(transcriptsRoutes);
 };
 
 export default meetingsRoutes;
