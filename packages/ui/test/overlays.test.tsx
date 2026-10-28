@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
 import {
   Button,
   Dialog,
@@ -11,8 +12,19 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   IconButton,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Tooltip,
 } from '../src';
 
@@ -66,6 +78,74 @@ describe('DropdownMenu', () => {
   });
 });
 
+describe('DropdownMenu with a submenu', () => {
+  function TicketMenu({ onAssign }: { onAssign: () => void }) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="secondary">Ticket actions</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Reply</DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Assign to</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onSelect={onAssign}>Sam Rivers</DropdownMenuItem>
+              <DropdownMenuItem>Jo Lee</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  it('opens with the right arrow key, closes with the left one, and picks an item', async () => {
+    const user = userEvent.setup();
+    const onAssign = vi.fn();
+    render(<TicketMenu onAssign={onAssign} />);
+    const trigger = screen.getByRole('button', { name: 'Ticket actions' });
+    trigger.focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Reply' })).toHaveFocus());
+
+    await user.keyboard('{ArrowDown}');
+    const assign = screen.getByRole('menuitem', { name: 'Assign to' });
+    await waitFor(() => expect(assign).toHaveFocus());
+    expect(assign).toHaveAttribute('aria-haspopup', 'menu');
+
+    await user.keyboard('{ArrowRight}');
+    const sam = await screen.findByRole('menuitem', { name: 'Sam Rivers' });
+    await waitFor(() => expect(sam).toHaveFocus());
+    expect(assign).toHaveAttribute('aria-expanded', 'true');
+
+    await user.keyboard('{ArrowLeft}');
+    await waitFor(() => expect(assign).toHaveFocus());
+    expect(screen.queryByRole('menuitem', { name: 'Sam Rivers' })).not.toBeInTheDocument();
+
+    await user.keyboard('{ArrowRight}');
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Sam Rivers' })).toHaveFocus());
+    await user.keyboard('{Enter}');
+    expect(onAssign).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('opens on a click, and on a phone as a sheet over the first menu', async () => {
+    const user = userEvent.setup();
+    render(<TicketMenu onAssign={() => undefined} />);
+    await user.click(screen.getByRole('button', { name: 'Ticket actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Assign to' }));
+
+    const submenu = await screen.findByRole('menu', { name: 'Assign to' });
+    expect(submenu).toHaveAttribute('data-sheet', 'stacked');
+    expect(submenu).toHaveClass('max-md:w-full', 'max-md:max-h-sheet', 'max-md:rounded-b-none');
+    expect(screen.getByRole('menuitem', { name: 'Assign to' })).toHaveAttribute(
+      'data-state',
+      'open',
+    );
+  });
+});
+
 describe('Dialog', () => {
   it('is named by its title, keeps focus inside and closes on Escape', async () => {
     const user = userEvent.setup();
@@ -112,5 +192,79 @@ describe('Tooltip', () => {
     );
     await user.tab();
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Add a page');
+  });
+});
+
+describe('Bottom sheets on phones', () => {
+  // jsdom has no layout, so these check what the layout hangs on: `data-sheet` (styles.css frees
+  // Radix's placement with it) and the phone classes. The browser tests (DK-23) check the layout.
+  const popUps: [string, string, ReactElement][] = [
+    [
+      'a menu',
+      'menu',
+      <DropdownMenu open key="menu">
+        <DropdownMenuTrigger>Page actions</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Rename</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    ],
+    [
+      'a popover',
+      'dialog',
+      <Popover open key="popover">
+        <PopoverTrigger>Details</PopoverTrigger>
+        <PopoverContent>Last edited by Alex Morgan today.</PopoverContent>
+      </Popover>,
+    ],
+    [
+      'a select list',
+      'listbox',
+      <Select open key="select">
+        <SelectTrigger aria-label="Team">
+          <SelectValue placeholder="Choose a team" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="support">Support</SelectItem>
+        </SelectContent>
+      </Select>,
+    ],
+  ];
+
+  it.each(popUps)(
+    '%s opens as a bottom sheet',
+    (_name: string, role: string, popUp: ReactElement) => {
+      render(popUp);
+      const sheet = screen.getByRole(role);
+      expect(sheet).toHaveAttribute('data-sheet');
+      expect(sheet).toHaveClass('max-md:w-full', 'max-md:max-h-sheet', 'max-md:rounded-b-none');
+    },
+  );
+
+  it('keeps a select list placed over its field as it is', () => {
+    render(
+      <Select open>
+        <SelectTrigger aria-label="Team">
+          <SelectValue placeholder="Choose a team" />
+        </SelectTrigger>
+        <SelectContent position="item-aligned">
+          <SelectItem value="support">Support</SelectItem>
+        </SelectContent>
+      </Select>,
+    );
+    expect(screen.getByRole('listbox')).not.toHaveAttribute('data-sheet');
+  });
+
+  it('lays a dialog along the bottom edge, as wide as the screen', () => {
+    render(
+      <Dialog open>
+        <DialogContent aria-describedby={undefined}>
+          <DialogTitle>Share page</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Share page' });
+    expect(dialog).toHaveClass('max-md:mx-0', 'max-md:mb-0', 'max-md:max-w-none');
+    expect(dialog.parentElement).toHaveClass('max-md:px-0', 'max-md:pb-0');
   });
 });

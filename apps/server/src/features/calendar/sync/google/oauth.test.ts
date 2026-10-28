@@ -280,6 +280,44 @@ describe('Google tokens', () => {
     expect((await oauth.refresh(tokens.refreshToken)).kind).toBe('connected');
   });
 
+  it('gives up on slow or oversized answers from Google, for refresh and revoke alike', async () => {
+    const { google, oauth } = setup();
+    const tokens = await connectedTokens(google, oauth);
+    const signals: unknown[] = [];
+    const hanging = createGoogleOAuth(google.settings, {
+      timeoutMs: 20,
+      fetch: (_url, init) => {
+        signals.push(init?.signal);
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        });
+      },
+    });
+    expect(await hanging.refresh(tokens.refreshToken)).toMatchObject({
+      kind: 'temporary-error',
+      reason: 'timeout',
+      message: "Google didn't answer in time. Care Hub will try again shortly.",
+    });
+    expect(await hanging.revoke(tokens.refreshToken)).toMatchObject({ reason: 'timeout' });
+    expect(signals).toHaveLength(2);
+    const huge = createGoogleOAuth(google.settings, {
+      fetch: async () => new Response(`{"access_token":"${'x'.repeat(1024 * 1024)}"}`),
+    });
+    expect(await huge.refresh(tokens.refreshToken)).toMatchObject({
+      kind: 'temporary-error',
+      reason: 'unexpected-response',
+    });
+    const watched: unknown[] = [];
+    const timed = createGoogleOAuth(google.settings, {
+      fetch: (url, init) => {
+        watched.push(init?.signal);
+        return google.fetch(url, init);
+      },
+    });
+    expect((await timed.refresh(tokens.refreshToken)).kind).toBe('connected');
+    expect(watched[0]).toBeInstanceOf(AbortSignal);
+  });
+
   it('revokes, treats an already revoked token as done, and needs no settings to do it', async () => {
     const { google, oauth } = setup();
     const tokens = await connectedTokens(google, oauth);

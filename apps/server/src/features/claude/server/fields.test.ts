@@ -299,7 +299,7 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
     const base = await setUp();
     const cases: Array<[Setup, string]> = [
       [{ off: ['claude.fields'] }, 'switched_off'],
-      [{ off: ['claude.navApproved'] }, 'not_approved'],
+      [{ off: ['claude.workspaceApproved'] }, 'not_approved'],
       [{ noClaude: [] }, 'no_permission'],
     ];
     for (const [options, reason] of cases) {

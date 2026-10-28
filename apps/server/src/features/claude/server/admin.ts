@@ -45,7 +45,7 @@ export async function claudeSettingsView(
   return {
     keySet: Boolean(server.apiKey),
     model: server.model,
-    navApproved: saved.get(CLAUDE_APPROVAL_KEY) === true,
+    workspaceApproved: saved.get(CLAUDE_APPROVAL_KEY) === true,
     switches: perFeature((feature) => saved.get(claudeSwitchKey(feature)) === true),
     chatRetentionDays: retention.success ? retention.data : null,
     usage: {
@@ -79,7 +79,9 @@ export async function updateClaudeSettings(
 ): Promise<ClaudeSettingsView> {
   const { workspaceId, userId, update, log } = change;
   const wanted = new Map<string, unknown>();
-  if (update.navApproved !== undefined) wanted.set(CLAUDE_APPROVAL_KEY, update.navApproved);
+  if (update.workspaceApproved !== undefined) {
+    wanted.set(CLAUDE_APPROVAL_KEY, update.workspaceApproved);
+  }
   for (const feature of CLAUDE_FEATURES) {
     const on = update.switches?.[feature];
     if (on !== undefined) wanted.set(claudeSwitchKey(feature), on);
@@ -100,7 +102,7 @@ export async function updateClaudeSettings(
     return changes;
   });
   for (const { key, value } of changed) {
-    // stand-in: the security log (S2) isn't on main yet; until then it's the app log, marked.
+    // stand-in: logSecurityEvent. Until it exists, the line goes to the app log under `security`.
     log.info(
       { security: { event: 'claude.setting_changed', workspaceId, userId, key, value } },
       'Claude setting changed',

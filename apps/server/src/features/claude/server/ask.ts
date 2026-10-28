@@ -35,7 +35,7 @@ export interface AskClaudeJsonInput<T> extends AskClaudeInput {
   schema: z.ZodType<T>;
 }
 
-/** Whether the server has the key, an Admin has given the OK, and the feature's switch is on. */
+/** Whether the server has the key, the workspace is approved, and the feature's switch is on. */
 export async function isClaudeFeatureOn(
   db: Db | Tx,
   workspaceId: string,

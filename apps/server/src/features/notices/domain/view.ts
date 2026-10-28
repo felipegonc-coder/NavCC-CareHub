@@ -4,6 +4,8 @@ import type {
   NoticeCard,
   NoticeCardView,
   NoticeKind,
+  NoticeLinkButton,
+  NoticeSummary,
   NoticeView,
   PageIcon,
 } from '../types';
@@ -39,10 +41,8 @@ export interface PageCardInfo {
 /** What a reader who can open the event sees on its card (from the Calendar feature). */
 export interface EventCardInfo {
   title: string;
-  /** ISO instant, or `YYYY-MM-DD` when `allDay`. */
-  start: string;
-  end: string | null;
-  allDay: boolean;
+  /** When it happens, worded for this reader, such as "Tue, Oct 28 · 3:00 PM". */
+  when: string | null;
   href: string;
 }
 
@@ -62,9 +62,12 @@ export interface EventCardRef {
   occurrenceStart: string | null;
 }
 
-/** Event IDs never contain '|', so this can't mix up an event with another's occurrence. */
+/**
+ * `<eventId>|<occurrenceStart>`, or `<eventId>|` for the whole event. Event IDs never contain
+ * '|', so one event's key can't be mistaken for another's.
+ */
 export function eventCardKey(card: { eventId: string; occurrenceStart?: string | null }): string {
-  return card.occurrenceStart ? `${card.eventId}|${card.occurrenceStart}` : card.eventId;
+  return `${card.eventId}|${card.occurrenceStart ?? ''}`;
 }
 
 /** The pages and events these notices' cards point at, each once. */
@@ -116,9 +119,7 @@ export function viewCard(card: NoticeCard | null, lookups: CardLookups): NoticeC
     occurrenceStart: card.occurrenceStart ?? null,
     href: event.href,
     title: event.title,
-    start: event.start,
-    end: event.end,
-    allDay: event.allDay,
+    when: event.when,
   };
 }
 
@@ -163,4 +164,34 @@ export function isNoticeOwner(
   reader: { workspaceId: string; userId: string },
 ): boolean {
   return notice.userId === reader.userId && notice.workspaceId === reader.workspaceId;
+}
+
+/** The 🔔 Care Hub chat in the web app (Messages). */
+export const NOTICES_CHAT_PATH = '/messages/care-hub';
+
+/** Where opening a notice goes: its first link button, else its page card's page, else the chat. */
+export function noticeLink(notice: {
+  buttons: readonly NoticeButton[];
+  card: NoticeCard | null;
+}): string {
+  const link = notice.buttons.find((button): button is NoticeLinkButton => 'href' in button);
+  if (link) return link.href;
+  if (notice.card?.type === 'page') return pageHref(notice.card.pageId);
+  return NOTICES_CHAT_PATH;
+}
+
+/** What `getNotice` returns: never a card's title, and no action names. */
+export function toNoticeSummary(record: NoticeRecord): NoticeSummary {
+  return {
+    id: record.id,
+    workspaceId: record.workspaceId,
+    userId: record.userId,
+    kind: record.kind,
+    title: record.title,
+    text: record.text,
+    senderName: record.sender,
+    link: noticeLink(record),
+    createdAt: record.createdAt,
+    latestAt: record.latestAt,
+  };
 }

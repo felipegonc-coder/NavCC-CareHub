@@ -2,9 +2,9 @@ import { and, eq, like, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../../../db';
 import { claudeSettings } from '../schema';
 
-// stand-in: getWorkspaceSetting / setWorkspaceSetting from features/workspaces (decision 0007,
-// accounts 1c). Until they land, Claude keeps its workspace settings in claude_settings, with the
-// same names and arguments. A missing row is off.
+// stand-in: getWorkspaceSetting / setWorkspaceSetting from features/workspaces (decision 0007).
+// Until they exist, Claude keeps its workspace settings in claude_settings, with the same names and
+// arguments. A missing row is off.
 
 export async function getWorkspaceSetting(
   db: Db | Tx,

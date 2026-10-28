@@ -1,12 +1,18 @@
 // Every word of Settings → Notifications, in one place so it can be translated later (Settings
 // and members spec, SM-D3). What the browser can't do is PUSH_PROBLEM_TEXT in push-client.ts.
 import type { ToastOptions } from '@carehub/ui';
-import type { NotifyAbout, TestResult } from './api';
+import type { NotifyAbout, PauseEnds, TestResult } from './api';
 
 export const NOTIFY_ABOUT_LABEL: Readonly<Record<NotifyAbout, string>> = {
   all: 'All messages',
   mentions: 'Only direct messages, @mentions and notices',
   nothing: 'Nothing',
+};
+
+export const PAUSE_ENDS_LABEL: Readonly<Record<PauseEnds, string>> = {
+  in_an_hour: 'For 1 hour',
+  tomorrow_8am: 'Until tomorrow, 8:00 AM',
+  when_turned_on: 'Until I turn them back on',
 };
 
 const browsers = (count: number) => (count === 1 ? '1 browser' : `${count} browsers`);
@@ -23,6 +29,13 @@ export const TEXT = {
     'When it\'s off, notifications say only who and what kind, such as "New message" or "Reminder".',
   notSaved: (field: string) => `Couldn't save "${field}". Try again.`,
   settingsFailed: "Couldn't load your notification settings.",
+
+  pause: 'Pause notifications',
+  pauseButton: 'Pause',
+  pauseHint: 'Notices still arrive in the 🔔 chat, quietly.',
+  turnBackOn: 'Turn back on',
+  pauseFailed: "Couldn't pause notifications. Try again.",
+  resumeFailed: "Couldn't turn notifications back on. Try again.",
 
   thisBrowser: 'This browser',
   browserOn: "Notifications are on in this browser, also when Care Hub isn't open.",
@@ -78,4 +91,34 @@ const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', y
 /** "Oct 27, 2026", in this browser's time zone. */
 export function formatDay(iso: string): string {
   return DAY.format(new Date(iso));
+}
+
+const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+const WEEKDAY = new Intl.DateTimeFormat('en-US', {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+});
+
+/**
+ * "Paused until 10:00 AM.", "Paused until tomorrow, 8:00 AM." or "Paused until Thu, Oct 29,
+ * 8:00 AM.", in this browser's time zone. Null `until`: until turned back on.
+ */
+export function pausedText(until: string | null, now: Date): string {
+  if (until === null) return 'Paused until you turn them back on.';
+  const end = new Date(until);
+  // Intl puts a narrow no-break space before AM and PM; the specs' wording has a normal one.
+  const time = TIME.format(end).replace(/\s/g, ' ');
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  if (sameDay(end, now)) return `Paused until ${time}.`;
+  if (sameDay(end, tomorrow)) return `Paused until tomorrow, ${time}.`;
+  return `Paused until ${WEEKDAY.format(end)}, ${time}.`;
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
