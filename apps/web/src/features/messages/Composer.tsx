@@ -3,6 +3,7 @@ import { useId, useState, type KeyboardEvent, type RefObject } from 'react';
 import { measureMessageText } from '@carehub/team-chat';
 import { Avatar, Button, cn, IconButton, Kbd, Textarea } from '@carehub/ui';
 import { findMentionQuery, insertMention, suggestPeople, type MentionQuery } from './mentions';
+import { draftOf, keepDraft } from './memory';
 
 /** Someone in the chat who can be mentioned. */
 export interface Mentionable {
@@ -12,9 +13,6 @@ export interface Mentionable {
 
 /** The "@" list shows this many people; typing more of the name narrows it. */
 const SUGGESTIONS_MAX = 8;
-
-/** What people were writing in each chat, kept while they move between chats. */
-const drafts = new Map<string, string>();
 
 interface ComposerProps {
   chatId: string;
@@ -48,7 +46,7 @@ export function Composer({
   onCancelEdit,
 }: ComposerProps) {
   const editing = editingText !== null;
-  const [text, setText] = useState(() => editingText ?? drafts.get(chatId) ?? '');
+  const [text, setText] = useState(() => editingText ?? draftOf(chatId));
   const [problem, setProblem] = useState<string | null>(null);
   const counterId = useId();
   const listId = useId();
@@ -84,9 +82,7 @@ export function Composer({
   const change = (value: string) => {
     setText(value);
     setProblem(null);
-    if (editing) return;
-    if (value) drafts.set(chatId, value);
-    else drafts.delete(chatId);
+    if (!editing) keepDraft(chatId, value);
   };
 
   const submit = () => {

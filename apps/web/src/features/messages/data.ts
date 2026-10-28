@@ -26,6 +26,7 @@ import type {
 import { api, ApiError } from '../../lib/api';
 import { useLiveEvent, type LiveEvent } from '../live';
 import { toUnreadChats, type UnreadChat } from './chat-info';
+import { noteViewer, onForget } from './memory';
 import { createOutbox, type Outbox, type PendingMessage } from './outbox';
 
 const BASE = '/api/messages';
@@ -60,6 +61,13 @@ async function unlessGuest<T>(load: Promise<T>, forGuest: T): Promise<T> {
     if (error instanceof ApiError && error.status === 403) return forGuest;
     throw error;
   }
+}
+
+/** Notes who the answer is for: someone else signed in means the last person's drafts go. */
+async function noted<T extends { viewerId: string } | null>(load: Promise<T>): Promise<T> {
+  const answer = await load;
+  if (answer) noteViewer(answer.viewerId);
+  return answer;
 }
 
 const handledEvents = new WeakSet<object>();
@@ -97,7 +105,7 @@ export function useChatList(): UseQueryResult<ChatListResponse | null, ApiError>
   return useQuery<ChatListResponse | null, ApiError>({
     queryKey: messagesKeys.chats,
     queryFn: ({ signal }) =>
-      unlessGuest(api.get<ChatListResponse>(`${BASE}/chats`, { signal }), null),
+      noted(unlessGuest(api.get<ChatListResponse>(`${BASE}/chats`, { signal }), null)),
     retry: retryUnlessRefused,
   });
 }
@@ -108,9 +116,11 @@ export function useUnreadChats(limit = 5): UseQueryResult<UnreadChat[], ApiError
   return useQuery<ChatListResponse | null, ApiError, UnreadChat[]>({
     queryKey: messagesKeys.unreadChats(limit),
     queryFn: ({ signal }) =>
-      unlessGuest(
-        api.get<ChatListResponse>(`${BASE}/chats?unread=true&limit=${limit}`, { signal }),
-        null,
+      noted(
+        unlessGuest(
+          api.get<ChatListResponse>(`${BASE}/chats?unread=true&limit=${limit}`, { signal }),
+          null,
+        ),
       ),
     select: (answer) => (answer ? toUnreadChats(answer) : []),
     retry: retryUnlessRefused,
@@ -132,7 +142,7 @@ export function useMessagesUnread(): number {
 export function useChat(chatId: string): UseQueryResult<ChatResponse, ApiError> {
   return useQuery<ChatResponse, ApiError>({
     queryKey: messagesKeys.chat(chatId),
-    queryFn: ({ signal }) => api.get<ChatResponse>(chatPath(chatId), { signal }),
+    queryFn: ({ signal }) => noted(api.get<ChatResponse>(chatPath(chatId), { signal })),
     retry: retryUnlessRefused,
   });
 }
@@ -379,6 +389,8 @@ export function useDeleteMessage(chatId: string) {
 }
 
 let shared: { client: QueryClient; outbox: Outbox } | null = null;
+// Signing out, or someone else signing in, empties it (memory.ts).
+onForget(() => shared?.outbox.clear());
 
 /** One outbox for the app, so messages keep sending while the person moves between chats. */
 export function useOutbox(): Outbox {

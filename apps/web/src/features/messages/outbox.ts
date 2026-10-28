@@ -37,6 +37,8 @@ export interface Outbox {
   discard(clientId: string): void;
   /** Sends whatever waits, as when the browser comes back online. */
   resume(): void;
+  /** Drops every pending message, as at sign-out; answers still on their way are ignored. */
+  clear(): void;
 }
 
 const isConnectionError = (error: unknown) => error instanceof ApiError && error.status === 0;
@@ -48,6 +50,8 @@ export function createOutbox(deps: OutboxDeps): Outbox {
   let items: readonly PendingMessage[] = [];
   const listeners = new Set<() => void>();
   const flushing = new Set<string>();
+  /** Goes up at each clear(), so a send that started before it stops when its answer comes. */
+  let round = 0;
 
   const set = (next: readonly PendingMessage[]) => {
     items = next;
@@ -66,6 +70,7 @@ export function createOutbox(deps: OutboxDeps): Outbox {
 
   async function flush(chatId: string): Promise<void> {
     if (flushing.has(chatId)) return;
+    const started = round;
     flushing.add(chatId);
     try {
       for (;;) {
@@ -78,9 +83,11 @@ export function createOutbox(deps: OutboxDeps): Outbox {
         if (next.status !== 'sending') patch(next.clientId, { status: 'sending', error: null });
         try {
           const answer = await deps.post(chatId, { clientId: next.clientId, text: next.text });
+          if (started !== round) return;
           deps.onSent(chatId, answer);
           set(items.filter((item) => item.clientId !== next.clientId));
         } catch (error) {
+          if (started !== round) return;
           if (isConnectionError(error)) {
             waitAll(chatId);
             deps.retryLater(() => void flush(chatId));
@@ -90,7 +97,7 @@ export function createOutbox(deps: OutboxDeps): Outbox {
         }
       }
     } finally {
-      flushing.delete(chatId);
+      if (started === round) flushing.delete(chatId);
     }
   }
 
@@ -119,6 +126,11 @@ export function createOutbox(deps: OutboxDeps): Outbox {
     },
     resume() {
       for (const chatId of new Set(items.map((item) => item.chatId))) void flush(chatId);
+    },
+    clear() {
+      round += 1;
+      flushing.clear();
+      set([]);
     },
   };
 }

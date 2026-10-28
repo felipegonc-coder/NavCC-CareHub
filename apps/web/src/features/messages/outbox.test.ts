@@ -98,4 +98,27 @@ describe('the outbox', () => {
     outbox.discard(second);
     expect(outbox.snapshot()).toEqual([]);
   });
+
+  it('forgets everything at sign-out, and an answer that comes after shows nowhere', async () => {
+    let answerBefore = () => {};
+    const { outbox, posted, sent } = setup((text) =>
+      text === 'Before'
+        ? new Promise<MessageResponse>((resolve) => {
+            answerBefore = () => resolve({ message: message(1, { text }), people: {} });
+          })
+        : ok(text),
+    );
+    outbox.send('c-1', 'Before');
+    outbox.send('c-1', 'Also before');
+    outbox.clear();
+    expect(outbox.snapshot()).toEqual([]);
+
+    outbox.send('c-1', 'After');
+    await settle();
+    answerBefore();
+    await settle();
+    expect(sent).toEqual(['After']);
+    expect(posted.map((item) => item.text)).toEqual(['Before', 'After']);
+    expect(outbox.snapshot()).toEqual([]);
+  });
 });
