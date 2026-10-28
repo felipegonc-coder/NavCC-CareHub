@@ -1,8 +1,8 @@
 /**
  * New, and the arrow next to it (New ▾, spec section 2 and the Templates and buttons spec): the
- * database's templates in order with the default marked "Default", Empty, and "+ New template".
- * People who can change the structure get each template's "…": Edit, Set as default for this
- * view, Set as default for all views and Delete.
+ * database's templates in order with the default marked "Default", Empty, and "+ New template"
+ * ("No templates yet." while there are none). People who can change the structure get each
+ * template's "…": Edit, Set as default for this view, Set as default for all views and Delete.
  */
 import { useState } from 'react';
 import { ChevronDown, Ellipsis } from 'lucide-react';
@@ -30,11 +30,12 @@ import {
 } from '@carehub/ui';
 import type { ViewActions } from '../contract';
 import { useSettingsChange, useUpdateDatabase, useUpdateView } from '../hooks';
-import { errorText } from './states';
+import { errorText, TOUCH } from './states';
 import { useToasts } from './toasts';
 
 export const TEMPLATE_TEXT = {
   templates: 'Templates',
+  none: 'No templates yet.',
   default: 'Default',
   empty: 'Empty',
   newTemplate: '+ New template',
@@ -130,7 +131,7 @@ export function NewButton(props: NewButtonProps) {
 
   return (
     <div className="flex items-center gap-px">
-      <Button size="sm" className={cn(arrow && 'rounded-r-none')} onClick={() => onNew()}>
+      <Button size="sm" className={cn(TOUCH, arrow && 'rounded-r-none')} onClick={() => onNew()}>
         New
       </Button>
       {arrow && (
@@ -140,7 +141,7 @@ export function NewButton(props: NewButtonProps) {
               label={TEMPLATE_TEXT.templates}
               variant="primary"
               size="sm"
-              className="rounded-l-none"
+              className={cn('rounded-l-none max-md:min-w-11', TOUCH)}
             >
               <ChevronDown aria-hidden />
             </IconButton>
@@ -150,41 +151,45 @@ export function NewButton(props: NewButtonProps) {
             aria-label={TEMPLATE_TEXT.templates}
             className="flex w-72 flex-col gap-1 p-1"
           >
-            <ul aria-label={TEMPLATE_TEXT.templates} className="flex flex-col">
-              {templates.map((template) => (
-                <li key={template.id} className="flex items-center gap-1">
+            {templates.length === 0 ? (
+              <p className="px-2 py-1.5 text-small text-muted">{TEMPLATE_TEXT.none}</p>
+            ) : (
+              <ul aria-label={TEMPLATE_TEXT.templates} className="flex flex-col">
+                {templates.map((template) => (
+                  <li key={template.id} className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className={cn('min-w-0 flex-1 justify-start', TOUCH)}
+                      onClick={() => pick(template.id)}
+                    >
+                      {template.icon && <span aria-hidden="true">{template.icon}</span>}
+                      <span className="truncate">{template.name || 'Untitled'}</span>
+                      {chosen?.id === template.id && defaultMark}
+                    </Button>
+                    {canManage && <TemplateMenu template={template} run={menu(template)} />}
+                  </li>
+                ))}
+                <li>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="min-w-0 flex-1 justify-start"
-                    onClick={() => pick(template.id)}
+                    className={cn('w-full justify-start', TOUCH)}
+                    onClick={() => pick(null)}
                   >
-                    {template.icon && <span aria-hidden="true">{template.icon}</span>}
-                    <span className="truncate">{template.name || 'Untitled'}</span>
-                    {chosen?.id === template.id && defaultMark}
+                    {TEMPLATE_TEXT.empty}
+                    {chosen === null && defaultMark}
                   </Button>
-                  {canManage && <TemplateMenu template={template} run={menu(template)} />}
                 </li>
-              ))}
-              <li>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="w-full justify-start"
-                  onClick={() => pick(null)}
-                >
-                  {TEMPLATE_TEXT.empty}
-                  {chosen === null && defaultMark}
-                </Button>
-              </li>
-            </ul>
+              </ul>
+            )}
             {canManage && templates.length < LIMITS.templates && (
               <>
                 <Separator />
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="justify-start"
+                  className={cn('justify-start', TOUCH)}
                   onClick={() => void newTemplate()}
                 >
                   {TEMPLATE_TEXT.newTemplate}
@@ -208,7 +213,11 @@ function TemplateMenu({ template, run }: TemplateMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <IconButton label={`More actions for ${template.name || 'Untitled'}`} size="sm">
+        <IconButton
+          label={`More actions for ${template.name || 'Untitled'}`}
+          size="sm"
+          className={cn('max-md:min-w-11', TOUCH)}
+        >
           <Ellipsis aria-hidden />
         </IconButton>
       </DropdownMenuTrigger>

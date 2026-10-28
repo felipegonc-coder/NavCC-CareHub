@@ -73,6 +73,12 @@ interface Drag {
 
 const tabName = (view: View) => view.name || 'Untitled';
 
+/**
+ * What a dragged tab carries: its view's id, and no text, so the page around a database block
+ * doesn't take a drop on the tabs as text to paste.
+ */
+export const TAB_DRAG_TYPE = 'application/x-carehub-view';
+
 /** Settings writes from the tabs; a refused one says why in a toast. */
 function useTabWrites(databaseId: Id, onPick: (viewId: Id) => void) {
   const toasts = useToasts();
@@ -122,7 +128,7 @@ export function ViewTabs(props: ViewTabsProps) {
           draggable: true,
           onDragStart: (e: DragEvent<HTMLButtonElement>) => {
             e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', tabName(tab));
+            e.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
             setDrag({ viewId: tab.id, over: null });
           },
           onDragOver: (e: DragEvent<HTMLButtonElement>) => {

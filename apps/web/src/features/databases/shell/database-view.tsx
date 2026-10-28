@@ -1,7 +1,7 @@
 /**
  * A database on its own page or as a block in a page: its title, view tabs, the toolbar with New,
- * and the chosen view drawn by its layout, with the states of spec section 2 inside the block. It
- * stays up to date while it shows (live.ts).
+ * the filter bar, and the chosen view drawn by its layout, with the states of spec section 2
+ * inside the block. It stays up to date while it shows (live.ts).
  */
 import { Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
@@ -21,6 +21,7 @@ import { DIALOG_PANELS, type LayoutProps, type OpenMode } from '../contract';
 import { useDatabase, useViewData } from '../hooks';
 import { LAYOUTS } from '../layouts';
 import { ErrorBoundary } from './boundary';
+import { FilterBar } from './filter-bar';
 import { useDatabaseLive } from './live';
 import { PanelDialog, usePanels } from './panel-host';
 import { useSearch } from './search';
@@ -296,6 +297,7 @@ function ViewBody({ meta, savedView, tabs, pick, deleteView, ...props }: ViewBod
           inline={props.inline}
         />
       </div>
+      <FilterBar {...shared} panels={panels} />
       {override && <OverrideBar onReset={() => setOverride(null)} />}
       <TabsContent value={savedView.id} className="min-w-0">
         {body}

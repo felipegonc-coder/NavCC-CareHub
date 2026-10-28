@@ -1,8 +1,9 @@
 /**
  * The toolbar (spec section 2): Filter, Sort, Group, Search, Properties, "…" (Layout, Import CSV,
  * Export CSV, Lock structure, Row access, Property access, Copy link, Delete) and New with its
- * templates. Panels open one at a time under it; the dialog panels show from DatabaseView. On
- * phones it becomes one "View options" button (section 6).
+ * templates. Panels open one at a time under it; the dialog panels show from DatabaseView, and the
+ * filter bar's chips open theirs under the chip. On phones it becomes one "View options" button
+ * (section 6).
  */
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Ellipsis } from 'lucide-react';
@@ -95,7 +96,8 @@ export function Toolbar({
     online,
     canDelete: onDelete !== undefined,
   });
-  const open = panels.open;
+  // A panel that a chip of the filter bar opened shows under the chip instead.
+  const open = panels.chip === null ? panels.open : null;
   const popover = open !== null && !DIALOG_PANELS.has(open) ? open : null;
 
   // View options on a phone lists the toolbar's buttons.

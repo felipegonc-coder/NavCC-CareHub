@@ -233,6 +233,14 @@ export const DIALOG_PANELS: ReadonlySet<PanelName> = new Set<PanelName>([
   'propertyAccess',
 ]);
 
+/** What a chip of the filter bar opens the Filter panel at (spec 3.2). */
+export interface PanelTarget {
+  /** A rule's chip: that rule by itself. */
+  ruleId?: Id;
+  /** The "Advanced filter" chip: the filter's groups. */
+  advanced?: boolean;
+}
+
 /** What the shell hands to a panel. */
 export interface PanelProps {
   /** Which panel this is (one component may draw several). */
@@ -259,6 +267,8 @@ export interface PanelProps {
   propertyIds?: readonly Id[];
   /** From the view's answer: the titles of the rows its rows link to. */
   rowTitles?: Readonly<Record<Id, string>>;
+  /** Filter, opened from a chip of the filter bar: what to show. Absent: the whole filter. */
+  target?: PanelTarget;
   /** Closes the panel and gives focus back to its button. Esc and presses outside close it too. */
   close(): void;
 }
