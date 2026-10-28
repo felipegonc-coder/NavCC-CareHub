@@ -2,14 +2,15 @@ import { CLAUDE_ERROR_REASONS, CLAUDE_FEATURES } from '@carehub/extras/claude';
 import { integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from '../auth/schema';
 
-// Mirrors migrations/202610271330_claude_usage.sql and 202610271400_claude_settings.sql, which are
-// the source of truth (server/ask.test.ts and server/admin.test.ts compare them).
+// Mirrors migrations/202610271330_claude_usage.sql (with 202610271430_claude_usage_pending.sql) and
+// 202610271400_claude_settings.sql, which are the source of truth (server/ask.test.ts and
+// server/admin.test.ts compare them).
 
-/** 'ok', or why a request that was sent failed. */
-export const CLAUDE_USAGE_STATUSES = ['ok', ...CLAUDE_ERROR_REASONS] as const;
+/** 'pending' while the request waits on Claude; then 'ok', or why the request failed. */
+export const CLAUDE_USAGE_STATUSES = ['pending', 'ok', ...CLAUDE_ERROR_REASONS] as const;
 export type ClaudeUsageStatus = (typeof CLAUDE_USAGE_STATUSES)[number];
 
-/** One row per request sent to Claude. Never any prompt or answer text. */
+/** One row per request to Claude, reserved before it's sent. Never any prompt or answer text. */
 export const claudeUsage = pgTable('claude_usage', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: uuid('workspace_id').notNull(),

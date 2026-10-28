@@ -14,8 +14,12 @@ function userIdOf(request: FastifyRequest): string {
 }
 
 const claudeRoutes: FastifyPluginAsync = async (app) => {
-  // The client's failures go to the app's log: a status and an error type, nothing else.
-  configureClaude({ log: { warn: (details, message) => app.log.warn(details, message) } });
+  // Usage is reserved on the app's own database. The client's failures go to the app's log: a
+  // status and an error type, nothing else.
+  configureClaude({
+    db: app.db,
+    log: { warn: (details, message) => app.log.warn(details, message) },
+  });
 
   /** The workspace an Admin is changing; 403 for anyone without workspace.admin. */
   async function adminWorkspaceOf(request: FastifyRequest): Promise<string> {

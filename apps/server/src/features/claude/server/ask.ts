@@ -10,14 +10,23 @@ import type { Db, Tx } from '../../../db';
 import { sendToClaude, type ClaudeReply } from './client';
 import { ClaudeError, claudeErrorReason } from './errors';
 import { buildPrompt, MAX_REQUEST_CHARS, requestChars, type ClaudeDocument } from './prompt';
-import { claudeRuntime } from './runtime';
-import { recordUsage, requestsSince, requestsThisMonth } from './usage';
+import { claudeRuntime, type ClaudeRuntime } from './runtime';
+import {
+  finishUsage,
+  requestsInFlight,
+  requestsSince,
+  requestsThisMonth,
+  reserveUsage,
+  withClaudeLocks,
+} from './usage';
 
 /** The longest answer, in tokens, any feature gets. `maxTokens` can only lower it. */
 export const MAX_TOKENS = 2048;
 /** Each person's limit, so one person can't use up the workspace's monthly requests. */
 export const PERSON_REQUESTS = 30;
 export const PERSON_WINDOW_MS = 10 * 60_000;
+/** Requests one person can have waiting on Claude at once, in any workspace. */
+export const PERSON_IN_FLIGHT = 3;
 
 export interface AskClaudeInput {
   workspaceId: string;
@@ -44,24 +53,25 @@ export async function isClaudeFeatureOn(
   return (await featureRefusal(db, workspaceId, feature)) === undefined;
 }
 
-/** isClaudeFeatureOn for every feature at once (GET /api/claude/status). */
+/** isClaudeFeatureOn for every feature at once (GET /api/claude/status), from one settings read. */
 export async function claudeFeaturesOn(
   db: Db | Tx,
   workspaceId: string,
 ): Promise<Record<ClaudeFeature, boolean>> {
   const { settings, access } = claudeRuntime();
-  const ready =
-    Boolean(settings().apiKey) && (await access.isSettingOn(db, workspaceId, CLAUDE_APPROVAL_KEY));
-  const on = {} as Record<ClaudeFeature, boolean>;
+  const { apiKey } = settings();
+  const on = apiKey ? await access.settingsOn(db, workspaceId, EVERY_SETTING) : NOTHING_ON;
+  const features = {} as Record<ClaudeFeature, boolean>;
   for (const feature of CLAUDE_FEATURES) {
-    on[feature] = ready && (await access.isSettingOn(db, workspaceId, claudeSwitchKey(feature)));
+    features[feature] = refusalFrom(apiKey, on, feature) === undefined;
   }
-  return on;
+  return features;
 }
 
 /**
- * Asks Claude once, after every check in docs/extras/claude.md. Pass `db`, not a transaction: the
- * usage row must stay even if the caller's work rolls back.
+ * Asks Claude once, after every check in docs/extras/claude.md. The request counts from before it's
+ * sent, on the runtime's own database, so its usage row stays even if the caller's work rolls back.
+ * Pass `db`, not a transaction: the reservation needs a connection of its own.
  */
 export function askClaude(db: Db | Tx, input: AskClaudeInput): Promise<{ text: string }> {
   return ask(db, input, (text) => ({ text }));
@@ -77,16 +87,64 @@ export function askClaudeJson<T>(db: Db | Tx, input: AskClaudeJsonInput<T>): Pro
 const JSON_ONLY =
   'Answer with one JSON value and nothing else: no words around it and no code fences.';
 
+/** The OK and every feature's switch: what GET /api/claude/status reads. */
+const EVERY_SETTING = [CLAUDE_APPROVAL_KEY, ...CLAUDE_FEATURES.map(claudeSwitchKey)];
+const NOTHING_ON: ReadonlySet<string> = new Set();
+
+/** Why `feature` can't be used, given the server's key and the workspace's settings that are on. */
+function refusalFrom(
+  apiKey: string | undefined,
+  on: ReadonlySet<string>,
+  feature: ClaudeFeature,
+): ClaudeErrorReason | undefined {
+  if (!apiKey) return 'not_set_up';
+  if (!on.has(CLAUDE_APPROVAL_KEY)) return 'not_approved';
+  if (!on.has(claudeSwitchKey(feature))) return 'switched_off';
+  return undefined;
+}
+
 async function featureRefusal(
   db: Db | Tx,
   workspaceId: string,
   feature: ClaudeFeature,
 ): Promise<ClaudeErrorReason | undefined> {
   const { settings, access } = claudeRuntime();
-  if (!settings().apiKey) return 'not_set_up';
-  if (!(await access.isSettingOn(db, workspaceId, CLAUDE_APPROVAL_KEY))) return 'not_approved';
-  if (!(await access.isSettingOn(db, workspaceId, claudeSwitchKey(feature)))) return 'switched_off';
-  return undefined;
+  const { apiKey } = settings();
+  if (!apiKey) return 'not_set_up';
+  const keys = [CLAUDE_APPROVAL_KEY, claudeSwitchKey(feature)];
+  return refusalFrom(apiKey, await access.settingsOn(db, workspaceId, keys), feature);
+}
+
+/**
+ * Checks the caps and reserves the request's usage row in one transaction on the runtime's own
+ * database, holding the workspace's lock and then the person's, so requests sent at the same moment
+ * can't all pass. A refusal leaves no row.
+ */
+async function reserve(runtime: ClaudeRuntime, input: AskClaudeInput, now: Date) {
+  const { db } = runtime;
+  if (!db) {
+    runtime.log.warn({ claude: { status: 0, type: 'no_database' } }, 'claude: request refused');
+    throw new ClaudeError('unavailable');
+  }
+  const { workspaceId, userId, feature } = input;
+  const id = await withClaudeLocks(
+    db,
+    [`workspace:${workspaceId}`, `person:${userId}`],
+    async (tx) => {
+      if ((await requestsThisMonth(tx, workspaceId, now)) >= runtime.settings().monthlyRequests) {
+        throw new ClaudeError('monthly_cap');
+      }
+      const since = new Date(now.getTime() - PERSON_WINDOW_MS);
+      if ((await requestsSince(tx, userId, since)) >= PERSON_REQUESTS) {
+        throw new ClaudeError('user_rate_limit');
+      }
+      if ((await requestsInFlight(tx, userId, now)) >= PERSON_IN_FLIGHT) {
+        throw new ClaudeError('user_rate_limit');
+      }
+      return reserveUsage(tx, { workspaceId, userId, feature, createdAt: now });
+    },
+  );
+  return { db, id };
 }
 
 async function ask<T>(db: Db | Tx, input: AskClaudeInput, finish: (text: string) => T): Promise<T> {
@@ -97,15 +155,8 @@ async function ask<T>(db: Db | Tx, input: AskClaudeInput, finish: (text: string)
     throw new ClaudeError('no_permission');
   }
   if (requestChars(input) > MAX_REQUEST_CHARS) throw new ClaudeError('too_long');
-  const now = runtime.now();
-  const used = await requestsThisMonth(db, input.workspaceId, now);
-  if (used >= runtime.settings().monthlyRequests) throw new ClaudeError('monthly_cap');
-  const since = new Date(now.getTime() - PERSON_WINDOW_MS);
-  if ((await requestsSince(db, input.userId, since)) >= PERSON_REQUESTS) {
-    throw new ClaudeError('user_rate_limit');
-  }
+  const usage = await reserve(runtime, input, runtime.now());
 
-  const usage = { workspaceId: input.workspaceId, userId: input.userId, feature: input.feature };
   let reply: ClaudeReply;
   try {
     reply = await sendToClaude(runtime, {
@@ -113,11 +164,8 @@ async function ask<T>(db: Db | Tx, input: AskClaudeInput, finish: (text: string)
       maxTokens: maxTokens(input.maxTokens),
     });
   } catch (error) {
-    await recordUsage(db, {
-      ...usage,
-      status: claudeErrorReason(error) ?? 'unavailable',
-      createdAt: now,
-    });
+    // No answer came back: the request still counts toward the caps, with no tokens.
+    await finishUsage(usage.db, usage.id, { status: claudeErrorReason(error) ?? 'unavailable' });
     throw error;
   }
 
@@ -128,10 +176,10 @@ async function ask<T>(db: Db | Tx, input: AskClaudeInput, finish: (text: string)
     result = finish(reply.text);
   } catch (error) {
     const status = claudeErrorReason(error) ?? 'bad_output';
-    await recordUsage(db, { ...usage, ...tokens, status, createdAt: now });
+    await finishUsage(usage.db, usage.id, { ...tokens, status });
     throw error;
   }
-  await recordUsage(db, { ...usage, ...tokens, status: 'ok', createdAt: now });
+  await finishUsage(usage.db, usage.id, { ...tokens, status: 'ok' });
   return result;
 }
 
