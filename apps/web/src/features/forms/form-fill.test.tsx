@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import type { FormDefinition } from '@carehub/databases';
 import { draftKey } from '@carehub/databases/forms';
 import { ApiError } from '../databases/api';
-import type { FillForm } from './api';
+import { FormsClientProvider, type FillForm } from './api';
 import { FormFill, OFFLINE_TEXT } from './form-fill';
 import {
   fillForm,
@@ -98,9 +98,8 @@ describe('FormFill', () => {
     expect(status).toHaveTextContent('Thanks! Your response was sent.');
     expect(client.submitResponse).toHaveBeenCalledTimes(1);
     expect(client.submitResponse).toHaveBeenCalledWith('code-123', {
-      [IDS.name]: 'Avery Lin',
-      [IDS.category]: 'opt-billing',
-      [IDS.amount]: '12.5',
+      answers: { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing', [IDS.amount]: '12.5' },
+      anonymous: false,
     });
     fireEvent.click(screen.getByRole('button', { name: 'Submit another response' }));
     expect(textbox('Your name')).toHaveValue('');
@@ -178,9 +177,16 @@ describe('FormFill', () => {
     expect(screen.queryByRole('form')).toBeNull();
   });
 
-  it('says names are not recorded on an anonymous form', () => {
-    renderFill({ anonymous: true });
+  it('says names are not recorded on an anonymous form, and sends that it said so', async () => {
+    const { client } = renderFill({ anonymous: true });
     expect(screen.getByText("Your name isn't recorded with this form.")).toBeInTheDocument();
+    answerRequired();
+    fireEvent.click(submitButton());
+    await screen.findByRole('status');
+    expect(client.submitResponse).toHaveBeenCalledWith('code-123', {
+      answers: { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing' },
+      anonymous: true,
+    });
   });
 
   it('asks for a tick on a required checkbox', () => {
@@ -200,7 +206,7 @@ describe('FormFill', () => {
     expect(screen.getByLabelText('End')).toHaveValue('2026-10-27');
     fireEvent.click(submitButton());
     await waitFor(() => expect(client.submitResponse).toHaveBeenCalled());
-    expect(client.submitResponse.mock.calls[0]?.[1]).toEqual({
+    expect(client.submitResponse.mock.calls[0]?.[1].answers).toEqual({
       [IDS.visit]: {
         start: '2026-10-27T15:00:00.000Z',
         end: '2026-10-27T15:00:00.000Z',
@@ -226,8 +232,8 @@ describe('FormFill', () => {
     fireEvent.click(submitButton());
     await waitFor(() =>
       expect(client.submitResponse).toHaveBeenCalledWith('code-123', {
-        [IDS.assignee]: ['user-avery'],
-        [IDS.job]: ['row-leak'],
+        answers: { [IDS.assignee]: ['user-avery'], [IDS.job]: ['row-leak'] },
+        anonymous: false,
       }),
     );
   });
@@ -241,8 +247,8 @@ describe('FormFill', () => {
     fireEvent.click(submitButton());
     expect(await screen.findByRole('status')).toHaveTextContent('Thanks! Your response was sent.');
     expect(client.submitPublicResponse).toHaveBeenCalledWith('code-123', {
-      [IDS.name]: 'Avery Lin',
-      [IDS.category]: 'opt-billing',
+      answers: { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing' },
+      anonymous: true,
     });
     expect(client.submitResponse).not.toHaveBeenCalled();
   });
@@ -275,6 +281,40 @@ describe('FormFill', () => {
     if (cover) fireEvent.error(cover);
     expect(document.querySelector('img')).toBeNull();
     expect(screen.getByRole('form', { name: 'QA dispute request' })).toBeInTheDocument();
+  });
+
+  it('sends the fill token with uploads and the response, and keeps it when the form reloads', async () => {
+    const client = mockFormsClient();
+    const data = (fill: string) =>
+      fillForm(
+        { audience: 'anyone', questions: [question(IDS.photos, 'Photos')] },
+        { respondent: null, fill },
+      );
+    const view = renderWithForms(
+      <FormFill data={data('fill-1')} code="code-123" signedOut />,
+      client,
+    );
+    const file = new File(['leak'], 'sink.heic', { type: 'image/heic' });
+    fireEvent.change(screen.getByLabelText('Photos'), { target: { files: [file] } });
+    expect(await screen.findByText('sink.heic')).toBeInTheDocument();
+    expect(client.uploadFile).toHaveBeenCalledWith(file, {
+      scope: 'forms:form-1',
+      fill: 'fill-1',
+    });
+    view.rerender(
+      <FormsClientProvider client={client}>
+        <FormFill data={data('fill-2')} code="code-123" signedOut />
+      </FormsClientProvider>,
+    );
+    fireEvent.click(submitButton());
+    await screen.findByRole('status');
+    expect(client.submitPublicResponse).toHaveBeenCalledWith('code-123', {
+      answers: {
+        [IDS.photos]: [{ id: 'file-sink.heic', name: 'sink.heic', size: 4, mime: 'image/heic' }],
+      },
+      anonymous: true,
+      fill: 'fill-1',
+    });
   });
 
   it('uploads files to the form, signed in', async () => {
