@@ -21,6 +21,7 @@ import { BlockEditor } from '@carehub/editor';
 | ------------- | ------------------ | -------------------------------------------------------------- |
 | `ydoc`        | required           | The page's `Y.Doc`.                                            |
 | `field`       | `'default'`        | XML fragment in `ydoc` that holds the blocks (`PAGE_FIELD`).   |
+| `pageId`      | `null`             | The page shown; "/" entries get it when they run, see below.   |
 | `provider`    | `null`             | `{ awareness }`; a new provider makes a new editor.            |
 | `user`        |                    | `{ id?, name, color }`; `color` is a CSS color for your caret. |
 | `editable`    | `true`             | `false` makes it read-only.                                    |
@@ -71,8 +72,9 @@ const shiftNote: SlashItem = {
 <BlockEditor ydoc={ydoc} slashItems={[shiftNote]} />;
 ```
 
-`run` gets the editor once the typed "/query" is gone. `hint` shows a Markdown shortcut on the
-right, like `#` or `---`.
+`run` gets the editor once the typed "/query" is gone, and a context: `context.pageId` is the
+page being edited (`BlockEditor`'s `pageId`, or null), for entries that make something on the page,
+like "/database". `hint` shows a Markdown shortcut on the right, like `#` or `---`.
 
 ## The selection toolbar
 

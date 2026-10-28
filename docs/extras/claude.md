@@ -14,11 +14,11 @@ A request goes out only when all of these hold:
 4. The person has `claude.use`. Guests never do.
 5. The person can open every page and row whose text is sent.
 
-Switch and workspace-approval changes go to the Security log (`logSecurityEvent`).
+Switch and workspace-approval changes go to the Security log (`logSecurityEvent`; until it exists, the app log, see below).
 
 ## Server API (`apps/server/src/features/claude/index.ts`)
 
-- `isClaudeFeatureOn(db, workspaceId, feature): Promise<boolean>` checks the key, the approval and the switch.
+- `isClaudeFeatureOn(db, workspaceId, feature): Promise<boolean>` checks the key, the approval and the switch. `claudeFeaturesOn(db, workspaceId)` does it for every feature at once.
 - `askClaude(db, { workspaceId, userId, feature, system, instruction, documents?, selection?, maxTokens? }): Promise<{ text }>`
 - `askClaudeJson(db, { ...the same, schema }): Promise<{ data }>` asks for JSON and checks it with the caller's zod schema. If it doesn't match, it throws `bad_output`.
 - `ClaudeError` has `reason` (`ClaudeErrorReason`) and plain-words `message`. Routes answer `CLAUDE_ERRORS[reason]` with `details: { reason }`.
@@ -36,9 +36,29 @@ The numbers:
 - The monthly cap counts the calendar month in America/Denver.
 - Every request sent is a row in `claude_usage`, failures included. Refusals before sending aren't.
 
-Until Settings → Claude binds the real checks with `configureClaude`, every switch reads as off and nobody has `claude.use`, so nothing is sent. Until the page model binds `pages`, no page counts as open. Tests bind fakes the same way and put the old ones back with the function `configureClaude` returns.
+The switches and the approval are what Admins save in Settings → Claude. Until roles bind `canUseClaude` with `configureClaude`, nobody has `claude.use`, so nothing is sent. Until the page model binds `pages`, no page counts as open. Tests bind fakes the same way and put the old ones back with the function `configureClaude` returns.
 
 The `documents` are `{ title, text }` pairs the **server** loaded by ID after the access check. A caller never passes text a client says came from a page; only the person's own selection comes from the client. The model and the largest `max_tokens` are set on the server. `maxTokens` can only lower that limit for one feature.
+
+## Settings → Claude (`/api/claude`)
+
+Every route needs a signed-in person (401 otherwise). The shapes are in `@carehub/extras/claude/settings`.
+
+- `GET /status` answers `ClaudeStatus`, `{ on: { writing_help, assistant, fields, meeting_summary, learning_help } }`: what the person can use in their workspace now (the key, the approval, the switch and `claude.use`). The web app asks every 5 seconds and hides what's off, so a feature switched off disappears within 5 seconds.
+- `GET /settings` answers `ClaudeSettingsView`, for the workspace's Admins only (403 for anyone else):
+  - `keySet` says whether the server has the key. The key itself never leaves the server.
+  - `model`, `workspaceApproved`, `switches`, and `chatRetentionDays`: null for kept until deleted (CL-D3), or 30, 90 or 365.
+  - `usage`: `month` (YYYY-MM in America/Denver), `requests`, `monthlyRequests` and `byFeature`.
+- `PUT /settings` takes `ClaudeSettingsUpdate`, also Admins only: any of `workspaceApproved`, some or all `switches`, and `chatRetentionDays`. Anything else is 400 `invalid`.
+  - Only what changed is saved, in one transaction.
+  - Each change is one security log line, `{ event: 'claude.setting_changed', workspaceId, userId, key, value }`.
+  - It answers with the new `ClaudeSettingsView`.
+
+Stand-ins:
+
+- **Workspace settings:** they're kept in `claude_settings`, through `getWorkspaceSetting` and `setWorkspaceSetting` with the shared names (decision 0007). A missing row means off. A later migration moves the rows across.
+- **Members:** until `bindClaudeMembers(lookup)` is called, nobody is a member, so the status is all off and the settings answer 403.
+- **Security log:** until `logSecurityEvent` exists, the lines go to the app log under `security`.
 
 ## Security rules
 

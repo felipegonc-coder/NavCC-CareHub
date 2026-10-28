@@ -37,6 +37,7 @@ function recordWith(card: NoticeCard | null): NoticeRecord {
     title: 'Starts in 15 minutes',
     text: null,
     card,
+    extraCards: [],
     buttons: [],
     groupKey: null,
     count: 1,

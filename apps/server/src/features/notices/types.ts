@@ -93,7 +93,13 @@ export interface SendNoticeInput {
   /** Generic and shown as given. Never a page or event title: only cards carry titles. */
   title: string;
   text?: string;
+  /** One card. For more, use `cards` instead. */
   card?: NoticeCard;
+  /**
+   * 1 to 3 cards, shown in this order, instead of `card` (not both). Each reader sees each card
+   * open or locked by their own access.
+   */
+  cards?: readonly NoticeCard[];
   /** At most 3. */
   buttons?: readonly NoticeButton[];
   /**
@@ -200,7 +206,10 @@ export interface NoticeView {
   icon: string | null;
   title: string;
   text: string | null;
+  /** The first card. */
   card: NoticeCardView | null;
+  /** Every card, in order: up to 3, `card` first. */
+  cards: NoticeCardView[];
   buttons: NoticeButtonView[];
   /** How many notices were grouped into this one (1 when none were). */
   count: number;
@@ -223,8 +232,8 @@ export interface NoticeSummary {
   /** The `sender` it was sent with. */
   senderName: string;
   /**
-   * A relative path: the first link button's, else the page card's page (`/p/<pageId>`), else the
-   * 🔔 Care Hub chat (`/messages/care-hub`).
+   * A relative path: the first link button's, else the first page card's page (`/p/<pageId>`),
+   * else the 🔔 Care Hub chat (`/messages/care-hub`).
    */
   link: string;
   /** When it first arrived. */
