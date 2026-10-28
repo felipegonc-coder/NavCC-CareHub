@@ -2,7 +2,8 @@
 // with the presser's own access through the rows API, logged (the newest 50 per button) and undone
 // within 8 seconds by the person who pressed; steps into a database they can't change; messages
 // only to people who can open the row, at most 50, and to Everyone or roles only from Admins; the
-// confirmation; and no presses in Trash or on archived pages. Fictional people only.
+// confirmation; a row that goes to Trash during a run; no presses by guests or people outside the
+// workspace, in Trash or on archived pages. Fictional people only.
 import { randomUUID } from 'node:crypto';
 import {
   ME,
@@ -17,17 +18,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
 import { bindMemoryNotices } from '../notices/testing';
+import { syncDefaultWorkspace } from '../workspaces';
 import { onDatabaseEvent, type DatabaseEvent } from './api';
 import { BUTTON_NOTICES, BUTTON_RUN_MESSAGES } from './button-runs';
 import type { DatabaseRecord, DatabaseSettings } from './record';
 import { changeDatabase, loadDatabase } from './store';
 
 type Role = 'admin' | 'editor' | 'viewer';
-const PERMISSIONS: Record<Role, string[]> = {
-  admin: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share', 'workspace.admin'],
-  editor: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share'],
-  viewer: [],
-};
 const FORBIDDEN = { error: { code: 'forbidden', message: "You don't have access to this." } };
 const refused = (code: 'forbidden' | 'invalid', message: string) => ({ error: { code, message } });
 
@@ -70,36 +67,14 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     | 'close'
     | 'checkAll'
     | 'empty'
-    | 'quiet',
+    | 'quiet'
+    | 'tidy',
     Property<ButtonConfig>
   >;
 
-  // Stand-ins for the roles pull request's tables (decision 0007 names) until it lands.
-  async function standInWorkspace() {
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS roles (id uuid PRIMARY KEY DEFAULT
-      gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL,
-      permissions text[] NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspace_members (workspace_id uuid NOT NULL,
-      user_id uuid NOT NULL, role_id uuid, kind text NOT NULL DEFAULT 'member',
-      PRIMARY KEY (workspace_id, user_id))`);
-    const { rows } = await db.execute<{ id: string }>(
-      sql`INSERT INTO workspaces (name) VALUES ('Blue Pine Plumbing') RETURNING id`,
-    );
-    workspaceId = rows[0]!.id;
-  }
-
-  /** A member with a role of their own; in the Operations space unless `inSpace` is false. */
+  /** A member with a built-in role; in the Operations space unless `inSpace` is false. */
   async function person(role: Role, name: string, inSpace = true): Promise<TestUser> {
-    const { rows } = await db.execute<{ id: string }>(sql`
-      INSERT INTO roles (workspace_id, name, permissions)
-      VALUES (${workspaceId}, ${`${role} for ${name}`},
-        ${`{${PERMISSIONS[role].join(',')}}`}::text[])
-      RETURNING id`);
-    const user = await createUser(db, { name });
-    await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
-      VALUES (${workspaceId}, ${user.id}, ${rows[0]!.id})`);
+    const user = await createUser(db, { role, name });
     if (inSpace) {
       await db.execute(sql`INSERT INTO space_members (space_id, principal_type, principal_id)
         VALUES (${spaceId}, 'user', ${user.id})`);
@@ -196,7 +171,7 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     stopEvents = onDatabaseEvent(app, (event) => {
       events.push(event);
     });
-    await standInWorkspace();
+    workspaceId = (await syncDefaultWorkspace(db)).id;
     const space = await db.execute<{ id: string }>(sql`
       INSERT INTO spaces (workspace_id, kind, name)
       VALUES (${workspaceId}, 'open', 'Operations') RETURNING id`);
@@ -210,9 +185,8 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     people.jordan = await person('viewer', 'Jordan Park');
     people.sam = await person('editor', 'Sam Ortiz');
     people.casey = await person('editor', 'Casey Brooks', false);
-    const role = await db.execute<{ role_id: string }>(sql`
-      SELECT role_id FROM workspace_members WHERE user_id = ${people.jordan.id}`);
-    roleOf.jordan = role.rows[0]!.role_id;
+    // Jordan is the only Viewer.
+    roleOf.jordan = people.jordan.roleId!;
 
     visitsId = await newDatabase('Visits');
     invoicesId = await newDatabase('Invoices');
@@ -284,6 +258,15 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
         databaseId: visitsId,
         filter: null,
         edits: { [notes.id]: { set: 'Checked' } },
+      },
+    ]);
+    buttons.tidy = button('Tidy', [
+      { kind: 'set_values', values: { [notes.id]: 'Tidy' } },
+      {
+        kind: 'edit_rows',
+        databaseId: invoicesId,
+        filter: null,
+        edits: { [memo.id]: { set: 'Tidied' } },
       },
     ]);
     buttons.empty = button('Empty', []);
@@ -426,6 +409,52 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
 
     const notButton = await press(people.avery, ids.leak, hours);
     expect(notButton.statusCode).toBe(404);
+  });
+
+  it('says which row went to Trash when one goes there during the run', async () => {
+    const pipe = await addRow(people.admin, 'Pipe check');
+    const late = await addRow(people.admin, 'Invoice 1002', invoicesId);
+    const memoBefore = (await stored(ids.invoice))?.values[memo.id] ?? null;
+    // Someone moves Invoice 1002 to Trash while the run is under way: right after its first step.
+    await db.execute(
+      sql.raw(`CREATE FUNCTION trash_during_run() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          UPDATE pages SET deleted_at = now(), trash_root_id = id WHERE id = '${late}';
+          RETURN NULL;
+        END $$`),
+    );
+    await db.execute(
+      sql.raw(`CREATE TRIGGER trash_during_run AFTER UPDATE ON db_rows FOR EACH ROW
+        WHEN (NEW.page_id = '${pipe}') EXECUTE FUNCTION trash_during_run()`),
+    );
+    try {
+      const res = await press(people.admin, pipe, buttons.tidy);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        status: 'failed',
+        message: "Couldn't finish step 2: Invoice 1002 is in Trash.",
+      });
+      expect(await runOf(res.json().runId)).toMatchObject({ outcome: 'failed', failed_step: 2 });
+      // The first step's change stays; the second wrote nothing.
+      expect((await stored(pipe))?.values[notes.id]).toBe('Tidy');
+      expect((await stored(ids.invoice))?.values[memo.id] ?? null).toEqual(memoBefore);
+    } finally {
+      await db.execute(sql`DROP TRIGGER IF EXISTS trash_during_run ON db_rows`);
+      await db.execute(sql`DROP FUNCTION IF EXISTS trash_during_run()`);
+    }
+  });
+
+  it('refuses guests and people outside the workspace, even with access to the row', async () => {
+    const guest = await createUser(db, { kind: 'guest' });
+    const outsider = await createUser(db, { role: null });
+    for (const who of [guest, outsider]) {
+      await db.execute(sql`INSERT INTO access_grants
+        (workspace_id, page_id, principal_type, principal_id, level)
+        VALUES (${workspaceId}, ${visitsId}, 'user', ${who.id}, 'edit')`);
+      const res = await press(who, ids.leak, buttons.finish);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toEqual(FORBIDDEN);
+    }
   });
 
   it('sends messages only to people who can open the row', async () => {

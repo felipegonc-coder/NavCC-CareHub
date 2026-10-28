@@ -16,6 +16,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
 import { bindMemoryNotices } from '../notices/testing';
+import { syncDefaultWorkspace } from '../workspaces';
 import {
   REMINDERS_EVERY_MS,
   REMINDERS_TASK,
@@ -109,33 +110,9 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
   const when = newProperty('When', defaultConfig('date'));
   const inspector = newProperty('Inspector', defaultConfig('person'));
 
-  // Stand-ins for the roles pull request's tables (decision 0007 names) until it lands.
-  async function standInWorkspace() {
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS roles (id uuid PRIMARY KEY DEFAULT
-      gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL,
-      permissions text[] NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspace_members (workspace_id uuid NOT NULL,
-      user_id uuid NOT NULL, role_id uuid, kind text NOT NULL DEFAULT 'member',
-      PRIMARY KEY (workspace_id, user_id))`);
-    const { rows } = await db.execute<{ id: string }>(
-      sql`INSERT INTO workspaces (name) VALUES ('Blue Pine Plumbing') RETURNING id`,
-    );
-    workspaceId = rows[0]!.id;
-  }
-
-  /** A member with a role of their own; in the Operations space unless `inSpace` is false. */
+  /** A member (an Admin or an Editor); in the Operations space unless `inSpace` is false. */
   async function person(admin: boolean, name: string, inSpace = true): Promise<TestUser> {
-    const permissions = ['pages.edit', 'pages.create', 'pages.comment', 'pages.share'];
-    if (admin) permissions.push('workspace.admin');
-    const { rows } = await db.execute<{ id: string }>(sql`
-      INSERT INTO roles (workspace_id, name, permissions)
-      VALUES (${workspaceId}, ${`Role for ${name}`}, ${`{${permissions.join(',')}}`}::text[])
-      RETURNING id`);
-    const user = await createUser(db, { name });
-    await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
-      VALUES (${workspaceId}, ${user.id}, ${rows[0]!.id})`);
+    const user = await createUser(db, { role: admin ? 'admin' : 'editor', name });
     if (inSpace) {
       await db.execute(sql`INSERT INTO space_members (space_id, principal_type, principal_id)
         VALUES (${spaceId}, 'user', ${user.id})`);
@@ -241,7 +218,7 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
   beforeAll(async () => {
     ({ app, db, close } = await createTestApp());
     notices = bindMemoryNotices();
-    await standInWorkspace();
+    workspaceId = (await syncDefaultWorkspace(db)).id;
     const space = await db.execute<{ id: string }>(sql`
       INSERT INTO spaces (workspace_id, kind, name)
       VALUES (${workspaceId}, 'open', 'Operations') RETURNING id`);
@@ -283,7 +260,7 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
     await close?.();
   });
 
-  it('reminds the people in the row at the time, once, and only those who can open it', async () => {
+  it('reminds the people in the row on time, once, and only those who can open it', async () => {
     const leak = await addRow('Leak under the sink', {
       [visit.id]: at('2030-10-28T15:30:00.000Z', 30),
       [assignee.id]: [people.sam.id, people.casey.id],
@@ -421,6 +398,24 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
     expect(await entries(fence)).toEqual(['sam Visit 2030-12-02T16:00:00.000Z']);
   });
 
+  it('drops a reminder for someone removed from the workspace', async () => {
+    const time = at('2030-12-09T16:00:00.000Z', 0);
+    const drain = await addRow('Drain', { [visit.id]: time, [assignee.id]: [people.jordan.id] });
+    expect(await entries(drain)).toEqual(['jordan Visit 2030-12-09T16:00:00.000Z']);
+    await db.execute(sql`
+      UPDATE workspace_members SET removed_at = now()
+      WHERE workspace_id = ${workspaceId} AND user_id = ${people.jordan.id}`);
+    try {
+      expect(await sweep('2030-12-09T16:00:00.000Z')).toBe(0);
+      expect(remindersAbout(drain)).toEqual([]);
+      expect(await entries(drain)).toEqual([]);
+    } finally {
+      await db.execute(sql`
+        UPDATE workspace_members SET removed_at = NULL
+        WHERE workspace_id = ${workspaceId} AND user_id = ${people.jordan.id}`);
+    }
+  });
+
   it("drops a reminder that's more than a day late", async () => {
     const roof = await addRow('Roof', {
       [visit.id]: at('2030-12-10T14:00:00.000Z', 60),
@@ -446,7 +441,8 @@ describe.skipIf(!hasDatabase)('date reminders', () => {
     expect(await entries(boiler)).toEqual(['sam Visit 2031-01-06T14:45:00.000Z']);
     const later = JSON.stringify(at('2031-01-06T18:00:00.000Z', 15));
     await db.execute(sql`
-      UPDATE db_rows SET "values" = "values" || jsonb_build_object(${visit.id}::text, ${later}::jsonb)
+      UPDATE db_rows
+      SET "values" = "values" || jsonb_build_object(${visit.id}::text, ${later}::jsonb)
       WHERE page_id = ${boiler}`);
 
     expect(await sweep('2031-01-06T14:45:00.000Z')).toBe(0);
