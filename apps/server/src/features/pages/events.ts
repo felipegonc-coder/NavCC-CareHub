@@ -13,9 +13,17 @@ declare module '../../core/events' {
       by: string;
     };
     /**
-     * `changes` names what changed: `title`, `icon`, `cover`, `locked` and so on. `by` is null
-     * when no person did it.
+     * `changes` names what changed: `title`, `icon`, `locked`, `parentId`, `position` and so
+     * on. `by` is null when no person did it.
      */
     'page.updated': { pageId: string; workspaceId: string; by: string | null; changes: string[] };
+    /** A page moved into a database became a row, or a row moved out became a page (0007). */
+    'page.kindChanged': {
+      pageId: string;
+      workspaceId: string;
+      from: PageKind;
+      to: PageKind;
+      by: string;
+    };
   }
 }

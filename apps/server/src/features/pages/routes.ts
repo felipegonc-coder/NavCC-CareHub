@@ -2,6 +2,7 @@
 import fp from 'fastify-plugin';
 import { getDefaultWorkspace } from '../workspaces';
 import { requirePageAccess } from './access';
+import { registerPageTopics } from './live';
 import { pageRoutes } from './page-routes';
 import { spaceRoutes } from './space-routes';
 import { setUpWorkspaceSpaces } from './spaces';
@@ -25,9 +26,10 @@ export default fp(
     // A new workspace starts with the Open default space "General" (SB-01).
     const workspace = await getDefaultWorkspace(app.db);
     if (workspace) await setUpWorkspaceSpaces(app.db, workspace.id);
+    registerPageTopics(app.db);
     spaceRoutes(app);
     pageRoutes(app);
-    // The tree, moving, Trash, favorites and recent pages come in the next pull requests.
+    // Trash, favorites and recent pages come in the next pull requests.
   },
   { name: 'carehub-pages', fastify: '5.x', dependencies: ['carehub-auth'] },
 );
