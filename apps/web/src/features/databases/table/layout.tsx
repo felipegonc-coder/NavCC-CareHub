@@ -863,6 +863,14 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     actions.trashRows(ids).catch(() => undefined);
   };
 
+  /** Copies rows (the copies come back with the next answer); the ticked rows stay ticked. */
+  const duplicate = (ids: Id[]) => {
+    actions.duplicateRows(ids).catch(() => undefined);
+  };
+
+  /** The ticked rows, top to bottom as the table shows them. */
+  const duplicateSelected = () => duplicate([...lineOf.keys()].filter((id) => selected.has(id)));
+
   /** A toast from the table (it needs the kit's ToastProvider, which the app has). */
   const say = (text: string) => {
     notices.current += 1;
@@ -1024,6 +1032,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         actions.openRow(line.row.id);
       },
       copyLink: () => copyLink(line.row.id),
+      duplicate: canAdd ? () => duplicate([line.row.id]) : undefined,
       moves: manual ? { up: step(-1), down: step(1) } : null,
       remove: () => trashLine(line),
     };
@@ -1512,6 +1521,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           ctx={ctx}
           canCreateOptions={canEditStructure}
           onSet={setForSelected}
+          onDuplicate={canAdd ? duplicateSelected : undefined}
           onTrash={trashSelected}
           onClear={() => setSelection(NO_SELECTION)}
         />
