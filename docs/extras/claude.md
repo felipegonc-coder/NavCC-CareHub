@@ -60,6 +60,18 @@ Stand-ins:
 - **Members:** until `bindClaudeMembers(lookup)` is called, nobody is a member, so the status is all off and the settings answer 403.
 - **Security log:** until `logSecurityEvent` exists, the lines go to the app log under `security`.
 
+### In the web app (`apps/web/src/features/claude`)
+
+- **On or off for the person signed in:** `useClaudeOn(feature)` for components, `isClaudeOn(feature)` for menus that check when they open, and `onClaudeStatusChange(listener)`, all from `features/claude/index.ts`.
+  - Everything is off until the server answers, and whenever asking fails, so nothing shows while it's unknown (CL-01).
+  - The shell's `claude-status` overlay asks `GET /status` every 5 seconds (not while the tab is hidden), so a feature switched off goes away within 5 seconds (CL-05).
+  - Writing help keeps its own flag in step: `onClaudeStatusChange((now) => setWritingHelpOn(now.on.writing_help))`.
+- **Settings → Claude** (`/settings/claude`, Admins only through `workspace.admin`):
+  - Whether the server has a key (never the key), the model, and the "Approved for this workspace" tick.
+  - The five switches, off and disabled until the workspace is approved.
+  - This month's requests out of the monthly limit, with use per feature, and how long assistant chats are kept.
+  - Each change saves on its own, sending only what changed, and shows "Saved" for 2 seconds. A failure names the field. A 403 shows "You don't have access to this."
+
 ## Security rules
 
 - **One way out:**
