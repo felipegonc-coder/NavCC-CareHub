@@ -71,6 +71,27 @@ describe('starting an import', () => {
     expect(bodies[1]).toBe(file);
   });
 
+  it("sends only the source's options that were ticked", async () => {
+    const trello = importSource('trello') as ImportSource;
+    const { bodies } = serve({
+      'POST ': () => json(201, { import: view('uploading') }),
+      '/file': () => json(200, { import: view('waiting') }),
+    });
+    const board = new File(['{}'], 'Board.json');
+    const ticked = { includeArchived: true, asDatabase: true };
+    await startImport({ source: trello, file: board, pageId: null, options: ticked });
+    await startImport({ source: trello, file: board, pageId: null, options: { asDatabase: true } });
+    expect(JSON.parse(String(bodies[0]))).toEqual({
+      source: 'trello',
+      fileName: 'Board.json',
+      size: 2,
+      pageId: null,
+      planned: false,
+      options: { includeArchived: true },
+    });
+    expect('options' in JSON.parse(String(bodies[2]))).toBe(false);
+  });
+
   it('says why before anything is sent', async () => {
     const { calls } = serve({});
     expect(await startImport({ source: html, file, pageId: null })).toEqual({
