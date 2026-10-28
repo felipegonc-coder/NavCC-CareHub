@@ -39,14 +39,17 @@ test.describe('Formulas: live results and the editor', () => {
       });
       // Avery stands in for Sam (spec); any member who can edit gives the same result.
       const sam = await signedInPage(browser, 'admin');
-      const screen = new DatabaseScreen(page, database.id);
-      await screen.open();
-      await expect(screen.cell(row.id, result.id)).toHaveText('Review');
+      try {
+        const screen = new DatabaseScreen(page, database.id);
+        await screen.open();
+        await expect(screen.cell(row.id, result.id)).toHaveText('Review');
 
-      await updateRow(sam, database.id, row.id, { [score.id]: value.number(95) });
-      await expect(screen.cell(row.id, result.id)).toHaveText('Pass', { timeout: 2_000 });
-      await expect(screen.cell(row.id, score.id)).toHaveText('95');
-      await sam.context().close();
+        await updateRow(sam, database.id, row.id, { [score.id]: value.number(95) });
+        await expect(screen.cell(row.id, result.id)).toHaveText('Pass', { timeout: 2_000 });
+        await expect(screen.cell(row.id, score.id)).toHaveText('95');
+      } finally {
+        await sam.context().close();
+      }
     });
   });
 
@@ -98,22 +101,25 @@ test.describe('Formulas: live results and the editor', () => {
     const score = await addProperty(page, database.id, 'Score', config.number());
     const result = await addProperty(page, database.id, 'Result', formula(prop(score), 'number'));
     const viewer = await signedInPage(browser, 'viewer');
-    const api = await apiFor(viewer);
-    // The viewer can read the database, so she sends its current version, as the screens would.
-    const meta = await api.get<{ version?: unknown; database?: { version?: unknown } }>(
-      `/api/databases/${database.id}`,
-    );
+    try {
+      const api = await apiFor(viewer);
+      // The viewer can read the database, so she sends its current version, as the screens would.
+      const meta = await api.get<{ version?: unknown; database?: { version?: unknown } }>(
+        `/api/databases/${database.id}`,
+      );
 
-    const refused = await api.send(
-      'PATCH',
-      `/api/databases/${database.id}/properties/${result.id}`,
-      {
-        config: formula(`${prop(score)} * 2`, 'number'),
-        version: meta.database?.version ?? meta.version,
-      },
-    );
-    expect(refused.status()).toBe(403);
-    expect(await refused.json()).toMatchObject({ error: { code: 'forbidden' } });
-    await viewer.context().close();
+      const refused = await api.send(
+        'PATCH',
+        `/api/databases/${database.id}/properties/${result.id}`,
+        {
+          config: formula(`${prop(score)} * 2`, 'number'),
+          version: meta.database?.version ?? meta.version,
+        },
+      );
+      expect(refused.status()).toBe(403);
+      expect(await refused.json()).toMatchObject({ error: { code: 'forbidden' } });
+    } finally {
+      await viewer.context().close();
+    }
   });
 });
