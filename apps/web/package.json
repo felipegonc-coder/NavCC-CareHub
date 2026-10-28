@@ -16,6 +16,7 @@
     "@carehub/extras": "*",
     "@carehub/learning": "*",
     "@carehub/shared": "*",
+    "@carehub/team-calendar-api": "*",
     "@carehub/team-chat": "*",
     "@carehub/team-time": "*",
     "@carehub/ui": "*",

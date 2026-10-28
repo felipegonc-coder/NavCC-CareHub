@@ -195,7 +195,7 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
 
   // feature: messages
 
-  // feature: calendar
+  () => import('./features/calendar/slots'), // feature: calendar
 
   // feature: meetings
 
