@@ -20,8 +20,7 @@ Care Hub itself.
 
 `types.ts` has the engine's interface (`SpeechEngine`, `SpeechState`, `SpeechLine`,
 `Unfinished`) and the parts it's built from. `limits.ts` has the 3-hour limit and the warning
-5 minutes before it (MT-14), and `finishingText()` ("Finishing the transcript… about 3 minutes
-left.").
+5 minutes before it (MT-14), and `WorkRate`, which estimates how long finishing will take.
 
 ## Tests
 

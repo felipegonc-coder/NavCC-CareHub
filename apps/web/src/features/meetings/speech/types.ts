@@ -1,14 +1,19 @@
 /** Download progress of the speech model, in bytes. */
 export type Progress = { loaded: number; total: number };
 
-/** Why a transcription stopped or couldn't start. Sound already recorded stays on this computer. */
+/** Why a transcription couldn't start. Only 'storage' can also stop one: no room for more sound. */
 export type SpeechError =
   | 'mic-blocked' // the browser or the person said no to the microphone
   | 'no-mic' // no microphone, or another app has it
   | 'busy' // another transcription is running, in another tab or on another computer
-  | 'model' // the speech model couldn't be downloaded or started
-  | 'offline' // Care Hub couldn't be reached, or didn't take the lines
-  | 'storage'; // the browser couldn't keep the sound
+  | 'storage' // the browser can't keep the sound
+  | 'offline'; // Care Hub couldn't be reached
+
+/**
+ * 'waiting': lines aren't saved yet because Care Hub or the model isn't answering. The sound is
+ * kept, and it keeps trying.
+ */
+export type Saving = 'ok' | 'waiting';
 
 export type SpeechState =
   | { status: 'checking' }
@@ -25,14 +30,18 @@ export type SpeechState =
       nearLimit: boolean;
       /** While the model downloads for the first time. */
       download: Progress | null;
+      saving: Saving;
     }
   | {
       status: 'finishing';
       notesId: string;
       transcriptId: string;
+      /** 'limit': it stopped by itself at 3:00:00. */
+      reason: 'stop' | 'limit';
       /** Estimated time left; null until a piece has been transcribed. */
       remainingMs: number | null;
       download: Progress | null;
+      saving: Saving;
     }
   | { status: 'error'; notesId: string | null; error: SpeechError };
 
@@ -57,7 +66,7 @@ export interface SpeechEngine {
   subscribe(listener: () => void): () => void;
   /** Checks whether transcription is set up and the model is downloaded. */
   refresh(): Promise<void>;
-  /** Call it from the click that confirms consent, before any await, so the browser allows the microphone. */
+  /** Call it first thing in the click that confirms consent, so the browser allows the mic. */
   start(input: { notesId: string; userId: string }): Promise<void>;
   pause(): void;
   resume(): void;

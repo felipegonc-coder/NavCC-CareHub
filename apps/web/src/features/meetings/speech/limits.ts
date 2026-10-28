@@ -2,13 +2,6 @@
 export const LIMIT_MS = 3 * 60 * 60 * 1000;
 export const WARNING_MS = LIMIT_MS - 5 * 60 * 1000;
 
-/** "Finishing the transcript… about 3 minutes left." */
-export function finishingText(remainingMs: number | null): string {
-  if (remainingMs === null) return 'Finishing the transcript…';
-  const minutes = Math.max(1, Math.round(remainingMs / 60_000));
-  return `Finishing the transcript… about ${minutes} minute${minutes === 1 ? '' : 's'} left.`;
-}
-
 /** How long transcribing takes per ms of sound on this computer, learned as pieces are done. */
 export class WorkRate {
   private rate: number | null = null;

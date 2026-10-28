@@ -1,16 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { finishingText, LIMIT_MS, WARNING_MS, WorkRate } from './limits';
+import { LIMIT_MS, WARNING_MS, WorkRate } from './limits';
 
 describe('limits', () => {
   it('stops at 3:00:00 and warns at 2:55:00', () => {
     expect(LIMIT_MS).toBe(10_800_000);
     expect(WARNING_MS).toBe(10_500_000);
-  });
-
-  it('says how long finishing takes', () => {
-    expect(finishingText(null)).toBe('Finishing the transcript…');
-    expect(finishingText(170_000)).toBe('Finishing the transcript… about 3 minutes left.');
-    expect(finishingText(5_000)).toBe('Finishing the transcript… about 1 minute left.');
   });
 
   it('learns the work per second of sound', () => {
