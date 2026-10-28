@@ -12,7 +12,15 @@ declare module '../../core/events' {
       kind: PageKind;
       by: string;
     };
-    /** `changes` names what changed: `title`, `icon`, `cover`, `locked` and so on. */
+    /** `changes` names what changed: `title`, `icon`, `locked`, `parentId`, `position` and so on. */
     'page.updated': { pageId: string; workspaceId: string; by: string; changes: string[] };
+    /** A page moved into a database became a row, or a row moved out became a page (0007). */
+    'page.kindChanged': {
+      pageId: string;
+      workspaceId: string;
+      from: PageKind;
+      to: PageKind;
+      by: string;
+    };
   }
 }

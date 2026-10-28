@@ -230,6 +230,27 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
   return answers;
 }
 
+/** The level a new top-level page in the space would get: "Can edit where it goes" (SB-08). */
+export async function resolveSpace(
+  db: Executor,
+  viewer: Viewer,
+  spaceId: string,
+): Promise<AccessLevel> {
+  const { rows } = await db.execute<Place & { best: number | null }>(sql`
+    SELECT s.workspace_id AS "workspaceId", s.kind AS "spaceKind", s.owner_id AS "ownerId",
+      s.archived_at IS NOT NULL AS archived,
+      (SELECT max(array_position(${RANKS}, l.level)) FROM (
+        SELECT g.level FROM access_grants g WHERE g.space_id = s.id AND ${grantedTo(viewer)}
+        UNION ALL
+        SELECT CASE WHEN m.role = 'owner' THEN 'full' ELSE s.default_access END
+        FROM space_members m WHERE m.space_id = s.id AND ${memberOf(viewer)}) l) AS best
+    FROM spaces s WHERE s.id = ${isUuid(spaceId) ? spaceId : null}::uuid AND s.deleted_at IS NULL`);
+  const place = rows[0];
+  const member = place && viewer.memberships.get(place.workspaceId);
+  if (!place || !member) return 'none';
+  return finish(levelFrom(viewer, member, place, place.best), member, place);
+}
+
 /** 0007: bulk levels, 'none' for pages that are missing, in Trash or closed to the person. */
 export async function getAccessForPages(
   db: Executor,
