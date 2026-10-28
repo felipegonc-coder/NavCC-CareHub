@@ -13,7 +13,7 @@ export type LayoutComponent =
 export const LAYOUTS: Record<ViewLayout, LayoutComponent> = {
   table: lazy(() => import('./table/layout')),
 
-  board: lazy(() => import('./shell/not-built')),
+  board: lazy(() => import('./board/layout')),
 
   list: lazy(() => import('./shell/not-built')),
 
