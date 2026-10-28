@@ -109,7 +109,7 @@ const COMMON_WORDS = new Set(
   (
     'password passwort passcode welcome letmein iloveyou iloveu admin administrator root login ' +
     'changeme secret default guest user test testing qwerty monkey dragon sunshine princess ' +
-    'football baseball basketball soccer hockey superman batman starwars trustno master shadow ' +
+    'football baseball basketball soccer hockey superman batman starwars trustno master ' +
     'freedom whatever computer internet hello flower summer winter spring autumn love lovely ' +
     'angel cookie cheese chocolate killer hunter ranger mustang abc abcd care carehub nurse ' +
     'health hospital company office work'
