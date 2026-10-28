@@ -46,7 +46,7 @@ export function fakeButtons(changes: Partial<ButtonsClient> = {}) {
 export function fakeSteps(takeOut = vi.fn(() => true)) {
   return {
     takeOut,
-    insertBlocks: vi.fn((_where: 'above' | 'below', _blocks: unknown[]) => takeOut),
+    insertBlocks: vi.fn<PageStepDeps['insertBlocks']>(() => takeOut),
     openPage: vi.fn(),
     openLink: vi.fn(),
   } satisfies PageStepDeps & { takeOut: unknown };

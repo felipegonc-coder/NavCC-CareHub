@@ -31,10 +31,14 @@ const buttonAt = (editor: Editor) => () => {
   return at;
 };
 
-const blocks = (editor: Editor) =>
-  (editor.getJSON().content ?? []).map((block) =>
-    block.type === 'actionButton' ? '[button]' : (block.content?.[0]?.text ?? ''),
-  );
+/** The page's blocks as text, with the button as "[button]". */
+const blocks = (editor: Editor) => {
+  const lines: string[] = [];
+  editor.state.doc.forEach((block) => {
+    lines.push(block.type.name === 'actionButton' ? '[button]' : block.textContent);
+  });
+  return lines;
+};
 
 describe('inserting blocks next to the button', () => {
   it('puts them below the button and takes them out again', async () => {
@@ -49,12 +53,13 @@ describe('inserting blocks next to the button', () => {
   });
 
   it('puts them above, and leaves them once someone changed them', async () => {
-    const editor = await editorWith([button]);
+    // A line after the button, so the page needs no empty last line of its own.
+    const editor = await editorWith([button, text('Sign-off')]);
     const undo = insertNextTo(editor, buttonAt(editor), 'above', [text('Call notes')]);
-    expect(blocks(editor)).toEqual(['Call notes', '[button]']);
+    expect(blocks(editor)).toEqual(['Call notes', '[button]', 'Sign-off']);
     editor.chain().insertContentAt(1, 'First ').run();
     expect(undo?.()).toBe(false);
-    expect(blocks(editor)).toEqual(['First Call notes', '[button]']);
+    expect(blocks(editor)).toEqual(['First Call notes', '[button]', 'Sign-off']);
   });
 
   it('does nothing when the button isn’t there', async () => {
