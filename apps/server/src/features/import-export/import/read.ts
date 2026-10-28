@@ -12,6 +12,7 @@ import {
   type ImportSourceId,
   type ImportZip,
 } from '@carehub/extras/import-export/import/index';
+import { withoutLocation } from './photos';
 
 // Reading an upload into a plan, with #109's zip reader and its limits (docs/extras/import-export.md
 // #safety). It runs in the import worker thread (worker.ts); isolate.ts starts it.
@@ -118,7 +119,8 @@ async function planOf(request: ReadRequest, zip: ImportZip | null): Promise<Impo
 
 /**
  * Reads the upload into a plan and checks it against the limits. Files the plan names but the zip
- * doesn't have, and programs, are left out and listed.
+ * doesn't have, and programs, are left out and listed. Pictures keep no location or camera
+ * details (photos.ts); ones that can't be cleaned are refused and listed too.
  */
 export async function readUpload(request: ReadRequest): Promise<ReadResult> {
   const zip = request.planned || isZipName(request.fileName) ? openZip(request.bytes) : null;
@@ -136,8 +138,14 @@ export async function readUpload(request: ReadRequest): Promise<ReadResult> {
     } else if (isProgram(bytes)) {
       problems.push({ file: file.name, what: 'Refused', why: "Programs can't be imported." });
     } else {
-      kept.push({ key: file.key, name: file.name });
-      files.push(plain(bytes));
+      const clean = withoutLocation(plain(bytes));
+      if (clean === null) {
+        const why = "Its location and camera details couldn't be removed.";
+        problems.push({ file: file.name, what: 'Refused', why });
+      } else {
+        kept.push({ key: file.key, name: file.name });
+        files.push(clean);
+      }
     }
   }
   return { plan: { ...plan, files: kept, problems }, files };
