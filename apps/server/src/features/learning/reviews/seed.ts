@@ -1,4 +1,4 @@
 import type { AreaSeed } from '../seed';
 
-/** Fictional review links and comments for the dev and browser-test database (B1). A stub until B1 adds them. */
+/** Nothing is seeded: a review link's token is shown once, to whoever makes it (decision 0309). */
 export const seedReviews: AreaSeed = async () => {};
