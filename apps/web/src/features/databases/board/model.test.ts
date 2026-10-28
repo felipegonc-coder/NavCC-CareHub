@@ -16,15 +16,19 @@ import { BOARD_TEXT } from './messages';
 import {
   beforeRowAt,
   boardColumns,
+  boardLanes,
   canMoveTo,
   cardPicture,
   cardProperties,
   hasValue,
   laneValues,
   rowPlace,
+  shownGroups,
+  stepAlong,
   stepPicked,
   withGroupShown,
   type BoardGrid,
+  type LineGrid,
   type Picked,
 } from './model';
 
@@ -231,18 +235,71 @@ describe('stepPicked', () => {
   });
 });
 
-describe('columns', () => {
-  it('puts hidden groups aside, and Show takes a group off the hidden list', () => {
-    const group = (key: string, hidden: boolean) => ({
-      key,
-      label: key,
-      hidden,
-      collapsedKey: key,
-      count: 0,
-      totals: {},
-      rows: [],
-      nextCursor: null,
+describe('stepAlong', () => {
+  // A gallery three cards to a line: group a has five, x takes nothing, b has one.
+  const tap = queryRow(fixtureRow('row-tap', 'Fit outdoor tap', 9));
+  const groups = {
+    a: [...['row-sink', 'row-heater', 'row-boiler', 'row-drain'].map(row), tap],
+    b: [row('row-sink')],
+  };
+  const grid = (patch: Partial<LineGrid> = {}): LineGrid => ({
+    slots: ['a', 'x', 'b'],
+    perLine: 3,
+    sideways: true,
+    rowsIn: (slot) => groups[slot.groupKey as keyof typeof groups] ?? [],
+    allowed: (slot) => slot.groupKey !== 'x',
+    ...patch,
+  });
+  const picked: Picked = {
+    rowId: 'row-drain',
+    from: { groupKey: 'a' },
+    fromIndex: 3,
+    to: { groupKey: 'a' },
+    index: 3,
+  };
+
+  it('moves one place sideways and a line up or down', () => {
+    expect(stepAlong(picked, 'ArrowLeft', grid())?.index).toBe(2);
+    expect(stepAlong(picked, 'ArrowRight', grid())?.index).toBe(4);
+    expect(stepAlong(picked, 'ArrowUp', grid())?.index).toBe(0);
+    expect(stepAlong({ ...picked, index: 1 }, 'ArrowDown', grid())?.index).toBe(4);
+  });
+
+  it('goes on to the next group that takes it past either end', () => {
+    expect(stepAlong({ ...picked, index: 4 }, 'ArrowRight', grid())).toMatchObject({
+      to: { groupKey: 'b' },
+      index: 0,
     });
+    expect(stepAlong(picked, 'ArrowDown', grid())).toMatchObject({ to: { groupKey: 'b' } });
+    const inB: Picked = { ...picked, to: { groupKey: 'b' }, index: 0 };
+    expect(stepAlong(inB, 'ArrowLeft', grid())).toMatchObject({ to: { groupKey: 'a' }, index: 4 });
+    expect(stepAlong({ ...picked, index: 0 }, 'ArrowLeft', grid())).toBeNull();
+  });
+
+  it('only moves up and down in a list', () => {
+    const list = grid({ perLine: 1, sideways: false });
+    expect(stepAlong(picked, 'ArrowLeft', list)).toBeNull();
+    expect(stepAlong(picked, 'ArrowUp', list)?.index).toBe(2);
+    expect(stepAlong({ ...picked, index: 4 }, 'ArrowDown', list)).toMatchObject({
+      to: { groupKey: 'b' },
+      index: 0,
+    });
+  });
+});
+
+describe('columns', () => {
+  const group = (key: string, hidden: boolean, count = 0) => ({
+    key,
+    label: key,
+    hidden,
+    collapsedKey: key,
+    count,
+    totals: {},
+    rows: [],
+    nextCursor: null,
+  });
+
+  it('puts hidden groups aside, and Show takes a group off the hidden list', () => {
     const { shown, hidden } = boardColumns([group('a', false), group('b', true)]);
     expect(shown.map((g) => g.key)).toEqual(['a']);
     expect(hidden.map((g) => g.key)).toEqual(['b']);
@@ -250,6 +307,27 @@ describe('columns', () => {
       propertyId: PROPS.status,
       hidden: ['c'],
     });
+  });
+
+  it('leaves out groups and lanes without rows when the view hides empty groups', () => {
+    const hideEmpty = { propertyId: PROPS.status, hideEmpty: true };
+    const groups = [group('a', false, 2), group('b', false), group('c', true), group('d', true, 1)];
+    const { shown, hidden } = boardColumns(groups, hideEmpty);
+    expect(shown.map((g) => g.key)).toEqual(['a']);
+    expect(hidden.map((g) => g.key)).toEqual(['d']);
+    expect(boardColumns(groups, { propertyId: PROPS.status }).shown).toHaveLength(2);
+    expect(shownGroups(groups, hideEmpty).map((g) => g.key)).toEqual(['a']);
+    expect(shownGroups(groups, null).map((g) => g.key)).toEqual(['a', 'b']);
+    const lane = (key: string, count: number) => ({
+      key,
+      label: key,
+      hidden: false,
+      collapsedKey: key,
+      count,
+    });
+    expect(boardLanes([lane('x', 0), lane('y', 3)], hideEmpty)?.map((l) => l.key)).toEqual(['y']);
+    expect(boardLanes([lane('x', 0)], null)).toHaveLength(1);
+    expect(boardLanes(null, hideEmpty)).toBeNull();
   });
 });
 
@@ -285,5 +363,13 @@ describe('BOARD_TEXT', () => {
       "Couldn't copy the link.",
       'Show',
     ]);
+    expect(BOARD_TEXT.columnMenu('Done')).toBe('Column menu for Done');
+    expect([
+      BOARD_TEXT.hide,
+      BOARD_TEXT.moveLeft,
+      BOARD_TEXT.moveRight,
+      BOARD_TEXT.calculate,
+      BOARD_TEXT.columns,
+    ]).toEqual(['Hide', 'Move left', 'Move right', 'Calculate', 'Columns']);
   });
 });

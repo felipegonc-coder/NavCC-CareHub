@@ -18,6 +18,7 @@ import {
   VIEWS,
 } from '../test-utils';
 import BoardLayout from './layout';
+import { PHONE } from './model';
 
 function boardView(patch: Partial<View> = {}): View {
   const view = jobsDatabase().views.find((v) => v.id === VIEWS.board);
@@ -61,20 +62,21 @@ const opener = (rowId: string): HTMLElement => {
   return found;
 };
 
+const rect = (x: number, y: number, width: number, height: number) =>
+  ({
+    x,
+    y,
+    left: x,
+    top: y,
+    right: x + width,
+    bottom: y + height,
+    width,
+    height,
+    toJSON: () => ({}),
+  }) as DOMRect;
+
 /** jsdom draws nothing: columns stand 300 px apart, and cards 60 px apart from y 40. */
 function layOutBoard() {
-  const rect = (x: number, y: number, width: number, height: number) =>
-    ({
-      x,
-      y,
-      left: x,
-      top: y,
-      right: x + width,
-      bottom: y + height,
-      width,
-      height,
-      toJSON: () => ({}),
-    }) as DOMRect;
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
     const slots = [...document.querySelectorAll('[data-board-slot]')];
     const at = slots.indexOf(this);
@@ -177,6 +179,9 @@ describe('BoardLayout columns', () => {
     const first = renderBoard();
     fireEvent.click(screen.getByRole('button', { name: 'Collapse Done' }));
     expect(cardsIn(column(STATUS.done))).toEqual([]);
+    // It stands narrow, its label on its side.
+    expect(column(STATUS.done)).toHaveClass('w-10');
+    expect(within(column(STATUS.done)).getByText('Done').style.writingMode).toBe('vertical-rl');
     first.unmount();
     renderBoard();
     expect(screen.getByRole('button', { name: 'Expand Done' })).toHaveAttribute(
@@ -202,6 +207,66 @@ describe('BoardLayout columns', () => {
     expect(actions.updateView).toHaveBeenCalledWith({
       grouping: { propertyId: PROPS.status, hidden: [] },
     });
+  });
+
+  it('leaves out columns without cards when the view hides empty groups', () => {
+    const data = groupedByStatus();
+    const groups = (data.groups ?? []).map((g) =>
+      g.key === STATUS.done ? { ...g, count: 0, rows: [] } : g,
+    );
+    const view = boardView({ grouping: { propertyId: PROPS.status, hideEmpty: true } });
+    renderBoard({ view, data: viewData({ ...data, groups }) });
+    const keys = screen.getAllByTestId('board-column').map((el) => el.dataset.groupKey);
+    expect(keys).toEqual([STATUS.notStarted, STATUS.inProgress]);
+  });
+
+  it("hides a column and moves it left or right from the column's menu", () => {
+    const { actions } = renderBoard();
+    const items = () => screen.getAllByRole('menuitem').map((item) => item.textContent);
+    fireEvent.click(screen.getByRole('button', { name: 'Column menu for Not started' }));
+    expect(items()).toEqual(['Hide', 'Move right', 'Calculate']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Move right' }));
+    expect(actions.updateView).toHaveBeenLastCalledWith({
+      grouping: {
+        propertyId: PROPS.status,
+        sort: 'manual',
+        order: [STATUS.inProgress, STATUS.notStarted, STATUS.done],
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Column menu for Done' }));
+    expect(items()).toEqual(['Hide', 'Move left', 'Calculate']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hide' }));
+    expect(actions.updateView).toHaveBeenLastCalledWith({
+      grouping: { propertyId: PROPS.status, hidden: [STATUS.done] },
+    });
+  });
+
+  it('sets the calculation every column header shows', () => {
+    const { actions, props } = renderBoard();
+    fireEvent.click(screen.getByRole('button', { name: 'Column menu for In progress' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Calculate' }));
+    expect(screen.getByRole('menuitemradio', { name: 'Count all' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Cost' }));
+    const choices = screen.getAllByRole('menuitemradio').map((item) => item.textContent);
+    expect(choices).toContain('Sum');
+    expect(choices).not.toContain('Count all');
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Sum' }));
+    expect(actions.updateView).toHaveBeenCalledWith({
+      board: expect.objectContaining({
+        cardSize: props.view.board?.cardSize ?? 'm',
+        headerCalculation: { propertyId: PROPS.cost, aggregate: 'sum' },
+      }),
+    });
+  });
+
+  it("doesn't offer Calculate to people who can't change the view for everyone", () => {
+    renderBoard({ readOnly: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Column menu for Done' }));
+    expect(screen.queryByRole('menuitem', { name: 'Calculate' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Hide' })).toBeInTheDocument();
   });
 
   it('"Load more" asks for the next page of that column', () => {
@@ -342,6 +407,114 @@ describe('BoardLayout moves', () => {
     pointer(window, 'pointerup', 400, 50);
     expect(actions.moveRow).not.toHaveBeenCalled();
     expect(document.querySelector('[data-drop-indicator]')).toBeNull();
+  });
+
+  it('scrolls the board sideways while a card is held near its edge', async () => {
+    renderBoard();
+    layOutBoard();
+    const board = column(STATUS.done).closest<HTMLElement>('.overflow-x-auto');
+    if (!board) throw new Error('No board');
+    let left = 0;
+    Object.defineProperties(board, {
+      scrollWidth: { configurable: true, value: 1200 },
+      clientWidth: { configurable: true, value: 600 },
+      scrollLeft: {
+        configurable: true,
+        get: () => left,
+        set: (value: number) => {
+          left = Math.max(value, 0);
+        },
+      },
+    });
+    board.getBoundingClientRect = () => rect(0, 0, 600, 600);
+    pointer(card('row-heater'), 'pointerdown', 100, 60);
+    pointer(window, 'pointermove', 595, 300);
+    await waitFor(() => expect(left).toBeGreaterThan(0));
+    pointer(window, 'pointerup', 595, 300);
+    const stopped = left;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(left).toBe(stopped);
+  });
+});
+
+describe('BoardLayout on phones', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === PHONE,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('shows one column at a time, and picks one from the buttons above', () => {
+    renderBoard();
+    for (const el of screen.getAllByTestId('board-column')) {
+      expect(el).toHaveClass('w-full', 'snap-start');
+    }
+    const picker = screen.getByRole('group', { name: 'Columns' });
+    const buttons = within(picker).getAllByRole('button');
+    expect(buttons).toHaveLength(3);
+    expect(buttons[0]).toHaveAttribute('aria-current', 'true');
+    const scrolled = vi.fn();
+    column(STATUS.done).scrollIntoView = scrolled;
+    fireEvent.click(within(picker).getByRole('button', { name: /^Done/ }));
+    expect(scrolled).toHaveBeenCalledWith(expect.objectContaining({ inline: 'start' }));
+    expect(within(picker).getByRole('button', { name: /^Done/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    expect(buttons[0]).not.toHaveAttribute('aria-current');
+  });
+
+  it('follows a swipe, and lets the board scroll freely while a card is dragged', () => {
+    renderBoard();
+    layOutBoard();
+    const board = column(STATUS.done).closest<HTMLElement>('.overflow-x-auto');
+    if (!board) throw new Error('No board');
+    expect(board).toHaveClass('snap-x', 'snap-mandatory');
+    // The board scrolled so that Done (drawn from x 600) is at its left edge.
+    board.getBoundingClientRect = () => rect(600, 0, 300, 600);
+    fireEvent.scroll(board);
+    const picker = screen.getByRole('group', { name: 'Columns' });
+    expect(within(picker).getByRole('button', { name: /^Done/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    pointer(card('row-boiler'), 'pointerdown', 700, 60);
+    pointer(window, 'pointermove', 720, 60);
+    expect(board).not.toHaveClass('snap-mandatory');
+    pointer(window, 'pointerup', 720, 60);
+    expect(board).toHaveClass('snap-mandatory');
+  });
+});
+
+describe('BoardLayout with a sort', () => {
+  it('keeps the cards sorted: only moves to another column count', () => {
+    const view = boardView({ sorts: [{ propertyId: PROPS.cost, direction: 'desc' }] });
+    const { actions } = renderBoard({ view });
+    layOutBoard();
+    // Dragging within its own column changes nothing.
+    pointer(card('row-heater'), 'pointerdown', 100, 60);
+    pointer(window, 'pointermove', 100, 140);
+    expect(document.querySelector('[data-drop-indicator]')).toBeNull();
+    pointer(window, 'pointerup', 100, 140);
+    expect(actions.moveRow).not.toHaveBeenCalled();
+    // Nor do the arrows within it.
+    const heater = opener('row-heater');
+    fireEvent.keyDown(heater, { key: ' ' });
+    fireEvent.keyDown(heater, { key: 'ArrowDown' });
+    expect(screen.queryByText(/^Not started, /)).toBeNull();
+    fireEvent.keyDown(heater, { key: 'ArrowRight' });
+    expect(screen.getByText('In progress, 1 of 2')).toBeInTheDocument();
+    fireEvent.keyDown(heater, { key: ' ' });
+    expect(actions.moveRow).toHaveBeenCalledWith('row-heater', {
+      beforeRowId: 'row-sink',
+      fromGroupKey: STATUS.notStarted,
+      toGroupKey: STATUS.inProgress,
+    });
   });
 });
 
