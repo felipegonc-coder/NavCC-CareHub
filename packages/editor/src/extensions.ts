@@ -1,4 +1,10 @@
-import type { AnyExtension, Extensions, NodeViewRenderer, Node as TiptapNode } from '@tiptap/core';
+import type {
+  AnyExtension,
+  Editor,
+  Extensions,
+  NodeViewRenderer,
+  Node as TiptapNode,
+} from '@tiptap/core';
 import { Collaboration } from '@tiptap/extension-collaboration';
 import { CollaborationCaret } from '@tiptap/extension-collaboration-caret';
 import { Placeholder } from '@tiptap/extensions';
@@ -9,6 +15,7 @@ import { laneFeature } from './lanes';
 import { RevealBlock } from './reveal';
 import { PAGE_FIELD, pageExtensions } from './schema';
 import { SlashCommand, type SlashMenuStore } from './slash';
+import { ToggleState } from './toggle-state';
 import { ToolbarKeys } from './toolbar-keys';
 import type { CollabProvider, EditorUser, NodeViewEntry, NodeViews } from './types';
 import { UndoShortcut } from './undo-shortcut';
@@ -39,6 +46,14 @@ const renderSelection = (user: Record<string, unknown>) => ({
   class: 'ch-remote-selection',
   style: `--ch-caret: ${safeColor(user.color)}`,
 });
+
+/** True for the line at `pos` if it's a toggle's title. */
+function isToggleTitle(editor: Editor, pos: number): boolean {
+  const { doc } = editor.state;
+  if (pos > doc.content.size) return false;
+  const $pos = doc.resolve(pos);
+  return $pos.parent.type.name === 'toggle' && $pos.index() === 0;
+}
 
 /** A lane block whose view isn't loaded: a plain box that says so. The block itself is kept. */
 function laneFallback(feature: string): NodeViewRenderer {
@@ -119,15 +134,17 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
     ...pageExtensions().map((extension) => withView(extension, views)),
     Placeholder.configure({
       includeChildren: true,
-      placeholder: ({ editor, node }) => {
+      placeholder: ({ editor, node, pos }) => {
         if (node.type.name === 'heading') return `Heading ${String(node.attrs.level)}`;
         if (node.type.name !== 'paragraph') return '';
+        if (isToggleTitle(editor, pos)) return 'Toggle';
         return (editor.isEmpty && placeholder?.()) || DEFAULT_PLACEHOLDER;
       },
     }),
     Collaboration.configure({ document: ydoc, field }),
     UndoShortcut,
     RevealBlock,
+    ToggleState,
     ...(awareness && user
       ? [
           CollaborationCaret.configure({

@@ -2,6 +2,7 @@ import { Extension, type Editor } from '@tiptap/core';
 import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { findBlock } from './block-ids';
+import { openTogglesAround } from './toggle-state';
 
 /** How long a block opened from a link stays highlighted. */
 export const REVEAL_MS = 2000;
@@ -40,13 +41,15 @@ export const RevealBlock = Extension.create({
 });
 
 /**
- * Scrolls to a block and highlights it for 2 seconds, for links to a block (PB-18). Returns false
- * if the page has no block with that ID.
+ * Opens the toggles around a block, scrolls to it and highlights it for 2 seconds, for links to a
+ * block (PB-18). Returns false if the page has no block with that ID.
  */
 export function revealBlock(editor: Editor, blockId: string): boolean {
   const block = findBlock(editor.state.doc, blockId);
   if (!block) return false;
-  editor.view.dispatch(editor.state.tr.setMeta(revealKey, blockId));
+  const tr = editor.state.tr.setMeta(revealKey, blockId);
+  openTogglesAround(editor, tr, block.pos);
+  editor.view.dispatch(tr);
   const dom = editor.view.nodeDOM(block.pos);
   if (dom instanceof HTMLElement) dom.scrollIntoView({ block: 'center' });
   setTimeout(() => {
