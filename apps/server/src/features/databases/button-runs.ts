@@ -2,19 +2,24 @@
 // presser's own access; this file loads what the plan reads, carries it out in one transaction
 // through the rows API (source 'button'), keeps the run log (the newest 50 per button) and undoes
 // a run within 8 seconds for the person who pressed. Messages go out as notices after the commit,
-// only to people who can open the row. Buttons are off on archived pages (TB-15), and only Admins
-// can press a step that sends to Everyone or to roles (TB-14, checked at the press for now). Only
+// only to people who can open the row: each one filled in with its reader's own access, with only
+// the page cards they can open. Buttons are off on archived pages (TB-15), and only Admins can
+// press a step that sends to Everyone or to roles (TB-14, checked at the press for now). Only
 // workspace members can press (not guests).
 import { randomUUID } from 'node:crypto';
 import {
+  DEFAULT_TIME_ZONE,
   LIMITS,
   findProperty,
+  isValidTimeZone,
   titleProperty,
   type AccessLevel,
+  type ComputedValue,
   type Id,
   type Property,
   type Row,
   type Viewer,
+  type WeekDay,
 } from '@carehub/databases';
 import {
   accessToRow,
@@ -26,12 +31,15 @@ import {
 import {
   BUTTON_MESSAGES,
   failRun,
+  fillMessage,
   planRun,
   planUndo,
   runToast,
   type ButtonConfig,
   type ButtonDatabase,
   type ButtonRun,
+  type MessageReader,
+  type MessageStep,
   type PlannedStep,
   type ReadyRun,
   type RowChange,
@@ -66,7 +74,7 @@ export const BUTTON_RUN_MESSAGES = {
 
 /**
  * A "Send a message" notice is titled with the button's label; these words stand in when the label
- * is empty. The text is the message, and the card shows the row.
+ * is empty. The text is the message with its fill-ins, and the cards show the step's pages.
  */
 export const BUTTON_NOTICES = {
   title: 'A button sent you a message',
@@ -117,8 +125,8 @@ export interface RunEntry {
   undone: boolean;
 }
 
-/** A message step that ran, to the recipients who can open the row. */
-type Delivery = { userIds: string[]; message: string };
+/** One person's notice from a message step: their text and the cards of the pages they can open. */
+type Delivery = { userId: string; text: string; cards: string[] };
 
 const isButton = (prop: Property | undefined): prop is Property<ButtonConfig> =>
   prop?.config.type === 'button';
@@ -430,7 +438,7 @@ async function carryOut(
   const idOf = (id: string) => created.get(id) ?? id;
   const done: PlannedStep[] = [];
   const open: RunOpen[] = [];
-  const sends: Delivery[] = [];
+  const sends: MessageStep[] = [];
   let ended: ReadyRun = plan;
   for (const step of plan.steps) {
     const written: RowChange[] = [];
@@ -464,7 +472,7 @@ async function carryOut(
       } else if (step.kind === 'open_link') {
         open.push({ kind: 'link', url: step.url });
       } else {
-        sends.push({ userIds: step.userIds, message: step.message });
+        sends.push(step);
       }
     } catch (error) {
       const rowIds = 'changes' in step ? step.changes.map((c) => idOf(c.rowId)) : [];
@@ -483,8 +491,8 @@ async function carryOut(
     tx,
     ended.run.changes.map((c) => ({ ...c, rowId: idOf(c.rowId) })),
   );
-  const deliveries = await canOpenRow(tx, input.row.id, sends);
-  const messaged = new Set(deliveries.flatMap((d) => d.userIds)).size;
+  const deliveries = await messagesFor(tx, input, loaded.people, sends);
+  const messaged = new Set(deliveries.map((d) => d.userId)).size;
   const run: ButtonRun = { ...ended.run, changes, messaged };
   return { run, undoUntil: changes.length ? ended.undoUntil : null, open, deliveries };
 }
@@ -509,17 +517,109 @@ async function storedChanges(tx: Tx, changes: RowChange[]): Promise<RowChange[]>
   });
 }
 
-/** The message steps with only the recipients who can open the row (checked in the transaction). */
-async function canOpenRow(tx: Tx, rowId: string, sends: Delivery[]): Promise<Delivery[]> {
-  const allowed = new Set<string>();
-  for (const userId of new Set(sends.flatMap((s) => s.userIds))) {
-    if (!isUuid(userId)) continue;
-    const levels = await getAccessForPages(tx, userId, [rowId]);
-    if (atLeast(levels.get(rowId), 'view')) allowed.add(userId);
+// ---------------------------------------------------------------- messages
+
+/** Fill-ins as the package reads them: a name in braces, on one line. */
+const FILL_IN = /\{([^{}\r\n]{1,100})\}/g;
+const loose = (name: string) => name.replace(/\s+/g, '').toLowerCase();
+
+/**
+ * The rows a message's fill-ins may show by title: the linked rows of the relation properties and
+ * the pages in the variables it names (by name, ignoring case and spaces, as fillMessage matches).
+ */
+function linkedRows(step: MessageStep): string[] {
+  const named = new Set([...step.message.matchAll(FILL_IN)].map((m) => loose(m[1] ?? '')));
+  const ids = new Set<string>();
+  for (const prop of step.fill.properties) {
+    if (prop.config.type !== 'relation' || !named.has(loose(prop.name))) continue;
+    const linked: unknown = step.fill.row.values[prop.id];
+    if (Array.isArray(linked)) for (const id of linked) if (typeof id === 'string') ids.add(id);
   }
-  return sends
-    .map((s) => ({ ...s, userIds: s.userIds.filter((id) => allowed.has(id)) }))
-    .filter((s) => s.userIds.length > 0);
+  const pages = (value: ComputedValue | null) => {
+    if (value?.kind === 'page') ids.add(value.value);
+    if (value?.kind === 'list') value.value.forEach(pages);
+  };
+  for (const v of step.fill.variables) if (named.has(loose(v.name))) pages(v.value);
+  return [...ids].filter(isUuid);
+}
+
+/** The titles of these pages that aren't in Trash. */
+async function titlesOf(tx: Tx, pageIds: string[]): Promise<Map<string, string>> {
+  if (pageIds.length === 0) return new Map();
+  const { rows } = await tx.execute<{ id: string; title: string }>(sql`
+    SELECT id, title FROM pages WHERE id = ANY(${uuidList(pageIds)}) AND deleted_at IS NULL`);
+  return new Map(rows.map((r) => [r.id, r.title]));
+}
+
+type Settings = {
+  id: string;
+  time_zone: string | null;
+  use_24h: boolean | null;
+  week_start: number | null;
+};
+
+/** Each person's time zone and clock, for their fill-ins; `now` is the moment of the press. */
+async function viewersOf(tx: Tx, userIds: string[], now: Date): Promise<Map<string, Viewer>> {
+  if (userIds.length === 0) return new Map();
+  const { rows } = await tx.execute<Settings>(sql`
+    SELECT id, time_zone, use_24h, week_start FROM users WHERE id = ANY(${uuidList(userIds)})`);
+  return new Map(
+    rows.map((u): [string, Viewer] => [
+      u.id,
+      {
+        userId: u.id,
+        timeZone: u.time_zone && isValidTimeZone(u.time_zone) ? u.time_zone : DEFAULT_TIME_ZONE,
+        weekStart: (u.week_start ?? 0) as WeekDay,
+        hour12: !u.use_24h,
+        now,
+      },
+    ]),
+  );
+}
+
+/**
+ * The notices of the message steps that ran, checked in the transaction: one for each person a
+ * step goes to who can open the row. Each text has its fill-ins worked out with that person's own
+ * access (fillMessage: a property or row they can't see comes out empty), and each notice carries
+ * only the cards of pages they can open; the others are left off, so no title or icon shows.
+ */
+async function messagesFor(
+  tx: Tx,
+  input: PressInput,
+  people: People,
+  steps: readonly MessageStep[],
+): Promise<Delivery[]> {
+  const userIds = [...new Set(steps.flatMap((s) => s.userIds))].filter(isUuid);
+  if (userIds.length === 0) return [];
+  const rowId = input.row.id;
+  const linked = [...new Set(steps.flatMap(linkedRows))];
+  const pageIds = [...new Set([rowId, ...steps.flatMap((s) => s.pageIds), ...linked])];
+  const titles = await titlesOf(tx, linked);
+  const viewers = await viewersOf(tx, userIds, input.presser.now);
+  const readers = new Map<string, { reader: MessageReader; canOpen: (id: string) => boolean }>();
+  for (const [userId, viewer] of viewers) {
+    const levels = await getAccessForPages(tx, userId, pageIds.filter(isUuid));
+    const canOpen = (id: string) => atLeast(levels.get(id), 'view');
+    if (!canOpen(rowId)) continue;
+    const propertyViewer = await loadPropertyViewer(tx, userId, input.record.workspaceId);
+    const reader: MessageReader = {
+      viewer,
+      name: people.names.get(userId) ?? '',
+      canOpenRow: true,
+      canSeeProperty: (prop) => canSeeProperty(prop, propertyViewer),
+      userName: (id) => people.names.get(id),
+      rowTitle: (id) => (canOpen(id) ? titles.get(id) : undefined),
+    };
+    readers.set(userId, { reader, canOpen });
+  }
+  return steps.flatMap((step) =>
+    step.userIds.flatMap((userId) => {
+      const found = readers.get(userId);
+      if (!found) return [];
+      const text = fillMessage(step, found.reader);
+      return [{ userId, text, cards: step.pageIds.filter(found.canOpen) }];
+    }),
+  );
 }
 
 /** Adds the run to the button's log and keeps the newest 50. */
@@ -541,27 +641,28 @@ async function recordRun(tx: Tx, input: PressInput, run: ButtonRun): Promise<str
   return id;
 }
 
+/** Sends each notice after the commit; one that fails is logged and the others still go. */
 async function deliver(app: FastifyInstance, input: PressInput, deliveries: Delivery[]) {
   const sender = input.presserName.trim().slice(0, NOTICE_LIMITS.sender) || 'Databases';
   const title =
     input.button.config.label.trim().slice(0, NOTICE_LIMITS.title) || BUTTON_NOTICES.title;
-  for (const { userIds, message } of deliveries) {
-    const text = message.trim() ? { text: message.slice(0, NOTICE_LIMITS.text) } : {};
-    for (const userId of userIds) {
-      try {
-        await sendNotice({
-          workspaceId: input.record.workspaceId,
-          userId,
-          kind: 'automation',
-          sender,
-          actorUserId: input.presser.userId,
-          title,
-          ...text,
-          card: { type: 'page', pageId: input.row.id },
-        });
-      } catch (err) {
-        app.log.warn({ err }, 'databases: a button message was not sent');
-      }
+  for (const { userId, text, cards } of deliveries) {
+    const shown = cards.slice(0, NOTICE_LIMITS.cards);
+    try {
+      await sendNotice({
+        workspaceId: input.record.workspaceId,
+        userId,
+        kind: 'automation',
+        sender,
+        actorUserId: input.presser.userId,
+        title,
+        ...(text.trim() ? { text } : {}),
+        ...(shown.length
+          ? { cards: shown.map((pageId) => ({ type: 'page' as const, pageId })) }
+          : {}),
+      });
+    } catch (err) {
+      app.log.warn({ err }, 'databases: a button message was not sent');
     }
   }
 }
