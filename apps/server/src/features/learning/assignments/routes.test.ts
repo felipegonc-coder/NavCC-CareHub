@@ -8,12 +8,16 @@ import {
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, hasDatabase, type TestApp } from '../../../testing';
+import { jobRunner } from '../../jobs';
+import { seedCourse } from '../courses/service';
+import { learningToday } from '../day';
 import { errorReply } from '../errors';
+import { learningProgress } from '../progress/schema';
 import { isLearningEnabled } from '../public';
 import learningRoutes from '../routes';
-import { sendReminders } from './reminders';
+import { REMINDERS_TASK } from './reminders';
 import assignmentsRoutes from './routes';
-import { boundAssignmentSources, createAssignments, todayIn } from './service';
+import { boundAssignmentSources, createAssignments } from './service';
 import { assignmentStore } from './store';
 import { memoryReminderSources, memorySources, only } from './testing';
 
@@ -228,7 +232,7 @@ describe.skipIf(!hasDatabase)('Learning assignments API on Postgres', () => {
       await assignmentStore(server.db).insert([
         {
           workspaceId,
-          courseId: calls.id,
+          courseId: privacy.id,
           pathId: null,
           userIds: [PEOPLE.tara.id],
           groupIds: [],
@@ -241,10 +245,10 @@ describe.skipIf(!hasDatabase)('Learning assignments API on Postgres', () => {
     );
     expect((await call('tara', 'GET', '/assignments')).json()).toEqual(FORBIDDEN);
     expect((await call('trainer', 'GET', '/assignments')).json()).toMatchObject([
-      { id: row.id, courseId: calls.id, courseTitle: null, people: [PEOPLE.tara.id] },
+      { id: row.id, courseId: privacy.id, courseTitle: null, people: [PEOPLE.tara.id] },
     ]);
-    // No course is live on main until the courses server lands, so none can be assigned or shown.
-    const assign = { target: { type: 'course', id: calls.id }, people: [PEOPLE.tara.id] };
+    // A course that was never published can't be assigned, and My learning leaves it out.
+    const assign = { target: { type: 'course', id: privacy.id }, people: [PEOPLE.tara.id] };
     expect((await call('trainer', 'POST', '/assignments', assign)).json()).toEqual(NOT_FOUND);
     expect((await call('tara', 'GET', '/me')).json()).toEqual({
       continue: [],
@@ -255,6 +259,38 @@ describe.skipIf(!hasDatabase)('Learning assignments API on Postgres', () => {
 
     expect((await call('trainer', 'DELETE', `/assignments/${row.id}`)).statusCode).toBe(204);
     expect((await call('trainer', 'GET', '/assignments')).json()).toEqual([]);
+  });
+
+  it('assigns a published course and reads progress from the progress tables', async () => {
+    // Published by the courses server; the progress row is the one the progress server keeps.
+    await seedCourse(server.db, { userId: PEOPLE.trainer.id, workspaceId }, calls);
+    const assign = { target: { type: 'course', id: calls.id }, people: [PEOPLE.tara.id] };
+    const made = await call('trainer', 'POST', '/assignments', assign);
+    expect(made.statusCode).toBe(201);
+    expect((await call('trainer', 'GET', '/assignments')).json()).toMatchObject([
+      { courseId: calls.id, courseTitle: calls.title, people: [PEOPLE.tara.id] },
+    ]);
+    const entry = { courseId: calls.id, title: calls.title, assigned: true };
+    expect((await call('tara', 'GET', '/me')).json()).toMatchObject({
+      continue: [],
+      assigned: [{ ...entry, status: 'not_started', progressPercent: 0 }],
+    });
+
+    const at = new Date();
+    await server.db.insert(learningProgress).values({
+      workspaceId,
+      learnerId: PEOPLE.tara.id,
+      courseId: calls.id,
+      version: 1,
+      status: 'in_progress',
+      percentComplete: 50,
+      startedAt: at,
+      lastActivityAt: at,
+    });
+    expect((await call('tara', 'GET', '/me')).json()).toMatchObject({
+      continue: [{ ...entry, status: 'in_progress', progressPercent: 50 }],
+      assigned: [],
+    });
   });
 });
 
@@ -301,10 +337,14 @@ describe('Learning assignment notices', () => {
     expect(memory.store.rows).toHaveLength(2);
     expect(memory.notices).toHaveLength(1);
 
-    // The reminders job sends the one that didn't go out.
+    // The reminders job sends the one that didn't go out. It runs here as the jobs runner's test
+    // hook runs it, as of the time it is given: at night in Denver nothing goes out, at midday it
+    // does.
     memory.outbox.failing = false;
-    const { today } = todayIn(undefined, new Date());
-    expect(await sendReminders(memory.sources, new Date(`${today}T18:00:00Z`))).toBe(1);
+    const at = (time: string) => ({ now: new Date(`${learningToday()}T${time}:00Z`) });
+    expect(await jobRunner.runPeriodicTask(REMINDERS_TASK, at('08:00'))).toBe(true);
+    expect(memory.notices).toHaveLength(1);
+    expect(await jobRunner.runPeriodicTask(REMINDERS_TASK, at('18:00'))).toBe(true);
     expect(memory.notices.map((notice) => notice.userId)).toEqual([PEOPLE.tara.id, stranger]);
   });
 });
@@ -316,10 +356,7 @@ describe('Learning test hooks', () => {
   const callOff = caller(() => off);
   const call = caller(() => on);
   const otherWorkspace = randomUUID();
-  // Mid-morning today in Care Hub's time zone, and the night before.
-  const { today } = todayIn(undefined, new Date());
-  const now = `${today}T18:00:00Z`;
-  const night = `${today}T08:00:00Z`;
+  const today = learningToday();
   const assignIn = async (workspace: string, courseId: string) =>
     only(
       await createAssignments(
@@ -366,29 +403,8 @@ describe('Learning test hooks', () => {
 
   it('are not there without CAREHUB_TEST_HOOKS=1', async () => {
     const backdate = { dueDate: addDays(today, -1) };
-    expect((await callOff('trainer', 'POST', '/test/reminders', { now })).statusCode).toBe(404);
     const url = `/test/assignments/${randomUUID()}`;
     expect((await callOff('trainer', 'POST', url, backdate)).statusCode).toBe(404);
-  });
-
-  it("run the reminders job at a given time for the caller's workspace only", async () => {
-    await assignIn(workspaceId, calls.id);
-    await assignIn(otherWorkspace, calls.id);
-
-    expect((await call(null, 'POST', '/test/reminders', { now })).json()).toEqual(SIGNED_OUT);
-    expect((await call('tara', 'POST', '/test/reminders', { now })).json()).toEqual(FORBIDDEN);
-    expect((await call('trainer', 'POST', '/test/reminders', { now: 'soon' })).statusCode).toBe(
-      400,
-    );
-    const run = async (at: string) =>
-      (await call('trainer', 'POST', '/test/reminders', { now: at })).json();
-    expect(await run(night)).toEqual({ sent: 0 });
-    expect(await run(now)).toEqual({ sent: 1 });
-    expect(await run(now)).toEqual({ sent: 0 });
-    expect(memory.notices.map((notice) => [notice.workspaceId, notice.userId])).toEqual([
-      [workspaceId, PEOPLE.tara.id],
-    ]);
-    expect(memory.log.filter((row) => row.workspaceId === otherWorkspace)).toEqual([]);
   });
 
   it("move a due date into the past in the caller's workspace only", async () => {

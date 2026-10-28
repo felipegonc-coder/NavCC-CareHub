@@ -3,6 +3,7 @@
  * viewer can see, formula and rollup results, links only to rows they can open (with a count of
  * the others), and created and edited details only when a property showing them is visible.
  */
+import type { RowColor } from '../color';
 import type { ComputedValue, Id, Property, PropertyType, Row } from '../types';
 import { HIDDEN_ROW_ID, type ArrangedLine, type ComputeContext, type QueryRow } from './shapes';
 
@@ -27,6 +28,8 @@ export interface Projection {
   hiddenMeta: ReadonlySet<string>;
   /** Titles of the linked rows the viewer can open, filled in as rows are projected. */
   titles: Record<Id, string>;
+  /** The row's conditional color (rowColorer, with the view's rules prepared once). */
+  colorOf(row: Row): RowColor;
 }
 
 /** Row fields whose properties exist but are all hidden from the viewer. */
@@ -82,6 +85,7 @@ export function projectRow(line: ArrangedLine, p: Projection, placed: boolean): 
     values: {},
     computed: {},
     hiddenLinks: {},
+    color: p.colorOf(row),
     createdAt: p.hiddenMeta.has('createdAt') ? null : row.createdAt,
     createdBy: p.hiddenMeta.has('createdBy') ? null : row.createdBy,
     editedAt: p.hiddenMeta.has('editedAt') ? null : row.editedAt,
