@@ -1,16 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import {
+  planAttempt,
   sampleCertificationCourse,
   stripBankSnapshots,
   type BankReply,
   type Course,
+  type ProgressEvent,
   type QuestionBank,
+  type QuizLesson,
   type StudioCourse,
+  type SurveySummary,
 } from '@carehub/learning';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, hasDatabase, type TestApp } from '../../../testing';
 import { getLiveCourse } from '../courses/service';
+import { bindCourseVersions } from '../progress/courses';
+import { learningProgress, learningProgressEvents } from '../progress/schema';
 import learningRoutes from '../routes';
 import { sampleBanks } from './seed';
 
@@ -31,6 +37,12 @@ const PEOPLE = {
     permissions: ['learning.build'],
   },
   learner: { id: randomUUID(), workspaceId, roleId: 'role-viewer', permissions: [] },
+  analyst: {
+    id: randomUUID(),
+    workspaceId,
+    roleId: 'role-analyst',
+    permissions: ['learning.analytics'],
+  },
   publisher: {
     id: randomUUID(),
     workspaceId: randomUUID(),
@@ -209,5 +221,98 @@ describe.skipIf(!hasDatabase)('Learning question banks API', () => {
         ],
       },
     });
+  });
+
+  it("reports a survey's answer counts from each learner's current run, to people who see reports", async () => {
+    // Version 2 of the certification sample is live; its versions are bound here instead of published.
+    const course: Course = {
+      ...sampleCertificationCourse,
+      settings: { ...sampleCertificationCourse.settings, lessonOrder: 'free' },
+    };
+    const survey = course.lessons.find((lesson) => lesson.id === 'esc-feedback') as QuizLesson;
+    const ours = (inWorkspace: string, courseId: string) =>
+      inWorkspace === workspaceId && courseId === course.id;
+    bindCourseVersions({
+      live: async (_db, inWorkspace, courseId) =>
+        ours(inWorkspace, courseId) ? { course, version: 2 } : null,
+      version: async (_db, inWorkspace, courseId, version) =>
+        ours(inWorkspace, courseId) && version === 2 ? { course, version } : null,
+    });
+    try {
+      const [ana, ben, cy] = [randomUUID(), randomUUID(), randomUUID()];
+      await server.db.insert(learningProgress).values([
+        { workspaceId, learnerId: ana, courseId: course.id, version: 2 },
+        { workspaceId, learnerId: ben, courseId: course.id, version: 2 },
+        { workspaceId, learnerId: cy, courseId: course.id, version: 2, run: 2 },
+      ]);
+      const took = (learnerId: string, run: number, attemptId: string, optionId: string) => {
+        const start: ProgressEvent = {
+          id: `${attemptId}-start`,
+          at: '2026-10-27T09:00:00.000Z',
+          type: 'quiz_attempt_started',
+          lessonId: survey.id,
+          plan: planAttempt(survey, 7, attemptId),
+        };
+        const submit: ProgressEvent = {
+          id: `${attemptId}-submit`,
+          at: '2026-10-27T09:05:00.000Z',
+          type: 'quiz_attempt_submitted',
+          lessonId: survey.id,
+          attemptId,
+          responses: { 'esc-survey-useful': { type: 'single_choice', optionId } },
+        };
+        return [start, submit].map((event) => ({
+          workspaceId,
+          learnerId,
+          courseId: course.id,
+          eventId: event.id,
+          run,
+          event,
+        }));
+      };
+      // Cy's first run was reset, so only the second one counts.
+      await server.db
+        .insert(learningProgressEvents)
+        .values([
+          ...took(ana, 1, 'attempt-ana', 'very'),
+          ...took(ben, 1, 'attempt-ben', 'not'),
+          ...took(cy, 1, 'attempt-cy-1', 'not'),
+          ...took(cy, 2, 'attempt-cy-2', 'very'),
+        ]);
+
+      const url = `/reports/courses/${course.id}/surveys/${survey.id}`;
+      expect((await call('trainer', 'GET', url)).statusCode).toBe(403);
+      const reply = await call('analyst', 'GET', url);
+      expect(reply.statusCode).toBe(200);
+      const summary: SurveySummary = reply.json();
+      expect(summary).toMatchObject({ lessonId: survey.id, submissions: 3 });
+      expect(summary.questions.map(({ questionId, answered }) => [questionId, answered])).toEqual([
+        ['esc-survey-useful', 3],
+        ['esc-survey-more', 0],
+      ]);
+      expect(summary.questions[0]?.answers.map(({ optionId, count }) => [optionId, count])).toEqual(
+        [
+          ['very', 2],
+          ['somewhat', 0],
+          ['not', 1],
+        ],
+      );
+      const text = JSON.stringify(summary);
+      for (const learnerId of [ana, ben, cy]) expect(text).not.toContain(learnerId);
+
+      const graded = await call('analyst', 'GET', `/reports/courses/${course.id}/surveys/esc-exam`);
+      expect(graded.statusCode).toBe(404);
+      const unpublished = await call(
+        'analyst',
+        'GET',
+        `/reports/courses/course-nowhere/surveys/${survey.id}`,
+      );
+      expect(unpublished.statusCode).toBe(404);
+      expect(unpublished.json()).toMatchObject({
+        error: { message: "This course isn't published, so it has no survey results yet." },
+      });
+    } finally {
+      bindCourseVersions(null);
+    }
   });
 });

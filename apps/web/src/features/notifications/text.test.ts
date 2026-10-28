@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDay, testResultToast } from './text';
+import { formatDay, pausedText, testResultToast } from './text';
 
 describe('testResultToast', () => {
   it('says how many browsers got it', () => {
@@ -32,5 +32,21 @@ describe('testResultToast', () => {
 describe('formatDay', () => {
   it('writes the day as the specs do', () => {
     expect(formatDay('2026-10-27T12:00:00.000Z')).toBe('Oct 27, 2026');
+  });
+});
+
+describe('pausedText', () => {
+  // Made in this computer's time zone, as the screen shows them.
+  const now = new Date(2026, 9, 27, 9, 30);
+  const at = (day: number, hour: number) => new Date(2026, 9, day, hour, 0).toISOString();
+
+  it('says when the pause ends, with "tomorrow" for the next day', () => {
+    expect(pausedText(at(27, 10), now)).toBe('Paused until 10:00 AM.');
+    expect(pausedText(at(28, 8), now)).toBe('Paused until tomorrow, 8:00 AM.');
+    expect(pausedText(at(29, 20), now)).toBe('Paused until Thu, Oct 29, 8:00 PM.');
+  });
+
+  it('says when the pause lasts until notifications are turned back on', () => {
+    expect(pausedText(null, now)).toBe('Paused until you turn them back on.');
   });
 });

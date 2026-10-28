@@ -8,7 +8,6 @@ import {
   playerLabels,
   previousLessonId,
   visibleBlocks,
-  type Course,
   type Link as CourseLink,
   type LearnerCourseState,
   type NewProgressEvent,
@@ -36,13 +35,6 @@ export type LessonViewProps = {
 };
 
 const noteClasses = 'rounded border border-border bg-fill px-4 py-3 text-small text-muted';
-
-/**
- * B3's `canCompleteLesson` and `nextLesson` take the full course type, but read only lesson ids,
- * kinds and content blocks, never quiz questions, so the learner view (decision 0314) goes in as
- * it is.
- */
-const forGating = (course: PlayerCourse) => course as Course;
 
 /**
  * One lesson: its title, the blocks up to the first continue block not passed yet, and the way on
@@ -180,14 +172,14 @@ function LessonEnd({ course, lesson, state, locked, emit, time }: LessonEndProps
           },
         ])
       : state;
-  const check = completing ? canCompleteLesson(forGating(course), counted, lesson.id) : null;
+  const check = completing ? canCompleteLesson(course, counted, lesson.id) : null;
   // Where Next goes once this lesson counts as completed (the next lesson may unlock).
   const after = completing
     ? withPending(course, state, [
         { type: 'lesson_completed', lessonId: lesson.id, id: 'next', at: '' },
       ])
     : state;
-  const next = locked ? null : nextLesson(forGating(course), after, lesson.id);
+  const next = locked ? null : nextLesson(course, after, lesson.id);
   const hint =
     check && !check.ok && check.reason === 'minimum_time'
       ? `Stay with this lesson a little longer to finish it (${timeLeft(check.secondsLeft)} left).`
