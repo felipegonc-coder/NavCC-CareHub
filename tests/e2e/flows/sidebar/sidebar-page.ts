@@ -24,6 +24,59 @@ export class Sidebar {
     return this.nav.getByRole('group', { name, exact: true });
   }
 
+  /** A section's heading, such as Shared or Private: a click collapses or expands it (section 3.1). */
+  heading(name: string): Locator {
+    return this.nav.getByRole('button', { name, exact: true }).first();
+  }
+
+  /**
+   * How wide the sidebar is, in px: where its right edge is, as it starts at the left of the
+   * window. 0 while it's hidden, whether it's taken away or slid off the left edge.
+   */
+  async width(): Promise<number> {
+    if (!(await this.nav.isVisible())) return 0;
+    const box = await this.nav.boundingBox();
+    return box && box.x + box.width > 1 ? Math.round(box.x + box.width) : 0;
+  }
+
+  /** Drags the sidebar's edge `by` px to the right, or to the left when `by` is below 0. */
+  async dragEdge(by: number) {
+    const { x, y } = await this.edge();
+    await this.page.mouse.move(x, y);
+    await this.page.mouse.down();
+    await this.page.mouse.move(x + by / 2, y, { steps: 5 });
+    await this.page.mouse.move(x + by, y, { steps: 5 });
+    await this.page.mouse.up();
+  }
+
+  /** Double-clicks the sidebar's edge, which sets it back to 240 px (section 3.1). */
+  async resetWidth() {
+    const { x, y } = await this.edge();
+    await this.page.mouse.dblclick(x, y);
+  }
+
+  /**
+   * The spot on the sidebar's right edge that can be dragged, found by its resize pointer, so it
+   * doesn't matter whether the handle sits inside the edge, on it or just outside.
+   */
+  private async edge(): Promise<{ x: number; y: number }> {
+    const box = await this.nav.boundingBox();
+    if (!box) throw new Error("The sidebar isn't shown, so its edge can't be dragged");
+    const y = box.y + box.height / 2;
+    const x = await this.page.evaluate(
+      ({ right, at }) => {
+        for (let x = Math.floor(right) - 6; x <= right + 8; x += 1) {
+          const there = document.elementFromPoint(x, at);
+          if (there && /(col|ew)-resize/.test(getComputedStyle(there).cursor)) return x;
+        }
+        return null;
+      },
+      { right: box.x + box.width, at: y },
+    );
+    if (x === null) throw new Error('Nothing on the sidebar’s edge shows a resize pointer');
+    return { x, y };
+  }
+
   /** A page's entry in the tree. Titles from uniqueName() are unique, so part of one will do. */
   entry(title: string, within: Locator = this.nav): Locator {
     return within.getByRole('treeitem', { name: title });

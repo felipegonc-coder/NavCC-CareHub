@@ -1,4 +1,9 @@
 import type { BlockEditors } from '../registry';
+import { KnowledgeCheckEditor } from './KnowledgeCheckEditor';
 
-/** Editors for knowledge check blocks. B9 fills this in; until then the canvas shows a note for them. */
-export const questionEditors: BlockEditors = {};
+// Question editors (B9). The registry mounts `questionEditors`; the quiz and bank screens use QuestionEditor.
+export { KnowledgeCheckEditor, type KnowledgeCheckEditorProps } from './KnowledgeCheckEditor';
+export { QuestionEditor, questionTypeLabel, type QuestionEditorProps } from './QuestionEditor';
+
+/** Editors for knowledge check blocks. */
+export const questionEditors: BlockEditors = { knowledge_check: KnowledgeCheckEditor };

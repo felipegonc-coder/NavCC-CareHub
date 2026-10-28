@@ -1,0 +1,433 @@
+import {
+  checkPublishable,
+  createCourse,
+  learnerCourse,
+  LIMITS,
+  newId,
+  parseCourse,
+  sampleCourses,
+  searchCatalog,
+  type CatalogEntry,
+  type CatalogQuery,
+  type Course,
+  type CourseState,
+  type CourseSummary,
+  type CourseVersion,
+  type CreateCourseRequest,
+  type ExampleCourse,
+  type LearnerCourseReply,
+  type LiveCourse,
+  type PublishNotify,
+  type StudioCourse,
+} from '@carehub/learning';
+import { and, desc, eq } from 'drizzle-orm';
+import { resolveBankDraws } from '../banks/publish';
+import type { Db, Tx } from '../db';
+import { cannotPublish, httpError } from '../errors';
+import { onCoursePublished } from '../progress/on-publish';
+import { runVersion } from '../progress/run-version';
+import { learningCourses as courses, learningCourseVersions as versions } from './schema';
+
+// Courses (docs/learning/api.md): Studio drafts with a revision check, publishing as numbered live versions,
+// versions and roll back, duplicate, archive and examples, then the catalog and each learner's version of a
+// course. Routes check permissions first; every function here stays inside the actor's workspace.
+
+/** Who is acting, and in which workspace. */
+export type Actor = { userId: string; workspaceId: string };
+
+type CourseRow = typeof courses.$inferSelect;
+type CourseChanges = Partial<typeof courses.$inferInsert>;
+
+const CHANGED_MEANWHILE = 'This course changed a moment ago. Reload to see the latest version.';
+
+const courseKey = (workspaceId: string, id: string) =>
+  and(eq(courses.workspaceId, workspaceId), eq(courses.id, id));
+
+function stateOf(row: CourseRow): CourseState {
+  if (row.liveVersion === null) return 'draft';
+  return row.revision === row.publishedRevision ? 'live' : 'changed';
+}
+
+function summaryOf(row: CourseRow): CourseSummary {
+  const { draft } = row;
+  return {
+    id: row.id,
+    title: draft.title,
+    type: draft.type,
+    state: stateOf(row),
+    version: row.liveVersion,
+    updatedAt: row.updatedAt.toISOString(),
+    archived: row.archived,
+    listed: draft.settings.catalog.listed,
+  };
+}
+
+const studioCourse = (row: CourseRow): StudioCourse => ({
+  course: row.draft,
+  revision: row.revision,
+  liveVersion: row.liveVersion,
+});
+
+async function findCourse(db: Db | Tx, actor: Actor, id: string): Promise<CourseRow> {
+  const [row] = await db.select().from(courses).where(courseKey(actor.workspaceId, id));
+  if (!row) throw httpError(404);
+  return row;
+}
+
+async function insertDraft(db: Db | Tx, actor: Actor, draft: Course): Promise<CourseRow> {
+  const [row] = await db
+    .insert(courses)
+    .values({ workspaceId: actor.workspaceId, id: draft.id, draft, createdBy: actor.userId })
+    .returning();
+  if (!row) throw new Error('The new course was not saved.');
+  return row;
+}
+
+/** Studio's list, most recently changed first. */
+export async function listStudioCourses(
+  db: Db | Tx,
+  actor: Actor,
+  options: { archived: boolean },
+): Promise<CourseSummary[]> {
+  const rows = await db
+    .select()
+    .from(courses)
+    .where(and(eq(courses.workspaceId, actor.workspaceId), eq(courses.archived, options.archived)))
+    .orderBy(desc(courses.updatedAt));
+  return rows.map(summaryOf);
+}
+
+/** A new draft: blank with its type's preset, or a copy of an example of that type. */
+export async function createStudioCourse(
+  db: Db | Tx,
+  actor: Actor,
+  input: CreateCourseRequest,
+): Promise<StudioCourse> {
+  const title = input.title?.trim() ?? '';
+  if (input.exampleId === undefined) {
+    return studioCourse(await insertDraft(db, actor, createCourse({ type: input.type, title })));
+  }
+  const example = sampleCourses.find((course) => course.id === input.exampleId);
+  if (!example) throw httpError(404);
+  if (example.type !== input.type) {
+    throw httpError(400, undefined, [
+      { path: 'exampleId', message: 'This example is a different type of course.' },
+    ]);
+  }
+  const draft = { ...structuredClone(example), id: newId(), title: title || example.title };
+  return studioCourse(await insertDraft(db, actor, draft));
+}
+
+/** A new draft with the same content, never published. */
+export async function duplicateCourse(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+): Promise<CourseSummary> {
+  const { draft } = await findCourse(db, actor, id);
+  const title = `Copy of ${draft.title}`.slice(0, LIMITS.title);
+  return summaryOf(await insertDraft(db, actor, { ...draft, id: newId(), title }));
+}
+
+/** Archived courses leave Studio's main list and the catalog; links and assignments still open them. */
+export async function setArchived(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+  archived: boolean,
+): Promise<CourseSummary> {
+  const [row] = await db
+    .update(courses)
+    .set({ archived, updatedAt: new Date() })
+    .where(courseKey(actor.workspaceId, id))
+    .returning();
+  if (!row) throw httpError(404);
+  return summaryOf(row);
+}
+
+/** The fictional sample courses, to start a new course from. */
+export function listExamples(): ExampleCourse[] {
+  return sampleCourses.map(({ id, title, type, summary, lessons }) => ({
+    id,
+    title,
+    type,
+    ...(summary ? { summary } : {}),
+    lessonCount: lessons.length,
+  }));
+}
+
+export async function getStudioCourse(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+): Promise<StudioCourse> {
+  return studioCourse(await findCourse(db, actor, id));
+}
+
+/** Saves the draft unless someone saved since `revision`. Drafts need the schema only, not the publish checks. */
+export async function saveDraft(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+  input: { course: unknown; revision: number },
+): Promise<{ revision: number }> {
+  const parsed = parseCourse(input.course);
+  if (!parsed.ok) throw httpError(400, undefined, parsed.issues);
+  if (parsed.course.id !== id) {
+    throw httpError(400, undefined, [
+      { path: 'id', message: "This doesn't match the course's address." },
+    ]);
+  }
+  const row = await findCourse(db, actor, id);
+  if (row.revision !== input.revision) {
+    throw httpError(
+      409,
+      'Someone else saved this course since you opened it. Reload to see their changes.',
+    );
+  }
+  const revision = row.revision + 1;
+  const saved = await db
+    .update(courses)
+    .set({ draft: parsed.course, revision, updatedAt: new Date() })
+    .where(and(courseKey(actor.workspaceId, id), eq(courses.revision, row.revision)))
+    .returning({ id: courses.id });
+  if (saved.length === 0) throw httpError(409, CHANGED_MEANWHILE);
+  return { revision };
+}
+
+type PublishOptions = {
+  notify: PublishNotify;
+  note?: string | undefined;
+  rolledBackFrom?: number;
+  /** What else changes on the course row, in the same transaction. */
+  changes: CourseChanges;
+};
+
+/** Writes the next version and makes it live, unless the course changed since `row` was read. */
+async function publish(
+  db: Db,
+  actor: Actor,
+  row: CourseRow,
+  course: Course,
+  options: PublishOptions,
+): Promise<{ version: number }> {
+  const version = (row.liveVersion ?? 0) + 1;
+  const { notify, note, rolledBackFrom } = options;
+  const at = new Date();
+  await db.transaction(async (tx) => {
+    // Two people publishing at once both try this version number; the second one gets a 409.
+    const added = await tx
+      .insert(versions)
+      .values({
+        workspaceId: actor.workspaceId,
+        courseId: row.id,
+        version,
+        course,
+        publishedAt: at,
+        publishedBy: actor.userId,
+        notify,
+        note: note || null,
+        rolledBackFrom: rolledBackFrom ?? null,
+      })
+      .onConflictDoNothing()
+      .returning({ version: versions.version });
+    if (added.length === 0) throw httpError(409, CHANGED_MEANWHILE);
+    const moved = await tx
+      .update(courses)
+      .set({ ...options.changes, liveVersion: version, updatedAt: at })
+      .where(and(courseKey(actor.workspaceId, row.id), eq(courses.revision, row.revision)))
+      .returning({ id: courses.id });
+    if (moved.length === 0) throw httpError(409, CHANGED_MEANWHILE);
+    // Progress (B3) updates learners in the same transaction, so a version and its effects stand or fall together.
+    await onCoursePublished(tx, {
+      workspaceId: actor.workspaceId,
+      courseId: row.id,
+      version,
+      notify,
+      ...(note ? { note } : {}),
+    });
+  });
+  return { version };
+}
+
+/** Publishes the saved draft as the next version, after copying in bank questions and passing every check. */
+export async function publishCourse(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+  input: { notify: PublishNotify; note?: string | undefined },
+): Promise<{ version: number }> {
+  const row = await findCourse(db, actor, id);
+  const course = await resolveBankDraws(db, actor.workspaceId, row.draft);
+  const problems = checkPublishable(course);
+  if (problems.length > 0) throw cannotPublish(problems);
+  return publish(db, actor, row, course, {
+    ...input,
+    changes: { publishedRevision: row.revision },
+  });
+}
+
+export async function listVersions(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+): Promise<CourseVersion[]> {
+  await findCourse(db, actor, id);
+  const rows = await db
+    .select()
+    .from(versions)
+    .where(and(eq(versions.workspaceId, actor.workspaceId), eq(versions.courseId, id)))
+    .orderBy(desc(versions.version));
+  return rows.map(({ version, publishedAt, publishedBy, notify, note, rolledBackFrom }) => ({
+    version,
+    publishedAt: publishedAt.toISOString(),
+    publishedBy,
+    notify,
+    ...(note ? { note } : {}),
+    ...(rolledBackFrom ? { rolledBackFrom } : {}),
+  }));
+}
+
+async function findVersion(db: Db | Tx, workspaceId: string, courseId: string, version: number) {
+  const [row] = await db
+    .select()
+    .from(versions)
+    .where(
+      and(
+        eq(versions.workspaceId, workspaceId),
+        eq(versions.courseId, courseId),
+        eq(versions.version, version),
+      ),
+    );
+  return row;
+}
+
+/**
+ * Publishes a copy of an earlier version as the next one. The draft follows it when it had no unpublished
+ * edits; otherwise those edits stay in the draft, which then shows as changed.
+ */
+export async function rollBack(
+  db: Db | Tx,
+  actor: Actor,
+  id: string,
+  input: { version: number; notify: PublishNotify; note?: string | undefined },
+): Promise<{ version: number }> {
+  const row = await findCourse(db, actor, id);
+  if (input.version === row.liveVersion) throw httpError(409, 'That version is already live.');
+  const target = await findVersion(db, actor.workspaceId, id, input.version);
+  if (!target) throw httpError(404);
+  const revision = row.revision + 1;
+  const changes: CourseChanges =
+    stateOf(row) === 'live'
+      ? { draft: target.course, revision, publishedRevision: revision }
+      : { publishedRevision: null };
+  return publish(db, actor, row, target.course, {
+    notify: input.notify,
+    note: input.note,
+    rolledBackFrom: input.version,
+    changes,
+  });
+}
+
+const liveVersionOf = and(
+  eq(versions.workspaceId, courses.workspaceId),
+  eq(versions.courseId, courses.id),
+  eq(versions.version, courses.liveVersion),
+);
+
+/** The catalog: live, listed courses that aren't archived, by title. Searches like `searchCatalog`. */
+export async function listCatalog(
+  db: Db | Tx,
+  workspaceId: string,
+  query: CatalogQuery,
+): Promise<CatalogEntry[]> {
+  const rows = await db
+    .select({ course: versions.course, version: versions.version })
+    .from(courses)
+    .innerJoin(versions, liveVersionOf)
+    .where(and(eq(courses.workspaceId, workspaceId), eq(courses.archived, false)));
+  const live = rows.map((row) => ({ ...row.course, liveVersion: row.version }));
+  return searchCatalog(live, query.q ?? '', query.topic || undefined)
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .map(({ id, title, type, summary, cover, topics, estimatedMinutes, lessons, liveVersion }) => ({
+      id,
+      title,
+      type,
+      ...(summary ? { summary } : {}),
+      ...(cover ? { cover } : {}),
+      ...(topics ? { topics } : {}),
+      ...(estimatedMinutes ? { estimatedMinutes } : {}),
+      lessonCount: lessons.length,
+      version: liveVersion,
+    }));
+}
+
+/** The live version of a course, in full, for the other Learning areas. Null when it was never published. */
+export async function getLiveCourse(
+  db: Db | Tx,
+  workspaceId: string,
+  courseId: string,
+): Promise<LiveCourse | null> {
+  const [row] = await db
+    .select({ course: versions.course, version: versions.version })
+    .from(courses)
+    .innerJoin(versions, liveVersionOf)
+    .where(courseKey(workspaceId, courseId));
+  return row ?? null;
+}
+
+/** One published version of a course, in full (B3 reduces a learner's run against it, decision 0311). */
+export async function getCourseVersion(
+  db: Db | Tx,
+  workspaceId: string,
+  courseId: string,
+  version: number,
+): Promise<Course | null> {
+  const row = await findVersion(db, workspaceId, courseId, version);
+  return row?.course ?? null;
+}
+
+/** The version of the learner's latest run (decision 0311), else the live version. */
+async function learnersVersion(
+  db: Db | Tx,
+  actor: Actor,
+  courseId: string,
+): Promise<LiveCourse | null> {
+  const { workspaceId, userId } = actor;
+  const pinned = await runVersion(db, { workspaceId, userId, courseId });
+  if (pinned !== null) {
+    const course = await getCourseVersion(db, workspaceId, courseId, pinned);
+    if (course) return { course, version: pinned };
+  }
+  return getLiveCourse(db, workspaceId, courseId);
+}
+
+/**
+ * What a learner opens: their version of the course (0311) in the learner view, without quiz questions or
+ * bank-draw copies (`learnerCourse`, decisions 0302 and 0314). Null when the course was never published.
+ */
+export async function getLearnerCourse(
+  db: Db | Tx,
+  actor: Actor,
+  courseId: string,
+): Promise<LearnerCourseReply | null> {
+  const found = await learnersVersion(db, actor, courseId);
+  return found && { course: learnerCourse(found.course), version: found.version };
+}
+
+/** Adds a course with its own id and publishes it, unless the workspace has it already (seed data). */
+export async function seedCourse(db: Db, actor: Actor, course: Course): Promise<boolean> {
+  const [row] = await db
+    .insert(courses)
+    .values({
+      workspaceId: actor.workspaceId,
+      id: course.id,
+      draft: course,
+      createdBy: actor.userId,
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (!row) return false;
+  await publish(db, actor, row, course, { notify: 'none', changes: { publishedRevision: 1 } });
+  return true;
+}

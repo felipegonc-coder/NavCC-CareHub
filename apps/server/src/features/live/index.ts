@@ -29,3 +29,8 @@ export function registerTopic(prefix: string, canSubscribe: CanSubscribe): void 
 export function recheckSubscriptions(userId?: string): Promise<void> {
   return liveHub.recheckSubscriptions(userId);
 }
+
+/** True while this user has at least one tab connected to this server, so push can skip them. */
+export function hasOpenTabs(userId: string): boolean {
+  return liveHub.hasOpenTabs(userId);
+}

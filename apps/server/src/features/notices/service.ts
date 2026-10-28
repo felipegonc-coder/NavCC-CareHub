@@ -1,3 +1,4 @@
+import type { NoticeFilter } from './domain/filters';
 import { parseSendNoticeInput, type ValidNotice } from './domain/validate';
 import type { NoticeRecord } from './domain/view';
 import {
@@ -14,26 +15,32 @@ export interface NoticeScope {
   userId: string;
 }
 
-/** Mark as read: these notices, or every notice up to and including this position. */
-export type ReadTarget = { noticeIds: readonly string[] } | { through: number };
+/** Mark as read: these notices, every notice up to and including this position, or all. */
+export type ReadTarget = { noticeIds: readonly string[] } | { through: number } | { all: true };
+
+export interface ListOptions {
+  limit: number;
+  /** Only notices below this position: the paging cursor. */
+  before?: number | undefined;
+  /** Only the notices this chip shows (default all). */
+  filter?: NoticeFilter | undefined;
+}
 
 /** Where notices are kept: store.ts (Postgres) in the app, testing.ts (memory) in unit tests. */
 export interface NoticeStore {
   /**
-   * Adds the notice, or groups it into the person's latest notice with the same key when
-   * `planNotice` says so: one transaction, serialized per person and key.
+   * Adds the notice, groups it into the person's latest notice with the same group key when
+   * `planNotice` says so, or returns the notice already sent with the same idempotency key
+   * (`duplicate: true`). One transaction, and one at a time per chat.
    */
   save(notice: ValidNotice, now: Date): Promise<SendNoticeResult>;
-  /** Newest first; only positions below `before` when it's given. */
-  list(
-    scope: NoticeScope,
-    options: { limit: number; before?: number | undefined },
-  ): Promise<NoticeRecord[]>;
+  /** Newest first. */
+  list(scope: NoticeScope, options: ListOptions): Promise<NoticeRecord[]>;
   countUnread(scope: NoticeScope): Promise<number>;
   /** Marks unread notices in this chat as read and returns how many changed. */
   markRead(scope: NoticeScope, target: ReadTarget, now: Date): Promise<number>;
-  /** Whose chat a notice is in, or null when it doesn't exist. */
-  ownerOf(noticeId: string): Promise<NoticeScope | null>;
+  /** The notice, or null when it doesn't exist. */
+  get(noticeId: string): Promise<NoticeRecord | null>;
 }
 
 /** A live nudge, as `publishToUsers` from features/live takes it. */
@@ -45,9 +52,14 @@ export interface LiveNudge {
 export interface NoticesRuntime {
   store: NoticeStore;
   /** `app.events.emit`, called after the commit. */
-  emit: (name: string, payload: NoticeCreatedEvent) => void;
+  emit: (name: typeof NOTICE_CREATED_EVENT, payload: NoticeCreatedEvent) => void;
   /** `publishToUsers` from features/live, called after the commit. */
   publish: (userIds: readonly string[], event: LiveNudge) => void;
+  /**
+   * Whether the person is in the workspace, as a member or a guest. Notices for anyone else are
+   * dropped. Without it every notice is kept: the app sets it once workspace members are on main.
+   */
+  isMember?: (workspaceId: string, userId: string) => Promise<boolean>;
   now?: () => Date;
   /** Gets errors from the follow-ups after the commit, which never fail the send. */
   onError?: (error: unknown) => void;
@@ -66,6 +78,7 @@ export function bindNoticesRuntime(runtime: NoticesRuntime): () => void {
 /**
  * Puts a notice in a person's 🔔 Care Hub chat. Call it after your own transaction has
  * committed. Throws a NoticeInputError when the input breaks the rules (a bug in the caller).
+ * Notices for someone who isn't in the workspace are dropped (`dropped: true`).
  */
 export async function sendNotice(input: SendNoticeInput): Promise<SendNoticeResult> {
   if (!bound) throw new Error("Notices aren't running: the notices routes aren't registered.");
@@ -77,8 +90,13 @@ export async function deliverNotice(
   input: SendNoticeInput,
 ): Promise<SendNoticeResult> {
   const notice = parseSendNoticeInput(input);
-  const result = await runtime.store.save(notice, runtime.now?.() ?? new Date());
   const { workspaceId, userId, kind } = notice;
+  if (runtime.isMember && !(await runtime.isMember(workspaceId, userId))) {
+    return { noticeId: '', grouped: false, dropped: true };
+  }
+  const result = await runtime.store.save(notice, runtime.now?.() ?? new Date());
+  // A retry: the first send already told everyone.
+  if (result.duplicate) return result;
   const event: NoticeCreatedEvent = {
     workspaceId,
     userId,

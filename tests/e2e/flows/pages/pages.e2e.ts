@@ -108,6 +108,12 @@ test.describe('Pages: new pages and who can change them', () => {
       await val.close();
     }
   });
+
+  test('PB-32 a change sent by a hand-made client over a Viewer’s live connection is refused (403) and the connection closed', () => {
+    // The plan: Val opens the page's /api/collab connection with a small client in the test and
+    // sends one change. It's refused with 403, the connection closes and Eli's page is unchanged.
+    test.fixme(true, 'Waiting for the /api/collab wire format');
+  });
 });
 
 test.describe('Pages: icon, cover and Move to', () => {

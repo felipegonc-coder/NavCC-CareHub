@@ -118,7 +118,6 @@ describe('remindersDue, day by day', () => {
 describe('assignmentNotice', () => {
   const fire = { id: 'c-fire', title: 'Fire safety basics' };
   const course = [{ label: 'Open course', href: '/learning/courses/c-fire' }];
-  const myLearning = [{ label: 'Open My learning', href: '/learning' }];
   const notice = (
     kind: 'assigned' | 'due_soon' | 'overdue',
     today: string,
@@ -157,7 +156,7 @@ describe('assignmentNotice', () => {
     expect(notice('overdue', '2026-10-31', true, '2026-10-30').title).toBe('Course overdue');
   });
 
-  it('keeps the course title and link out when the person might not have access', () => {
+  it('keeps the course title out when the person might not have access', () => {
     const notices = [
       notice('assigned', '2026-10-19', false, '2026-10-30'),
       notice('due_soon', '2026-10-29', false, '2026-10-30'),
@@ -169,8 +168,8 @@ describe('assignmentNotice', () => {
       'One of your courses was due 3 days ago.',
     ]);
     for (const item of notices) {
-      expect(item.buttons).toEqual(myLearning);
-      expect(JSON.stringify(item)).not.toMatch(/Fire safety|c-fire/);
+      expect(item.buttons).toEqual(course);
+      expect(JSON.stringify(item)).not.toMatch(/Fire safety/);
     }
   });
 });

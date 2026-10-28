@@ -1,0 +1,28 @@
+{
+  "name": "@carehub/extras",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "Pure logic shared by the Care Hub web app and server for search, history, templates, import and export, the knowledge base and Claude.",
+  "exports": {
+    "./search": "./src/search/index.ts",
+    "./history": "./src/history/index.ts",
+    "./templates": "./src/templates/index.ts",
+    "./import-export": "./src/import-export/index.ts",
+    "./knowledge": "./src/knowledge/index.ts",
+    "./claude": "./src/claude/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@carehub/databases": "*",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "vitest": "^3.2"
+  }
+}

@@ -19,7 +19,15 @@ export type Row = { id: string; title: string; values: Record<string, unknown> }
 
 type Option = { id: string; name: string; color: string };
 
+type StatusGroup = 'todo' | 'in_progress' | 'complete';
+
 type Space = { id: string; kind?: string; type?: string };
+
+/**
+ * Where a new database goes: the seeded team space, where every member can open it, or the
+ * signed-in person's private space, where no one else can.
+ */
+export type Place = 'team' | 'private';
 
 /** A reply that is the thing itself or wraps it, such as { database: { … } }. */
 function unwrap<T>(reply: unknown, key: string): T {
@@ -29,13 +37,14 @@ function unwrap<T>(reply: unknown, key: string): T {
   return reply as T;
 }
 
-/** A new fictional page in the seeded team space, so every member can open what it holds. */
-async function makeParentPage(page: Page): Promise<string> {
+/** A new fictional page in the team space or in the signed-in person's private space. */
+async function makeParentPage(page: Page, place: Place): Promise<string> {
   const api = await apiFor(page);
   const reply = await api.get('/api/spaces');
   const spaces = (Array.isArray(reply) ? reply : unwrap(reply, 'spaces')) as Space[];
-  const space = spaces.find((s) => s.kind === 'team' || s.type === 'team') ?? spaces[0];
-  if (!space) throw new Error('GET /api/spaces listed no space.');
+  const found = spaces.find((s) => s.kind === place || s.type === place);
+  const space = place === 'team' ? (found ?? spaces[0]) : found;
+  if (!space) throw new Error(`GET /api/spaces listed no ${place} space.`);
   const made = await api.post('/api/pages', {
     kind: 'page',
     title: uniqueName('Fictional QA page'),
@@ -48,8 +57,9 @@ async function makeParentPage(page: Page): Promise<string> {
 export async function makeDatabase(
   page: Page,
   title = uniqueName('Fictional QA database'),
+  place: Place = 'team',
 ): Promise<Database> {
-  const parentId = await makeParentPage(page);
+  const parentId = await makeParentPage(page, place);
   const api = await apiFor(page);
   const reply = await api.post('/api/databases', { parentId, inline: false, title });
   return unwrap<Database>(reply, 'database');
@@ -59,6 +69,16 @@ export async function makeDatabase(
 export async function getDatabase(page: Page, databaseId: string): Promise<Database> {
   const reply = await (await apiFor(page)).get(`/api/databases/${databaseId}`);
   return unwrap<Database>(reply, 'database');
+}
+
+/**
+ * The settings version that every settings write sends back (0200: properties, views, templates
+ * and access rules); the server answers 409 when the database moved on in between.
+ */
+async function versionOf(page: Page, databaseId: string): Promise<unknown> {
+  const api = await apiFor(page);
+  const reply = await api.get<Record<string, unknown>>(`/api/databases/${databaseId}`);
+  return unwrap<Record<string, unknown>>(reply, 'database').version ?? reply.version;
 }
 
 /** Adds a property, for example addProperty(page, database.id, 'Score', config.number()). */
@@ -72,6 +92,7 @@ export async function addProperty(
   const reply = await api.post(`/api/databases/${databaseId}/properties`, {
     name,
     config: settings,
+    version: await versionOf(page, databaseId),
   });
   const made = unwrap<Property | Database>(reply, 'property');
   return 'properties' in made ? propertyNamed(made, name) : made;
@@ -89,6 +110,24 @@ export async function addRow(
   return unwrap<Row>(reply, 'row');
 }
 
+/** A row as the server has it now, with its stored values by property id. */
+export async function getRow(page: Page, databaseId: string, rowId: string): Promise<Row> {
+  const reply = await (await apiFor(page)).get(`/api/databases/${databaseId}/rows/${rowId}`);
+  return unwrap<Row>(reply, 'row');
+}
+
+/** Changes some of a row's values, as the person signed in on `page`. */
+export async function updateRow(
+  page: Page,
+  databaseId: string,
+  rowId: string,
+  values: Record<string, unknown>,
+): Promise<Row> {
+  const api = await apiFor(page);
+  const reply = await api.patch(`/api/databases/${databaseId}/rows/${rowId}`, { values });
+  return unwrap<Row>(reply, 'row');
+}
+
 /** Adds a view, for example addView(page, database.id, 'Fictional board', 'board'). */
 export async function addView(
   page: Page,
@@ -97,7 +136,11 @@ export async function addView(
   layout: string,
 ): Promise<View> {
   const api = await apiFor(page);
-  const reply = await api.post(`/api/databases/${databaseId}/views`, { name, layout });
+  const reply = await api.post(`/api/databases/${databaseId}/views`, {
+    name,
+    layout,
+    version: await versionOf(page, databaseId),
+  });
   const made = unwrap<View | Database>(reply, 'view');
   return 'views' in made ? viewNamed(made, name) : made;
 }
@@ -109,7 +152,9 @@ export async function updateView(
   viewId: string,
   changes: Record<string, unknown>,
 ): Promise<void> {
-  await (await apiFor(page)).patch(`/api/databases/${databaseId}/views/${viewId}`, changes);
+  const api = await apiFor(page);
+  const version = await versionOf(page, databaseId);
+  await api.patch(`/api/databases/${databaseId}/views/${viewId}`, { ...changes, version });
 }
 
 /** The Name property every database has. */
@@ -171,6 +216,18 @@ export const config = {
     type: 'multi_select',
     options: options(names),
   }),
+  /** Status options as [name, group] pairs; new rows get the first To-do option. */
+  status: (...choices: [string, StatusGroup][]): PropertyConfig => {
+    const list = choices.map(([name, group]) => ({
+      id: randomUUID(),
+      name,
+      color: 'default',
+      group,
+    }));
+    const first = list.find((option) => option.group === 'todo') ?? list[0];
+    return { type: 'status', options: list, defaultOptionId: first?.id };
+  },
+  person: (notify = false): PropertyConfig => ({ type: 'person', single: false, notify }),
 };
 
 /** Stored values: text is rich text, a number a decimal string, a date a calendar date. */
@@ -189,6 +246,11 @@ export const filter = {
     op,
     ...(operand === undefined ? {} : { value: operand }),
   }),
-  all: (...children: object[]) => ({ kind: 'group', id: randomUUID(), combinator: 'and', children }),
+  all: (...children: object[]) => ({
+    kind: 'group',
+    id: randomUUID(),
+    combinator: 'and',
+    children,
+  }),
   any: (...children: object[]) => ({ kind: 'group', id: randomUUID(), combinator: 'or', children }),
 };

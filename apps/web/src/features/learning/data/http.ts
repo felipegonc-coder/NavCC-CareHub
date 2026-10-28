@@ -1,4 +1,5 @@
 import { ApiErrorBodySchema, errorForStatus, type ApiIssue } from '@carehub/learning';
+import { CSRF_COOKIE, CSRF_HEADER } from '@carehub/shared';
 
 // The client every Learning screen uses for /api/learning/* (docs/learning/api.md). Each area writes its own calls
 // and TanStack Query hooks with `api`, in its own folder, with the zod schemas from its `<module>/api.ts`.
@@ -8,13 +9,13 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /** Anything with zod's `parse`: the reply's schema, or `noContent` for replies without a body. */
 export type ReplySchema<T> = { parse(data: unknown): T };
 
-export type ApiOptions = { signal?: AbortSignal };
+/** `headers` go out with the call, such as a review's `X-Review-Token`; the client's own headers win. */
+export type ApiOptions = { signal?: AbortSignal; headers?: Readonly<Record<string, string>> };
 
 export const LEARNING_API = '/api/learning';
-// Core's CSRF cookie: `__Host-carehub_csrf` over HTTPS, `carehub_csrf` over plain HTTP (dev). Both until core's
-// readCsrfToken() lands.
-const CSRF_COOKIES = ['__Host-carehub_csrf', 'carehub_csrf'] as const;
-const CSRF_HEADER = 'X-CSRF-Token';
+// Core's CSRF cookie and header names come from @carehub/shared; over HTTPS the cookie gets the `__Host-` prefix
+// (0007 section 3.1). S1's readCsrfToken() replaces this lookup once it's on main.
+const CSRF_COOKIES = [`__Host-${CSRF_COOKIE}`, CSRF_COOKIE] as const;
 
 /** For replies without a body, such as a 204 after a delete. */
 export const noContent: ReplySchema<void> = { parse: () => undefined };
@@ -50,7 +51,8 @@ const isReplySchema = (value: unknown): value is ReplySchema<unknown> =>
 /**
  * Calls the Learning API and checks the reply with `schema`, e.g. `api('GET', '/catalog', CatalogSchema)` or
  * `api('POST', '/studio/courses', { type: 'standard' }, CreatedSchema)`. Sends the session cookie and, for
- * changes, the CSRF header. Throws `LearningApiError`; an aborted call rejects with the abort reason.
+ * changes, the CSRF header. Throws `LearningApiError`; an aborted call rejects with the abort reason. Paths with
+ * ids come from `apiPath`; a path with a `.` or `..` part, even encoded, is refused with a `TypeError`.
  */
 export function api<T>(
   method: HttpMethod,
@@ -76,9 +78,9 @@ export async function api<T>(
   const body = hasBody ? bodyOrSchema : undefined;
   const schema = (hasBody ? schemaOrOptions : bodyOrSchema) as ReplySchema<T>;
   const options = (hasBody ? lastOptions : schemaOrOptions) as ApiOptions | undefined;
-  if (!path.startsWith('/')) throw new TypeError(`Learning API paths start with "/": ${path}`);
+  checkPath(path);
 
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { ...options?.headers, Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const csrf =
     method === 'GET' || typeof document === 'undefined'
@@ -105,6 +107,51 @@ export async function api<T>(
   } catch (error) {
     if (options?.signal?.aborted) throw error;
     throw new LearningApiError(response.status, 'unreadable_reply', UNREADABLE);
+  }
+}
+
+/**
+ * A Learning API path from its parts, each one encoded: `apiPath('studio', 'courses', courseId, 'publish')`. Build
+ * every path that holds an id this way (0310). A part can't be empty, `.` or `..` (also written `%2e`), or hold `/`
+ * or `\`, so an id from a link can never point the call at another endpoint.
+ */
+export function apiPath(...parts: readonly (string | number)[]): string {
+  if (parts.length === 0) throw new TypeError(UNSAFE);
+  return parts
+    .map((part) => {
+      const text = String(part);
+      const plain = decoded(text);
+      if (unsafePart(text) || (plain !== undefined && unsafePart(plain)))
+        throw new TypeError(UNSAFE);
+      return `/${encodeURIComponent(text)}`;
+    })
+    .join('');
+}
+
+const UNSAFE = 'Not a safe Learning API path.';
+
+const unsafePart = (part: string): boolean =>
+  part === '' || part === '.' || part === '..' || /[/\\]/.test(part);
+
+function decoded(text: string): string | undefined {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `api` takes `/`, encoded parts, then an optional query. Browsers read `%2e` as a dot, so encoded dots are refused
+ * too, and so are fragments, backslashes and parts that don't decode.
+ */
+function checkPath(path: string): void {
+  if (!path.startsWith('/')) throw new TypeError(`Learning API paths start with "/": ${path}`);
+  if (/[#\\]/.test(path)) throw new TypeError(UNSAFE);
+  const pathname = path.split('?', 1)[0] ?? '';
+  for (const part of pathname.slice(1).split('/')) {
+    const plain = decoded(part);
+    if (plain === undefined || unsafePart(part) || unsafePart(plain)) throw new TypeError(UNSAFE);
   }
 }
 
