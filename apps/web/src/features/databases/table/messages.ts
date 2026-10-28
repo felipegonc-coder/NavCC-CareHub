@@ -29,8 +29,6 @@ export const TABLE_TEXT = {
   linkNotCopied: "Couldn't copy the link.",
   moveUp: 'Move up',
   moveDown: 'Move down',
-  /** The arrow before a Name with sub-items. */
-  subItemsOf: (title: string) => `Sub-items of ${title}`,
   /** After a paste, when some values couldn't go in. */
   skipped: (count: number) =>
     count === 1
