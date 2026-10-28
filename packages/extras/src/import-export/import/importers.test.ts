@@ -7,6 +7,6 @@ describe('importers', () => {
     expect(readsInBrowser('word', null)).toBe(true);
     expect(readsInBrowser('notion', ['Support 1234.html'])).toBe(true);
     expect(readsInBrowser('notion', ['Support 1234.md', 'Callbacks 5678.csv'])).toBe(false);
-    expect(Object.keys(SERVER_IMPORTERS)).toEqual(['markdown']);
+    expect(Object.keys(SERVER_IMPORTERS)).toEqual(['markdown', 'notion']);
   });
 });
