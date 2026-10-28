@@ -24,9 +24,7 @@ A template keeps its own copy of each page (`tpl_template_pages`): title, icon a
 feature's Markdown, where blocks without a Markdown form are kept whole as placeholder comments.
 Links between the template's own pages are stored as `{{template-page:<key>}}` tokens, so each
 copy's links point to the new copies. Variable chips (`templateVariable`) are filled in when the
-template is used. Databases are copied on use with the Databases lane's `duplicateDatabase`, only
-for people who can see them and with only the rows they can see; the rest are listed as not copied
-("Tickets (No access)"). Templates aren't added to archived pages.
+template is used. Databases are copied on use with the Databases lane's `duplicateDatabase`.
 Changing or deleting a template never changes pages made from it; `tpl_made_from` keeps
 "Made from Weekly huddle" for the page's Updates (`getMadeFrom`).
 

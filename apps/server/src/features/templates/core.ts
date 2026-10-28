@@ -32,7 +32,6 @@ export interface CorePage {
   title: string;
   icon: TemplateIcon | null;
   locked: boolean;
-  /** Archived, itself or through a page above it, so it's read-only. */
   archived: boolean;
 }
 
@@ -70,10 +69,7 @@ export interface TemplatesCore {
   setMarkdown(tx: Tx, pageId: string, markdown: string, by: string): Promise<void>;
   /** A version in the page's history, before a template changes it (history, HT-02). */
   saveVersionNow: typeof saveVersionNow;
-  /**
-   * A copy of a database under `parentId`, with only the rows `by` can see (row rules); null when
-   * databases can't be copied yet. Templates check that `by` can view the database first.
-   */
+  /** A copy of a database under `parentId`; null when databases can't be copied yet. */
   duplicateDatabase(
     tx: Tx,
     input: { databaseId: string; parentId: string; includeRows: boolean; by: string },
