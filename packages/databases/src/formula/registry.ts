@@ -84,6 +84,17 @@ export function unify(a: FormulaType, b: FormulaType): FormulaType | null {
 
 // ------------------------------------------------------------------ schema and context
 
+/**
+ * A value a formula reads with prop() like a property, though it isn't one: a button's Pressed by,
+ * Pressed at and This row, and its variables (their "extra values show in the Properties list").
+ * Only the formula's own row has them; their values come with each run.
+ */
+export interface FormulaInput {
+  id: Id;
+  name: string;
+  type: FormulaType;
+}
+
 /** What the checker knows about a database: its properties and the databases its relations reach. */
 export interface FormulaSchema {
   properties: readonly Property[];
@@ -93,20 +104,38 @@ export interface FormulaSchema {
   kindOf(prop: Property): FormulaType | null;
   /** Deleted properties (kept 30 days), so messages and the editor can still name them. */
   deleted?: readonly { id: Id; name: string }[];
+  /** Inputs the formula's own row has besides its properties; by name they come first. */
+  inputs?: readonly FormulaInput[];
 }
 
-/** Results of the injected pattern engine; error is a message for the cell, such as "⚠ Pattern too slow". */
+/** Results of a pattern engine; error is a message for the cell, such as "⚠ Pattern too slow". */
 export type PatternResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
+/** What one pattern call may use, checked while it runs. */
+export interface PatternLimits {
+  /** True once the row's time is up; checked after compiling and after each match. */
+  overTime?(): boolean;
+  /** Most matches match() may give (default LIMITS.formulaListItems); past it, "too complex". */
+  maxMatches?: number;
+  /** Longest text replace() may make (default MAX_TEXT_LENGTH); past it, "too much text". */
+  maxLength?: number;
+}
+
 /**
- * A safe pattern engine for test, match, replace and replaceAll (security: typed patterns never
- * reach JavaScript RegExp). It enforces the pattern and input limits and its own time limit, and
- * replace stops with an error rather than make a text longer than MAX_TEXT_LENGTH.
+ * A safe pattern engine for test, match, replace and replaceAll (security #13: typed patterns
+ * never reach JavaScript RegExp). It enforces the pattern and text limits, stops match and replace
+ * at their limits while they're being made, and stops with "⚠ Pattern too slow" once overTime().
  */
 export interface PatternEngine {
-  test(text: string, pattern: string): PatternResult<boolean>;
-  match(text: string, pattern: string): PatternResult<string[]>;
-  replace(text: string, pattern: string, replacement: string, all: boolean): PatternResult<string>;
+  test(text: string, pattern: string, limits?: PatternLimits): PatternResult<boolean>;
+  match(text: string, pattern: string, limits?: PatternLimits): PatternResult<string[]>;
+  replace(
+    text: string,
+    pattern: string,
+    replacement: string,
+    all: boolean,
+    limits?: PatternLimits,
+  ): PatternResult<string>;
 }
 
 /** What a running formula can see besides its row. */
@@ -122,7 +151,7 @@ export interface FormulaContext extends EvalContext {
   clock?(): number;
   /** Time shared by every formula in one request; give every context in the request the same one. */
   budget?: FormulaBudget;
-  /** Without an engine, the pattern functions give an error. */
+  /** The pattern engine; when left out, the shared re2js one (PATTERNS in ./patterns). */
   patterns?: PatternEngine;
 }
 
@@ -240,6 +269,11 @@ export function spendText(n: number): void {
   if (n > MAX_TEXT_LENGTH) fail(TOO_MUCH_TEXT);
   meter.text -= n;
   if (meter.text < 0) fail(TOO_MUCH_TEXT);
+}
+
+/** Characters the running row may still build (Infinity outside a running formula). */
+export function textLeft(): number {
+  return meter ? Math.max(0, meter.text) : Infinity;
 }
 
 /** Counts work inside values (list items compared or joined) toward the running row's step limit. */
@@ -434,6 +468,11 @@ export interface Call {
   makeList(items: ComputedValue[]): ComputedValue;
   /** Counts extra work (for example one step per item compared) toward the step limit. */
   step(n: number): void;
+  /**
+   * True once the row's time (or the request's) is up, for work that can't count steps, such as a
+   * pattern search. Always false without ctx.clock or ctx.budget.
+   */
+  timeUp(): boolean;
 }
 
 /** Groups in the editor's function list, in this order. */
@@ -463,6 +502,13 @@ export interface FunctionDef {
   mismatch?(a: string, b: string): string;
   /** Handled by the checker itself (prop, let, lets); evaluate is never called. */
   special?: boolean;
+  /**
+   * Problems with inputs written as plain values, found when the formula is saved (a pattern that
+   * can't run, for example): `values[i]` is input i's value, or null when it's worked out.
+   */
+  checkConstants?(
+    values: readonly (ComputedValue | null)[],
+  ): { input: number; message: string } | null;
 }
 
 const registry = new Map<string, FunctionDef>();

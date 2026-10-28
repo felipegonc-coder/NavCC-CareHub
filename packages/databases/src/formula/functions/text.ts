@@ -1,11 +1,13 @@
-/** Text functions. Pattern functions use the injected engine (ctx.patterns), never JavaScript RegExp. */
+/** Text functions. Pattern functions run on re2js (./patterns), never on JavaScript RegExp. */
 import { decimalToNumber } from '../../decimal';
 import { parseNumberText } from '../../parse-text';
 import { isSafeWebLink } from '../../richtext';
 import { LIMITS, OPTION_COLORS, TEXT_MARKS } from '../../types';
 import type { RichText, RichTextSpan, TextColor, TextMark } from '../../types';
+import { PATTERNS } from '../patterns';
 import {
   EMPTY,
+  MAX_TEXT_LENGTH,
   bool,
   dateMillis,
   defineFunction,
@@ -14,11 +16,13 @@ import {
   joinParts,
   num,
   spendText,
+  textLeft,
   txt,
   type Call,
   type FunctionDef,
   type Param,
   type PatternEngine,
+  type PatternLimits,
   type PatternResult,
 } from '../registry';
 
@@ -87,22 +91,34 @@ define({
   evaluate: (c) => bool((c.text(0) ?? '').includes(c.text(1) ?? '')),
 });
 
-const NO_PATTERNS = "Patterns can't be used here yet.";
-
+/** The context's pattern engine, or the shared re2js one. */
 function patterns(c: Call): PatternEngine {
-  return c.ctx.patterns ?? fail(NO_PATTERNS);
+  return c.ctx.patterns ?? PATTERNS;
+}
+
+/** The row's time, and what's left of its text, for one pattern call. */
+function limits(c: Call): PatternLimits {
+  return { overTime: () => c.timeUp(), maxLength: Math.min(MAX_TEXT_LENGTH, textLeft()) };
 }
 
 function unwrap<T>(r: PatternResult<T>): T {
   return r.ok ? r.value : fail(r.error);
 }
 
+/** A pattern written in the formula is checked when it's saved. */
+const checkPattern: FunctionDef['checkConstants'] = (values) => {
+  const pattern = values[1];
+  const problem = pattern?.kind === 'text' ? PATTERNS.check(pattern.value) : null;
+  return problem ? { input: 1, message: problem } : null;
+};
+
 define({
   name: 'test',
   signatures: [{ params: [TEXT_IN, p('pattern', 'text')], result: 'boolean' }],
   description: 'True when the text matches the pattern.',
   example: 'test(prop("Phone"), "^\\\\d{3}")',
-  evaluate: (c) => bool(unwrap(patterns(c).test(c.text(0) ?? '', c.text(1) ?? ''))),
+  checkConstants: checkPattern,
+  evaluate: (c) => bool(unwrap(patterns(c).test(c.text(0) ?? '', c.text(1) ?? '', limits(c)))),
 });
 
 define({
@@ -110,8 +126,9 @@ define({
   signatures: [{ params: [TEXT_IN, p('pattern', 'text')], result: { list: 'text' } }],
   description: 'Every part of the text that matches the pattern.',
   example: 'match(prop("Notes"), "QA-\\\\d+")',
+  checkConstants: checkPattern,
   evaluate: (c) => {
-    const found = unwrap(patterns(c).match(c.text(0) ?? '', c.text(1) ?? ''));
+    const found = unwrap(patterns(c).match(c.text(0) ?? '', c.text(1) ?? '', limits(c)));
     let length = 0;
     for (const s of found) length += s.length;
     spendText(length);
@@ -132,9 +149,10 @@ for (const [name, all] of [
       ? 'Replaces every match of the pattern.'
       : 'Replaces the first match of the pattern.',
     example: `${name}(prop("Phone"), "-", " ")`,
+    checkConstants: checkPattern,
     evaluate: (c) => {
-      const engine = patterns(c);
-      return made(unwrap(engine.replace(c.text(0) ?? '', c.text(1) ?? '', c.text(2) ?? '', all)));
+      const [text, pattern, replacement] = [c.text(0) ?? '', c.text(1) ?? '', c.text(2) ?? ''];
+      return made(unwrap(patterns(c).replace(text, pattern, replacement, all, limits(c))));
     },
   });
 }
