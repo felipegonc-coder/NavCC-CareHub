@@ -1,6 +1,6 @@
 # Settings and members
 
-_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
 > ⚙️ Phase 1 · Notion parity · Depends on: accounts and sign-in, Roles and permissions · Used by: every spec with a setting · Related: Sidebar, spaces and nested pages; Data settings; Messages (notifications)
 
@@ -73,7 +73,7 @@ One place for each person's account and preferences, and for Admins to run the w
 
 ### 3.6 Site settings (site admins)
 
-- **Accounts:** every account on the server: name, email, workspaces, site admin or not, created, last active, locked. Create account (name, email, a one-time setup link), Reset password, Turn off 2-step verification, Lock or Unlock (locked accounts can't sign in), Make or remove site admin (there's always at least one), Delete account (only when it's in no workspace; its past work shows "Deleted account").
+- **Accounts:** every account on the server: name, email, workspaces, site admin or not, created, last active, locked. Create account (name, email, a one-time setup link), Reset password, Turn off 2-step verification, Lock or Unlock (locked accounts can't sign in), Make or remove site admin (there's always at least one), Make Admin in one of the person's workspaces (members only; Roles and permissions), Delete account (only when it's in no workspace; its past work shows "Deleted account").
 - **Server:** web address, push keys (Messages), the Google sign-in client (Calendar), and other keys. Secrets show as dots and are replaced, never read back.
 
 ## 4. Data it stores
