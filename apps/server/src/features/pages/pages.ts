@@ -1,13 +1,14 @@
 // Making, reading and changing pages, databases and rows (decision 0007, section 4.1; Pages and
 // blocks 3.1). Like every service function here, these take Db | Tx, leave access checks to the
 // caller and never emit events: the caller knows when its transaction commits.
-import type {
-  AccessLevel,
-  PageAncestor,
-  PageIcon,
-  PageJson,
-  PageKind,
-  UpdatePageInput,
+import {
+  updatePageSchema,
+  type AccessLevel,
+  type PageAncestor,
+  type PageIcon,
+  type PageJson,
+  type PageKind,
+  type UpdatePageInput,
 } from '@carehub/shared';
 import { sql, type SQL } from 'drizzle-orm';
 import { resolvePages, type Executor, type Viewer } from './access';
@@ -149,6 +150,44 @@ export async function updatePage(
 export async function setPageTitle(tx: Executor, pageId: string, title: string, by: string) {
   if (title.length > 2000) throw invalid('A title can be up to 2,000 characters.');
   await updatePage(tx, pageId, { title: title.replace(/[\r\n]+/g, ' ') }, by);
+}
+
+/** What a version keeps of a page besides its content (History, HT-05). */
+export type PageLook = {
+  title: string;
+  icon: unknown;
+  cover: unknown;
+  /** `font`, `smallText`, `textDirection`, `fullWidth` and `coverPosition`. */
+  style: Record<string, unknown>;
+};
+
+/** The page's look, for History to save with a version; null when there's no such page. */
+export async function getPageLook(db: Executor, pageId: string): Promise<PageLook | null> {
+  const { rows } = await db.execute<PageLook>(sql`
+    SELECT title, icon, cover,
+      style || jsonb_build_object('fullWidth', full_width, 'coverPosition', cover_position) AS style
+    FROM pages WHERE id = ${isUuid(pageId) ? pageId : null}::uuid`);
+  return rows[0] ?? null;
+}
+
+/**
+ * Puts back a version's look as one change (History's restore, HT-05): style it leaves out goes
+ * back to the default, and style it doesn't know is ignored. 400 when something isn't valid.
+ */
+export async function setPageLook(tx: Executor, pageId: string, look: PageLook, by: string) {
+  const { style } = look;
+  const changes = updatePageSchema.safeParse({
+    title: look.title,
+    icon: look.icon ?? null,
+    cover: look.cover ?? null,
+    font: style.font ?? 'default',
+    smallText: style.smallText ?? false,
+    textDirection: style.textDirection ?? 'ltr',
+    fullWidth: style.fullWidth ?? false,
+    coverPosition: style.coverPosition ?? 50,
+  });
+  if (!changes.success) throw invalid("This version's title, icon, cover or style isn't valid.");
+  await updatePage(tx, pageId, changes.data, by);
 }
 
 /** `{ id, name }` of the user in `column`, or null. */

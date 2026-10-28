@@ -114,7 +114,7 @@ function levelFrom(viewer: Viewer, member: Membership, place: Place, best: numbe
   return owns ? 'full' : (ACCESS_LEVELS[best ?? 0] ?? 'none');
 }
 
-/** The role limit, then read-only pages in archived spaces (Sidebar spec 3.3). */
+/** The role limit, then read-only in archived spaces and pages (Sidebar 3.3, Page history 3.5). */
 const finish = (level: AccessLevel, member: Membership, place: Place) =>
   place.archived ? lower(limitByRole(level, member), 'view') : limitByRole(level, member);
 
@@ -158,9 +158,15 @@ export type PageAnswer = Pick<PageFacts, 'kind' | 'deleted' | 'workspaceId'> & {
  * page from the page itself, then from each parent while the page below inherits, then from the
  * space (its grants, and its default access or Full access for its members and owners). Below a
  * database, its 'edit_content' counts as 'edit' and its 'rows_only' as nothing (on the database
- * itself 'rows_only' is 'view'); the row resolver can lift rows from there.
+ * itself 'rows_only' is 'view'); the row resolver can lift rows from there. Archived pages are
+ * read-only, unless `unarchiving` asks for the level they'd have without their archive.
  */
-export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readonly string[]) {
+export async function resolvePages(
+  db: Executor,
+  viewer: Viewer,
+  pageIds: readonly string[],
+  { unarchiving = false } = {},
+) {
   const ids = uuidArray([...new Set(pageIds)].filter(isUuid));
   const { rows } = await db.execute<PageFacts>(sql`
     WITH RECURSIVE chain AS (
@@ -205,7 +211,8 @@ export async function resolvePages(db: Executor, viewer: Viewer, pageIds: readon
     SELECT p.id, p.workspace_id AS "workspaceId", p.kind, p.parent_id AS "parentId",
       p.deleted_at IS NOT NULL OR s.deleted_at IS NOT NULL AS deleted, s.kind AS "spaceKind",
       s.owner_id AS "ownerId",
-      s.archived_at IS NOT NULL AS archived, b.best, b.granted, b.plain
+      s.archived_at IS NOT NULL OR (p.archived_at IS NOT NULL AND NOT ${unarchiving}::boolean)
+        AS archived, b.best, b.granted, b.plain
     FROM pages p JOIN spaces s ON s.id = p.space_id LEFT JOIN best b ON b.page_id = p.id
     WHERE p.id = ANY(${ids})`);
   const answers = new Map<string, PageAnswer>();
