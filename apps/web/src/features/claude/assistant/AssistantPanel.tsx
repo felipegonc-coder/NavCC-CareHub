@@ -5,6 +5,7 @@ import { IconButton, Tooltip } from '@carehub/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { useClaudeOn } from '../settings/status';
 import { loadViewerId, ME_KEY } from './api';
 import {
   closeAssistant,
@@ -15,12 +16,11 @@ import {
   usePanel,
 } from './panel-state';
 import { Panel } from './Panel';
-import { useAssistantOn } from './status';
 
 const onMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
 export function AssistantPanel() {
-  const on = useAssistantOn();
+  const on = useClaudeOn('assistant');
   return on ? <Assistant /> : null;
 }
 

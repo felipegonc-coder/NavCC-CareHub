@@ -3,13 +3,13 @@
 import { breakpoints, cn, sidebarRowClasses, useMediaQuery } from '@carehub/ui';
 import { Sparkles } from 'lucide-react';
 import { useRef } from 'react';
+import { useClaudeOn } from '../settings/status';
 import { closeAssistant, openAssistant, usePanel } from './panel-state';
-import { useAssistantOn } from './status';
 
 const DESKTOP = `(min-width: ${breakpoints.md})`;
 
 export function AssistantSidebarEntry() {
-  const on = useAssistantOn();
+  const on = useClaudeOn('assistant');
   const desktop = useMediaQuery(DESKTOP);
   const { open, person } = usePanel();
   const button = useRef<HTMLButtonElement>(null);

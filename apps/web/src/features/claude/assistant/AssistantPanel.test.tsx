@@ -9,12 +9,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { ALL_OFF, setClaudeStatus } from '../settings/status';
 import { UNAVAILABLE } from '../write/api';
 import { WRITING_TEXT } from '../write/ResultBox';
 import { AssistantPanel } from './AssistantPanel';
 import { closeAssistant, setPanelPerson } from './panel-state';
-import { setAssistantOn } from './status';
 import { fakeApi, type Reply } from './test-api';
+
+/** The Assistant switch as the status from the server has it (settings/status.ts). */
+const setAssistantOn = (on: boolean) => setClaudeStatus({ on: { ...ALL_OFF.on, assistant: on } });
 
 const PAGE = '3b7e9c2a-5d1f-4a6b-8c9d-0e1f2a3b4c5d';
 const SOURCE = '9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d';
