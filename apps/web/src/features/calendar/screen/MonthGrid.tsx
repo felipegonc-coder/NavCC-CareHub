@@ -66,8 +66,8 @@ export function MonthGrid({ month, items, loading, today, prefs, onOpenDay }: Mo
                   className="absolute h-4"
                   style={{
                     top: TOP_PX,
-                    left: `calc(${percent(index / count)} + 4px)`,
-                    width: `calc(${percent(1 / count)} - 8px)`,
+                    left: `calc(${percent(index / count)} + var(--ch-space-1))`,
+                    width: `calc(${percent(1 / count)} - var(--ch-space-2))`,
                   }}
                 />
               ))}
