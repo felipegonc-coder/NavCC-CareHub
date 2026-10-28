@@ -156,6 +156,18 @@ export const SETTINGS_TEXT = {
   stopTwoWay: (name: string, database: string) => `This deletes "${name}" in ${database}.`,
   stopTwoWayUnnamed: 'This deletes the matching property in the other database.',
   stopShowing: 'Stop showing',
+  options: 'Options',
+  noOptions: 'No options yet.',
+  addOption: 'Add an option',
+  renameOption: (name: string) => `Rename ${name}`,
+  editOption: (name: string) => `Edit ${name}`,
+  deleteOption: 'Delete option',
+  optionUsed: (count: number) =>
+    count === 0
+      ? 'No rows use this option.'
+      : count === 1
+        ? '1 row uses this option. It will be cleared from that row.'
+        : `${rows(count)} use this option. It will be cleared from them.`,
   prefix: 'Prefix',
   prefixExample: (example: string) => `Rows are numbered ${example}.`,
   prefixInvalid: 'Use up to 20 letters, numbers, hyphens or underscores.',

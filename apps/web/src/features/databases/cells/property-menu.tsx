@@ -91,8 +91,12 @@ export interface PropertyMenuProps {
   ctx: CellContext;
   /** People a Text → Person change can match by name or email. */
   people?: readonly PersonChoice[];
-  /** The layout's own items: Filter, Sort, Group by, Calculate, Wrap column. */
-  viewItems?: ReactNode;
+  /**
+   * The layout's own items: Filter, Sort, Group by, Calculate, Wrap column. As a function it gets
+   * `afterClose`: an item that opens a panel passes it the opener, which runs once the menu has
+   * closed, so focus goes to the panel rather than back to the header.
+   */
+  viewItems?: ReactNode | ((afterClose: (open: () => void) => void) => ReactNode);
   /**
    * Opens the property's settings some other way (a formula editor, say). Without it, Edit
    * property opens PropertySettings by the header. Shown to people who can change properties.
@@ -460,7 +464,7 @@ export function PropertyMenu({
   const mainPage = sections([
     header,
     typeItems,
-    viewItems,
+    typeof viewItems === 'function' ? viewItems(later) : viewItems,
     columnItems,
     editable && !isTitle && (
       <DropdownMenuItem
@@ -580,6 +584,7 @@ export function PropertyMenu({
         meta={meta}
         property={property}
         actions={actions}
+        rows={rows}
         databases={databases}
         twoWay={twoWay}
         onError={onError}

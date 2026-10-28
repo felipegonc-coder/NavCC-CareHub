@@ -1,6 +1,6 @@
 /**
  * Property settings (spec 3.4): row pages and descriptions, number formats and currencies, date and
- * time formats, and ID prefixes.
+ * time formats, ID prefixes, and the changes an option list takes.
  */
 import {
   CURRENCIES,
@@ -8,11 +8,15 @@ import {
   formatCalendarDate,
   formatTime,
   type DateFormat,
+  type Id,
   type NumberDecimals,
   type NumberDisplay,
+  type OptionColor,
   type Property,
+  type SelectOption,
   type TimeFormat,
 } from '@carehub/databases';
+import { newOption, validateOptionName } from '@carehub/databases/options';
 import { normalizeIdPrefix } from '@carehub/databases/unique-id';
 import { VALUE_MESSAGES } from '@carehub/databases/values';
 import { DEFAULT_DIVIDE_BY } from './logic';
@@ -176,4 +180,26 @@ export function readIdPrefix(text: string): { prefix: string | null } | { error:
   const prefix = normalizeIdPrefix(text);
   if (prefix === null || PREFIX.test(prefix)) return { prefix };
   return { error: SETTINGS_TEXT.prefixInvalid };
+}
+
+export function renameOption<O extends SelectOption>(options: readonly O[], id: Id, name: string) {
+  return options.map((o) => (o.id === id ? { ...o, name: name.trim() } : o));
+}
+
+export function recolorOption<O extends SelectOption>(
+  options: readonly O[],
+  id: Id,
+  color: OptionColor,
+) {
+  return options.map((o) => (o.id === id ? { ...o, color } : o));
+}
+
+/** Checks a typed option name, then adds it in the next color; or says why it can't be added. */
+export function addSelectOption(
+  options: readonly SelectOption[],
+  name: string,
+): { options: SelectOption[] } | { error: string } {
+  const error = validateOptionName(name, options);
+  if (error) return { error };
+  return { options: [...options, newOption(name, options)] };
 }
