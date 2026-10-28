@@ -4,6 +4,10 @@ import { IMPORT_SOURCE_IDS } from './sources';
 
 // What the import routes take and give (/api/import-export/imports, docs/extras/import-export.md).
 
+const flag = z.boolean().optional();
+/** ImportOptions; only the source's own count (optionsFor). */
+export const importOptionsSchema = z.strictObject({ asDatabase: flag, includeArchived: flag });
+
 export const startImportSchema = z.strictObject({
   source: z.enum(IMPORT_SOURCE_IDS),
   fileName: z.string().trim().min(1).max(IMPORT_LIMITS.fileNameChars),
@@ -12,6 +16,8 @@ export const startImportSchema = z.strictObject({
   pageId: z.uuid().nullable(),
   /** True when the Import screen read the file itself and uploads its plan (see planUploadSchema). */
   planned: z.boolean().default(false),
+  /** The source's options that the person ticked. */
+  options: importOptionsSchema.optional(),
 });
 export type StartImportInput = z.infer<typeof startImportSchema>;
 
@@ -28,6 +34,8 @@ const content = z.union([
   z.strictObject({ doc: z.looseObject({ type: z.literal('doc') }) }),
 ]);
 const source = text(1_000);
+/** PlanDates: a date, or a date and time with or without a zone. */
+const when = z.union([z.iso.date(), z.iso.datetime({ offset: true, local: true })]).optional();
 
 /**
  * `plan.json` in the zip the Import screen uploads for the sources it reads itself (HTML, Word,
@@ -42,6 +50,8 @@ export const planUploadSchema = z.strictObject({
         title: text(IMPORT_LIMITS.titleChars),
         content,
         source,
+        created: when,
+        updated: when,
       }),
     )
     .max(IMPORT_LIMITS.pages),
@@ -66,10 +76,18 @@ export const planUploadSchema = z.strictObject({
               key,
               cells: z.array(text(IMPORT_LIMITS.cellChars)).max(IMPORT_LIMITS.columns),
               content: content.optional(),
+              created: when,
+              updated: when,
             }),
           )
           .max(IMPORT_LIMITS.rows),
         source,
+        view: z
+          .strictObject({
+            layout: z.literal('board'),
+            groupBy: text(IMPORT_LIMITS.columnNameChars),
+          })
+          .optional(),
       }),
     )
     .max(IMPORT_LIMITS.pages),

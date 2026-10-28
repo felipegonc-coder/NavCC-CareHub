@@ -1,6 +1,6 @@
 # Data settings
 
-_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
 > 🗄️ Phase 3 · Feature list: Data settings · Depends on: Page history and Trash, Analytics, Status page (backups), Import and export · Upload limits agree with the build contract (docs/decisions/0007, section 4.3)
 
@@ -45,9 +45,9 @@ Admins decide how long Care Hub keeps old page versions, deleted items and activ
 
 These rules apply to every way a file arrives: blocks, covers and icons, database Files properties, forms, comments, messages and imports. Smaller limits in other specs (for example, 5 MB icons) still apply.
 
-- **Largest file:** 100 MB by default. Site admins can set it between 1 MB and 1,000 MB; Admins can set a lower one for their workspace.
+- **Largest file:** 100 MB by default. Site admins can set it between 1 MB and 1,000 MB; Admins can set a lower one for their workspace. 1 MB = 1,048,576 bytes; sizes in messages follow File sizes in the Specs index (one decimal; a file over the limit never shows the limit itself as its size).
 - **Programs are refused**, judged by the file's real contents and by its name ending: Windows, Mac, Linux and phone programs and installers, and scripts that run when opened (for example .exe, .msi, .bat, .cmd, .com, .scr, .ps1, .vbs, .jar, .app, .dmg, .pkg, .apk, .deb, .rpm, .sh). The message says "Programs can't be uploaded." Admins can add more endings; the built-in ones can't be removed.
-- **Pictures:** location and camera details are removed before saving; HEIC is turned into JPEG; SVG is accepted only to be shown as a picture and is never put into a page as code.
+- **Pictures:** location and camera details are removed before saving: all EXIF, XMP and IPTC data except the orientation and the color profile. HEIC and AVIF keep their format; the web uploader turns HEIC into JPEG first when the browser can. Where a browser can't show a HEIC picture, it appears as a file with Download. SVG is accepted only to be shown as a picture and is never put into a page as code.
 - **Showing files:** pictures, video, audio and PDFs open in the browser; everything else downloads. HTML and other web files always download and never open as pages.
 - Every file is checked on the server; what the browser says about a file is never trusted.
 

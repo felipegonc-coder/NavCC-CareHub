@@ -21,6 +21,9 @@ import {
 import { LearnerPage, NOT_FOUND, NO_ACCESS } from './learner-page.js';
 import { StudioPage } from './studio-page.js';
 
+// The browser is in Tokyo: Learning shows days in the profile's time zone (decision 0317).
+test.use({ timezoneId: 'Asia/Tokyo' });
+
 type ErrorBody = { error: { code: string; message: string; issues?: { message: string }[] } };
 const errorOf = async (response: APIResponse) => ((await response.json()) as ErrorBody).error;
 
