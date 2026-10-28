@@ -4,6 +4,7 @@ import { registerPeriodicTask } from '../jobs';
 import { getDefaultWorkspace } from '../workspaces';
 import { requirePageAccess } from './access';
 import { archiveRoutes } from './archive';
+import { watchPageBlocks } from './blocks';
 import { registerPageTopics } from './live';
 import { pageRoutes } from './page-routes';
 import { spaceRoutes } from './space-routes';
@@ -35,6 +36,8 @@ export default fp(
     pageRoutes(app);
     archiveRoutes(app);
     trashRoutes(app);
+    // After each live save, a deleted page block moves its page to Trash; Undo brings it back.
+    watchPageBlocks(app);
     // Every night, what's been in Trash longer than the Trash period is deleted for good (HT-12).
     registerPeriodicTask('pages.trash-cleanup', 24 * 3_600_000, async () => {
       for (const pages of await purgeTrash(app.db)) {

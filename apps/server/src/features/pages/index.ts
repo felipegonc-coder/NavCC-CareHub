@@ -17,6 +17,8 @@ export {
 } from './spaces';
 export { archivePage, unarchivePage } from './archive';
 export type { ArchivedPages } from './archive';
+export { syncPageBlocks } from './blocks';
+export type { BlockEntry } from './blocks';
 export { getPageCards } from './cards';
 export { nudgePage } from './live';
 export { changePageKind } from './move';
