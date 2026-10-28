@@ -224,8 +224,9 @@ export async function listTrash(
   query: TrashQuery,
 ): Promise<TrashEntryJson[]> {
   const { q, deletedBy, spaceId, type } = query;
+  // In brackets: AT TIME ZONE (in iso) binds tighter than +.
   const deletesAt = (column: string) =>
-    iso(`${column} + interval '${TRASH_RETENTION_DAYS * 24} hours'`);
+    iso(`(${column} + interval '${TRASH_RETENTION_DAYS * 24} hours')`);
   const filters = (alias: 'p' | 's', title: string, space: string, before?: string) =>
     sql.join(
       [
