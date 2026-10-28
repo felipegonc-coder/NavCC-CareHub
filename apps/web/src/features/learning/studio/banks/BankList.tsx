@@ -14,12 +14,11 @@ import {
   Textarea,
 } from '@carehub/ui';
 import { ArrowLeft, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
+import { LEARNING_DAY_ZONE, useProfileTimeZone } from '../../data/timeZone';
 import { ErrorState, LoadingState } from '../states';
 import { bankEditorPath, useBankList, useCreateBank } from './data';
-
-const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 
 /** "1 question", "12 questions". */
 export const questionCount = (count: number): string =>
@@ -109,6 +108,12 @@ export function NewBankButton() {
 /** `/learning/studio/banks`: the workspace's question banks, with New bank. */
 export function BankList() {
   const banks = useBankList();
+  // The day a bank was last edited, in the person's profile zone (decision 0317).
+  const timeZone = useProfileTimeZone() ?? LEARNING_DAY_ZONE;
+  const dateFormat = useMemo(
+    () => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone }),
+    [timeZone],
+  );
   return (
     <main className="mx-auto flex max-w-page flex-col gap-6 px-6 py-8">
       <title>Care Hub · Question banks</title>
