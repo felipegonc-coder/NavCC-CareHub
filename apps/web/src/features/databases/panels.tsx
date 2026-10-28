@@ -14,11 +14,11 @@ export const PANELS: Record<PanelName, PanelComponent> = {
 
   sort: lazy(() => import('./filters/sort-entry')),
 
-  group: lazy(() => import('./shell/panel-not-built')),
+  group: lazy(() => import('./filters/group-entry')),
 
   properties: lazy(() => import('./filters/properties-entry')),
 
-  layout: lazy(() => import('./shell/panel-not-built')),
+  layout: lazy(() => import('./filters/layout-entry')),
 
   importCsv: lazy(() => import('./shell/panel-not-built')),
 

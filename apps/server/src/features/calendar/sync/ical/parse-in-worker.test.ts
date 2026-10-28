@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IcalParseError, parseCalendar } from './parse';
-import { parseCalendarInWorker, workerFileFor } from './parse-in-worker';
+import { MAX_PARSE_WORKERS, parseCalendarInWorker, workerFileFor } from './parse-in-worker';
 
 // The worker runs as plain JavaScript, so it's built here the way build.mjs builds it.
 let dir = '';
@@ -106,6 +106,104 @@ describe('parseCalendarInWorker', () => {
     );
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(IcalParseError);
+  });
+});
+
+// A worker that counts, in shared memory passed as its input, how many workers run at once
+// ([0] now, [1] most at once, [2] started in all), then answers after a while.
+const COUNTING_WORKER = `
+import { parentPort, workerData } from 'node:worker_threads';
+const counts = new Int32Array(workerData.input.buffer);
+const now = Atomics.add(counts, 0, 1) + 1;
+Atomics.add(counts, 2, 1);
+for (let most = Atomics.load(counts, 1); now > most; ) {
+  const seen = Atomics.compareExchange(counts, 1, most, now);
+  if (seen === most) break;
+  most = seen;
+}
+setTimeout(() => {
+  Atomics.sub(counts, 0, 1);
+  const result = { events: [], calendar: {}, skipped: 0, truncated: false, warnings: [] };
+  parentPort.postMessage({ ok: true, result });
+}, 600);
+`;
+
+function counter() {
+  const input = new Uint8Array(new SharedArrayBuffer(12));
+  const counts = new Int32Array(input.buffer);
+  return { input, mostAtOnce: () => counts[1], started: () => counts[2] };
+}
+
+describe('parseCalendarInWorker, several at once', () => {
+  it('runs at most two workers at once, timing each from when it starts', async () => {
+    const counting = await scriptWorker('counting.mjs', COUNTING_WORKER);
+    const { input, mostAtOnce, started } = counter();
+    // Each worker takes 600 ms. The third waits for one of the first two, so it would run out of
+    // its 1000 ms if its time started when it was asked for.
+    const reads = Array.from({ length: 3 }, () =>
+      parseCalendarInWorker(input, {}, { workerFile: counting, timeoutMs: 1000 }),
+    );
+    const results = await Promise.all(reads);
+    expect(results.map((r) => r.events)).toEqual([[], [], []]);
+    expect(MAX_PARSE_WORKERS).toBe(2);
+    expect(mostAtOnce()).toBe(2);
+    expect(started()).toBe(3);
+  });
+
+  it('never starts a worker for a read cancelled while it waits', async () => {
+    const counting = await scriptWorker('counting.mjs', COUNTING_WORKER);
+    const { input, started } = counter();
+    const first = [1, 2].map(() => parseCalendarInWorker(input, {}, { workerFile: counting }));
+    const controller = new AbortController();
+    const waiting = parseCalendarInWorker(
+      input,
+      {},
+      { workerFile: counting, signal: controller.signal },
+    ).catch((e: unknown) => e);
+    const reason = new Error('The sync stopped.');
+    controller.abort(reason);
+    // It fails at once, without waiting for a place.
+    const firstDone = Promise.race(first).then(() => 'a first read finished');
+    expect(await Promise.race([waiting, firstDone])).toBe(reason);
+    await Promise.all(first);
+    expect(started()).toBe(2);
+  });
+
+  it('stops a running worker when its read is cancelled, and frees its place', async () => {
+    // Counts in [0] every 10 ms, until it's stopped.
+    const ticking = await scriptWorker(
+      'ticking.mjs',
+      `import { workerData } from 'node:worker_threads';
+      const counts = new Int32Array(workerData.input.buffer);
+      setInterval(() => Atomics.add(counts, 0, 1), 10);`,
+    );
+    const input = new Uint8Array(new SharedArrayBuffer(4));
+    const ticks = () => new Int32Array(input.buffer)[0];
+    const controllers = [new AbortController(), new AbortController()];
+    const reads = controllers.map(({ signal }) =>
+      parseCalendarInWorker(input, {}, { workerFile: ticking, signal }).catch((e: unknown) => e),
+    );
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    while (ticks() === 0) await wait(10);
+    const reason = new Error('The sync stopped.');
+    for (const controller of controllers) controller.abort(reason);
+    expect(await Promise.all(reads)).toEqual([reason, reason]);
+    const stoppedAt = ticks();
+    await wait(100);
+    expect(ticks()).toBe(stoppedAt);
+    // Both places are free again.
+    const { events } = await parseCalendarInWorker(ICS, {}, { workerFile });
+    expect(events).toHaveLength(1);
+  });
+
+  it('refuses a read whose signal is already cancelled', async () => {
+    const reason = new Error('The sync stopped.');
+    const error = await parseCalendarInWorker(
+      ICS,
+      {},
+      { workerFile, signal: AbortSignal.abort(reason) },
+    ).catch((e: unknown) => e);
+    expect(error).toBe(reason);
   });
 });
 

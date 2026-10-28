@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { jobsDatabase, PROPS } from '../fixtures';
 import { PROPERTY_TEXT, SETTINGS_TEXT } from './messages';
 import type { PropertyActions } from './property-actions';
-import { PropertyMenu } from './property-menu';
+import { PropertyMenu, type PropertyMenuProps } from './property-menu';
 import { PropertySettings, type PropertySettingsProps } from './property-settings';
 import { cellCtx, pressOutside, prop, settle } from './test-helpers';
 
@@ -233,12 +233,86 @@ describe('PropertySettings: dates, people and IDs', () => {
   });
 });
 
+describe('PropertySettings: relations', () => {
+  const customer = prop(
+    { type: 'relation', targetDatabaseId: 'db-customers', single: false, twoWayPropertyId: null },
+    'Customer',
+  );
+  const customers = [{ id: 'db-customers', title: 'Customers' }];
+
+  it('names the related database and sets one row only and two-way', () => {
+    const { actions } = renderSettings(customer, { databases: customers });
+    expect(screen.getByText(SETTINGS_TEXT.relatedTo).closest('p')).toHaveTextContent(
+      /Related to\s*Customers/,
+    );
+    fireEvent.click(toggle(SETTINGS_TEXT.oneRow));
+    expect(actions.update).toHaveBeenLastCalledWith(customer.id, {
+      config: { ...customer.config, single: true },
+    });
+    expect(screen.getByText(SETTINGS_TEXT.twoWayHint)).toBeInTheDocument();
+    fireEvent.click(toggle(SETTINGS_TEXT.twoWay));
+    expect(actions.update).toHaveBeenLastCalledWith(customer.id, {
+      config: { ...customer.config, single: true, twoWayPropertyId: expect.any(String) },
+    });
+    expect(toggle(SETTINGS_TEXT.twoWay)).toBeChecked();
+  });
+
+  it("says when the related database can't be opened", () => {
+    renderSettings(customer, { databases: [] });
+    expect(screen.getByText(SETTINGS_TEXT.unknownDatabase)).toBeInTheDocument();
+  });
+
+  it('asks before turning two-way off, naming the other side', async () => {
+    const twoWay = { ...customer, config: { ...customer.config, twoWayPropertyId: 'prop-jobs' } };
+    const { actions } = renderSettings(twoWay, {
+      databases: customers,
+      twoWay: { propertyName: 'Jobs', databaseTitle: 'Customers' },
+    });
+    fireEvent.click(toggle(SETTINGS_TEXT.twoWay));
+    await settle();
+    const confirm = screen.getByRole('dialog', { name: SETTINGS_TEXT.stopTwoWayTitle });
+    expect(confirm).toHaveAccessibleDescription('This deletes "Jobs" in Customers.');
+    expect(actions.update).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: SETTINGS_TEXT.stopShowing }));
+    await settle();
+    expect(actions.update).toHaveBeenCalledWith(twoWay.id, {
+      config: { ...twoWay.config, twoWayPropertyId: null },
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('keeps the confirm open when the server refuses', async () => {
+    const twoWay = { ...customer, config: { ...customer.config, twoWayPropertyId: 'prop-jobs' } };
+    const { actions, onError } = renderSettings(twoWay, { databases: customers });
+    const refused = new Error('Refused');
+    actions.update.mockRejectedValue(refused);
+    fireEvent.click(toggle(SETTINGS_TEXT.twoWay));
+    await settle();
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(SETTINGS_TEXT.stopTwoWayUnnamed);
+    fireEvent.click(screen.getByRole('button', { name: SETTINGS_TEXT.stopShowing }));
+    await settle();
+    expect(onError).toHaveBeenCalledWith(refused);
+    expect(screen.getByRole('dialog', { name: SETTINGS_TEXT.stopTwoWayTitle })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: PROPERTY_TEXT.cancel }));
+    await settle();
+    expect(toggle(SETTINGS_TEXT.twoWay)).toBeChecked();
+  });
+});
+
 describe('PropertySettings from the property menu', () => {
-  async function openSettings(outside?: ReactNode) {
+  async function openSettings(outside?: ReactNode, more: Partial<PropertyMenuProps> = {}) {
     const actions = fakeActions();
     render(
       <>
-        <PropertyMenu meta={db} property={property(PROPS.cost)} actions={actions} ctx={cellCtx()}>
+        <PropertyMenu
+          meta={db}
+          property={property(PROPS.cost)}
+          actions={actions}
+          ctx={cellCtx()}
+          {...more}
+        >
           <button type="button">Cost</button>
         </PropertyMenu>
         {outside}
@@ -287,5 +361,31 @@ describe('PropertySettings from the property menu', () => {
     expect(screen.queryByRole('dialog', { name: SETTINGS_TEXT.title })).toBeNull();
     expect(actions.update).not.toHaveBeenCalled();
     expect(trigger).toHaveFocus();
+  });
+
+  it('stays open through the two-way confirm', async () => {
+    const linked = prop(
+      { type: 'relation', targetDatabaseId: 'db-customers', single: false, twoWayPropertyId: 'p2' },
+      'Customer',
+    );
+    const { actions } = await openSettings(null, {
+      meta: { ...db, properties: [...db.properties, linked] },
+      property: linked,
+      databases: [{ id: 'db-customers', title: 'Customers' }],
+      twoWay: { propertyName: 'Jobs', databaseTitle: 'Customers' },
+    });
+    fireEvent.click(toggle(SETTINGS_TEXT.twoWay));
+    await settle();
+    expect(
+      screen.getByRole('dialog', { name: SETTINGS_TEXT.stopTwoWayTitle }),
+    ).toHaveAccessibleDescription('This deletes "Jobs" in Customers.');
+
+    fireEvent.click(screen.getByRole('button', { name: SETTINGS_TEXT.stopShowing }));
+    await settle();
+    expect(actions.update).toHaveBeenCalledWith(linked.id, {
+      config: { ...linked.config, twoWayPropertyId: null },
+    });
+    expect(screen.queryByRole('dialog', { name: SETTINGS_TEXT.stopTwoWayTitle })).toBeNull();
+    expect(screen.getByRole('dialog', { name: SETTINGS_TEXT.title })).toBeInTheDocument();
   });
 });
