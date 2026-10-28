@@ -39,6 +39,7 @@ a `NoticeInputError` that lists every problem: that's a bug in the caller, so le
 | `title`          | Required, up to 200 characters. Generic: never a page or event title.   |
 | `text`           | Optional, up to 4000 characters.                                        |
 | `card`           | Optional `{ type: 'page', pageId }` or `{ type: 'event', eventId, … }`. |
+| `cards`          | Optional, 1 to 3 cards shown in order, instead of `card` (not both).    |
 | `buttons`        | Optional, at most 3. Links or actions (below).                          |
 | `groupKey`       | Optional, up to 200 characters. See Grouping.                           |
 | `idempotencyKey` | Optional, up to 200 characters. See Retries.                            |
@@ -66,6 +67,10 @@ Only IDs are stored. Every time the chat loads, the reader's access is checked a
 title, icon and space are looked up for them. A reader who can't open the page or event sees
 "🔒 A page you can't open" with no title; a deleted one shows "This page was deleted". That's why
 `title` and `text` must never repeat a page or event title: put the page on the card instead.
+
+A notice can carry up to 3 cards with `cards`, such as the pages an automation made. Each reader
+sees each card open or locked by their own access, and a grouped notice shows only the latest
+send's cards.
 
 An event card can point at one occurrence of a repeating event with `occurrenceStart`, Calendar's
 occurrence key (`YYYY-MM-DD`, `YYYY-MM-DDTHH:mm` in the event's zone, or an ISO instant for synced
@@ -152,9 +157,9 @@ the send.
 `getNotice(db, noticeId)` gives one notice for a feature that follows `notices.notice.created`,
 such as push, since events carry IDs only. It returns `{ id, workspaceId, userId, kind, title,
 text, senderName, link, createdAt, latestAt }`, or null when there's no such notice. Show it to
-`userId` only. `link` is a relative path: the first link button's, else the page card's page,
-else the 🔔 Care Hub chat (`/messages/care-hub`). `latestAt` is later than `createdAt` only for
-a grouped notice.
+`userId` only. `link` is a relative path: the first link button's, else the first page card's
+page, else the 🔔 Care Hub chat (`/messages/care-hub`). `latestAt` is later than `createdAt` only
+for a grouped notice.
 
 ## Tests
 

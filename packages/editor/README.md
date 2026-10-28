@@ -21,6 +21,7 @@ import { BlockEditor } from '@carehub/editor';
 | ------------- | ------------------ | -------------------------------------------------------------- |
 | `ydoc`        | required           | The page's `Y.Doc`.                                            |
 | `field`       | `'default'`        | XML fragment in `ydoc` that holds the blocks (`PAGE_FIELD`).   |
+| `pageId`      | `null`             | The page shown; "/" entries get it when they run, see below.   |
 | `provider`    | `null`             | `{ awareness }`; a new provider makes a new editor.            |
 | `user`        |                    | `{ id?, name, color }`; `color` is a CSS color for your caret. |
 | `editable`    | `true`             | `false` makes it read-only.                                    |
@@ -71,8 +72,9 @@ const shiftNote: SlashItem = {
 <BlockEditor ydoc={ydoc} slashItems={[shiftNote]} />;
 ```
 
-`run` gets the editor once the typed "/query" is gone. `hint` shows a Markdown shortcut on the
-right, like `#` or `---`.
+`run` gets the editor once the typed "/query" is gone, and a context: `context.pageId` is the
+page being edited (`BlockEditor`'s `pageId`, or null), for entries that make something on the page,
+like "/database". `hint` shows a Markdown shortcut on the right, like `#` or `---`.
 
 ## The selection toolbar
 
@@ -136,8 +138,12 @@ const [description, setDescription] = useState<JSONContent>({ type: 'doc', conte
   name, attributes, group, atom or content, `parseHTML` and `renderHTML`, importing only from
   `@tiptap/core` or `@tiptap/pm` (a test checks this). `pageExtensions()` and `createPageSchema()`
   always include them, so the server and every client know every block.
-- **`nodeViews`**: the React view of a node, by name, from the web `editor` slot. A lane block
-  without a view shows a plain box ("This block needs Databases.") and is kept.
+- **`nodeViews`** (`NodeViews`): the React view of a node, by name, from the web `editor` slot: a
+  component, or `{ component, stopEvent }`. `stopEvent(event)` returns true for an event inside the
+  view that the editor should leave alone, like a click, a key, a paste or a drop in a table. It
+  replaces Tiptap's default, where the editor takes clicks that select the block, copy, cut, paste,
+  drops and everything in the view's editable content. A lane block without a view shows a plain
+  box ("This block needs Databases.") and is kept.
 - **`extensions`**: only behavior, like shortcuts or plugins. Nodes and marks there are ignored with
   a console warning: when y-prosemirror meets a node it doesn't know, it removes it from the shared
   `Y.Doc`, so a block that only some clients know would be deleted for everyone.
@@ -163,6 +169,10 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
   <NodeViewWrapper>{/* the inline database for node.attrs.databaseId */}</NodeViewWrapper>
 );
 <BlockEditor ydoc={ydoc} nodeViews={{ database: DatabaseView }} />;
+
+// Or the table keeps its clicks, keys, pastes and drops, except on its drag handle.
+const stopEvent = (event: Event) => !(event.target as Element).closest('[data-drag-handle]');
+<BlockEditor ydoc={ydoc} nodeViews={{ database: { component: DatabaseView, stopEvent } }} />;
 ```
 
 ## Document format
