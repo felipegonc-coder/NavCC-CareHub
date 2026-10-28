@@ -9,11 +9,11 @@ export interface CellData {
 }
 
 const EMPTY: ComputedValue = { kind: 'empty' };
-const asRow = (row: QueryRow): Row => ({
-  ...row,
-  createdAt: row.createdAt ?? '',
-  editedAt: row.editedAt ?? '',
-});
+
+/** A view's row as the engine reads rows (a created or edited time the viewer can't see is ''). */
+export function engineRow(row: QueryRow): Row {
+  return { ...row, createdAt: row.createdAt ?? '', editedAt: row.editedAt ?? '' };
+}
 const instant = (at: string | null) => (at ? { start: at, end: null, hasTime: true } : null);
 
 /**
@@ -31,10 +31,10 @@ export function rowCell(row: QueryRow, property: Property): CellData {
       return { value: instant(row.editedAt) };
     case 'relation':
       return {
-        value: readValue(asRow(row), property),
+        value: readValue(engineRow(row), property),
         hiddenLinks: row.hiddenLinks[property.id] ?? 0,
       };
     default:
-      return { value: readValue(asRow(row), property) };
+      return { value: readValue(engineRow(row), property) };
   }
 }

@@ -19,6 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@carehub/databases": "*",
     "zod": "^4"
   },
   "devDependencies": {

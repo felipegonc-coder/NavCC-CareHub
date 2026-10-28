@@ -9,6 +9,7 @@ const merge = extendTailwindMerge({
       'font-size': [{ text: Object.keys(typeScale) }],
       shadow: [{ shadow: Object.keys(shadows) }],
       'max-w': [{ 'max-w': ['page', 'dialog', 'toast'] }],
+      'max-h': [{ 'max-h': ['sheet'] }],
       'grid-cols': [{ 'grid-cols': Object.keys(gridColumns) }],
       'outline-offset': [{ 'outline-offset': Object.keys(outlineOffsets) }],
       z: [{ z: Object.keys(layers) }],

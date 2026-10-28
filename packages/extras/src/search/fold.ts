@@ -1,5 +1,5 @@
 // Case and accent folding, the same for the index and for what people type (spec 3.2):
-// "Gonçalves" and "GONCALVES" both become "goncalves". Postgres has no accent folding without an
+// "Assunção" and "ASSUNCAO" both become "assuncao". Postgres has no accent folding without an
 // extension, so the server folds text here before it builds the index and the query.
 
 /** Letters that don't lose their accent by decomposition. */

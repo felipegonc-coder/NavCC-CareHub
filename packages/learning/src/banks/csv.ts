@@ -1,4 +1,4 @@
-// Spreadsheet text (CSV) reading for the question import. Not exported from the package.
+// Spreadsheet text (CSV) reading and writing for the question import. Not exported from the package.
 
 /** Cell separators the import understands: comma, semicolon (spreadsheets in many European locales) and tab. */
 export type CsvSeparator = ',' | ';' | '\t';
@@ -82,6 +82,24 @@ export function detectSeparator(text: string, isKnown: (cell: string) => boolean
     }
   }
   return best;
+}
+
+// Spreadsheets run cells starting with these as formulas, so written cells get a leading apostrophe.
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/**
+ * One CSV row ending in CRLF. Cells with the separator, a quote, a line break or edge spaces are quoted (inner
+ * quotes doubled); cells that would start a formula (=, +, -, @, tab, CR) get a leading ' so spreadsheets show
+ * them as text. The import removes that apostrophe again.
+ */
+export function csvRow(cells: readonly string[], separator: CsvSeparator): string {
+  const fields = cells.map((cell) => {
+    const text = FORMULA_START.test(cell) ? `'${cell}` : cell;
+    return text.includes(separator) || /["\r\n]|^\s|\s$/.test(text)
+      ? `"${text.replaceAll('"', '""')}"`
+      : text;
+  });
+  return `${fields.join(separator)}\r\n`;
 }
 
 /** A cell as the import reads it: trimmed, without the apostrophe that marks a formula-like cell as text. */

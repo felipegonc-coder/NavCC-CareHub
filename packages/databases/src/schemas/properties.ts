@@ -191,6 +191,7 @@ export const propertyConfigSchema = z.discriminatedUnion('type', [
     color: optionColorSchema.exactOptional(),
     whoCanPress: z.enum(['editors', 'viewers']).exactOptional(),
   }),
+  simple('verification'),
 ]) satisfies z.ZodType<PropertyConfig>;
 
 /** A property: a name of 1 to 100 characters, a description of up to 280, settings and access. */

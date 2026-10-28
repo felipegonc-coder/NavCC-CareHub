@@ -28,10 +28,34 @@ const configSchema = z.object({
 /** Server settings, read from environment variables. */
 export type Config = z.infer<typeof configSchema>;
 
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+// In production a missing or wrong setting mustn't quietly drop the Origin check or Secure cookies.
+// Plain http is allowed only on this machine (localhost), for trying a production build.
+const checkedConfigSchema = configSchema.superRefine((config, ctx) => {
+  if (config.NODE_ENV !== 'production') return;
+  const url = config.CAREHUB_PUBLIC_URL ? new URL(config.CAREHUB_PUBLIC_URL) : null;
+  const local = url?.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);
+  if (url?.protocol !== 'https:' && !local) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['CAREHUB_PUBLIC_URL'],
+      message: 'In production, set CAREHUB_PUBLIC_URL to the https:// address people use.',
+    });
+  }
+  if (!config.COOKIE_SECURE && !local) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['COOKIE_SECURE'],
+      message: 'In production, COOKIE_SECURE=false works only with an http://localhost address.',
+    });
+  }
+});
+
 /** Reads settings from `env`; empty values count as unset. Throws on invalid values. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const values = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
-  const result = configSchema.safeParse(values);
+  const result = checkedConfigSchema.safeParse(values);
   if (!result.success) {
     throw new Error(`Invalid server settings:\n${z.prettifyError(result.error)}`);
   }
