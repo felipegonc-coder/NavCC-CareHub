@@ -125,6 +125,50 @@ describe('getting a file ready to import', () => {
     });
   });
 
+  it("keeps the source's dates and a board view in the plan it sends", async () => {
+    const importers = importer(async () => ({
+      pages: [
+        {
+          key: 'p1',
+          parent: null,
+          title: 'Trip',
+          content: doc,
+          source: 'Trip.html',
+          created: '2021-03-03',
+        },
+      ],
+      databases: [
+        {
+          key: 'd1',
+          parent: 'p1',
+          title: 'Days',
+          columns: [
+            { name: 'Day', type: null },
+            { name: 'Status', type: 'status' },
+          ],
+          rows: [{ key: 'r1', cells: ['Mon', 'To do'], updated: '2021-03-04T10:15:00Z' }],
+          source: 'Trip.html',
+          view: { layout: 'board', groupBy: 'Status' },
+        },
+      ],
+      files: [],
+      problems: [],
+    }));
+    const file = new File(['<p>Trip</p>'], 'Trip.html');
+    const inside = await entries((await prepareUpload(html, file, { importers })).body);
+    const plan: unknown = JSON.parse(new TextDecoder().decode(inside.get('plan.json')));
+    expect(planUploadSchema.safeParse(plan).success).toBe(true);
+    expect(plan).toMatchObject({
+      pages: [{ key: 'p1', created: '2021-03-03' }],
+      databases: [
+        {
+          rows: [{ key: 'r1', cells: ['Mon', 'To do'], updated: '2021-03-04T10:15:00Z' }],
+          view: { layout: 'board', groupBy: 'Status' },
+        },
+      ],
+    });
+  });
+
   it('gives the importer the options that were ticked', async () => {
     const seen: unknown[] = [];
     const importers = importer(async ({ options }) => {
