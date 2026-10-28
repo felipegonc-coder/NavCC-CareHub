@@ -27,6 +27,10 @@ export function hasStarted(state: LearnerCourseState, outline: CourseOutline): b
   );
 }
 
+/** Finished, or every lesson done with only the sign-off or the course's minimum time left. */
+const isDone = (state: LearnerCourseState, outline: CourseOutline) =>
+  FINISHED.has(state.status) || outline.rows.every((row) => row.status === 'completed');
+
 /**
  * The start page's button. Before the course: the course's "start" label, to the first lesson. Part
  * way: its "continue" label, to where the learner stopped (the resume point, else the first lesson
@@ -42,8 +46,7 @@ export function startAction(
   const first = outline.rows[0];
   if (!first) return null;
   const labels = playerLabels(course);
-  if (FINISHED.has(state.status) || outline.rows.every((row) => row.status === 'completed'))
-    return { label: 'Review the course', href: first.href };
+  if (isDone(state, outline)) return { label: 'Review the course', href: first.href };
   if (!hasStarted(state, outline)) return { label: labels.start, href: first.href };
   const resume = state.resume;
   if (resume && course.lessons.some((lesson) => lesson.id === resume.lessonId)) {
@@ -53,6 +56,35 @@ export function startAction(
     (row) => row.status === 'in_progress' || row.status === 'not_started',
   );
   return { label: labels.continue, href: (next ?? first).href };
+}
+
+/**
+ * Router state for a link that opens a course where the learner stopped: My learning's courses in
+ * progress. The start page sends them on to the lesson.
+ */
+export const RESUME_STATE = { resume: true } as const;
+
+/** Whether the start page was opened with `RESUME_STATE`. */
+export function wantsResume(routerState: unknown): boolean {
+  return (
+    typeof routerState === 'object' &&
+    routerState !== null &&
+    (routerState as { resume?: unknown }).resume === true
+  );
+}
+
+/**
+ * Where the learner stopped (the lesson, and the block when the server knows it) while they are
+ * part way through the course; null before they begin and once it's done, when the start page
+ * shows instead.
+ */
+export function resumeHref(
+  course: Pick<PlayerCourse, 'id' | 'lessons' | 'settings'>,
+  state: LearnerCourseState,
+  outline: CourseOutline,
+): string | null {
+  if (isDone(state, outline) || !hasStarted(state, outline)) return null;
+  return startAction(course, state, outline)?.href ?? null;
 }
 
 /** The learner's place in a few words, such as "In progress · 40% done" or "Passed · score 90%". */

@@ -102,17 +102,31 @@ describe('logic and responses', () => {
 
 describe('drafts', () => {
   const key = draftKey('form-1', 'user-avery');
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
 
   it('keeps unsent answers and forgets them when cleared', () => {
-    saveDraft(key, { [IDS.name]: 'Jordan Park' });
-    expect(loadDraft(key)).toEqual({ [IDS.name]: 'Jordan Park' });
-    clearDraft(key);
-    expect(loadDraft(key)).toBeNull();
+    saveDraft(key, { [IDS.name]: 'Jordan Park' }, 'local');
+    expect(loadDraft(key, 'local')).toEqual({ [IDS.name]: 'Jordan Park' });
+    expect(window.sessionStorage.getItem(key)).toBeNull();
+    clearDraft(key, 'local');
+    expect(loadDraft(key, 'local')).toBeNull();
+  });
+
+  it('keeps a signed-out draft for this tab only', () => {
+    const anonymous = draftKey('form-1', null);
+    saveDraft(anonymous, { [IDS.name]: 'Jordan Park' }, 'session');
+    expect(window.localStorage.length).toBe(0);
+    expect(loadDraft(anonymous, 'session')).toEqual({ [IDS.name]: 'Jordan Park' });
+    expect(loadDraft(anonymous, 'local')).toBeNull();
+    clearDraft(anonymous, 'session');
+    expect(window.sessionStorage.getItem(anonymous)).toBeNull();
   });
 
   it('keeps nothing when nothing is answered', () => {
-    saveDraft(key, { [IDS.name]: '', [IDS.tags]: [], [IDS.visit]: EMPTY_DATE });
+    saveDraft(key, { [IDS.name]: '', [IDS.tags]: [], [IDS.visit]: EMPTY_DATE }, 'local');
     expect(window.localStorage.getItem(key)).toBeNull();
   });
 });

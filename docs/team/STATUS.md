@@ -1,8 +1,8 @@
 # Team tools: status
 
-Lane: Team tools (Messages, Home and reminders, notifications, Calendar, Meetings, Automations, Analytics, Status page). The Claude features moved to the Extras lane on Oct 27. Reviewer and merger: the Team tools lead. Updated Oct 27, 2026, about 10:00 UTC.
+Lane: Team tools (Messages, Home and reminders, notifications, Calendar, Meetings, Automations, Analytics, Status page).
 
-Goal: Felipe's bar for Friday, Oct 30 is everything: Notion parity, but better. First a working basic version of every Team tools feature on main, then polish. The last PR opens by Oct 30; anything not ready by Oct 31 is dropped for now. All colours, fonts, sizes and spacing come from the design kit tokens, so Felipe can restyle Care Hub later.
+First a working basic version of every Team tools feature on main, then polish. All colours, fonts, sizes and spacing come from the design kit tokens, so Care Hub can be restyled later.
 
 ## On main
 
@@ -41,47 +41,30 @@ Goal: Felipe's bar for Friday, Oct 30 is everything: Notion parity, but better. 
 | #188 | Calendar grid layout maths: Day, Week, Month |
 | #166 | The 🔔 Care Hub chat in Messages, unread and preview hooks |
 | #210 | Settings → Notifications |
-
-## In review
-
-| PR | What | Waits on |
-| --- | --- | --- |
-| #288 | Registers live and jobs in `app.ts` | Main lead (core file) |
-| #154 | Notices: store, `sendNotice` wiring, `getNotice`, seed data | Main lead's OK on its `app.ts` and `seed.ts` lines |
-| #156 | Push: `pushToUser`, test notification | Main lead's OK on its `app.ts` line |
-| #207 | Home settings on the server | Main lead's OK on its `app.ts` line |
-| #209 | Reminders part 2b: Snooze and Done, titles, series edits for Calendar | Main lead's OK on its `app.ts` line |
-| #230 | Push: PNG notification icons, headline-only notifications | One change (no CSRF cookie read in the service worker) |
-| #203 | iCalendar writer and safe link fetcher | The #213 parser fix, Tailscale ranges, address and redirect checks, size and time caps |
-| #180, #215 | Home frame and Upcoming; Customize Home and the sidebar Upcoming | Core edits to the web routes (main lead reviews those) |
-
-## Building now
-
-| Part | Now | Next (basic slice first) |
-| --- | --- | --- |
-| W1-A | Reminders part 2b (#209) | Reminders screen and `usePendingReminders` (Oct 28), then the Remind me picker |
-| W1-B | Calendar server: events, items, layers, settings (a stack of PRs) | Calendar notices; layers from Databases and Learning |
-| W1-C | Push to every browser (#156), icons (#230), Pause notifications | Push for new messages and notices |
-| W1-D | iCalendar writer and safe link fetcher (#203), the #213 fix | Meetings: notes from an event, recording notice, private transcription; then iCloud |
-| W1-E | Connected calendars: storage, sync engine, Google routes | Connect calendars screen; private links end to end |
-| W1-F | Automations part 3 (routes), then the scheduler and Send a message | Settings → Automations screens; a jobs test hook for browser tests |
-| W1-G | Calendar editing, `useUpcoming` | Calendar screens: day, week, month, side panel, drag, layers |
-| W1-H | `@carehub/team-chat` part 3, Messages server | Messages screens: chats, files, reactions, search |
-| W2-N | Notices store (#154), Home (#207, #180, #215) | Home sections: Reminders, Unread messages, Learning |
-| W2-S | Analytics screen, Status page server and screen | Analytics part 2 |
-
-Every Team tools feature has a builder.
+| #154 | Notices: store, `sendNotice` wiring, `getNotice`, seed data |
+| #156 | Push: `pushToUser`, test notification |
+| #207 | Home settings on the server |
+| #209 | Reminders part 2b: Snooze and Done, titles, series edits for Calendar |
+| #354 | `@carehub/team-chat` part 3: notifications, previews, pictures and files, `/api/messages` shapes |
+| #288 | Live updates and jobs registered in `app.ts` |
+| #180 | Home at `/`: the frame and Upcoming |
+| #361 | Jobs: test hook to run a periodic task once at a chosen time |
+| #346 | Calendar editing maths: slots, drag, resize, keyboard |
+| #381 | `@carehub/team-calendar-api` part 2: Calendar settings and Upcoming shapes |
+| #382 | `@carehub/team-repeat` part 3: This event, This and following, All events |
+| #422 | Calendar screen part 1: data hooks, the address (view and date) and shortcuts |
 
 ## Interfaces other lanes use
 
 From decision 0007, section 4.4:
 
-- Live updates: the server (`apps/server/src/features/live`) and the web hooks (`apps/web/src/features/live`) are on main, with `hasOpenTabs(userId)`. The routes are registered in `app.ts` by #288.
-- Jobs (`apps/server/src/features/jobs`): on main, with `scheduleJob(input, { db })` and the web `useJob`. The runner starts in the app once #288 merges.
-- Notices (`apps/server/src/features/notices`): the `sendNotice` contract is on main, and `bindMemoryNotices()` works in unit tests. Stored notices and `getNotice` come with #154 (Oct 27). The 🔔 Care Hub chat screen is on main (#166).
-- Push (`apps/server/src/features/push`): browsers and settings are on main; `pushToUser` comes with #156.
+- Live updates: the server (`apps/server/src/features/live`) and the web hooks (`apps/web/src/features/live`) are on main, with `hasOpenTabs(userId)`. The routes are registered in `app.ts` (#288).
+- Jobs (`apps/server/src/features/jobs`): on main, with `scheduleJob(input, { db })` and the web `useJob`. The runner starts with the app (#288). Browser tests can run a periodic task once with `POST /api/jobs/test/periodic/:name` (#361): only when `CAREHUB_TEST_HOOKS=1`, site admins only. An allow-list of tasks is coming.
+- Calendar shapes (`@carehub/team-calendar-api`): items, layers and events, plus settings and Upcoming (#381): `upcomingResponseSchema`, `isJoinable`, `eventHref`.
+- Notices (`apps/server/src/features/notices`): `sendNotice`, stored notices and `getNotice` are on main (#154), and `bindMemoryNotices()` works in unit tests. The 🔔 Care Hub chat screen is on main (#166).
+- Push (`apps/server/src/features/push`): browsers, settings and `pushToUser` are on main (#156).
 
-Calendar layers from other lanes: `listDatedRows`, `listDateSources`, `setRowDate` (Databases, expected Oct 28) and `listLearningDueDates` (Learning, on main).
+Calendar layers from other lanes: `listDatedRows`, `listDateSources`, `setRowDate` (Databases) and `listLearningDueDates` (Learning, on main).
 
 ## Settings
 
@@ -91,14 +74,16 @@ See [settings.md](settings.md).
 
 - Google and iCloud calendars are read-only in Care Hub (open decision CA-D3 in the Calendar spec; read-only is the default). Synced events can't be edited, moved, deleted or replied to; the server refuses with 403. Their panel links to Google Calendar or iCloud. New events are always Care Hub events.
 
-- In-browser transcription uses `onnxruntime-web` only, with our own Whisper code (security reviewer: `@huggingface/transformers` brings native and LGPL packages). Model files come from `MODELS_DIR`, with their SHA-256 sums in the repository.
+- In-browser transcription uses `onnxruntime-web` only, with our own Whisper code (`@huggingface/transformers` brings native and LGPL packages). Model files come from `MODELS_DIR`, with their SHA-256 sums in the repository.
 
 - Calendar links with a user name or password in them are refused, with a message saying why.
 
-- The Claude features, including the meeting summary, are built by the Extras lane. Meetings keeps the Summarize button and the Summary, Decisions and Action items, and calls the Extras lane's `summarizeMeeting`.
+- Test hooks: one switch in core, on only when `CAREHUB_TEST_HOOKS` is exactly `1`, and only with a loopback address. Hook routes exist only when it's on, under `/api/<lane>/test/…`, and deploy never sets it. Each hook is a normal protected route with a strict body and a log line. The jobs hook runs only listed tasks that delete nothing and send nothing outside the server, under the scheduler's lock. Its `now` decides only what's due; stored times use the real clock. Reminder and notice tasks can be listed only if hook runs skip push: the flag travels with the run, push is skipped where it's queued (those notices are marked not for push), and a test shows a hook run makes zero push sends.
 
-## For Felipe
+- The meeting summary comes from the Extras features' `summarizeMeeting`. Meetings keeps the Summarize button and the Summary, Decisions and Action items.
 
-- When he creates the Google sign-in client: type "Web application", the redirect URL from settings.md, and publishing status "In production" (in "Testing", sign-ins end after 7 days).
-- CA-D3, only if he wants it: two-way Google and iCloud calendars (editing and replying from Care Hub). That would need write access to Google.
-- Later: put the speech model files in `MODELS_DIR` on the server (steps will be in settings.md).
+## Setup notes
+
+- The Google sign-in client: type "Web application", the redirect URL from settings.md, and publishing status "In production" (in "Testing", sign-ins end after 7 days).
+- Two-way Google and iCloud calendars (CA-D3) are optional. They would need write access to Google.
+- The speech model files go in `MODELS_DIR` on the server (steps will be in settings.md).

@@ -1,16 +1,23 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { routes } from './routes';
 
 function renderAt(path: string) {
-  render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />
+    </QueryClientProvider>,
+  );
 }
 
 describe('routes', () => {
-  it('shows the home placeholder at /', async () => {
+  it('shows Home at /', async () => {
     renderAt('/');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Care Hub' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good / })).toBeInTheDocument();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
     expect(document.title).toBe('Care Hub');
   });
 

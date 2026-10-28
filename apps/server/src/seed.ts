@@ -72,7 +72,7 @@ export async function seedFeatures(ctx: SeedContext): Promise<void> {
 
   // feature: messages
 
-  // feature: notices
+  await (await import('./features/notices/seed')).seed(ctx);
 
   // feature: live
 

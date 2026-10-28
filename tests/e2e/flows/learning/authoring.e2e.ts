@@ -21,6 +21,9 @@ import {
 import { LearnerPage, NOT_FOUND, NO_ACCESS } from './learner-page.js';
 import { StudioPage } from './studio-page.js';
 
+// The browser is in Tokyo: Learning shows days in the profile's time zone (decision 0317).
+test.use({ timezoneId: 'Asia/Tokyo' });
+
 type ErrorBody = { error: { code: string; message: string; issues?: { message: string }[] } };
 const errorOf = async (response: APIResponse) => ((await response.json()) as ErrorBody).error;
 
@@ -31,6 +34,7 @@ test.describe('Learning: build and publish a course', () => {
   test('LN-01 a builder creates a course from Learning → Studio and the editor opens', async ({
     page,
   }) => {
+    needs('learningStudio');
     const studio = new StudioPage(page);
     const title = uniqueName('Fictional QA course');
     await test.step('Tara opens Learning → Studio', async () => {
@@ -49,6 +53,7 @@ test.describe('Learning: build and publish a course', () => {
   test('LN-02 three lessons, a knowledge check, a 5-question quiz and a minimum time save on their own', async ({
     page,
   }) => {
+    needs('learningStudio');
     const studio = new StudioPage(page);
     const lessons = [
       'Fictional QA greeting',
@@ -95,6 +100,7 @@ test.describe('Learning: build and publish a course', () => {
   });
 
   test('LN-04 Publish says in plain words what to fix, then publishes', async ({ page }) => {
+    needs('learningStudio');
     const studio = new StudioPage(page);
     const lessons = (correct: boolean) => [
       content('l1', 'Fictional QA greeting'),
@@ -187,6 +193,7 @@ test.describe('Learning: build and publish a course', () => {
     browser,
     page,
   }) => {
+    needs('learningStudio');
     const course =
       await test.step('Tara has Studio in Learning, and her requests work', async () => {
         await signInAs(page, TARA);
@@ -222,7 +229,7 @@ test.describe('Learning: build and publish a course', () => {
 
 test.describe('Learning: preview on a phone', () => {
   onlyIn('desktop-light', 'phone-light');
-  needs('signIn', 'learning');
+  needs('signIn', 'learning', 'learningStudio');
 
   test('LN-03 Preview → 📱 Phone shows every lesson and the quiz, fitting the screen', async ({
     page,
