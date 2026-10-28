@@ -64,7 +64,10 @@ export const formLogicSchema = z.strictObject({
     .refine((list) => isUniqueBy(list, (c) => c.id), 'Each condition once.'),
 }) satisfies z.ZodType<FormLogic>;
 
-/** One question: up to 2,000 characters, a description of up to 2,000, and optional logic. */
+/**
+ * One question: up to 2,000 characters, a description of up to 2,000, and optional logic. The
+ * server keeps mappedBy and mapperLostAccess; they're here so a saved form reads back.
+ */
 export const formQuestionSchema = z.strictObject({
   propertyId: idSchema,
   text: textSchema(LIMITS.title),
@@ -73,6 +76,8 @@ export const formQuestionSchema = z.strictObject({
   display: z.enum(['default', 'long', 'dropdown']),
   logic: formLogicSchema.nullable(),
   logicChanged: z.boolean().exactOptional(),
+  mappedBy: idSchema.exactOptional(),
+  mapperLostAccess: z.boolean().exactOptional(),
 }) satisfies z.ZodType<FormQuestion>;
 
 /** True if every condition is on a question above its own (so the first question has none). */

@@ -152,6 +152,17 @@ describe('questions and logic', () => {
     expect(ok(formQuestionSchema, { ...q, display: 'slider' })).toBe(false);
   });
 
+  it('reads back who mapped a question and whether they lost access', () => {
+    const q = question(phone.id);
+    expect(ok(formQuestionSchema, { ...q, mappedBy: 'u1' })).toBe(true);
+    expect(ok(formQuestionSchema, { ...q, mappedBy: 'u1', mapperLostAccess: true })).toBe(true);
+    expect(ok(formQuestionSchema, { ...q, mappedBy: '' })).toBe(false);
+    expect(ok(formQuestionSchema, { ...q, mappedBy: null })).toBe(false);
+    expect(ok(formQuestionSchema, { ...q, mappedBy: undefined })).toBe(false);
+    expect(ok(formQuestionSchema, { ...q, mapperLostAccess: 'yes' })).toBe(false);
+    expect(ok(formDefinitionSchema, withQuestions([{ ...q, mappedBy: 'u1' }]))).toBe(true);
+  });
+
   it('takes up to 10 conditions, each once', () => {
     const conditions = (n: number) =>
       Array.from({ length: n }, (_, i) => condition(name.id, `c${i}`));

@@ -6,6 +6,7 @@ import { ReactNodeViewRenderer } from '@tiptap/react';
 import type * as Y from 'yjs';
 import { blockNodeViews } from './blocks/ui';
 import { laneFeature } from './lanes';
+import { RevealBlock } from './reveal';
 import { PAGE_FIELD, pageExtensions } from './schema';
 import { SlashCommand, type SlashMenuStore } from './slash';
 import { ToolbarKeys } from './toolbar-keys';
@@ -116,6 +117,7 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
     }),
     Collaboration.configure({ document: ydoc, field }),
     UndoShortcut,
+    RevealBlock,
     ...(awareness && user
       ? [
           CollaborationCaret.configure({

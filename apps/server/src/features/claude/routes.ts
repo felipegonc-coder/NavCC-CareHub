@@ -7,7 +7,7 @@ import { claudeMemberOf } from './server/members';
 import { configureClaude } from './server/runtime';
 
 // /api/claude: Claude features, all switched off by default.
-// Extras lane (decision 0400, docs/extras/claude.md). Every route needs a signed-in person.
+// See docs/extras/claude.md (decision 0400). Every route needs a signed-in person.
 
 function userIdOf(request: FastifyRequest): string {
   if (!request.user) throw httpError(401, 'signed_out');

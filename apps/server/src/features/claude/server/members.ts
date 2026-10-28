@@ -1,8 +1,7 @@
 import type { Db, Tx } from '../../../db';
 
-// stand-in: request.member / getMembership and hasPermission from the roles PR (#55). Until it's
-// bound, nobody is in a workspace: GET /api/claude/status says everything is off, and Settings →
-// Claude answers 403.
+// stand-in: request.member / getMembership and hasPermission. Until they're bound, nobody is in a
+// workspace: GET /api/claude/status says everything is off, and Settings → Claude answers 403.
 
 export interface ClaudeMember {
   workspaceId: string;
@@ -20,7 +19,7 @@ export function claudeMemberOf(db: Db | Tx, userId: string): Promise<ClaudeMembe
   return lookup(db, userId);
 }
 
-/** Binds the lookup (the roles PR, or a test); the returned function unbinds it. */
+/** Binds the lookup (roles, or a test); the returned function unbinds it. */
 export function bindClaudeMembers(next: ClaudeMemberLookup): () => void {
   lookup = next;
   return () => {
