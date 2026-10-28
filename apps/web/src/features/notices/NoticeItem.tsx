@@ -27,6 +27,7 @@ export interface NoticeItemProps {
 
 export function NoticeItem({ notice, prefs, tabbable, onFocus, onOpen }: NoticeItemProps) {
   const id = useId();
+  const cards = notice.cards ?? (notice.card ? [notice.card] : []);
   return (
     <article
       data-notice-id={notice.id}
@@ -60,7 +61,9 @@ export function NoticeItem({ notice, prefs, tabbable, onFocus, onOpen }: NoticeI
         {notice.text && (
           <p className="whitespace-pre-line break-words text-body text-muted">{notice.text}</p>
         )}
-        {notice.card && <NoticeCard card={notice.card} onOpen={onOpen} />}
+        {cards.map((card, index) => (
+          <NoticeCard key={index} card={card} onOpen={onOpen} />
+        ))}
         {notice.buttons.length > 0 && <NoticeButtons notice={notice} onOpen={onOpen} />}
       </div>
     </article>

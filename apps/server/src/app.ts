@@ -46,7 +46,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: workspaces
 
-  // feature: pages
+  await app.register(import('./features/pages/routes'));
 
   // feature: collab
 

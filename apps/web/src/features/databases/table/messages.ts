@@ -1,4 +1,4 @@
-/** Every text the table shows, word for word from the Databases spec. */
+/** Every text the table shows (word for word from the Databases spec where it gives one). */
 export const TABLE_TEXT = {
   newRow: 'New',
   loadMore: 'Load more',
@@ -14,4 +14,12 @@ export const TABLE_TEXT = {
   wrapCells: 'Wrap cells',
   /** The footer, on a column without a calculation. */
   calculate: 'Calculate',
+  /** Ticking rows, and what can be done to the ticked ones. */
+  selectAll: 'Select all rows',
+  selectRow: (title: string) => `Select ${title}`,
+  selectedRows: 'Selected rows',
+  selected: (count: number) => `${count} selected`,
+  setProperty: 'Set property',
+  delete: 'Delete',
+  clearSelection: 'Clear selection',
 } as const;

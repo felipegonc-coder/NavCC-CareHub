@@ -241,13 +241,21 @@ async function shownRecoveryCodes(dialog: Locator): Promise<string[]> {
   ];
 }
 
+/** My account's 2-step verification part: the innermost section or group with its name in it. */
+function twoStepSection(page: Page): Locator {
+  return page
+    .locator('section, fieldset, [role="region"], [role="group"]')
+    .filter({ has: page.getByText(/2-step verification/i) })
+    .last();
+}
+
 /** My account's 2-step verification control: Turn on or Turn off, or a switch. */
 function twoStepControl(page: Page, action: 'on' | 'off'): Locator {
   const turn = action === 'on' ? /^(turn on|set up)/i : /^turn off/i;
   return page
     .getByRole('switch', { name: /2-step/i })
     .or(page.getByRole('button', { name: /2-step/i }).filter({ hasText: turn }))
-    .or(page.getByRole('button', { name: turn }))
+    .or(twoStepSection(page).getByRole('button', { name: turn }))
     .first();
 }
 

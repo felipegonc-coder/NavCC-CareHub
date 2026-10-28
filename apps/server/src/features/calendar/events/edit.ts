@@ -88,18 +88,31 @@ function changedFields(edit: EditEvent): Partial<EventFields> {
   ) as Partial<EventFields>;
 }
 
-/** The edit's new start and end as civil values in `timeZone`, if it moves the event. */
+/**
+ * The edit's new start and end as civil values in `timeZone`, if it moves the event. `allDay`
+ * follows the new start (a date or not), so it can't disagree with the times; on its own it
+ * changes nothing.
+ */
 const timesOf = (edit: EditEvent, timeZone: string) =>
   edit.start === undefined || edit.end === undefined
     ? undefined
     : { start: civilOf(edit.start, timeZone), end: civilOf(edit.end, timeZone) };
 
-/** The people invited after an edit: those who stay keep their answers. */
-function peopleAfter(people: StoredPerson[], ids: readonly string[] | undefined): StoredPerson[] {
+/**
+ * The people invited after an edit, each once and never the organizer. Those who stay keep their
+ * answers.
+ */
+function peopleAfter(
+  people: StoredPerson[],
+  ids: readonly string[] | undefined,
+  organizerId: string,
+): StoredPerson[] {
   if (!ids) return people;
   const byId = new Map(people.map((person) => [person.userId, person]));
   const added = (userId: string) => ({ userId, reply: null, note: null, occurrenceReplies: {} });
-  return ids.map((userId) => byId.get(userId) ?? added(userId));
+  const invited = new Set(ids);
+  invited.delete(organizerId);
+  return [...invited].map((userId) => byId.get(userId) ?? added(userId));
 }
 
 /** Moves (or drops, for null) each person's answers for single occurrences. */
@@ -123,14 +136,15 @@ const repliedKeys = (people: StoredPerson[]) =>
 /** An event that doesn't repeat: the edit applies as it is. */
 function editSingle(event: StoredEvent, edit: EditEvent): EventState {
   const timeZone = edit.timeZone ?? event.timeZone;
+  const times = timesOf(edit, timeZone) ?? { start: event.start, end: event.end };
   return {
     ...stateOf(event),
     ...changedFields(edit),
-    ...timesOf(edit, timeZone),
-    allDay: edit.allDay ?? event.allDay,
+    ...times,
+    allDay: isCivilDate(times.start),
     timeZone,
     rule: edit.repeat === undefined ? event.rule : edit.repeat,
-    people: peopleAfter(event.people, edit.people),
+    people: peopleAfter(event.people, edit.people, event.organizerId),
   };
 }
 
@@ -164,7 +178,7 @@ function stopRepeating(
     throw new RepeatError('not-an-occurrence', 'This occurrence is gone. Reload and try again.');
   const timeZone = edit.timeZone ?? event.timeZone;
   const times = timesOf(edit, timeZone) ?? { start: shown.start, end: shown.end };
-  const people = peopleAfter(event.people, edit.people).map((person) => ({
+  const people = peopleAfter(event.people, edit.people, event.organizerId).map((person) => ({
     ...person,
     ...(replyFor(person, key) ?? { reply: null, note: null }),
     occurrenceReplies: {},
@@ -201,13 +215,15 @@ function stopRepeating(
 function editSeries(event: StoredEvent, series: Series<EventFields>, key: string, edit: EditEvent) {
   const timeZone = edit.timeZone ?? event.timeZone;
   const fields = changedFields(edit);
+  const times = timesOf(edit, timeZone);
   const change: SeriesChange<EventFields> = {
-    ...timesOf(edit, timeZone),
+    ...times,
     ...(edit.repeat ? { rule: edit.repeat } : {}),
     fields: Object.keys(fields) as (keyof EventFields)[],
   };
-  const edited = { ...stateOf(event), ...fields, allDay: edit.allDay ?? event.allDay, timeZone };
-  const people = peopleAfter(event.people, edit.people);
+  const allDay = times ? isCivilDate(times.start) : event.allDay;
+  const edited = { ...stateOf(event), ...fields, allDay, timeZone };
+  const people = peopleAfter(event.people, edit.people, event.organizerId);
   if (edit.scope === 'all') {
     const next = editAll(series, key, change);
     const keys = next.mapKeys(repliedKeys(people));
@@ -329,9 +345,6 @@ export function planDuplicate(
   return {
     ...stateOf(event),
     ...(from ? scheduleOf(from.after) : {}),
-    people: peopleAfter(
-      [],
-      ids.filter((id) => id !== viewerId),
-    ),
+    people: peopleAfter([], ids, viewerId),
   };
 }

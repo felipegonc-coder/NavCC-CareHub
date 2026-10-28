@@ -17,6 +17,7 @@ export type {
   JobHandler,
   JobHandlerOptions,
   PeriodicTask,
+  PeriodicTaskContext,
   ScheduleJobInput,
 } from './domain/runner';
 export type { Job, JobProgress, JobStatus, JsonValue } from './domain/types';
