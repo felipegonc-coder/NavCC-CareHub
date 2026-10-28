@@ -28,11 +28,11 @@ export function SourceGrid({ sources, chosen, onChoose, labelledBy }: SourceGrid
   const chosenAt = sources.findIndex((source) => source.id === chosen);
   const [focusAt, setFocusAt] = useState(Math.max(0, chosenAt));
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onKey = (event: KeyboardEvent<HTMLButtonElement>, at: number) => {
     const move = MOVES[event.key];
     if (!move || event.altKey || event.ctrlKey || event.metaKey) return;
     event.preventDefault();
-    const next = move(focusAt, sources.length);
+    const next = move(at, sources.length);
     setFocusAt(next);
     buttons.current[next]?.focus();
   };
@@ -41,7 +41,6 @@ export function SourceGrid({ sources, chosen, onChoose, labelledBy }: SourceGrid
     <div
       role="group"
       aria-labelledby={labelledBy}
-      onKeyDown={onKeyDown}
       className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
     >
       {sources.map((source, index) => {
@@ -58,6 +57,7 @@ export function SourceGrid({ sources, chosen, onChoose, labelledBy }: SourceGrid
             aria-describedby={`${id}-${source.id}-how`}
             tabIndex={index === focusAt ? 0 : -1}
             onFocus={() => setFocusAt(index)}
+            onKeyDown={(event) => onKey(event, index)}
             onClick={() => onChoose(source)}
             className={cn(
               'flex flex-col items-start gap-1 rounded border p-4 text-left transition-colors hover:bg-fill-hover',
