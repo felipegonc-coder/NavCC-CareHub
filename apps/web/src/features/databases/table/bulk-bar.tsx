@@ -20,7 +20,7 @@ export interface BulkBarProps {
   ctx: CellContext;
   canCreateOptions: boolean;
   onSet(property: Property, value: unknown, details: CommitDetails): void;
-  /** Only when the table can duplicate rows (`duplicateRows`) and the viewer can add rows. */
+  /** Only for people who can add rows. */
   onDuplicate?: () => void;
   onTrash(): void;
   onClear(): void;

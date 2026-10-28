@@ -81,7 +81,10 @@ describe('EditHistory', () => {
     };
     history.record(edit('row-sink', '180', '200'));
     history.record({
-      values: [notes, { rowId: 'row-heater', propertyId: 'prop-cost', before: '1450', after: '1500' }],
+      values: [
+        notes,
+        { rowId: 'row-heater', propertyId: 'prop-cost', before: '1450', after: '1500' },
+      ],
       added: [row],
     });
     history.forgetProperty('prop-cost');

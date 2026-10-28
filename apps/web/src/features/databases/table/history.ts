@@ -16,7 +16,7 @@ export interface ValueChange {
   propertyId: Id;
   before: unknown;
   after: unknown;
-  /** Options typed into the cell that `after` names: redo adds them again if they've gone. */
+  /** Options typed into the cell that `after` names: sent with it until the property has them. */
   options?: readonly SelectOption[];
 }
 
@@ -96,6 +96,26 @@ export class EditHistory {
     const keep = (step: Step): Step => ({
       values: step.values.filter((v) => !rowIds.has(this.idOf(v.rowId))),
       added: step.added.filter((a) => a.rowId === null || !rowIds.has(this.idOf(a.rowId))),
+    });
+    const left = (step: Step) => step.values.length > 0 || step.added.length > 0;
+    this.past = this.past.map(keep).filter(left);
+    this.future = this.future.map(keep).filter(left);
+  }
+
+  /** A property changed type or went: its values in the history can't be written back. */
+  forgetProperty(propertyId: Id): void {
+    for (const step of [...this.past, ...this.future]) {
+      for (const row of step.added) {
+        if (!row.input.values || !(propertyId in row.input.values)) continue;
+        // Updated in place, as its id is (see AddedRow).
+        const values = { ...row.input.values };
+        delete values[propertyId];
+        row.input = { ...row.input, values };
+      }
+    }
+    const keep = (step: Step): Step => ({
+      ...step,
+      values: step.values.filter((v) => v.propertyId !== propertyId),
     });
     const left = (step: Step) => step.values.length > 0 || step.added.length > 0;
     this.past = this.past.map(keep).filter(left);
