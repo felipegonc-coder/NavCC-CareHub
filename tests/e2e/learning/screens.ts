@@ -1,5 +1,10 @@
 import type { Screen } from '../screens.js';
 
+/** Waits until a report is on show, or the reason it isn't (the loading screen's main is busy). */
+const reportShown: NonNullable<Screen['setup']> = async (page) => {
+  await page.locator('main:not([aria-busy="true"]) h1').waitFor();
+};
+
 // The screens of the learning lane. Names start with "learning-"; see ../README.md.
 export const screens: Screen[] = [
   // Assign: the form and what's assigned, once the list is in (or the reason it isn't).
@@ -75,5 +80,18 @@ export const screens: Screen[] = [
       await page.getByRole('button', { name: 'Course settings' }).click();
       await page.getByRole('region', { name: 'Course settings' }).waitFor();
     },
+  },
+  // Reports: the team view, the report of the sample path in the seed, and one person's learning
+  // record. Until the browser tests sign in, each one says why it can't show the report.
+  { name: 'learning-reports-team', path: '/learning/reports/team', setup: reportShown },
+  {
+    name: 'learning-reports-path',
+    path: '/learning/reports/paths/path-new-starter',
+    setup: reportShown,
+  },
+  {
+    name: 'learning-reports-person',
+    path: '/learning/reports/people/person-ada-example',
+    setup: reportShown,
   },
 ];
