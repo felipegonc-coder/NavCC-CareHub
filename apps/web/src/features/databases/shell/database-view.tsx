@@ -1,7 +1,7 @@
 /**
- * A database on its own page or as a block in a page: its title, view tabs, New, and the chosen
- * view drawn by its layout, with the states of spec section 2 inside the block. It stays up to
- * date while it shows (live.ts).
+ * A database on its own page or as a block in a page: its title, view tabs, the toolbar with New,
+ * and the chosen view drawn by its layout, with the states of spec section 2 inside the block. It
+ * stays up to date while it shows (live.ts).
  */
 import { Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
@@ -15,7 +15,7 @@ import {
 import { can } from '@carehub/databases/access';
 import { applyOverride } from '@carehub/databases/engine';
 import { countConditions } from '@carehub/databases/filter';
-import { Button, cn, Tabs, TabsContent, TabsList, TabsTrigger } from '@carehub/ui';
+import { cn, Tabs, TabsContent, TabsList, TabsTrigger } from '@carehub/ui';
 import { isApiError, type DatabaseWithVersion } from '../api';
 import { DIALOG_PANELS, type LayoutProps, type OpenMode } from '../contract';
 import { useDatabase, useViewData } from '../hooks';
@@ -23,6 +23,7 @@ import { LAYOUTS } from '../layouts';
 import { ErrorBoundary } from './boundary';
 import { useDatabaseLive } from './live';
 import { PanelDialog, usePanels } from './panel-host';
+import { useSearch } from './search';
 import {
   Blocked,
   LoadError,
@@ -34,6 +35,7 @@ import {
   TOUCH,
 } from './states';
 import { WithToasts } from './toasts';
+import { Toolbar } from './toolbar';
 import { useViewActions } from './use-view-actions';
 import { useOnline, useViewer } from './viewer';
 import { canEditViews, pickView, readLastView, rememberView, tabViews } from './view-state';
@@ -64,6 +66,8 @@ export interface DatabaseViewProps {
   viewer?: Viewer;
   /** Opens a row in a peek or page. Absent: goes to the row's page. */
   onOpenRow?: (rowId: Id, mode: OpenMode) => void;
+  /** Delete in the toolbar's "…" (Full access) moves the database to Trash. Absent: no Delete. */
+  onDelete?: () => void;
 }
 
 export function DatabaseView(props: DatabaseViewProps) {
@@ -172,7 +176,8 @@ interface OverrideState {
 function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
   const viewer = useViewer(props.viewer);
   const online = useOnline();
-  // The open panel belongs to the view showing: another view starts with none.
+  // Search and the open panel belong to the view showing: another view starts without them.
+  const search = useSearch(savedView.id);
   const panels = usePanels(savedView.id);
   // The viewer's own filter, sorts and grouping last while they stay on the view.
   const [own, setOwn] = useState<OverrideState | null>(null);
@@ -182,7 +187,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
     [savedView.id],
   );
   const view = applyOverride(savedView, override);
-  const result = useViewData(meta.id, savedView.id, { override });
+  const result = useViewData(meta.id, savedView.id, { override, search: search.query });
   const actions = useViewActions({
     meta,
     savedView,
@@ -201,8 +206,9 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
   const canAdd = online && can('add_rows', access, { locked, canAddRows: meta.viewerCanAddRows });
   const canImport = online && can('import', access, { locked });
 
-  const newRow = () => {
-    actions.createRow().then(
+  // New uses the view's default template; New ▾ picks one, or an empty row (null).
+  const newRow = (templateId?: Id | null) => {
+    actions.createRow(templateId === undefined ? undefined : { templateId }).then(
       (row) => actions.openRow(row.id),
       // The toast already says why.
       () => undefined,
@@ -217,8 +223,15 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
     viewer,
     actions,
     canEditViews: online && canEditViews(meta),
+    // Absent until the view's rows have loaded, and while the view is blocked.
+    data: result.data,
+    propertyIds: result.data?.propertyIds,
+    rowTitles: result.data?.rowTitles,
   };
   const dialog = panels.open !== null && DIALOG_PANELS.has(panels.open) ? panels.open : null;
+
+  const filtered = countConditions(view.filter) > 0;
+  const searched = search.query !== '';
 
   let body: ReactNode;
   if (result.blocked) body = <Blocked message={result.blocked} />;
@@ -227,13 +240,18 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
   } else if (!result.data) body = <LoadingRows layout={view.layout} />;
   else if (result.data.count === 0 && EMPTY_STATE_LAYOUTS.has(view.layout)) {
     body =
-      countConditions(view.filter) > 0 ? (
+      filtered || searched ? (
         <NoMatches
-          onClearFilters={() => void actions.updateView({ filter: null }).catch(() => undefined)}
+          onClearFilters={
+            filtered
+              ? () => void actions.updateView({ filter: null }).catch(() => undefined)
+              : undefined
+          }
+          onClearSearch={searched ? search.clear : undefined}
         />
       ) : (
         <NoRows
-          onNew={canAdd ? newRow : undefined}
+          onNew={canAdd ? () => newRow() : undefined}
           onImportCsv={canImport ? () => panels.show('importCsv') : undefined}
         />
       );
@@ -245,26 +263,26 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
   return (
     <>
       <div className="flex items-end gap-2">
-        <TabsList aria-label="Views" className="min-w-0 flex-1 overflow-x-auto">
+        <TabsList
+          aria-label="Views"
+          // On a phone an open search box takes the tabs' place.
+          className={cn('min-w-0 flex-1 overflow-x-auto', search.open && 'max-md:hidden')}
+        >
           {tabViews(meta.views).map((v) => (
             <TabsTrigger key={v.id} value={v.id} className={cn('shrink-0', TOUCH)}>
               {v.name || 'Untitled'}
             </TabsTrigger>
           ))}
         </TabsList>
-        <div
-          className={cn(
-            'flex shrink-0 items-center gap-1 border-b border-border pb-1',
-            props.inline &&
-              'md:opacity-0 md:focus-within:opacity-100 md:group-hover/database:opacity-100',
-          )}
-        >
-          {canAdd && (
-            <Button size="sm" className={TOUCH} onClick={newRow}>
-              New
-            </Button>
-          )}
-        </div>
+        <Toolbar
+          {...shared}
+          online={online}
+          panels={panels}
+          search={search}
+          onNew={canAdd ? newRow : undefined}
+          onDelete={props.onDelete}
+          inline={props.inline}
+        />
       </div>
       {override && <OverrideBar onReset={() => setOverride(null)} />}
       <TabsContent value={savedView.id} className="min-w-0">

@@ -1,7 +1,7 @@
-import type { SearchResult } from '@carehub/extras/search';
+import type { SearchRecentResponse, SearchResult } from '@carehub/extras/search';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { closeSearch } from './open';
 import { SearchOverlay } from './SearchOverlay';
@@ -31,21 +31,31 @@ const refund = result(PAGE_A, 'Refund steps', {
 });
 const policy = result(PAGE_B, 'Refund policy', { kind: 'database' });
 
-type Call = { method: string; url: string; body: unknown };
+type Call = { method: string; url: string; body: { text?: string } | undefined };
 
-/** A fake search API on fetch: results by the text searched for. */
-function serve(options: { found?: SearchResult[]; status?: number } = {}) {
+/** A fake search API on fetch: the recent lists, and results by the text searched for. */
+function serve(
+  options: {
+    recent?: SearchRecentResponse;
+    found?: SearchResult[];
+    /** Did you mean, by the text searched for. */
+    suggest?: Record<string, string>;
+    status?: number;
+  } = {},
+) {
   const calls: Call[] = [];
+  const recent = options.recent ?? { pages: [], searches: [] };
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const method = init?.method ?? 'GET';
     const url = String(input);
-    const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined;
+    const body: Call['body'] = init?.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ method, url, body });
     const json = (status: number, data: unknown) =>
       new Response(JSON.stringify(data), {
         status,
         headers: { 'Content-Type': 'application/json' },
       });
+    if (url === '/api/search/recent' && method === 'GET') return json(200, recent);
     if (url === '/api/search/query') {
       if (options.status)
         return json(options.status, { error: { code: 'unexpected', message: 'No.' } });
@@ -53,7 +63,8 @@ function serve(options: { found?: SearchResult[]; status?: number } = {}) {
       const results = (options.found ?? []).filter((found) =>
         found.title.toLowerCase().includes(text.trim().toLowerCase()),
       );
-      return json(200, { results, total: results.length, nextCursor: null });
+      const didYouMean = options.suggest?.[text.trim()];
+      return json(200, { results, total: results.length, nextCursor: null, didYouMean });
     }
     return new Response(null, { status: 204 });
   });
@@ -61,7 +72,8 @@ function serve(options: { found?: SearchResult[]; status?: number } = {}) {
 }
 
 function Where() {
-  return <p data-testid="where">{useLocation().pathname}</p>;
+  const { pathname, search } = useLocation();
+  return <p data-testid="where">{pathname + search}</p>;
 }
 
 function show() {
@@ -101,6 +113,16 @@ async function openWindow(key = 'k') {
   return { dialog: within(dialog), box };
 }
 
+// jsdom has no ResizeObserver; the chips' menus measure themselves.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+beforeAll(() => {
+  window.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
+});
 beforeEach(() => {
   closeSearch();
 });
@@ -133,13 +155,64 @@ describe('the search window', () => {
     const before = screen.getByRole('button', { name: 'Before' });
     before.focus();
     const { dialog } = await openWindow();
-    expect(dialog.getByText('Type to search pages, databases and rows.')).toBeInTheDocument();
+    expect(
+      await dialog.findByText('Type to search pages, databases and rows.'),
+    ).toBeInTheDocument();
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     await waitFor(() => expect(before).toHaveFocus());
   });
 
+  it('shows the recent pages and searches before typing; Clear empties the searches (SR-02)', async () => {
+    const calls = serve({
+      recent: {
+        pages: [refund, policy],
+        searches: [
+          { id: 's1', text: 'refund', filters: {}, searchedAt: '2026-10-26T15:00:00.000Z' },
+          { id: 's2', text: 'pay bands', filters: {}, searchedAt: '2026-10-25T15:00:00.000Z' },
+        ],
+      },
+    });
+    show();
+    const { dialog, box } = await openWindow();
+    const pages = within(await dialog.findByRole('group', { name: 'Recent' }));
+    expect(pages.getAllByRole('option').map((option) => option.getAttribute('aria-label'))).toEqual(
+      [
+        'Refund steps, page in Support, edited Oct 20',
+        'Refund policy, database in Support, edited Oct 20',
+      ],
+    );
+    expect(pages.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');
+    const searches = within(dialog.getByRole('group', { name: 'Recent searches' }));
+    expect(searches.getAllByRole('option')).toHaveLength(2);
+
+    fireEvent.keyDown(box, { key: 'ArrowDown' });
+    fireEvent.keyDown(box, { key: 'ArrowDown' });
+    expect(searches.getByRole('option', { name: 'refund' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    fireEvent.keyDown(box, { key: 'Delete' });
+    await waitFor(() =>
+      expect(searches.queryByRole('option', { name: 'refund' })).not.toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'DELETE',
+        url: '/api/search/recent/s1',
+        body: undefined,
+      }),
+    );
+
+    fireEvent.click(searches.getByRole('button', { name: 'Clear' }));
+    await waitFor(() =>
+      expect(dialog.queryByRole('group', { name: 'Recent searches' })).not.toBeInTheDocument(),
+    );
+    expect(calls).toContainEqual({ method: 'DELETE', url: '/api/search/recent', body: undefined });
+    expect(dialog.getByRole('group', { name: 'Recent' })).toBeInTheDocument();
+  });
+
   it('searches while typing, moves with the arrows and opens with Enter (SR-03)', async () => {
-    serve({ found: [refund, policy] });
+    const calls = serve({ found: [refund, policy] });
     show();
     const { dialog, box } = await openWindow();
     fireEvent.change(box, { target: { value: 'ref' } });
@@ -163,18 +236,124 @@ describe('the search window', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(`/p/${PAGE_B}`));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(calls).toContainEqual({
+      method: 'POST',
+      url: '/api/search/history',
+      body: { text: 'ref', save: true, found: 2, opened: PAGE_B },
+    });
   });
 
-  it('says when nothing is found (SR-11)', async () => {
-    serve({ found: [refund] });
+  it('offers Did you mean and Search in Trash when nothing is found (SR-11)', async () => {
+    const calls = serve({ found: [refund], suggest: { refnd: 'refund' } });
+    const history = (text: string) =>
+      calls.filter((call) => call.url === '/api/search/history' && call.body?.text === text);
     show();
-    const { dialog, box } = await openWindow();
-    fireEvent.change(box, { target: { value: 'qzxv' } });
+    let { dialog, box } = await openWindow();
+    fireEvent.change(box, { target: { value: 'refnd' } });
     expect(
-      await dialog.findByText('No results for ‘qzxv’.', { selector: 'p' }),
+      await dialog.findByText('No results for ‘refnd’.', { selector: 'p' }),
     ).toBeInTheDocument();
+    expect(dialog.getByText(/Did you mean/)).toHaveTextContent('Did you mean refund?');
+    fireEvent.click(dialog.getByRole('button', { name: 'refund' }));
+    expect(box).toHaveValue('refund');
+    expect(box).toHaveFocus();
+    expect(await dialog.findByRole('option', { name: /^Refund steps/ })).toBeInTheDocument();
+    // Closing counts the search without saving it (spec 3.4).
     fireEvent.keyDown(box, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(history('refund').map((call) => call.body)).toEqual([
+      { text: 'refund', save: false, found: 1 },
+    ]);
+
+    ({ dialog, box } = await openWindow());
+    fireEvent.change(box, { target: { value: 'qzxv' } });
+    await dialog.findByText('No results for ‘qzxv’.', { selector: 'p' });
+    expect(dialog.queryByText(/Did you mean/)).not.toBeInTheDocument();
+    // Enter saves it to Recent searches and leaves the window open.
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(dialog.getByRole('button', { name: 'Search in Trash' })).toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Search in Trash' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/trash?q=qzxv'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(history('qzxv').map((call) => call.body)).toEqual([
+      { text: 'qzxv', save: true, found: 0 },
+    ]);
+  });
+
+  it('filters with the chips and sorts; Clear filters turns them all off (SR-06)', async () => {
+    const calls = serve({ found: [refund, policy] });
+    const searched = () =>
+      calls.filter((call) => call.url === '/api/search/query').map((call) => call.body);
+    show();
+    const { dialog, box } = await openWindow();
+    fireEvent.change(box, { target: { value: 'ref' } });
+    await dialog.findByRole('option', { name: /^Refund steps/ });
+    expect(dialog.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+
+    fireEvent.click(dialog.getByRole('button', { name: 'Title only' }));
+    expect(dialog.getByRole('button', { name: 'Title only' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    fireEvent.keyDown(dialog.getByRole('button', { name: 'Type' }), { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'Databases' }));
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(await dialog.findByRole('button', { name: 'Type: Databases' })).toBeInTheDocument();
+    fireEvent.keyDown(dialog.getByRole('button', { name: 'Sort: Best match' }), { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Edited, newest first' }));
+    await waitFor(() =>
+      expect(searched()).toContainEqual({
+        text: 'ref',
+        filters: { titleOnly: true, types: ['database'] },
+        sort: 'edited_desc',
+      }),
+    );
+
+    fireEvent.click(await dialog.findByRole('button', { name: 'Clear filters' }));
+    expect(box).toHaveFocus();
+    expect(dialog.getByRole('button', { name: 'Title only' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(dialog.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Sort: Edited, newest first' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(searched().at(-1)).toEqual({ text: 'ref', filters: {}, sort: 'edited_desc' }),
+    );
+  });
+
+  it('saves the filters with the search, and a recent search brings them back', async () => {
+    const calls = serve({
+      found: [refund],
+      recent: {
+        pages: [],
+        searches: [
+          {
+            id: 's1',
+            text: 'refund',
+            filters: { titleOnly: true },
+            searchedAt: '2026-10-26T15:00:00.000Z',
+          },
+        ],
+      },
+    });
+    show();
+    const { dialog, box } = await openWindow();
+    fireEvent.click(await dialog.findByRole('option', { name: 'refund' }));
+    expect(box).toHaveValue('refund');
+    expect(box).toHaveFocus();
+    expect(dialog.getByRole('button', { name: 'Title only' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await dialog.findByRole('option', { name: /^Refund steps/ });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(`/p/${PAGE_A}`));
+    expect(calls).toContainEqual({
+      method: 'POST',
+      url: '/api/search/history',
+      body: { text: 'refund', filters: { titleOnly: true }, save: true, found: 1, opened: PAGE_A },
+    });
   });
 
   it('offers Try again when search fails', async () => {
