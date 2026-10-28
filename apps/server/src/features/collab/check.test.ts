@@ -4,6 +4,7 @@ import {
   MAX_BLOCKS,
   MAX_PAGE_BYTES,
   MAX_TEXT_CHARS,
+  MEASURE_EVERY_MS,
   URL_KEYS,
   checkUpdate,
   pageSchemaInfo,
@@ -120,6 +121,7 @@ describe('checkUpdate', () => {
       );
     expect(list(info.nodeAttrs).sort()).toEqual([
       'codeBlock.language',
+      'database.databaseId',
       'heading.level',
       'orderedList.start',
       'orderedList.type',
@@ -272,14 +274,105 @@ describe('checkUpdate', () => {
       reason: 'too large',
       tooLong: true,
     });
-    // Deletes always go through, so a page that's too large can be made smaller.
+    // A delete that makes the page smaller goes through, once the page may be measured again.
     const full = { blocks: 1, bytes: MAX_PAGE_BYTES * 2 };
-    expect(checkUpdate(deleting, server, info, full)).toEqual(accepted(1));
+    const later = Date.now() + MEASURE_EVERY_MS;
+    expect(checkUpdate(deleting, server, info, full, later)).toEqual(accepted(1));
 
     // A caller's size that's too high is corrected by measuring.
     const small = serverDoc();
     const typing = changeOn(small, (fragment) => firstText(fragment).insert(0, 'Hi'));
     const result = checkUpdate(typing, small, info, { blocks: 2, bytes: MAX_PAGE_BYTES });
     expect(result.ok && result.size.bytes < 1_000).toBe(true);
+  }, 30_000);
+
+  it('counts an update of only deleted content toward the size limit', () => {
+    const server = new Y.Doc();
+    const text = 'x'.repeat(MAX_PAGE_BYTES - 1_000);
+    replaceContent(server, [{ type: 'paragraph', content: [{ type: 'text', text }] }]);
+    // A letter typed and deleted again in 100 places: the text doesn't change, but each place
+    // splits it and leaves a deleted item behind.
+    const update = changeOn(server, (fragment, doc) => {
+      doc.transact(() => {
+        for (let place = 1; place <= 100; place += 1) {
+          firstText(fragment).insert(place * 1_000, 'z');
+          firstText(fragment).delete(place * 1_000, 1);
+        }
+      });
+    });
+    const { structs } = Y.decodeUpdate(update);
+    expect(structs).toHaveLength(100);
+    expect(
+      structs.every(
+        (struct) => struct instanceof Y.Item && struct.content instanceof Y.ContentDeleted,
+      ),
+    ).toBe(true);
+    expect(checkUpdate(update, server, info)).toEqual({
+      ok: false,
+      reason: 'too large',
+      tooLong: true,
+    });
+  }, 30_000);
+
+  it('lets deletes make a page that is too large smaller, but not split it into pieces', () => {
+    const server = new Y.Doc();
+    replaceContent(server, [
+      { type: 'paragraph', content: [{ type: 'text', text: 'x'.repeat(MAX_PAGE_BYTES) }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Bye' }] },
+    ]);
+    const full = { blocks: 2, bytes: MAX_PAGE_BYTES + 1_000 };
+    const block = changeOn(server, (fragment) => fragment.delete(1, 1));
+    const half = changeOn(server, (fragment) => firstText(fragment).delete(10, MAX_PAGE_BYTES / 2));
+    // Every other letter, 1,000 times: each delete splits the text twice and frees one letter.
+    const everyOther = changeOn(server, (fragment, doc) => {
+      doc.transact(() => {
+        for (let place = 1; place <= 1_000; place += 1) firstText(fragment).delete(place, 1);
+      });
+    });
+    // Each check is MEASURE_EVERY_MS after the one before, so the page is measured each time.
+    const now = Date.now();
+    expect(checkUpdate(block, server, info, full, now)).toEqual(accepted(1));
+    expect(checkUpdate(half, server, info, full, now + MEASURE_EVERY_MS)).toEqual(accepted(2));
+    expect(checkUpdate(everyOther, server, info, full, now + 2 * MEASURE_EVERY_MS)).toEqual({
+      ok: false,
+      reason: 'too large',
+      tooLong: true,
+    });
+  }, 30_000);
+
+  it('refuses deleted content outside the page', () => {
+    const server = serverDoc();
+    const typedAndDeleted = changeOn(server, (fragment, doc) => {
+      doc.transact(() => {
+        firstText(fragment).insert(0, 'x');
+        firstText(fragment).delete(0, 1);
+      });
+    });
+    const elsewhere = changeOn(server, (_fragment, doc) => {
+      doc.transact(() => {
+        doc.getText('elsewhere').insert(0, 'x');
+        doc.getText('elsewhere').delete(0, 1);
+      });
+    });
+    expect(checkUpdate(typedAndDeleted, server, info)).toEqual(accepted(2));
+    expect(checkUpdate(elsewhere, server, info)).toEqual({ ok: false, reason: 'unknown field' });
+  });
+
+  it('measures a page for its size at most once every MEASURE_EVERY_MS', () => {
+    const server = new Y.Doc();
+    const text = 'x'.repeat(MAX_PAGE_BYTES - 1_000);
+    replaceContent(server, [{ type: 'paragraph', content: [{ type: 'text', text }] }]);
+    const typing = changeOn(server, (fragment) => firstText(fragment).insert(0, 'y'));
+    const estimate = { blocks: 1, bytes: MAX_PAGE_BYTES };
+    const now = Date.now();
+    const first = checkUpdate(typing, server, info, estimate, now);
+    expect(first.ok && first.size.bytes < MAX_PAGE_BYTES).toBe(true);
+    // Until the page may be measured again, an update past the estimate is refused.
+    expect(checkUpdate(typing, server, info, estimate, now + 1_000)).toEqual({
+      ok: false,
+      reason: 'too large',
+      tooLong: true,
+    });
+    expect(checkUpdate(typing, server, info, estimate, now + MEASURE_EVERY_MS).ok).toBe(true);
   }, 30_000);
 });

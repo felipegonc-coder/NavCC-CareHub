@@ -11,6 +11,13 @@ export const MAX_TEXT_CHARS = 1_000_000;
 export const MAX_ATTRIBUTE_CHARS = 1_000_000;
 /** The longest string an attribute or mark may hold, addresses included. */
 export const MAX_VALUE_CHARS = 8_192;
+/** How often, at most, a page near MAX_PAGE_BYTES is measured again: measuring copies it. */
+export const MEASURE_EVERY_MS = 5_000;
+/**
+ * Added to the estimate for each struct and each deleted range in an update, on top of its
+ * length: about two item headers, for the items Yjs splits to fit it in.
+ */
+const CHANGE_BYTES = 40;
 
 /** What the page schema allows, read once from `createPageSchema()` (every lane's blocks). */
 export interface SchemaInfo {
@@ -89,26 +96,37 @@ const TOO_DEEP: Position = {
   depth: MAX_DEPTH,
 };
 
+/** When each page was last measured for its size in bytes. */
+const measuredAt = new WeakMap<Y.Doc, number>();
+
 /**
  * Checks a Yjs update before the server applies or relays it (issue #14): only the page's
  * blocks, only node and mark types the schema knows with the attributes it defines, no embeds
  * or binary content, only safe addresses in links and `href`/`src`/`url` attributes, at most
  * MAX_DEPTH levels of blocks, and limits on the update and the page. `size` is the page's size
- * before the update, if the caller keeps it; the result's size is the new upper bound. The page
- * is measured again before an update is refused for taking it past MAX_BLOCKS or MAX_PAGE_BYTES.
+ * before the update, if the caller keeps it; the result's size is the new upper bound.
+ *
+ * Every update counts toward the page's size, deleted content and deletes too. When the estimate
+ * passes MAX_BLOCKS or MAX_PAGE_BYTES, the update is applied to a copy of the page and measured.
+ * It's refused if it leaves the page past MAX_BLOCKS, or past MAX_PAGE_BYTES without making it
+ * smaller (so a page that's too large can still be cut down). A page is measured for its size in
+ * bytes at most once every MEASURE_EVERY_MS (`now` is the time in milliseconds); in between,
+ * updates that may take it past MAX_PAGE_BYTES are refused.
  */
 export function checkUpdate(
   update: Uint8Array,
   doc: Y.Doc,
   info: SchemaInfo,
   size: PageSize = pageSize(doc, info),
+  now = Date.now(),
 ): UpdateCheck {
-  let structs: ReturnType<typeof Y.decodeUpdate>['structs'];
+  let decoded: ReturnType<typeof Y.decodeUpdate>;
   try {
-    structs = Y.decodeUpdate(update).structs;
+    decoded = Y.decodeUpdate(update);
   } catch {
     return { ok: false, reason: 'unreadable update' };
   }
+  const { structs, ds } = decoded;
   const incoming = new Map<number, Y.Item[]>();
   for (const struct of structs) {
     if (!(struct instanceof Y.Item)) continue;
@@ -118,13 +136,22 @@ export function checkUpdate(
   }
   const locate = locator(doc, incoming);
   let added = 0;
-  let inserted = false;
   let textChars = 0;
   let attributeChars = 0;
   for (const struct of structs) {
-    if (!(struct instanceof Y.Item) || struct.content instanceof Y.ContentDeleted) continue;
-    inserted = true;
+    // GC and Skip structs hold nothing. Editors send them, and deleted content, when they sync.
+    if (!(struct instanceof Y.Item)) continue;
     const { content } = struct;
+    if (content instanceof Y.ContentDeleted) {
+      // Deleted content shows nothing, but the page keeps it, so it may go only into the page.
+      const position = locate(struct);
+      if (!position) return { ok: false, reason: 'unknown position' };
+      const { where } = position;
+      if (where.kind === 'root' && where.key !== PAGE_FIELD) {
+        return { ok: false, reason: 'unknown field' };
+      }
+      continue;
+    }
     if (content instanceof Y.ContentString) textChars += content.str.length;
     else if (content instanceof Y.ContentAny) attributeChars += jsonLength(content.arr);
     else if (content instanceof Y.ContentFormat) attributeChars += jsonLength(content.value);
@@ -141,19 +168,32 @@ export function checkUpdate(
     if (position.depth >= MAX_DEPTH) return { ok: false, reason: 'nested too deeply' };
     if (!info.inline.has(type.nodeName)) added += 1;
   }
-  let blocks = size.blocks + added;
-  if (added > 0 && blocks > MAX_BLOCKS) {
-    blocks = blocksAfter(update, doc, info);
-    if (blocks > MAX_BLOCKS) return { ok: false, reason: 'too many blocks', tooLong: true };
+  // An update adds its own length to the page, and Yjs may split an item for each struct and
+  // deleted range in it. Deletes aren't subtracted, so the estimate stays an upper bound.
+  let ranges = 0;
+  for (const list of ds.clients.values()) ranges += list.length;
+  const estimate: PageSize = {
+    blocks: size.blocks + added,
+    bytes: size.bytes + update.length + CHANGE_BYTES * (structs.length + ranges),
+  };
+  const tooManyBlocks = added > 0 && estimate.blocks > MAX_BLOCKS;
+  const tooLarge = estimate.bytes > MAX_PAGE_BYTES;
+  if (!tooManyBlocks && !tooLarge) return { ok: true, size: estimate };
+  if (tooLarge) {
+    const last = measuredAt.get(doc);
+    if (last !== undefined && now >= last && now < last + MEASURE_EVERY_MS) {
+      return { ok: false, reason: 'too large', tooLong: true };
+    }
+    measuredAt.set(doc, now);
   }
-  // An update can't add more than its own length. Deletes are always let through, so a page
-  // that's too large can still be made smaller.
-  let bytes = size.bytes + update.length;
-  if (inserted && bytes > MAX_PAGE_BYTES) {
-    bytes = Y.encodeStateAsUpdate(doc).length + update.length;
-    if (bytes > MAX_PAGE_BYTES) return { ok: false, reason: 'too large', tooLong: true };
+  const after = measureAfter(update, doc, info);
+  if (tooManyBlocks && after.blocks > MAX_BLOCKS) {
+    return { ok: false, reason: 'too many blocks', tooLong: true };
   }
-  return { ok: true, size: { blocks, bytes } };
+  if (after.bytes > MAX_PAGE_BYTES && after.bytes >= after.before) {
+    return { ok: false, reason: 'too large', tooLong: true };
+  }
+  return { ok: true, size: { blocks: after.blocks, bytes: after.bytes } };
 }
 
 function jsonLength(value: unknown): number {
@@ -164,13 +204,19 @@ function jsonLength(value: unknown): number {
   }
 }
 
-/** The page's block count once `update` is applied, counted on a copy. */
-function blocksAfter(update: Uint8Array, doc: Y.Doc, info: SchemaInfo): number {
+/** The page's size once `update` is applied, and its length in bytes before, measured on a copy. */
+function measureAfter(
+  update: Uint8Array,
+  doc: Y.Doc,
+  info: SchemaInfo,
+): PageSize & { before: number } {
   const copy = new Y.Doc();
   try {
     Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    const before = Y.encodeStateAsUpdate(copy).length;
     Y.applyUpdate(copy, update);
-    return countBlocks(copy, info.inline);
+    const bytes = Y.encodeStateAsUpdate(copy).length;
+    return { before, blocks: countBlocks(copy, info.inline), bytes };
   } finally {
     copy.destroy();
   }
