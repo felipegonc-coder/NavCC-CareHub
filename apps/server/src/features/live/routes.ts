@@ -44,6 +44,12 @@ const liveRoutes: FastifyPluginAsync<LiveRoutesOptions> = async (app, options) =
     hub.closeAll();
     done();
   });
+  // Someone taken out of the workspace loses their open streams at once; reconnecting is refused.
+  // (Unit tests may build the routes without app.events.)
+  if (app.hasDecorator('events')) {
+    const off = app.events.on('member.removed', ({ userId }) => hub.disconnectUser(userId));
+    app.addHook('onClose', async () => off());
+  }
 
   app.get('/', async (request, reply) => {
     const userId = await options.getUserId(request);
