@@ -20,7 +20,7 @@ export const PANELS: Record<PanelName, PanelComponent> = {
 
   layout: lazy(() => import('./filters/layout-entry')),
 
-  importCsv: lazy(() => import('./shell/panel-not-built')),
+  importCsv: lazy(() => import('./import/import-dialog')),
 
   exportCsv: lazy(() => import('./shell/panel-not-built')),
 
