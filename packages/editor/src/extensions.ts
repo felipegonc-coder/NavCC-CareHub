@@ -4,6 +4,7 @@ import { CollaborationCaret } from '@tiptap/extension-collaboration-caret';
 import { Placeholder } from '@tiptap/extensions';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 import type * as Y from 'yjs';
+import { BlockMoveKeys } from './block-keys';
 import { blockNodeViews } from './blocks/ui';
 import { laneFeature } from './lanes';
 import { RevealBlock } from './reveal';
@@ -140,6 +141,7 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
       : []),
     ...(slashMenu ? [SlashCommand.configure({ store: slashMenu })] : []),
     ToolbarKeys,
+    BlockMoveKeys,
     ...extensions.filter(isBehavior),
   ];
 }
