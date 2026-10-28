@@ -10,7 +10,7 @@ import {
   within,
 } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router';
+import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLiveClientForTest } from '../live/client';
 import { createFakeLive } from '../live/testSource';
@@ -132,6 +132,7 @@ function renderScreen() {
 }
 
 const patches = () => calls.filter((call) => call.method === 'PATCH');
+const deletes = () => calls.filter((call) => call.method === 'DELETE');
 
 async function openEdit(name: string) {
   fireEvent.click(await screen.findByRole('button', { name: `Edit reminder: ${name}` }));
@@ -297,28 +298,47 @@ describe('RemindersScreen', () => {
     expect(screen.getByRole('dialog', { name: 'Change reminder' })).toBeInTheDocument();
   });
 
-  it('closes without a request on Cancel', async () => {
+  it('closes without a request on Cancel, with focus back on Edit', async () => {
     list = { pending: [reminder()], sent: [] };
     renderScreen();
     const dialog = await openEdit('Shift handover');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(patches()).toEqual([]);
+    const edit = screen.getByRole('button', { name: 'Edit reminder: Shift handover' });
+    await waitFor(() => expect(edit).toHaveFocus());
   });
 
-  it('deletes a reminder at once, says so and keeps focus in the list', async () => {
+  it('asks before deleting, then deletes, says so and moves focus to Pending', async () => {
     list = { pending: [reminder()], sent: [] };
     renderScreen();
     fireEvent.click(await screen.findByRole('button', { name: 'Delete reminder: Shift handover' }));
+    const confirm = await screen.findByRole('alertdialog', { name: 'Delete this reminder?' });
+    expect(within(confirm).getByText('Shift handover')).toBeInTheDocument();
+    expect(deletes()).toEqual([]);
 
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
     expect(await screen.findByText('Reminder deleted')).toBeInTheDocument();
-    expect(calls).toContainEqual({
-      method: 'DELETE',
-      path: `/api/reminders/${ID}`,
-      body: undefined,
-    });
+    expect(deletes()).toEqual([
+      { method: 'DELETE', path: `/api/reminders/${ID}`, body: undefined },
+    ]);
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
     expect(screen.queryByRole('link', { name: 'Shift handover' })).toBeNull();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Pending' })).toHaveFocus());
+  });
+
+  it('keeps the reminder when Delete is cancelled, with focus back on its button', async () => {
+    list = { pending: [reminder()], sent: [] };
+    renderScreen();
+    const button = await screen.findByRole('button', { name: 'Delete reminder: Shift handover' });
+    fireEvent.click(button);
+    const confirm = await screen.findByRole('alertdialog', { name: 'Delete this reminder?' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(deletes()).toEqual([]);
+    expect(screen.getByRole('link', { name: 'Shift handover' })).toBeInTheDocument();
+    await waitFor(() => expect(button).toHaveFocus());
   });
 
   it('refetches when the server says the reminders changed', async () => {
@@ -334,15 +354,12 @@ describe('RemindersScreen', () => {
   });
 
   it('is the screen at /reminders', async () => {
-    const router = createMemoryRouter(routes, { initialEntries: ['/reminders'] });
-    render(
-      <ToastProvider>
-        <QueryClientProvider client={newClient()}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      </ToastProvider>,
-    );
-    expect(await screen.findByRole('heading', { level: 1, name: 'Reminders' })).toBeInTheDocument();
+    // Through the route's own lazy(): under jsdom, a router never loads a lazy first match.
+    const [route] = routes;
+    expect(route?.path).toBe('reminders');
+    const lazy = route?.lazy;
+    if (typeof lazy !== 'function') throw new Error('The route should load its screen lazily.');
+    expect(await lazy()).toEqual({ Component: RemindersScreen });
   });
 });
 

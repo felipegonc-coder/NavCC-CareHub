@@ -6,6 +6,7 @@ import {
   customOffset,
   customWallToUtc,
   matchIanaZone,
+  MAX_VTIMEZONE_YEARS,
   readVTimezone,
   writeVTimezone,
 } from './vtimezone';
@@ -167,6 +168,22 @@ describe('matchIanaZone', () => {
 });
 
 describe('writeVTimezone', () => {
+  it('works out each zone and span once, and hands out copies', () => {
+    const first = writeVTimezone('Europe/London', 2024, 2029);
+    first.push('X-CHANGED:yes');
+    expect(writeVTimezone('Europe/London', 2024, 2029)).toEqual(first.slice(0, -1));
+    expect(writeVTimezone('Europe/London', 2024, 2029)).not.toBe(first);
+  });
+
+  it('refuses spans that would ask Intl about too many days', () => {
+    const last = 2000 + MAX_VTIMEZONE_YEARS - 1;
+    expect(writeVTimezone('Asia/Tokyo', 2000, last)[0]).toBe('BEGIN:VTIMEZONE');
+    expect(() => writeVTimezone('Asia/Tokyo', 2000, last + 1)).toThrow(RangeError);
+    expect(() => writeVTimezone('Asia/Tokyo', 1000, 2029)).toThrow(RangeError);
+    expect(() => writeVTimezone('Asia/Tokyo', 2029, 2024)).toThrow(RangeError);
+    expect(() => writeVTimezone('Asia/Tokyo', 2024.5, 2029)).toThrow(RangeError);
+  });
+
   it('writes yearly rules, closing the old ones', () => {
     expect(writeVTimezone('America/Denver', 2005, 2028)).toEqual([
       'BEGIN:VTIMEZONE',

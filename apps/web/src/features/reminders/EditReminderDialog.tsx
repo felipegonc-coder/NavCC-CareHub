@@ -23,13 +23,15 @@ interface Props {
   reminder: Reminder;
   prefs: TimeSettings;
   onClose: () => void;
+  /** Where focus goes when the dialog closes. */
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 /**
  * Change a pending reminder: a page reminder's date and time, and any reminder's note. (The time
  * before an event comes with Remind me on events.)
  */
-export function EditReminderDialog({ reminder, prefs, onClose }: Props) {
+export function EditReminderDialog({ reminder, prefs, onClose, onCloseAutoFocus }: Props) {
   const isPage = reminder.minutesBefore === null;
   const [initial] = useState(() => toInputs(reminder.dueAt, prefs.timeZone));
   const [date, setDate] = useState(initial.date);
@@ -72,7 +74,7 @@ export function EditReminderDialog({ reminder, prefs, onClose }: Props) {
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Change reminder</DialogTitle>
           <DialogDescription>{reminderTitle(reminder)}</DialogDescription>

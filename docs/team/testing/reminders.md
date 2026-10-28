@@ -22,7 +22,9 @@ Home and reminders spec, section 2. Code: `apps/server/src/features/reminders/` 
     "Sent …", plus "· Done" once marked done;
   - the note, if any.
 - Pending items have the buttons **Edit** and **Delete**, named "Edit reminder: \<title\>" and
-  "Delete reminder: \<title\>". Delete is immediate; the toast says "Reminder deleted".
+  "Delete reminder: \<title\>". Delete asks first in the alert dialog **Delete this reminder?**
+  (Cancel and Delete); once deleted, the toast says "Reminder deleted" and focus moves to Pending.
+  Closing either dialog otherwise puts focus back on its button.
 - Edit opens the dialog **Change reminder**: "Date" and "Time" (page reminders only; an event
   reminder's time goes with the event), then "Note" (up to 280 characters), Cancel and Save. A
   refused change shows the reason in the dialog; a saved one closes it with the toast "Reminder
