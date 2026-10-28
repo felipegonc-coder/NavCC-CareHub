@@ -1,9 +1,10 @@
+import { REPORT_REASONS, REPORT_STATUSES } from '@carehub/extras/knowledge';
 import { sql } from 'drizzle-orm';
-import { boolean, date, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from '../auth/schema';
 
-// Mirrors migrations/202610271140_knowledge_pages.sql, which is the source of truth (a test
-// compares them).
+// Mirrors migrations/202610271140_knowledge_pages.sql, 202610271150_knowledge_reports.sql and
+// 202610271223_knowledge_reviews.sql, which are the source of truth (tests compare them).
 
 const at = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -38,7 +39,60 @@ export const kbPages = pgTable('kb_pages', {
   verifiedUntil: date('verified_until', { mode: 'string' }),
   expiredAt: at('expired_at'),
   updatedAt: at('updated_at').notNull().defaultNow(),
+  verifiedAt: at('verified_at'),
 });
+
+export const kbReports = pgTable('kb_reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pageId: uuid('page_id').notNull(),
+  databaseId: uuid('database_id')
+    .notNull()
+    .references(() => kbBases.databaseId, { onDelete: 'cascade' }),
+  workspaceId: uuid('workspace_id').notNull(),
+  reporterId: uuid('reporter_id')
+    .notNull()
+    .references(() => users.id),
+  reason: text('reason', { enum: REPORT_REASONS }).notNull(),
+  text: text('text').notNull().default(''),
+  quote: text('quote'),
+  blockId: text('block_id'),
+  status: text('status', { enum: REPORT_STATUSES }).notNull().default('new'),
+  createdAt: at('created_at').notNull().defaultNow(),
+  updatedAt: at('updated_at').notNull().defaultNow(),
+  closedBy: uuid('closed_by').references(() => users.id),
+  closedAt: at('closed_at'),
+});
+
+export const kbReportReplies = pgTable('kb_report_replies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  reportId: uuid('report_id')
+    .notNull()
+    .references(() => kbReports.id, { onDelete: 'cascade' }),
+  authorId: uuid('author_id')
+    .notNull()
+    .references(() => users.id),
+  text: text('text').notNull(),
+  createdAt: at('created_at').notNull().defaultNow(),
+});
+
+export const kbReviewSummaries = pgTable(
+  'kb_review_summaries',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => kbBases.databaseId, { onDelete: 'cascade' }),
+    sentAt: at('sent_at').notNull(),
+    pageIds: uuid('page_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.databaseId] })],
+);
 
 export type KbBase = typeof kbBases.$inferSelect;
 export type KbPage = typeof kbPages.$inferSelect;
+export type KbReportRecord = typeof kbReports.$inferSelect;
