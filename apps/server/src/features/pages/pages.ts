@@ -1,17 +1,20 @@
 // Making, reading and changing pages, databases and rows (decision 0007, section 4.1; Pages and
 // blocks 3.1). Like every service function here, these take Db | Tx, leave access checks to the
 // caller and never emit events: the caller knows when its transaction commits.
-import type {
-  AccessLevel,
-  PageAncestor,
-  PageIcon,
-  PageJson,
-  PageKind,
-  UpdatePageInput,
+import {
+  updatePageSchema,
+  type AccessLevel,
+  type PageAncestor,
+  type PageIcon,
+  type PageJson,
+  type PageCover,
+  type PageKind,
+  type UpdatePageInput,
 } from '@carehub/shared';
 import { sql, type SQL } from 'drizzle-orm';
+import { httpError } from '../../core/errors';
 import { memberOf, resolvePages, type Executor, type Viewer } from './access';
-import { invalid, iso, isUuid, json, notFound, uuidArray } from './http';
+import { invalid, iso, isUuid, json, notFound, spaceArchived, uuidArray } from './http';
 import { positionAt } from './position';
 import { getPrivateSpaceId } from './spaces';
 
@@ -34,6 +37,12 @@ export type NewPage = {
 /** How deep pages may nest, top level included: the sidebar and the access walks stay quick. */
 export const MAX_DEPTH = 100;
 export const tooDeep = () => invalid(`Pages can nest up to ${MAX_DEPTH} levels deep.`);
+/** Any change to a locked page but unlocking it (decision 0012, point 13). */
+export const pageLocked = () =>
+  httpError(403, 'forbidden', 'This page is locked. Unlock it to change it.');
+/** A change to an archived page, or a page added or moved under one (decision 0012, point 17). */
+export const pageArchived = () =>
+  httpError(409, 'conflict', 'This page is archived. Unarchive it first.');
 
 export type PageRow = {
   id: string;
@@ -74,11 +83,13 @@ export async function insertPage(tx: Executor, input: NewPage): Promise<PageRow>
   let spaceId = input.spaceId;
   if (parentId !== null) {
     if (!isUuid(parentId)) throw notFound();
-    const { rows } = await tx.execute<{ spaceId: string; kind: PageKind }>(sql`
-      SELECT space_id AS "spaceId", kind FROM pages
+    type Parent = { spaceId: string; kind: PageKind; archived: boolean };
+    const { rows } = await tx.execute<Parent>(sql`
+      SELECT space_id AS "spaceId", kind, archived_at IS NOT NULL AS archived FROM pages
       WHERE id = ${parentId} AND workspace_id = ${workspaceId} AND deleted_at IS NULL FOR SHARE`);
     const parent = rows[0];
     if (!parent) throw notFound();
+    if (parent.archived) throw pageArchived();
     if ((await depthOf(tx, parentId)) >= MAX_DEPTH) throw tooDeep();
     if (spaceId !== undefined && spaceId !== parent.spaceId) {
       throw invalid('The parent page is in another space.');
@@ -196,6 +207,59 @@ export async function updatePage(
 export async function setPageTitle(tx: Executor, pageId: string, title: string, by: string) {
   if (title.length > 2000) throw invalid('A title can be up to 2,000 characters.');
   await updatePage(tx, pageId, { title: title.replace(/[\r\n]+/g, ' ') }, by);
+}
+
+/** What a version keeps of a page besides its content (History, HT-05). */
+export type PageLook = {
+  title: string;
+  icon: PageIcon | null;
+  cover: PageCover | null;
+  /** `font`, `smallText`, `textDirection`, `fullWidth` and `coverPosition`. */
+  style: Record<string, unknown>;
+};
+
+/** The page's look, for History to save with a version; null when there's no such page. */
+export async function getPageLook(db: Executor, pageId: string): Promise<PageLook | null> {
+  const { rows } = await db.execute<PageLook>(sql`
+    SELECT title, icon, cover,
+      style || jsonb_build_object('fullWidth', full_width, 'coverPosition', cover_position) AS style
+    FROM pages WHERE id = ${isUuid(pageId) ? pageId : null}::uuid`);
+  return rows[0] ?? null;
+}
+
+/**
+ * Puts back a version's look as one change (History's restore, HT-05): style it leaves out goes
+ * back to the default, and style it doesn't know is ignored. 400 when something isn't valid, 403
+ * when the page is locked, 409 when it or its space is archived, 404 when it's gone or in Trash.
+ * Returns the keys for the caller's `page.updated`.
+ */
+export async function setPageLook(tx: Executor, pageId: string, look: PageLook, by: string) {
+  type State = { locked: boolean; archived: boolean; spaceArchived: boolean };
+  const { rows } = await tx.execute<State>(sql`
+    SELECT p.locked_at IS NOT NULL AS locked, p.archived_at IS NOT NULL AS archived,
+      s.archived_at IS NOT NULL AS "spaceArchived"
+    FROM pages p JOIN spaces s ON s.id = p.space_id AND s.deleted_at IS NULL
+    WHERE p.id = ${isUuid(pageId) ? pageId : null}::uuid AND p.deleted_at IS NULL
+    FOR UPDATE OF p`);
+  const state = rows[0];
+  if (!state) throw notFound();
+  if (state.spaceArchived) throw spaceArchived();
+  if (state.archived) throw pageArchived();
+  if (state.locked) throw pageLocked();
+  const { style } = look;
+  const changes = updatePageSchema.safeParse({
+    title: look.title,
+    icon: look.icon ?? null,
+    cover: look.cover ?? null,
+    font: style.font ?? 'default',
+    smallText: style.smallText ?? false,
+    textDirection: style.textDirection ?? 'ltr',
+    fullWidth: style.fullWidth ?? false,
+    coverPosition: style.coverPosition ?? 50,
+  });
+  if (!changes.success) throw invalid("This version's title, icon, cover or style isn't valid.");
+  await updatePage(tx, pageId, changes.data, by);
+  return Object.keys(changes.data);
 }
 
 /**
