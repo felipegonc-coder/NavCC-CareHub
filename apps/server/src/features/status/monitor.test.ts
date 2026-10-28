@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { sql, type SQL } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createTestApp, hasDatabase, type TestApp } from '../../testing';
+import { createTestApp, createUser, hasDatabase, type TestApp } from '../../testing';
+import { createSession } from '../auth/sessions';
 import { MINUTE_MS } from './domain/time';
 import { StatusMonitor, monitorFor } from './monitor';
 import type { PublicStatus } from './routes';
@@ -124,6 +125,10 @@ describe.skipIf(!hasDatabase)('status monitor', () => {
     await monitor.tick();
     const before = (await t.app.inject({ method: 'GET', url: '/api/status' })).json<PublicStatus>();
     expect(before.uptime.percent).not.toBeNull();
+    // A session made now, while the database is up; during the outage it can't be looked up.
+    const user = await createUser(t.db, { name: 'Robin Vale' });
+    const { token } = await createSession(t.db, user.id, { userAgent: 'test' });
+    const signedIn = { cookie: `${t.app.sessionCookies.names.session}=${token}` };
 
     await allowConnections(false);
     try {
@@ -132,12 +137,14 @@ describe.skipIf(!hasDatabase)('status monitor', () => {
         [databaseName],
       );
       await monitor.tick();
-      const response = await t.app.inject({ method: 'GET', url: '/api/status' });
-      expect(response.statusCode).toBe(200);
-      const body = response.json<PublicStatus>();
-      expect(body.status).toBe('down');
-      // The uptime read last, kept for when the database is down.
-      expect(body.uptime.percent).not.toBeNull();
+      for (const headers of [{}, signedIn]) {
+        const response = await t.app.inject({ method: 'GET', url: '/api/status', headers });
+        expect(response.statusCode).toBe(200);
+        const body = response.json<PublicStatus>();
+        expect(body.status).toBe('down');
+        // The uptime read last, kept for when the database is down.
+        expect(body.uptime.percent).not.toBeNull();
+      }
     } finally {
       await allowConnections(true);
     }
