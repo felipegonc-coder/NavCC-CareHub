@@ -7,7 +7,7 @@ import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
 import { grantAccess } from './access';
 import { getPageCards } from './cards';
-import { createPage } from './pages';
+import { createPage, insertPage } from './pages';
 import { getPrivateSpaceId, joinSpace } from './spaces';
 
 let app: Awaited<ReturnType<typeof createTestApp>>['app'];
@@ -28,6 +28,9 @@ const newSpace = async (who: TestUser, input: object) =>
   (await call<SpaceJson>(who, 'POST', '/api/spaces', input)).body;
 const make = (title: string, place: { spaceId?: string; parentId?: string }) =>
   createPage(db, { workspaceId, ...place, kind: 'page', title, createdBy: eli.id });
+// Without the creator's grant, so only the space and the grants a test adds decide access.
+const add = (title: string, place: { spaceId?: string; parentId?: string }) =>
+  insertPage(db, { workspaceId, ...place, kind: 'page', title, createdBy: eli.id });
 
 describe.skipIf(!hasDatabase)('pages', () => {
   beforeAll(async () => {
@@ -190,11 +193,11 @@ describe.skipIf(!hasDatabase)('pages', () => {
   });
 
   it('shows breadcrumbs only for pages the person can open (SB-06)', async () => {
-    const plans = await make('Care plans', { spaceId: team.id });
-    const closed = await make('Restricted', { parentId: plans.id });
-    const closedToo = await make('Also restricted', { parentId: closed.id });
-    const shared = await make('Shared with Casey', { parentId: closedToo.id });
-    const notes = await make('Visit notes', { parentId: shared.id });
+    const plans = await add('Care plans', { spaceId: team.id });
+    const closed = await add('Restricted', { parentId: plans.id });
+    const closedToo = await add('Also restricted', { parentId: closed.id });
+    const shared = await add('Shared with Casey', { parentId: closedToo.id });
+    const notes = await add('Visit notes', { parentId: shared.id });
     await db.execute(sql`
       UPDATE pages SET inherit_access = false WHERE id IN (${closed.id}, ${shared.id})`);
     const casey1 = { type: 'user' as const, id: casey.id };
