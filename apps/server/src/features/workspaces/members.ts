@@ -156,24 +156,30 @@ export const memberJson = (member: Member): CurrentMemberJson => ({
   permissions: [...member.permissions],
 });
 
+/** A member always comes with a role: a built-in one (`role`) or one of the workspace (`roleId`). */
 export type AddMemberInput =
-  | { userId: string; kind?: 'member'; role?: BuiltInRoleKey; roleId?: undefined }
+  | { userId: string; kind?: 'member'; role: BuiltInRoleKey; roleId?: undefined }
   | { userId: string; kind?: 'member'; roleId: string; role?: undefined }
-  | { userId: string; kind: 'guest' };
+  | { userId: string; kind: 'guest'; role?: undefined; roleId?: undefined };
 
 /**
- * Puts the person in the current workspace: as a member with a built-in role (default Editor) or a role
- * of the workspace (`roleId`), or as a guest. Also brings back someone who was removed.
+ * Puts the person in the current workspace: as a member with a built-in role (`role`) or a role of the
+ * workspace (`roleId`), or as a guest. Also brings back someone who was removed. There's no default
+ * role, so nobody becomes an Editor by mistake.
  */
 export async function addMember(
   db: Db | Tx,
   input: AddMemberInput,
 ): Promise<{ workspaceId: string; roleId: string | null }> {
-  const workspace = (await getDefaultWorkspace(db)) ?? (await syncDefaultWorkspace(db));
   const kind: MembershipKind = input.kind ?? 'member';
+  if (kind === 'member' && input.role === undefined && input.roleId === undefined) {
+    throw new Error('A member needs a role: pass role or roleId.');
+  }
+  const workspace = (await getDefaultWorkspace(db)) ?? (await syncDefaultWorkspace(db));
   let roleId: string | null = null;
   if (input.kind !== 'guest') {
-    roleId = input.roleId ?? (await getBuiltInRoleId(db, workspace.id, input.role ?? 'editor'));
+    if (input.roleId !== undefined) roleId = input.roleId;
+    else roleId = await getBuiltInRoleId(db, workspace.id, input.role);
   }
   await db
     .insert(workspaceMembers)

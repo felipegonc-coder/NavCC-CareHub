@@ -11,4 +11,6 @@ export {
   type CurrentMember,
   type Member,
 } from './members';
+export { removeMember } from './removal';
+export type { MemberRemovedEvent } from './events';
 export { roles, workspaceMembers, workspaces } from './schema';
