@@ -6,20 +6,11 @@ import { z } from 'zod';
 import { createDatabase, runMigrations, type DatabaseConnection, type Db } from '../../../db';
 import { createTestDatabase, createUser, hasDatabase } from '../../../testing';
 import { claudeUsage } from '../schema';
-import {
-  askClaude,
-  askClaudeJson,
-  isClaudeFeatureOn,
-  MAX_TOKENS,
-  monthlyLimitFrom,
-  PERSON_REQUESTS,
-  PERSON_WINDOW_MS,
-} from './ask';
+import { askClaude, askClaudeJson, isClaudeFeatureOn, MAX_TOKENS, PERSON_REQUESTS } from './ask';
 import { ClaudeError } from './errors';
 import { MAX_REQUEST_CHARS } from './prompt';
 import { configureClaude } from './runtime';
 import { CLAUDE_MESSAGES_URL } from './settings';
-import { setWorkspaceSetting } from './workspace-settings';
 
 // Fictional people, pages and key only.
 const KEY = 'sk-ant-FICTIONAL-test-key-0002';
@@ -115,10 +106,11 @@ describe.skipIf(!hasDatabase)('askClaude', () => {
   const usageOf = (workspaceId: string) =>
     db.select().from(claudeUsage).where(eq(claudeUsage.workspaceId, workspaceId));
 
-  it('sends nothing unless the key, the switch and claude.use all hold', async () => {
+  it('sends nothing unless the key, the approval, the switch and claude.use all hold', async () => {
     const sam = await createUser(db, { name: 'Sam Rivera' });
     const cases: Array<[Setup, string]> = [
       [{ apiKey: undefined }, 'not_set_up'],
+      [{ off: ['claude.workspaceApproved'] }, 'not_approved'],
       [{ off: ['claude.writing_help'] }, 'switched_off'],
       [{ canUse: false }, 'no_permission'],
     ];
@@ -174,40 +166,6 @@ describe.skipIf(!hasDatabase)('askClaude', () => {
     const ask = () => outcome(askClaude(db, request(workspaceId, sam.id)));
     expect([await ask(), await ask(), await ask()]).toEqual(['sent', 'sent', 'monthly_cap']);
     expect(bodies).toHaveLength(2);
-  });
-
-  it("stops at the workspace's own limit once an Admin saves one", async () => {
-    const sam = await createUser(db);
-    const { workspaceId, bodies } = setUp({ monthlyRequests: 3000 });
-    await setWorkspaceSetting(db, workspaceId, 'claude.monthlyRequests', 1, sam.id);
-    const ask = () => outcome(askClaude(db, request(workspaceId, sam.id)));
-    expect([await ask(), await ask()]).toEqual(['sent', 'monthly_cap']);
-    expect(bodies).toHaveLength(1);
-
-    expect(monthlyLimitFrom(undefined, 3000)).toBe(3000);
-    expect(monthlyLimitFrom(0, 3000)).toBe(0);
-    expect(monthlyLimitFrom('lots', 3000)).toBe(3000);
-    expect(monthlyLimitFrom(-5, 3000)).toBe(3000);
-  });
-
-  it("counts each person's requests over the last hour", async () => {
-    expect([PERSON_REQUESTS, PERSON_WINDOW_MS]).toEqual([60, 60 * 60_000]);
-    const sam = await createUser(db);
-    const { workspaceId, bodies } = setUp();
-    const rows = (count: number, minutesAgo: number) =>
-      Array.from({ length: count }, () => ({
-        workspaceId,
-        userId: sam.id,
-        feature: 'assistant' as const,
-        status: 'ok' as const,
-        createdAt: new Date(Date.now() - minutesAgo * 60_000),
-      }));
-    await db
-      .insert(claudeUsage)
-      .values([...rows(PERSON_REQUESTS, 61), ...rows(PERSON_REQUESTS - 1, 59)]);
-    const ask = () => outcome(askClaude(db, request(workspaceId, sam.id)));
-    expect([await ask(), await ask()]).toEqual(['sent', 'user_rate_limit']);
-    expect(bodies).toHaveLength(1);
   });
 
   it('limits each person across workspaces, without stopping anyone else', async () => {

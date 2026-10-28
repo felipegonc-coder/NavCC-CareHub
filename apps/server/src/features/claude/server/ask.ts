@@ -1,10 +1,10 @@
 import {
+  CLAUDE_APPROVAL_KEY,
   CLAUDE_FEATURES,
   claudeSwitchKey,
   type ClaudeErrorReason,
   type ClaudeFeature,
 } from '@carehub/extras/claude';
-import { CLAUDE_MONTHLY_LIMIT_KEY, monthlyLimitSchema } from '@carehub/extras/claude/settings';
 import type { z } from 'zod';
 import type { Db, Tx } from '../../../db';
 import { sendToClaude, type ClaudeReply } from './client';
@@ -12,13 +12,12 @@ import { ClaudeError, claudeErrorReason } from './errors';
 import { buildPrompt, MAX_REQUEST_CHARS, requestChars, type ClaudeDocument } from './prompt';
 import { claudeRuntime } from './runtime';
 import { recordUsage, requestsSince, requestsThisMonth } from './usage';
-import { getWorkspaceSetting } from './workspace-settings';
 
 /** The longest answer, in tokens, any feature gets. `maxTokens` can only lower it. */
 export const MAX_TOKENS = 2048;
-/** Each person's limit (Claude features spec, section 3.6): 60 requests an hour. */
-export const PERSON_REQUESTS = 60;
-export const PERSON_WINDOW_MS = 60 * 60_000;
+/** Each person's limit, so one person can't use up the workspace's monthly requests. */
+export const PERSON_REQUESTS = 30;
+export const PERSON_WINDOW_MS = 10 * 60_000;
 
 export interface AskClaudeInput {
   workspaceId: string;
@@ -36,7 +35,7 @@ export interface AskClaudeJsonInput<T> extends AskClaudeInput {
   schema: z.ZodType<T>;
 }
 
-/** Whether the server has the key and the feature's switch is on. */
+/** Whether the server has the key, the workspace is approved, and the feature's switch is on. */
 export async function isClaudeFeatureOn(
   db: Db | Tx,
   workspaceId: string,
@@ -51,18 +50,13 @@ export async function claudeFeaturesOn(
   workspaceId: string,
 ): Promise<Record<ClaudeFeature, boolean>> {
   const { settings, access } = claudeRuntime();
-  const ready = Boolean(settings().apiKey);
+  const ready =
+    Boolean(settings().apiKey) && (await access.isSettingOn(db, workspaceId, CLAUDE_APPROVAL_KEY));
   const on = {} as Record<ClaudeFeature, boolean>;
   for (const feature of CLAUDE_FEATURES) {
     on[feature] = ready && (await access.isSettingOn(db, workspaceId, claudeSwitchKey(feature)));
   }
   return on;
-}
-
-/** The workspace's monthly limit: what an Admin saved in Settings → Claude, or else the default. */
-export function monthlyLimitFrom(saved: unknown, serverDefault: number): number {
-  const limit = monthlyLimitSchema.safeParse(saved);
-  return limit.success ? limit.data : serverDefault;
 }
 
 /**
@@ -90,6 +84,7 @@ async function featureRefusal(
 ): Promise<ClaudeErrorReason | undefined> {
   const { settings, access } = claudeRuntime();
   if (!settings().apiKey) return 'not_set_up';
+  if (!(await access.isSettingOn(db, workspaceId, CLAUDE_APPROVAL_KEY))) return 'not_approved';
   if (!(await access.isSettingOn(db, workspaceId, claudeSwitchKey(feature)))) return 'switched_off';
   return undefined;
 }
@@ -104,11 +99,7 @@ async function ask<T>(db: Db | Tx, input: AskClaudeInput, finish: (text: string)
   if (requestChars(input) > MAX_REQUEST_CHARS) throw new ClaudeError('too_long');
   const now = runtime.now();
   const used = await requestsThisMonth(db, input.workspaceId, now);
-  const limit = monthlyLimitFrom(
-    await getWorkspaceSetting(db, input.workspaceId, CLAUDE_MONTHLY_LIMIT_KEY),
-    runtime.settings().monthlyRequests,
-  );
-  if (used >= limit) throw new ClaudeError('monthly_cap');
+  if (used >= runtime.settings().monthlyRequests) throw new ClaudeError('monthly_cap');
   const since = new Date(now.getTime() - PERSON_WINDOW_MS);
   if ((await requestsSince(db, input.userId, since)) >= PERSON_REQUESTS) {
     throw new ClaudeError('user_rate_limit');

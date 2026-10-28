@@ -3,8 +3,8 @@
 
 /**
  * Each feature has its own workspace switch, off by default. Nothing is sent to Claude unless the
- * server has a key and that feature's switch is on. An Admin turns a switch on only through its
- * confirm, with its checkbox ticked (Claude features spec, section 3.1).
+ * server has a key, an Admin has ticked "Approved for this workspace", and that feature's switch is
+ * on.
  */
 export const CLAUDE_FEATURES = [
   'writing_help',
@@ -16,43 +16,22 @@ export const CLAUDE_FEATURES = [
 
 export type ClaudeFeature = (typeof CLAUDE_FEATURES)[number];
 
-/** The switch names Admins see in Settings → Claude (Claude features spec, section 3.1). */
+/** The switch names Admins see in Settings → Claude. */
 export const CLAUDE_FEATURE_LABELS: Readonly<Record<ClaudeFeature, string>> = {
-  writing_help: 'Writing help',
-  assistant: 'Assistant',
-  fields: 'Claude fields',
-  meeting_summary: 'Meeting summary',
+  writing_help: 'Writing help in pages',
+  assistant: 'Assistant panel',
+  fields: 'Claude fields in databases',
+  meeting_summary: 'Meeting summaries',
   learning_help: 'Learning help',
 };
-
-/**
- * What each switch sends to Claude: the line under it in Settings → Claude, and its confirm.
- * Writing help's is the spec's own (section 3.1); the others say what sections 3.3 to 3.5 send,
- * and Learning help what Learning decision 0315 allows.
- */
-export const CLAUDE_FEATURE_SENDS: Readonly<Record<ClaudeFeature, string>> = {
-  writing_help:
-    "Writing help sends the text people select, and the text around it, to Anthropic's Claude.",
-  assistant:
-    "The assistant sends people's questions, and the pages they let it read, to Anthropic's Claude.",
-  fields:
-    "Claude fields send the row properties each field uses, and the row's page content if the field uses it, to Anthropic's Claude.",
-  meeting_summary:
-    "Meeting summary sends a meeting's agenda, notes, action items and attendees' names to Anthropic's Claude, and the transcript only if the person asking recorded it.",
-  learning_help:
-    "Learning help sends the course titles and lesson text authors work on to Anthropic's Claude, never anything about learners.",
-};
-
-/** The rest of every switch's confirm. */
-export const CLAUDE_CONFIRM_NOTE = "Only turn this on once it's approved for this workspace.";
-
-/** The checkbox in every switch's confirm. Turn on stays grey until it's ticked. */
-export const CLAUDE_CONFIRM_LABEL = 'Approved for this workspace';
 
 /** The workspace setting that holds a feature's switch, for example `claude.writing_help`. */
 export function claudeSwitchKey<F extends ClaudeFeature>(feature: F): `claude.${F}` {
   return `claude.${feature}`;
 }
+
+/** "Approved for this workspace", ticked by an Admin. No switch works without it. */
+export const CLAUDE_APPROVAL_KEY = 'claude.workspaceApproved';
 
 export function isClaudeFeature(value: string): value is ClaudeFeature {
   return (CLAUDE_FEATURES as readonly string[]).includes(value);
@@ -61,6 +40,7 @@ export function isClaudeFeature(value: string): value is ClaudeFeature {
 /** Why a Claude request was refused or failed. The server never says more than this. */
 export const CLAUDE_ERROR_REASONS = [
   'not_set_up',
+  'not_approved',
   'switched_off',
   'no_permission',
   'monthly_cap',
@@ -86,6 +66,11 @@ export const CLAUDE_ERRORS: Readonly<Record<ClaudeErrorReason, ClaudeErrorInfo>>
     code: 'conflict',
     message: "Claude isn't set up on this server yet.",
   },
+  not_approved: {
+    status: 409,
+    code: 'conflict',
+    message: 'Claude is off until an Admin approves it for this workspace in Settings → Claude.',
+  },
   switched_off: {
     status: 409,
     code: 'conflict',
@@ -95,12 +80,13 @@ export const CLAUDE_ERRORS: Readonly<Record<ClaudeErrorReason, ClaudeErrorInfo>>
   monthly_cap: {
     status: 429,
     code: 'rate_limited',
-    message: "Claude has reached this month's limit. An Admin can raise it in Settings → Claude.",
+    message: "This workspace has used this month's Claude requests. They start again on the 1st.",
   },
   user_rate_limit: {
     status: 429,
     code: 'rate_limited',
-    message: "You've asked a lot this hour. Try again in a few minutes.",
+    message:
+      "You've sent a lot of Claude requests in a short time. Wait a few minutes and try again.",
   },
   too_long: {
     status: 413,
@@ -110,7 +96,7 @@ export const CLAUDE_ERRORS: Readonly<Record<ClaudeErrorReason, ClaudeErrorInfo>>
   unavailable: {
     status: 409,
     code: 'conflict',
-    message: "Claude isn't available right now.",
+    message: "Claude didn't answer. Try again in a moment.",
   },
   bad_output: {
     status: 409,

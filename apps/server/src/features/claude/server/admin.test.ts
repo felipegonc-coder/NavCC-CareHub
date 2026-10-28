@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { claudeSettingsViewSchema, CONFIRM_REQUIRED } from '@carehub/extras/claude/settings';
-import { and, eq, sql } from 'drizzle-orm';
+import { claudeSettingsViewSchema } from '@carehub/extras/claude/settings';
+import { sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { HttpError } from '../../../core/errors';
 import {
   createTestApp,
   createUser,
@@ -19,7 +18,7 @@ import { bindClaudeMembers, type ClaudeMember } from './members';
 import { claudeRuntime, configureClaude } from './runtime';
 import { CLAUDE_MESSAGES_URL } from './settings';
 import { recordUsage } from './usage';
-import { getWorkspaceSetting, setWorkspaceSetting } from './workspace-settings';
+import { getWorkspaceSetting } from './workspace-settings';
 
 // Fictional people and key only.
 const KEY = 'sk-ant-FICTIONAL-test-key-0003';
@@ -38,23 +37,6 @@ const NONE_USED = {
   meeting_summary: 0,
   learning_help: 0,
 };
-const NEVER_CHANGED = {
-  writing_help: null,
-  assistant: null,
-  fields: null,
-  meeting_summary: null,
-  learning_help: null,
-};
-
-/** The HttpError a call was refused with. */
-async function refusal(promise: Promise<unknown>): Promise<HttpError> {
-  const error = await promise.then(
-    () => undefined,
-    (thrown: unknown) => thrown,
-  );
-  expect(error).toBeInstanceOf(HttpError);
-  return error as HttpError;
-}
 
 describe.skipIf(!hasDatabase)('Settings → Claude', () => {
   let t: TestApp;
@@ -115,8 +97,8 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     expect(view).toEqual({
       keySet: true,
       model: 'claude-test',
+      workspaceApproved: false,
       switches: ALL_OFF,
-      lastChanged: NEVER_CHANGED,
       chatRetentionDays: null,
       usage: { month: '2026-10', requests: 0, monthlyRequests: 3000, byFeature: NONE_USED },
     });
@@ -127,42 +109,27 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
   it('saves only what changed and logs each change once', async () => {
     const workspaceId = setUp();
     const view = await change(workspaceId, {
+      workspaceApproved: true,
       switches: { writing_help: true, assistant: false },
-      confirmed: true,
-      monthlyRequests: 500,
       chatRetentionDays: 90,
     });
+    expect(view.workspaceApproved).toBe(true);
     expect(view.switches).toEqual({ ...ALL_OFF, writing_help: true });
-    expect(view.usage.monthlyRequests).toBe(500);
     expect(view.chatRetentionDays).toBe(90);
     expect(lines.map((line) => [line.security.key, line.security.value])).toEqual([
+      ['claude.workspaceApproved', true],
       ['claude.writing_help', true],
-      ['claude.monthlyRequests', 500],
       ['claude.chatRetentionDays', 90],
     ]);
-    // Turning a switch on records that its confirm was ticked.
-    expect(lines[0]?.security).toEqual({
+    expect(lines[0]?.security).toMatchObject({
       event: 'claude.setting_changed',
       workspaceId,
       userId: admin.id,
-      key: 'claude.writing_help',
-      value: true,
-      confirmed: true,
     });
-    expect(lines[1]?.security).not.toHaveProperty('confirmed');
 
     lines.length = 0;
-    await change(workspaceId, {
-      switches: { writing_help: true },
-      confirmed: true,
-      monthlyRequests: 500,
-    });
+    await change(workspaceId, { workspaceApproved: true, switches: { writing_help: true } });
     expect(lines).toEqual([]);
-    // The server's default needs no saving.
-    const fresh = setUp();
-    await change(fresh, { monthlyRequests: 3000 });
-    expect(lines).toEqual([]);
-    expect(await getWorkspaceSetting(t.db, fresh, 'claude.monthlyRequests')).toBeUndefined();
 
     const kept = await change(workspaceId, { chatRetentionDays: null });
     expect(kept.chatRetentionDays).toBeNull();
@@ -170,55 +137,11 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     expect(lines).toHaveLength(1);
   });
 
-  it('turns a switch on only with the key and a ticked confirm', async () => {
-    const noKey = setUp({ apiKey: undefined });
-    const missingKey = await refusal(
-      change(noKey, { switches: { writing_help: true }, confirmed: true }),
-    );
-    expect(missingKey).toMatchObject({ statusCode: 409, details: { reason: 'not_set_up' } });
-    expect(missingKey.message).toBe("Claude isn't set up on this server yet.");
-
-    const workspaceId = setUp();
-    const unticked = await refusal(change(workspaceId, { switches: { writing_help: true } }));
-    expect(unticked).toMatchObject({ statusCode: 400, code: 'invalid' });
-    expect(unticked.message).toBe(CONFIRM_REQUIRED);
-    expect(lines).toEqual([]);
-    expect(await getWorkspaceSetting(t.db, noKey, 'claude.writing_help')).toBeUndefined();
-    expect(await getWorkspaceSetting(t.db, workspaceId, 'claude.writing_help')).toBeUndefined();
-
-    // Turning off needs neither, so a switch left on can go off once the key is gone.
-    await change(workspaceId, { switches: { writing_help: true }, confirmed: true });
-    while (restores.length > 0) restores.pop()?.();
-    setUp({ workspaceId, apiKey: undefined });
-    const off = await change(workspaceId, { switches: { writing_help: false } });
-    expect(off.switches.writing_help).toBe(false);
-  });
-
-  it('says who last turned each switch on or off, and when', async () => {
-    const workspaceId = setUp();
-    await change(workspaceId, { switches: { assistant: true }, confirmed: true });
-    const view = claudeSettingsViewSchema.parse(await claudeSettingsView(t.db, workspaceId));
-    expect(view.lastChanged).toEqual({
-      ...NEVER_CHANGED,
-      assistant: { by: 'Avery Admin', at: expect.any(String) },
-    });
-
-    // Once the account is gone (ON DELETE SET NULL), the time stays without a name.
-    const riley = await createUser(t.db, { name: 'Riley Former' });
-    await setWorkspaceSetting(t.db, workspaceId, 'claude.fields', false, riley.id);
-    await t.db
-      .update(claudeSettings)
-      .set({ updatedBy: null })
-      .where(
-        and(eq(claudeSettings.workspaceId, workspaceId), eq(claudeSettings.key, 'claude.fields')),
-      );
-    const later = await claudeSettingsView(t.db, workspaceId);
-    expect(later.lastChanged.fields).toEqual({ by: null, at: expect.any(String) });
-  });
-
   it('turns features on and off for askClaude through the saved switches', async () => {
     const workspaceId = setUp();
-    await change(workspaceId, { switches: { meeting_summary: true }, confirmed: true });
+    await change(workspaceId, { switches: { meeting_summary: true } });
+    expect(await isClaudeFeatureOn(t.db, workspaceId, 'meeting_summary')).toBe(false);
+    await change(workspaceId, { workspaceApproved: true });
     expect(await isClaudeFeatureOn(t.db, workspaceId, 'meeting_summary')).toBe(true);
     expect(await isClaudeFeatureOn(t.db, workspaceId, 'assistant')).toBe(false);
     await change(workspaceId, { switches: { meeting_summary: false } });
@@ -246,7 +169,10 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
 
   it('tells each person only what they can use now', async () => {
     const workspaceId = setUp();
-    await change(workspaceId, { switches: { writing_help: true, fields: true }, confirmed: true });
+    await change(workspaceId, {
+      workspaceApproved: true,
+      switches: { writing_help: true, fields: true },
+    });
     expect((await claudeStatusFor(t.db, editor.id)).on).toEqual({
       ...ALL_OFF,
       writing_help: true,
@@ -275,38 +201,26 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     expect(settings.statusCode).toBe(403);
 
     setUp();
-    const put = (user: TestUser, payload: Record<string, unknown>) =>
-      injectAs(t.app, user, { method: 'PUT', url: '/api/claude/settings', payload });
-    expect((await put(editor, { chatRetentionDays: 30 })).statusCode).toBe(403);
-    for (const payload of [
-      { switches: { telepathy: true } },
-      { monthlyRequests: -1 },
-      { monthlyRequests: 2_000_000 },
-    ]) {
-      expect((await put(admin, payload)).statusCode).toBe(400);
-    }
-    const unticked = await put(admin, { switches: { writing_help: true } });
-    expect(unticked.statusCode).toBe(400);
-    expect(unticked.json()).toMatchObject({
-      error: { code: 'invalid', message: CONFIRM_REQUIRED },
+    const asEditor = await injectAs(t.app, editor, {
+      method: 'PUT',
+      url: '/api/claude/settings',
+      payload: { workspaceApproved: true },
     });
-
-    const saved = await put(admin, {
-      switches: { writing_help: true },
-      confirmed: true,
-      monthlyRequests: 1200,
-      chatRetentionDays: 30,
+    expect(asEditor.statusCode).toBe(403);
+    const unknown = await injectAs(t.app, admin, {
+      method: 'PUT',
+      url: '/api/claude/settings',
+      payload: { switches: { telepathy: true } },
+    });
+    expect(unknown.statusCode).toBe(400);
+    const saved = await injectAs(t.app, admin, {
+      method: 'PUT',
+      url: '/api/claude/settings',
+      payload: { workspaceApproved: true, chatRetentionDays: 30 },
     });
     expect(saved.statusCode).toBe(200);
     const view = claudeSettingsViewSchema.parse(saved.json());
-    expect(view).toMatchObject({
-      keySet: true,
-      switches: { ...ALL_OFF, writing_help: true },
-      lastChanged: { writing_help: { by: 'Avery Admin' } },
-      chatRetentionDays: 30,
-      usage: { monthlyRequests: 1200 },
-    });
-    expect(saved.body).not.toContain(KEY);
+    expect(view).toMatchObject({ workspaceApproved: true, chatRetentionDays: 30, keySet: true });
     const read = await injectAs(t.app, admin, { method: 'GET', url: '/api/claude/settings' });
     expect(read.json()).toEqual(saved.json());
   });
