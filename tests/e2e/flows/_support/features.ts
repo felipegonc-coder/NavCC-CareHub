@@ -2,7 +2,7 @@ import { test } from './test.js';
 
 /**
  * What a person can reach on `main`, one feature per line. Set a line to true in the pull request
- * whose tests match that feature on `main` (the Testing lead runs its browser tests before merging).
+ * whose tests match that feature on `main`; that pull request's browser tests run before it merges.
  * Until then, tests that call `needs()` for it are reported as "Not built yet" (Playwright `fixme`).
  */
 export const onMain = {
@@ -30,14 +30,26 @@ export const onMain = {
   /** Live co-editing: two people in one page, names and cursors. */
   coEditing: false,
 
+  /** Live updates and jobs in app.ts (#288): others' changes show without a reload. */
+  liveUpdates: true,
+
   /** Sharing: the share dialog, access levels, guests and share links. */
   sharing: false,
 
   /** Comments, replies and @ mentions of people, pages and dates. */
   comments: false,
 
+  /** Suggested edits: Suggesting mode, the marks by their author, Accept and Reject (all). */
+  suggestedEdits: false,
+
+  /** Following a page (a notice for each new comment) and muting a thread. */
+  following: false,
+
   /** The 🔔 Care Hub chat where notices arrive. */
   notices: false,
+
+  /** Reply in a comment notice: the answer goes into the thread without leaving the 🔔 chat. */
+  noticeReply: false,
 
   /** Search from the search box and Ctrl/Cmd + K. */
   search: false,
@@ -93,6 +105,12 @@ export const onMain = {
   /** Automations: triggers, actions and "Try it now". */
   automations: false,
 
+  /**
+   * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with
+   * CAREHUB_TEST_HOOKS=1 in the e2e server's env.
+   */
+  jobsTestHooks: true,
+
   /** Analytics (Admins only). */
   analytics: false,
 
@@ -108,23 +126,23 @@ export const onMain = {
   /** Learning for learners: My learning, the Catalog, start pages and the player (#250, #245). */
   learning: false,
 
-  /** Learning Studio: the course editor, Preview and Publish (B1's editor screens, after #250). */
+  /** Learning Studio: the course editor, Preview and Publish (after #250). */
   learningStudio: false,
 
-  /** Learning quizzes in the player: questions, Submit, the score, Try again (B2's quiz views). */
+  /** Learning quizzes in the player: questions, Submit, the score, Try again. */
   learningQuizzes: false,
 
   /** Learning: assign courses, due dates and tracking. */
   learningAssign: false,
 
-  /** Learning reports: course reports, Download CSV, Reset and transcripts (B4's reports PR). */
+  /** Learning reports: course reports, Download CSV, Reset and transcripts. */
   learningReports: false,
 
-  /** Learning review links: the read-only screen for a shared draft (B1's review screen, #231). */
+  /** Learning review links: the read-only screen for a shared draft (#231). */
   learningReview: false,
 
   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */
-  learningTestHooks: false,
+  learningTestHooks: true,
 
   /** Learning: certificates. */
   certificates: false,

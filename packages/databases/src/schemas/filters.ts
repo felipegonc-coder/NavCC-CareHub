@@ -119,6 +119,9 @@ const VALUE_BY_OP: Record<FilterOp, z.ZodType | null> = {
   not_all_done: null,
   is_empty: null,
   is_not_empty: null,
+  is_verified: null,
+  is_expired: null,
+  is_not_verified: null,
 };
 
 /** No value yet ('' or []): the condition is still being set up, so any operator takes it. */

@@ -438,7 +438,7 @@ function DateControl({
 // ---------------------------------------------------------------- people and rows
 
 /** Looks things up as the person types, a moment after they stop. */
-function useSearch<T>(lookup: (q: string) => Promise<T[]>, query: string, enabled: boolean) {
+export function useSearch<T>(lookup: (q: string) => Promise<T[]>, query: string, enabled: boolean) {
   const [found, setFound] = useState<{ query: string; items: T[] } | null>(null);
   useEffect(() => {
     if (!enabled) return;
