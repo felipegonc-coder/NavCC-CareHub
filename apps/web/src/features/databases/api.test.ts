@@ -41,6 +41,18 @@ function versioned(version: number) {
 }
 
 describe('createDatabaseClient', () => {
+  it('sends templateId null for an empty row, and leaves it out for the default template', async () => {
+    const { calls, client } = recorder();
+    await client.createRow('db1', { viewId: 'v1', templateId: null, title: '' });
+    await client.createRow('db1', { viewId: 'v1', templateId: undefined });
+    await client.createRow('db1', { viewId: 'v1', templateId: 't1' });
+    expect(calls.map((call) => call.body)).toEqual([
+      { viewId: 'v1', templateId: null },
+      { viewId: 'v1' },
+      { viewId: 'v1', templateId: 't1' },
+    ]);
+  });
+
   it('sends each route to its path with its body', async () => {
     const { calls, client } = recorder();
     await client.getDatabase('db 1');

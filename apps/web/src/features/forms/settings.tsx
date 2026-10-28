@@ -3,8 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Popover, PopoverContent, PopoverTrigger, buttonClasses } from '@carehub/ui';
 import {
   LIMITS,
-  fromPlainText,
-  plainText,
   type FormDefinition,
   type Id,
   type Property,
@@ -13,7 +11,8 @@ import {
 import { anonymityWarning, formAudience, type FormAudience } from '@carehub/databases/forms';
 import { useDatabaseClient, databaseKeys } from '../databases/hooks';
 import { problemText, useFormsClient } from './api';
-import { CommitInput, CommitTextarea, NativeSelect, SwitchField } from './controls';
+import { CommitInput, NativeSelect, SwitchField } from './controls';
+import { RichTextField } from './rich-editor';
 import {
   closeAtFromValue,
   closeAtValue,
@@ -28,6 +27,9 @@ import { formUploadScope, toFileRef } from './uploads';
 export const FULL_ACCESS_HINT = 'Needs Full access on the database.';
 const ONE_RESPONSE_NEEDS_NAMES =
   'One response per person needs names. Turn off anonymous responses first.';
+const ANYONE_RESPONDS_MORE = "Forms anyone can fill in can't limit responses per person.";
+const ANYONE_IS_ANONYMOUS = 'Forms anyone can fill in are always anonymous.';
+const ANYONE_HINT = 'No sign-in. Always anonymous, with no Person or Relation questions.';
 
 const hints = (...parts: (string | null | undefined)[]): string | undefined =>
   parts.filter(Boolean).join(' ') || undefined;
@@ -45,7 +47,7 @@ function TextField({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-small font-medium text-fg">
+      <label id={`${id}-label`} htmlFor={id} className="text-small font-medium text-fg">
         {label}
       </label>
       {children}
@@ -85,7 +87,8 @@ export function FormSettings({
 }: FormSettingsProps) {
   const [limitProblem, setLimitProblem] = useState<string | null>(null);
   const needsFull = fullAccess ? undefined : FULL_ACCESS_HINT;
-  const oneResponseBlocked = def.anonymous && def.allowMultiple;
+  const anyone = formAudience(def) === 'anyone';
+  const oneResponseBlocked = (def.anonymous || anyone) && def.allowMultiple;
 
   return (
     <aside
@@ -105,12 +108,12 @@ export function FormSettings({
         />
       </TextField>
       <TextField id={`${id}-confirmation`} label="Confirmation message">
-        <CommitTextarea
+        <RichTextField
           id={`${id}-confirmation`}
-          rows={3}
+          aria-labelledby={`${id}-confirmation-label`}
           maxLength={LIMITS.formDescription}
-          value={plainText(def.confirmation)}
-          onCommit={(t) => onSave({ ...def, confirmation: fromPlainText(t) })}
+          value={def.confirmation}
+          onCommit={(confirmation) => onSave({ ...def, confirmation })}
         />
       </TextField>
       <SwitchField
@@ -118,7 +121,13 @@ export function FormSettings({
         label="Allow more than one response"
         checked={def.allowMultiple}
         disabled={oneResponseBlocked}
-        hint={oneResponseBlocked ? ONE_RESPONSE_NEEDS_NAMES : undefined}
+        hint={
+          oneResponseBlocked
+            ? anyone
+              ? ANYONE_RESPONDS_MORE
+              : ONE_RESPONSE_NEEDS_NAMES
+            : undefined
+        }
         onChange={(allowMultiple) => onSave({ ...def, allowMultiple })}
       />
       <SwitchField
@@ -130,9 +139,13 @@ export function FormSettings({
       <SwitchField
         id={`${id}-anonymous`}
         label="Anonymous responses"
-        checked={def.anonymous}
-        disabled={!fullAccess}
-        hint={hints(anonymityWarning(def, properties), needsFull)}
+        checked={def.anonymous || anyone}
+        disabled={!fullAccess || anyone}
+        hint={hints(
+          anyone ? ANYONE_IS_ANONYMOUS : null,
+          anonymityWarning(def, properties),
+          needsFull,
+        )}
         onChange={(anonymous) => onSave({ ...def, anonymous })}
       />
       <TextField id={`${id}-close-at`} label="Close at a date" hint={needsFull}>
@@ -254,6 +267,7 @@ const AUDIENCE_LABELS: Record<FormAudience, string> = {
   members_and_guests: 'Members and guests',
   anyone: 'Anyone on the Care Hub network with the link',
 };
+const AUDIENCES = ['members', 'members_and_guests', 'anyone'] as const;
 
 export interface ShareFormProps {
   def: FormDefinition;
@@ -265,9 +279,8 @@ export interface ShareFormProps {
 }
 
 /**
- * Share form: Accept responses, the link with Copy link and Change link, and Who can respond.
- * Forms anyone on the network can fill in wait for the security review, so that choice isn't
- * offered (a form that already has it still shows it).
+ * Share form: Accept responses, the link with Copy link and Change link, and Who can respond
+ * (members, members and guests, or anyone on the network with the link, without signing in).
  */
 export function ShareForm({ def, databaseId, viewId, fullAccess, onSave }: ShareFormProps) {
   const id = useId();
@@ -283,6 +296,7 @@ export function ShareForm({ def, databaseId, viewId, fullAccess, onSave }: Share
   const url = formUrl(code, window.location.origin);
   const audience = formAudience(def);
   const needsFull = fullAccess ? undefined : FULL_ACCESS_HINT;
+  const audienceHint = hints(audience === 'anyone' ? ANYONE_HINT : null, needsFull);
 
   async function copy() {
     try {
@@ -375,22 +389,30 @@ export function ShareForm({ def, databaseId, viewId, fullAccess, onSave }: Share
             {problem}
           </p>
         )}
-        <TextField id={`${id}-audience`} label="Who can respond" hint={needsFull}>
+        <TextField id={`${id}-audience`} label="Who can respond" hint={audienceHint}>
           <NativeSelect
             id={`${id}-audience`}
             value={audience}
             disabled={!fullAccess}
-            aria-describedby={needsFull ? `${id}-audience-hint` : undefined}
+            aria-describedby={audienceHint ? `${id}-audience-hint` : undefined}
             onChange={(event) => {
-              const next = event.target.value;
-              if (next === 'members' || next === 'members_and_guests') {
-                onSave({ ...def, audience: next });
-              }
+              const next = AUDIENCES.find((a) => a === event.target.value);
+              if (!next) return;
+              // Anyone can fill it in: always anonymous, with no limit of one response per person
+              // (Forms spec). Anonymous stays on if the form goes back to members, until an editor
+              // turns it off.
+              onSave({
+                ...def,
+                audience: next,
+                ...(next === 'anyone' ? { anonymous: true, allowMultiple: true } : {}),
+              });
             }}
           >
-            <option value="members">{AUDIENCE_LABELS.members}</option>
-            <option value="members_and_guests">{AUDIENCE_LABELS.members_and_guests}</option>
-            {audience === 'anyone' && <option value="anyone">{AUDIENCE_LABELS.anyone}</option>}
+            {AUDIENCES.map((a) => (
+              <option key={a} value={a}>
+                {AUDIENCE_LABELS[a]}
+              </option>
+            ))}
           </NativeSelect>
         </TextField>
       </PopoverContent>

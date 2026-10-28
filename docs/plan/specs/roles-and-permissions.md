@@ -1,10 +1,10 @@
 # Roles and permissions
 
-_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
 > 🔐 Phase 3, except sharing: the sharing parts (share dialog, general access, guests, groups, share links, access requests, moving pages) are part of Phase 1 · Builds on the accounts and spaces from Phase 1 · The other specs use the words defined here
 >
-> 🆕 **v2 (Oct 28):** sharing now lives here in full (share dialog, general access, guests, groups, share links, access requests, moving pages), matching Notion. Related: Sidebar, spaces and nested pages; Settings and members. New parts are marked 🆕.
+> 🆕 **v2 (Oct 27):** sharing now lives here in full (share dialog, general access, guests, groups, share links, access requests, moving pages), matching Notion. Related: Sidebar, spaces and nested pages; Settings and members. New parts are marked 🆕.
 
 ## 1. What it's for
 
@@ -59,7 +59,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 3. Limit it by the role. Without Edit, the most is Can comment (with Comment) or Can view. Without Share, Full access works as Can edit. Without Comment, there's no commenting.
 - People can give access only up to their own level.
 - Admins can see and manage every shared space (including limited ones) and join any of them. They can't open other people's private spaces, chats they aren't in, private events, connected calendars, transcripts or Claude chats (RP-D1: never).
-- A workspace always keeps at least one Admin: the last one can't be removed or changed ("A workspace needs at least one Admin."). A site admin can make any member an Admin.
+- A workspace always keeps at least one Admin: the last one can't be removed or changed ("A workspace needs at least one Admin."). A site admin can make any member an Admin, even in a workspace they aren't in: Settings → Site → Accounts → the person → their workspaces → Make Admin. This is the way back in when no Admin can sign in. It doesn't add the site admin to the workspace or let them open its pages, and it's recorded in that workspace's Security log. Inside a workspace's Settings → Members, only its Admins change roles; being a site admin adds nothing there.
 - Changes take effect at once. Open pages switch to the new access within 5 seconds with a banner ("Your access changed. This page is now view-only."), and live editing stops for anyone who lost it.
 - Nothing leaks: search, page cards, mentions, backlinks, relation chips, notices, Home, Calendar and Analytics never show the title or text of anything the person can't open.
 
@@ -149,7 +149,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 5. ⭐ **RP-21** Make a share link with sub-pages off, open it signed out, then Turn off the link. → The page is read only and its sub-pages are locked; afterwards the link says "This link isn't active."
 6. **RP-07** Share a page with the role Agent as Can view, then add a new Agent. → Every Agent can see it, including the new one.
 7. **RP-05** Turn off Create for the Agent role and sign in as Avery, an Agent. → New page, New database, Duplicate and Import are gone.
-8. **RP-10** Try to remove the last Admin or change their role. → Care Hub refuses.
+8. **RP-10** Try to remove the last Admin or change their role. → Care Hub refuses. Then Jordan, a site admin who isn't in the workspace, makes Sam an Admin from Settings → Site → Accounts. → Sam is an Admin, and Jordan still can't open the workspace's pages.
 9. **RP-24** As Riley, open a link to a page you can't open and choose Request access; decline it as the owner, then ask again as Riley. → Riley never sees the title and is told the answer; asking again within 24 hours is refused.
 10. **RP-25** Move a page into a space with different access. → Care Hub lists the exact changes first, and afterwards access matches the list.
 
@@ -164,7 +164,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **RP-07** Sharing a page with the role "Agent" as Can view lets every Agent see it, including one added later.
 - **RP-08** The highest grant wins, then the role limit applies; "Stop inheriting" removes inherited access.
 - **RP-09** Changing someone's role while they have a page open makes it view-only within 5 seconds, with the banner.
-- **RP-10** The last Admin can't be removed or changed; a site admin can appoint one.
+- **RP-10** The last Admin can't be removed or changed; a site admin can appoint one from Settings → Site → Accounts, even without being in the workspace, and that doesn't let them open its pages.
 - **RP-11** Deleting a custom role moves its members to the chosen role.
 - **RP-12** An automated test sends every kind of request as every built-in role and gets the expected answer (allowed or 403).
 - **RP-13** Leak tests: search, cards, mentions, backlinks, relation chips, notices, Home, Calendar and Analytics show nothing from pages the person can't open.

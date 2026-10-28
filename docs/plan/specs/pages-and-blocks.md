@@ -1,6 +1,6 @@
 # Pages and blocks
 
-_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
 > 🧱 Phase 1 · Notion parity · Depends on: accounts, file storage and live co-editing (Phase 1) · Used by: every spec that shows page content · Related: Comments and mentions, Page history and Trash, Templates and buttons, Import and export, Sidebar, spaces and nested pages
 
@@ -95,7 +95,7 @@ Style (section 3.1) · Lock page · Copy link · Duplicate (Ctrl+D) · Move to �
 
 | Block | Add with | Options and rules |
 | --- | --- | --- |
-| Image | "/image", or paste or drop a picture | Upload, or a web address that Care Hub downloads and keeps (🟨 PB-D3). PNG, JPEG, GIF, WebP, AVIF, HEIC (shown as JPEG) and SVG (shown only as a picture, never as page code). Location data is removed. Options: Caption, Description for screen readers (asked after uploading; can be skipped), Align (left, center, right), size (drag a side handle; 10–100% of the column), Replace, Download, View original. A click opens the viewer: zoom, ← and → through the page's pictures, Download, Esc to close. Big pictures get smaller copies for speed; the original is kept. |
+| Image | "/image", or paste or drop a picture | Upload, or a web address that Care Hub downloads and keeps (🟨 PB-D3). PNG, JPEG, GIF, WebP, AVIF, HEIC (kept as HEIC; the web uploader turns it into JPEG first when the browser can) and SVG (shown only as a picture, never as page code). Location and camera details are removed (Data settings, section 3.3). Options: Caption, Description for screen readers (asked after uploading; can be skipped), Align (left, center, right), size (drag a side handle; 10–100% of the column), Replace, Download, View original. A click opens the viewer: zoom, ← and → through the page's pictures, Download, Esc to close. Big pictures get smaller copies for speed; the original is kept. |
 | Video | "/video" | Upload (MP4, WebM, MOV) or a YouTube, Vimeo or Loom link. Player controls; never plays by itself. Caption, size, align, Download (uploads), Open original. |
 | Audio | "/audio" | Upload (MP3, M4A, WAV, OGG, WebM). Player, caption, Download. |
 | File | "/file" | Any allowed file (see Data settings). Type icon, name and size; Download; Rename (the name shown); Caption. |

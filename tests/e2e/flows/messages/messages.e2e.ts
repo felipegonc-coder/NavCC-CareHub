@@ -1,6 +1,25 @@
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
+import { apiFor, expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
+import { recordApiAnswers } from '../status/status-page.js';
 import { hasLocation, pdf, pictures, svg } from './files.js';
+import {
+  deleteMessage,
+  deletedLine,
+  editMessage,
+  filterFrom,
+  isOwnReaction,
+  messageResult,
+  noMatches,
+  openMessageMenu,
+  reactionCount,
+  reactThumbsUp,
+  searchBox,
+  sendAgain,
+  sentIds,
+  thumbsUpChip,
+  whoReacted,
+} from './message-actions.js';
 import {
   addPeople,
   attach,
@@ -27,6 +46,17 @@ import {
   windowFor,
   word,
 } from './messages-page.js';
+import {
+  fakeNotifications,
+  notificationPermission,
+  notificationWhere,
+  openNotification,
+  showMessageText,
+  shownNotifications,
+  toBackground,
+  wording,
+  type Shown,
+} from './notifications.js';
 
 // Messages spec, Done means and section 7. Avery (the seeded admin) does most of the sending; Eli,
 // Casey and Val play Sam, Riley and Jordan. Every text, chat and page gets a unique name, because
@@ -331,6 +361,382 @@ test.describe('Messages', () => {
         await expect(card.getByText(drawing)).toBeVisible({ timeout: 30_000 });
         await expect(card.getByRole('button').filter({ has: page.locator('img') })).toHaveCount(0);
       });
+    });
+  });
+
+  test.describe('Editing, deleting and reactions', () => {
+    needs('signIn', 'messages');
+
+    test("MS-05 Avery edits and deletes her own message, its text is gone from the server, and nobody can change someone else's message (403)", async ({
+      page,
+      browser,
+    }) => {
+      const draft = uniqueName('Fictional QA: the front desk opens at 8. Ref');
+      const fixed = uniqueName('Fictional QA: the front desk opens at 9. Ref');
+      const kept = uniqueName('Fictional QA: the vending machine is fixed. Ref');
+      const elis = uniqueName('Fictional QA: thanks for the update. Ref');
+      const answersToAvery = recordApiAnswers(page);
+      await signInAs(page, 'admin');
+      await openMessages(page);
+      const eli = await windowFor(browser, 'editor');
+      await startChat(eli, ['admin']);
+      await startChat(page, ['editor']);
+
+      const [draftId, keptId, elisId] =
+        await test.step('Avery sends two messages and Eli one', async () => {
+          await send(page, draft);
+          await send(page, kept);
+          await expect(message(eli, kept)).toBeVisible();
+          await send(eli, elis);
+          // After a reload the chat's messages come from the server, with their IDs.
+          await page.reload();
+          await openChat(page, firstName.editor);
+          await expect(message(page, elis)).toBeVisible();
+          const idOf = async (text: string) => {
+            const found = await sentIds(answersToAvery, text);
+            expect(found, `the IDs of "${text}"`).toHaveLength(1);
+            return found[0] ?? '';
+          };
+          return [await idOf(draft), await idOf(kept), await idOf(elis)] as const;
+        });
+
+      const edit =
+        await test.step('Avery edits hers: the new text shows with "edited", for Eli too', async () => {
+          const sent = await editMessage(page, draft, fixed);
+          expect(sent.status, 'saving the edit').toBeLessThan(300);
+          expect(JSON.stringify(sent), 'the edit names the message by its ID').toContain(draftId);
+          for (const who of [page, eli]) {
+            await expect(messageRow(who, fixed)).toContainText(/\bedited\b/i);
+            await expect(message(who, draft)).toHaveCount(0);
+          }
+          return sent;
+        });
+
+      const removal =
+        await test.step('Avery deletes it after confirming: "This message was deleted" stays', async () => {
+          const sent = await deleteMessage(page, fixed);
+          expect(sent.status, 'deleting').toBeLessThan(300);
+          expect(JSON.stringify(sent), 'the delete names the message by its ID').toContain(draftId);
+          for (const who of [page, eli]) {
+            await expect(message(who, fixed)).toHaveCount(0);
+            await expect(who.getByRole('main').getByText(deletedLine).last()).toBeVisible();
+          }
+          return sent;
+        });
+
+      await test.step("the server doesn't send the deleted text: Eli's reload holds neither version", async () => {
+        const answersToEli = recordApiAnswers(eli);
+        await eli.reload();
+        await openChat(eli, firstName.admin);
+        await expect(message(eli, kept)).toBeVisible();
+        await sentIds(answersToEli, kept);
+        const leaks = answersToEli.filter(({ body }) =>
+          [draft, fixed].some((text) => JSON.stringify(body).includes(text)),
+        );
+        expect(
+          leaks.map(({ path }) => path),
+          'answers that still hold the deleted text',
+        ).toEqual([]);
+      });
+
+      await test.step("on Eli's message, Avery's menu has no Edit or Delete", async () => {
+        const menu = await openMessageMenu(page, elis);
+        for (const item of ['Edit', 'Delete']) {
+          await expect(menu.getByRole('menuitem', { name: item, exact: true })).toHaveCount(0);
+        }
+        await page.keyboard.press('Escape');
+      });
+
+      await test.step("the server refuses to edit or delete someone else's message (403)", async () => {
+        const tries = [
+          { who: eli, sent: edit, id: keptId, what: "Eli editing Avery's message" },
+          { who: eli, sent: removal, id: keptId, what: "Eli deleting Avery's message" },
+          { who: page, sent: edit, id: elisId, what: "Avery, an admin, editing Eli's message" },
+          { who: page, sent: removal, id: elisId, what: "Avery, an admin, deleting Eli's message" },
+        ];
+        for (const { who, sent, id, what } of tries) {
+          expect(await sendAgain(who, sent, draftId, id), what).toBe(403);
+        }
+        await page.reload();
+        await openChat(page, firstName.editor);
+        for (const text of [kept, elis]) {
+          await expect(message(page, text)).toBeVisible();
+          await expect(messageRow(page, text)).not.toContainText(/\bedited\b/i);
+        }
+      });
+      await eli.context().close();
+    });
+
+    test("MS-18 👍 on Eli's message is added, then removed; the count and who reacted are right, the same reaction twice is refused, and nobody is notified", async ({
+      page,
+      browser,
+    }) => {
+      const text = uniqueName('Fictional QA: the 4 PM huddle moved to room B. Ref');
+      await signInAs(page, 'admin');
+      await openMessages(page);
+      // Eli's tab is in the background with notifications allowed, so a notification would show.
+      const eliContext = await browser.newContext();
+      await fakeNotifications(eliContext, 'granted');
+      const eli = await eliContext.newPage();
+      await signInAs(eli, 'editor');
+      await openMessages(eli);
+      await startChat(eli, ['admin']);
+      await startChat(page, ['editor']);
+      await send(eli, text);
+      await expect(message(page, text)).toBeVisible();
+      await toBackground(eli, true);
+      const averysChip = thumbsUpChip(page, text);
+      const elisChip = thumbsUpChip(eli, text);
+
+      const added = await test.step('Avery reacts 👍: the chip shows 1, as hers', async () => {
+        const sent = await reactThumbsUp(page, text);
+        expect(sent.status, 'adding the reaction').toBeLessThan(300);
+        await expect.poll(() => reactionCount(averysChip)).toBe(1);
+        expect(await isOwnReaction(averysChip), "Avery's 👍 is highlighted for her").toBe(true);
+        return sent;
+      });
+
+      await test.step('clicking the chip again removes it', async () => {
+        await averysChip.first().click();
+        await expect(averysChip).toHaveCount(0);
+        await expect(elisChip).toHaveCount(0);
+      });
+
+      await test.step('Avery and Eli both react: the count is 2, and pointing at it names them', async () => {
+        await reactThumbsUp(page, text);
+        await expect
+          .poll(() => reactionCount(elisChip), { message: "Eli sees Avery's 👍" })
+          .toBe(1);
+        expect(await isOwnReaction(elisChip), "Avery's 👍 isn't highlighted for Eli").toBe(false);
+        await elisChip.first().click();
+        await expect.poll(() => reactionCount(elisChip)).toBe(2);
+        expect(await isOwnReaction(elisChip), "Eli's own 👍 is highlighted for him").toBe(true);
+        await expect.poll(() => reactionCount(averysChip)).toBe(2);
+        const who = await whoReacted(page, averysChip);
+        expect(who).toMatch(word(firstName.editor));
+        expect(who).toMatch(new RegExp(`\\b(${firstName.admin}|you)\\b`, 'i'));
+      });
+
+      await test.step('the same 👍 again is refused, and the count stays 2', async () => {
+        const again = await (await apiFor(page)).send(added.method, added.path, added.data);
+        expect(again.ok(), `a second identical 👍 is refused (it answered ${again.status()})`).toBe(
+          false,
+        );
+        await page.reload();
+        await openChat(page, firstName.editor);
+        await expect(message(page, text)).toBeVisible();
+        await expect.poll(() => reactionCount(averysChip)).toBe(2);
+      });
+
+      await test.step('nobody is notified: Eli gets no notification and no notice about it', async () => {
+        const aboutIt = (shown: Shown) =>
+          wording(shown).includes(text) || /\breact|👍/i.test(wording(shown));
+        const shown = (await shownNotifications(eli)).filter(aboutIt);
+        expect(shown, 'notifications to Eli about the reactions').toEqual([]);
+        await toBackground(eli, false);
+        await openChat(eli, 'Care Hub');
+        await expect(eli.getByRole('main').getByText(/\breact(ed|ion)\b/i)).toHaveCount(0);
+      });
+      await eliContext.close();
+    });
+  });
+
+  test.describe('Offline', () => {
+    needs('signIn', 'messages');
+
+    test('MS-08 two messages sent offline wait with "Will send when you\'re back online", then send in order, once each', async ({
+      page,
+      browser,
+    }) => {
+      const first = uniqueName('Fictional QA offline note 1 of 2. Ref');
+      const second = uniqueName('Fictional QA offline note 2 of 2. Ref');
+      const waiting = /Will send when you['’]re back online/;
+      await signInAs(page, 'admin');
+      await openMessages(page);
+      const eli = await windowFor(browser, 'editor');
+      await startChat(eli, ['admin']);
+      await startChat(page, ['editor']);
+      const top = async (who: typeof page, text: string) =>
+        (await message(who, text).boundingBox())?.y ?? Number.NaN;
+
+      await test.step('offline, both wait with "Will send when you\'re back online"', async () => {
+        await page.context().setOffline(true);
+        await send(page, first);
+        await send(page, second);
+        for (const text of [first, second]) {
+          await expect(messageRow(page, text)).toContainText(waiting);
+        }
+        await expect(message(eli, first), 'nothing reaches Eli while Avery is offline').toHaveCount(
+          0,
+        );
+      });
+
+      await test.step('back online, they send in order, once each', async () => {
+        await page.context().setOffline(false);
+        await expect(message(eli, second)).toBeVisible({ timeout: 15_000 });
+        await expect(message(eli, first)).toBeVisible();
+        expect(await top(eli, first), 'the first is above the second').toBeLessThan(
+          await top(eli, second),
+        );
+        for (const text of [first, second]) {
+          await expect(messageRow(page, text)).not.toContainText(waiting);
+        }
+      });
+
+      await test.step('after a reload, the server has each once, in order', async () => {
+        const answersToEli = recordApiAnswers(eli);
+        await eli.reload();
+        await openChat(eli, firstName.admin);
+        for (const text of [first, second]) {
+          await expect(message(eli, text)).toBeVisible();
+          expect(await sentIds(answersToEli, text), `copies of "${text}"`).toHaveLength(1);
+        }
+        expect(await top(eli, first)).toBeLessThan(await top(eli, second));
+      });
+      await eli.context().close();
+    });
+  });
+
+  test.describe('Message search', () => {
+    needs('signIn', 'messages');
+
+    test('MS-19 "sched" with From: Eli finds his "SCHÉDULE" (case and accents ignored), "exact phrases" work, deleted messages aren\'t found, and a result opens the chat at the message', async ({
+      page,
+      browser,
+    }) => {
+      test.slow();
+      // A made-up word, letters only, ties the searches to this test's messages.
+      const tag = randomUUID()
+        .slice(0, 8)
+        .replace(/\d/g, (digit) => 'ghijklmnop'.charAt(Number(digit)));
+      const fromEli = `Fictional QA SCHÉDULE ${tag} for the front desk`;
+      const fromAvery = `Fictional QA schedule ${tag} from Avery`;
+      const deleted = `Fictional QA schedule ${tag} that was deleted`;
+      await signInAs(page, 'admin');
+      await openMessages(page);
+      const eli = await windowFor(browser, 'editor');
+      await startChat(eli, ['admin']);
+      await startChat(page, ['editor']);
+
+      await test.step('Eli and Avery write about the schedule, Avery deletes one, and newer messages follow', async () => {
+        await send(eli, fromEli);
+        await expect(message(page, fromEli)).toBeVisible();
+        await send(page, fromAvery);
+        await send(page, deleted);
+        await deleteMessage(page, deleted);
+        await expect(message(page, deleted)).toHaveCount(0);
+        // Newer messages push Eli's out of sight, so opening it from the results has to scroll back.
+        const filler = uniqueName('Fictional QA filler');
+        for (let i = 1; i <= 25; i += 1) await send(page, `${filler} ${i}`);
+        await expect(message(page, `${filler} 25`)).toBeVisible();
+        await openChat(page, 'Care Hub');
+      });
+
+      await test.step('"sched" finds both schedule messages, and not the deleted one', async () => {
+        await searchBox(page).fill(`sched ${tag}`);
+        await expect(messageResult(page, fromEli)).toBeVisible();
+        await expect(messageResult(page, fromAvery)).toBeVisible();
+        await expect(messageResult(page, deleted)).toHaveCount(0);
+        await expect(messageResult(page, deletedLine)).toHaveCount(0);
+      });
+
+      await test.step("From: Eli keeps his message and drops Avery's", async () => {
+        await filterFrom(page, 'editor');
+        await expect(messageResult(page, fromAvery)).toHaveCount(0);
+        await expect(messageResult(page, fromEli)).toBeVisible();
+        await expect
+          .soft(
+            messageResult(page, fromEli).locator('mark').first(),
+            'the matching words are marked',
+          )
+          .toBeVisible();
+      });
+
+      await test.step('"exact phrases" match only in that order', async () => {
+        await searchBox(page).fill(`"schedule ${tag}"`);
+        await expect(messageResult(page, fromEli)).toBeVisible();
+        await searchBox(page).fill(`"${tag} schedule"`);
+        await expect(noMatches(page)).toBeVisible();
+        await expect(
+          page.getByRole('main').getByRole('button', { name: 'Clear filters' }),
+        ).toBeVisible();
+      });
+
+      await test.step('choosing the result opens the chat with Eli at his message', async () => {
+        await searchBox(page).fill(`sched ${tag}`);
+        await messageResult(page, fromEli).click();
+        await expect(
+          page.getByRole('main').getByRole('heading', { name: startsWith(firstName.editor) }),
+        ).toBeVisible();
+        await expect(message(page, fromEli)).toBeInViewport();
+      });
+      await eli.context().close();
+    });
+  });
+
+  test.describe('Browser notifications', () => {
+    needs('signIn', 'messages', 'settings');
+
+    test('MS-07 with notifications allowed and the tab in the background, Eli\'s message shows a notification that opens the chat; with "Show message text" off it shows his name but not the text', async ({
+      page,
+      browser,
+    }) => {
+      test.slow();
+      await fakeNotifications(page.context());
+      await signInAs(page, 'admin');
+      await openMessages(page);
+      const eli = await windowFor(browser, 'editor');
+      await startChat(eli, ['admin']);
+      const fromEli = (shown: Shown) => word(firstName.editor).test(wording(shown));
+
+      await test.step('Avery turns notifications on from the offer in Messages', async () => {
+        const offer = page.getByText('Get notified about new messages?');
+        await expect(offer).toBeVisible();
+        await page.getByRole('button', { name: 'Turn on', exact: true }).click();
+        await expect
+          .poll(() => notificationPermission(page), { message: 'the browser was asked' })
+          .toBe('granted');
+        await expect(offer).toBeHidden();
+      });
+
+      await test.step("in the background, Eli's message shows his name and text, and clicking it opens the chat", async () => {
+        await openChat(page, 'Care Hub');
+        await toBackground(page, true);
+        const text = uniqueName('Fictional QA: can you take the 3 PM call? Ref');
+        await send(eli, text);
+        const shown = await notificationWhere(
+          page,
+          (one) => fromEli(one) && wording(one).includes(text),
+          "a notification with Eli's name and the text",
+        );
+        await openNotification(page, shown);
+        await expect(
+          page.getByRole('main').getByRole('heading', { name: startsWith(firstName.editor) }),
+        ).toBeVisible();
+        await expect(message(page, text)).toBeVisible();
+      });
+
+      try {
+        await test.step('with "Show message text" off, it shows Eli\'s name and "New message", not the text', async () => {
+          await showMessageText(page, false);
+          await openMessages(page);
+          await openChat(page, 'Care Hub');
+          await toBackground(page, true);
+          const text = uniqueName('Fictional QA: the 5 PM report is ready. Ref');
+          await send(eli, text);
+          const { shown } = await notificationWhere(
+            page,
+            (one) =>
+              fromEli(one) && (/new message/i.test(wording(one)) || wording(one).includes(text)),
+            "a notification about Eli's message",
+          );
+          expect(wording(shown)).not.toContain(text);
+          expect(wording(shown)).toMatch(/new message/i);
+        });
+      } finally {
+        await showMessageText(page, true);
+      }
+      await eli.context().close();
     });
   });
 });

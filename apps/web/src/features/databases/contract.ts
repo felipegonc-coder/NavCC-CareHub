@@ -140,6 +140,12 @@ export interface ViewActions {
   setOverride(override: ViewOverride | null): void;
   /** The next page of the view, of a group or of a board sub-group. */
   loadMore(groupKey?: string, subGroupKey?: string): Promise<void>;
+  /**
+   * Opens a toolbar panel as its button would (under the toolbar, or as a dialog), at `target`:
+   * a column's Filter is `openPanel('filter', { propertyId })`. When it closes, focus goes back to
+   * `opener` if it's still on the page.
+   */
+  openPanel(panel: PanelName, target?: PanelTarget, opener?: HTMLElement | null): void;
 }
 
 /** What the shell hands to a layout. */
@@ -196,8 +202,8 @@ export function cellContext(
 
 /**
  * What the toolbar opens: Filter, Sort, Group and Properties (its buttons) and Layout ("…" →
- * Layout) open under the toolbar; Import CSV and Export CSV ("…") open as dialogs, with the title
- * and Close drawn by the shell.
+ * Layout) open under the toolbar; Import CSV, Export CSV, Row access and Property access ("…")
+ * open as dialogs, with the title and Close drawn by the shell.
  */
 export const PANEL_NAMES = [
   'filter',
@@ -207,6 +213,8 @@ export const PANEL_NAMES = [
   'layout',
   'importCsv',
   'exportCsv',
+  'rowAccess',
+  'propertyAccess',
 ] as const;
 
 export type PanelName = (typeof PANEL_NAMES)[number];
@@ -219,10 +227,30 @@ export const PANEL_LABELS: Record<PanelName, string> = {
   layout: 'Layout',
   importCsv: 'Import CSV',
   exportCsv: 'Export CSV',
+  rowAccess: 'Row access',
+  propertyAccess: 'Property access',
 };
 
-/** The panels drawn as dialogs (the CSV dialogs of spec section 2). */
-export const DIALOG_PANELS: ReadonlySet<PanelName> = new Set<PanelName>(['importCsv', 'exportCsv']);
+/** The panels drawn as dialogs: the CSV dialogs of spec section 2, and access (section 3.12). */
+export const DIALOG_PANELS: ReadonlySet<PanelName> = new Set<PanelName>([
+  'importCsv',
+  'exportCsv',
+  'rowAccess',
+  'propertyAccess',
+]);
+
+/**
+ * Where a panel opens when something other than its button opens it (Filter, so far). The panel
+ * decides what that shows.
+ */
+export interface PanelTarget {
+  /** A column's Filter (actions.openPanel): the rule on this property, or a new one. */
+  propertyId?: Id;
+  /** A rule's chip in the filter bar: that rule. */
+  ruleId?: Id;
+  /** The "Advanced filter" chip: the filter's groups. */
+  advanced?: boolean;
+}
 
 /** What the shell hands to a panel. */
 export interface PanelProps {
@@ -241,6 +269,17 @@ export interface PanelProps {
   actions: ViewActions;
   /** Can edit, Lock structure off and online: changes to the view are saved for everyone. */
   canEditViews: boolean;
+  /**
+   * The view's answer as the layout gets it: rows, groups, lanes and counts. Absent until it
+   * loads, and while the view is blocked.
+   */
+  data?: ViewData;
+  /** From the view's answer: the properties the viewer can see, in database order. */
+  propertyIds?: readonly Id[];
+  /** From the view's answer: the titles of the rows its rows link to. */
+  rowTitles?: Readonly<Record<Id, string>>;
+  /** Where it was opened at (actions.openPanel, a filter chip). Absent: from its button. */
+  target?: PanelTarget;
   /** Closes the panel and gives focus back to its button. Esc and presses outside close it too. */
   close(): void;
 }

@@ -51,15 +51,17 @@ export function createMemoryJobStore(): JobStore {
       return { job: structuredClone(job), created: true };
     },
 
-    async claim({ kind, limit, workerId, now, lockedUntil }) {
+    async claim({ kind, limit, workerId, now, lockedUntil, id }) {
       const due = [...jobs.values()]
         .filter(
           (job) =>
             job.kind === kind &&
-            ((job.status === 'queued' && ms(job.runAt) <= ms(now)) ||
-              (job.status === 'running' &&
-                job.lockedUntil !== null &&
-                ms(job.lockedUntil) < ms(now))),
+            (id !== undefined
+              ? job.id === id && job.status === 'queued'
+              : (job.status === 'queued' && ms(job.runAt) <= ms(now)) ||
+                (job.status === 'running' &&
+                  job.lockedUntil !== null &&
+                  ms(job.lockedUntil) < ms(now))),
         )
         .sort((a, b) => ms(a.runAt) - ms(b.runAt) || ms(a.createdAt) - ms(b.createdAt));
       return due.slice(0, limit).map((job) => {

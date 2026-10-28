@@ -45,6 +45,7 @@ describe('parseQuery (SR-04)', () => {
       { word: 'qa', prefix: false },
       { word: '17', prefix: true },
     ]);
+    expect(parseQuery('"QA-17"').all).toEqual([[{ text: 'qa-17', phrase: true, prefix: false }]]);
   });
 
   it('finds nothing to search for in excludes, operators or punctuation alone', () => {
@@ -60,11 +61,11 @@ describe('parseQuery (SR-04)', () => {
 });
 
 describe('highlights and snippets (SR-07)', () => {
-  const words = parseQuery('refunds goncal').words;
+  const words = parseQuery('refunds assun').words;
 
   it('marks word forms, accents and beginnings', () => {
-    const title = 'Refund steps for Felipe Gonçalves';
-    expect(rangeTexts(title, highlightRanges(title, words))).toEqual(['Refund', 'Gonçalves']);
+    const title = 'Refund steps for Lúcia Assunção';
+    expect(rangeTexts(title, highlightRanges(title, words))).toEqual(['Refund', 'Assunção']);
     expect(roughStem('policies')).toBe('polic');
     const policy = parseQuery('policy ').words;
     expect(rangeTexts('Policies', highlightRanges('Policies', policy))).toEqual(['Policies']);
@@ -73,7 +74,7 @@ describe('highlights and snippets (SR-07)', () => {
   it('takes the block with the most matches, around its first match', () => {
     const body = [
       'Refunds are rare.',
-      `${'Intro words '.repeat(20)}a refund for Gonçalves, then refunds again. ${'More '.repeat(40)}`,
+      `${'Intro words '.repeat(20)}a refund for Assunção, then refunds again. ${'More '.repeat(40)}`,
     ].join('\n');
     const snippet = makeSnippet(body, words);
     expect(snippet?.text.startsWith('…')).toBe(true);
@@ -81,7 +82,7 @@ describe('highlights and snippets (SR-07)', () => {
     expect(snippet?.text.length).toBeLessThanOrEqual(SNIPPET_MAX_CHARS + 2);
     expect(rangeTexts(snippet?.text ?? '', snippet?.ranges ?? [])).toEqual([
       'refund',
-      'Gonçalves',
+      'Assunção',
       'refunds',
     ]);
   });
@@ -120,9 +121,9 @@ describe('searchWords (Claude spec 3.3)', () => {
       'QA-17',
       'policy',
     ]);
-    expect(searchWords('Where is Felipe Gonçalves’ care plan for step 2')).toEqual([
-      'Felipe',
-      'Gonçalves',
+    expect(searchWords('Where is Lúcia Assunção’ care plan for step 2')).toEqual([
+      'Lúcia',
+      'Assunção',
       'care',
       'plan',
       'step',

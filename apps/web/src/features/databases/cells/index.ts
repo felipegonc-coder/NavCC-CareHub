@@ -14,10 +14,14 @@
  *   this view, insert left or right, duplicate, property access and delete, plus the layout's own
  *   items (`viewItems`). Give it `usePropertyActions(meta.id)`, and the view, `updateView` and
  *   rows the layout has. Changes that clear or remove values confirm first with a count.
- * - `PropertySettings` is Edit property: name, description and row pages. `PropertyMenu` opens
- *   it by the header unless it gets `onEditProperty`.
+ * - `PropertySettings` is Edit property: name, description, row pages and the type's settings
+ *   (number display, date and time format, person, relation, ID prefix). `PropertyMenu` opens it
+ *   by the header unless it gets `onEditProperty`. `NumberDisplaySettings` is there for formula
+ *   and rollup results too.
  * - `DeletedProperties` is the Properties → Deleted list, each with Restore.
+ * - `openButtonLink` opens a button press's links: http and https only, in a new tab.
  */
+export { openButtonLink } from './button-links';
 export { CellEditor } from './cell-editor';
 export { CellView, RichTextView } from './cell-view';
 export {
@@ -37,11 +41,13 @@ export {
 export {
   CELL_TEXT,
   DAY_REMINDER_LABELS,
+  OPTION_COLOR_LABELS,
   PROPERTY_TEXT,
   SETTINGS_TEXT,
   STATUS_GROUP_LABELS,
   TIME_REMINDER_LABELS,
 } from './messages';
+export { NumberDisplaySettings, type NumberDisplaySettingsProps } from './number-settings';
 export { usePropertyActions, type PropertyActions } from './property-actions';
 export {
   canChangeProperties,
@@ -57,6 +63,7 @@ export { PropertyMenu, type PropertyMenuEvent, type PropertyMenuProps } from './
 export {
   PropertySettings,
   PropertySettingsPopover,
+  type DatabaseChoice,
   type PropertySettingsPopoverProps,
   type PropertySettingsProps,
 } from './property-settings';
