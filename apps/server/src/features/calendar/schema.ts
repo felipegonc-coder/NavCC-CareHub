@@ -14,9 +14,9 @@ import type { EventFields } from './events/model';
 import type { StoredReply } from './events/items';
 import type { StoredKind } from './layers/model';
 
-// Mirrors migrations/202610271200_calendar_events.sql and 202610271300_calendar_layers.sql,
-// the source of truth. Foreign keys to users and workspaces are only in the SQL: other
-// features' tables aren't imported (0007, section 2.2).
+// Mirrors migrations/202610271200_calendar_events.sql, 202610271300_calendar_layers.sql and
+// 202610271400_calendar_settings.sql, the source of truth. Foreign keys to users and
+// workspaces are only in the SQL: other features' tables aren't imported (0007, section 2.2).
 
 const at = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -82,4 +82,15 @@ export const calLayers = pgTable(
     updatedAt: at('updated_at').notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.workspaceId, table.userId, table.id] })],
+);
+
+export const calSettings = pgTable(
+  'cal_settings',
+  {
+    workspaceId: uuid('workspace_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
+    updatedAt: at('updated_at').notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.userId] })],
 );

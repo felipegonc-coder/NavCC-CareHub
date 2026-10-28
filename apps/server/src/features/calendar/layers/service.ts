@@ -3,9 +3,10 @@ import type { Layer } from '@carehub/team-calendar-api';
 import { and, eq } from 'drizzle-orm';
 import { httpError } from '../../../core/errors';
 import type { Db } from '../../../db';
+import { isLearningEnabled } from '../../learning';
 import { publishToUsers } from '../../live';
 import { calLayers } from '../schema';
-import { BUILT_INS, layerJson, patched, withDefaults } from './model';
+import { builtInsFor, layerJson, patched, withDefaults } from './model';
 
 /** Whose layers: one person in one workspace. */
 export type LayerOwner = { id: string; workspaceId: string };
@@ -15,8 +16,11 @@ const ownedBy = (owner: LayerOwner) =>
 
 /** The person's layers, in their order (CA-04: their own settings only). */
 export async function listLayers(db: Db, owner: LayerOwner): Promise<LayersResponse> {
-  const rows = await db.select().from(calLayers).where(ownedBy(owner));
-  return { layers: withDefaults(rows).map(layerJson) };
+  const [rows, learning] = await Promise.all([
+    db.select().from(calLayers).where(ownedBy(owner)),
+    isLearningEnabled(owner.workspaceId),
+  ]);
+  return { layers: withDefaults(rows, learning).map(layerJson) };
 }
 
 /** Turns a layer on or off, recolours it or moves it in the list, for this person only. */
@@ -26,7 +30,8 @@ export async function changeLayer(
   layerId: string,
   patch: LayerPatch,
 ): Promise<{ layer: Layer }> {
-  const layer = BUILT_INS.find((each) => each.id === layerId);
+  const learning = await isLearningEnabled(owner.workspaceId);
+  const layer = builtInsFor(learning).find((each) => each.id === layerId);
   if (!layer) throw httpError(404, 'not_found');
   const changes: Partial<typeof calLayers.$inferInsert> = { updatedAt: new Date() };
   if (patch.color !== undefined) changes.color = patch.color;

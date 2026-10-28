@@ -3,7 +3,7 @@ import pg from 'pg';
 import { describe, expect, it } from 'vitest';
 import { runMigrations } from '../../db';
 import { createTestDatabase, hasDatabase } from '../../testing';
-import { calEventPeople, calEvents, calLayers } from './schema';
+import { calEventPeople, calEvents, calLayers, calSettings } from './schema';
 
 type Column = { name: string; type: string; not_null: boolean; has_default: boolean };
 
@@ -15,7 +15,8 @@ describe.skipIf(!hasDatabase)('calendar tables', () => {
       const applied = await runMigrations(pool);
       expect(applied).toContain('202610271200_calendar_events.sql');
       expect(applied).toContain('202610271300_calendar_layers.sql');
-      for (const table of [calEvents, calEventPeople, calLayers]) {
+      expect(applied).toContain('202610271400_calendar_settings.sql');
+      for (const table of [calEvents, calEventPeople, calLayers, calSettings]) {
         const config = getTableConfig(table);
         const { rows } = await pool.query<Column>(
           `SELECT attname AS name, format_type(atttypid, atttypmod) AS type,

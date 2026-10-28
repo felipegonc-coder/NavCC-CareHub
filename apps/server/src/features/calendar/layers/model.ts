@@ -12,7 +12,9 @@ export type StoredLayer = {
   order: number;
 };
 
-const builtIn = (id: 'my-events' | 'meetings', color: string, order: number): StoredLayer => ({
+type BuiltInId = (typeof BUILT_IN_LAYERS)[keyof typeof BUILT_IN_LAYERS];
+
+const builtIn = (id: BuiltInId, color: string, order: number): StoredLayer => ({
   id,
   kind: id,
   color,
@@ -20,24 +22,33 @@ const builtIn = (id: 'my-events' | 'meetings', color: string, order: number): St
   order,
 });
 
-/** The built-in layers everyone has, with their defaults. Learning due dates come in Phase 4. */
+/** The built-in layers everyone has, with their defaults. */
 export const BUILT_INS: readonly StoredLayer[] = [
   builtIn(BUILT_IN_LAYERS.myEvents, 'blue', 0),
   builtIn(BUILT_IN_LAYERS.meetings, 'purple', 1),
 ];
 
+/** Course due dates: a built-in layer while Learning is on for the workspace. */
+export const LEARNING_LAYER = builtIn(BUILT_IN_LAYERS.learning, 'green', 2);
+
+/** The built-in layers in a workspace, with Learning's when it's on there. */
+export const builtInsFor = (learning: boolean): readonly StoredLayer[] =>
+  learning ? [...BUILT_INS, LEARNING_LAYER] : BUILT_INS;
+
 const NAMES: Readonly<Record<string, string>> = {
   [BUILT_IN_LAYERS.myEvents]: 'My events',
   [BUILT_IN_LAYERS.meetings]: 'Meetings',
+  [BUILT_IN_LAYERS.learning]: 'Learning',
 };
 
 /** The built-in layers with the person's own settings on top, in their order. */
-export function withDefaults(rows: readonly StoredLayer[]): StoredLayer[] {
+export function withDefaults(rows: readonly StoredLayer[], learning = false): StoredLayer[] {
+  const layers = builtInsFor(learning);
   const saved = new Map(rows.map((row) => [row.id, row]));
-  const rank = (layer: StoredLayer) => BUILT_INS.findIndex((each) => each.id === layer.id);
-  return BUILT_INS.map((layer) => saved.get(layer.id) ?? layer).sort(
-    (a, b) => a.order - b.order || rank(a) - rank(b),
-  );
+  const rank = (layer: StoredLayer) => layers.findIndex((each) => each.id === layer.id);
+  return layers
+    .map((layer) => saved.get(layer.id) ?? layer)
+    .sort((a, b) => a.order - b.order || rank(a) - rank(b));
 }
 
 /** A built-in layer's new settings after a change. */

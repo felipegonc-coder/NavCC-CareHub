@@ -6,6 +6,7 @@ import {
   itemsQuerySchema,
   layerPatchSchema,
   replyBodySchema,
+  settingsPatchSchema,
   upcomingQuerySchema,
 } from '@carehub/team-calendar-api';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -22,6 +23,7 @@ import {
   type Viewer,
 } from './events/service';
 import { changeLayer, listLayers } from './layers/service';
+import { changeSettings, getSettings } from './settings/service';
 
 /** The signed-in member (after requireMember) with what Calendar needs. */
 function viewerOf(request: FastifyRequest): Viewer {
@@ -99,6 +101,18 @@ async function careHubCalendar(app: FastifyInstance) {
       layerPatchSchema.parse(request.body),
     ),
   );
+
+  app.get('/settings', async (request) => ({
+    settings: await getSettings(app.db, viewerOf(request)),
+  }));
+
+  app.patch('/settings', async (request) => ({
+    settings: await changeSettings(
+      app.db,
+      viewerOf(request),
+      settingsPatchSchema.parse(request.body),
+    ),
+  }));
 }
 
 /** Calendar routes under /api/calendar. */
