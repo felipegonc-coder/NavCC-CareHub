@@ -71,10 +71,12 @@ export const COLOR_TEXT = {
   title: 'Conditional color',
   intro:
     'Color rows, or one property’s cells, when a condition matches. The first rule that matches wins.',
+  readOnly: 'Only people who can edit this view change its color rules.',
   none: 'No color rules yet.',
   add: 'Add color rule',
   count: (count: number) => (count === 1 ? '1 rule' : `${count} rules`),
   back: 'Back',
+  when: 'When',
   target: 'Apply to',
   row: 'Whole row',
   color: 'Color',

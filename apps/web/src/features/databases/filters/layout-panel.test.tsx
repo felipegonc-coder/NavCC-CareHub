@@ -1,5 +1,6 @@
 import {
   defaultView,
+  type ColorRule,
   type Property,
   type TimelineOptions,
   type View,
@@ -7,7 +8,7 @@ import {
 } from '@carehub/databases';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { jobsDatabase, jobsProperties, PROPS, VIEWS } from '../fixtures';
+import { jobsDatabase, jobsProperties, PROPS, STATUS, testViewer, VIEWS } from '../fixtures';
 import { mockActions } from '../test-utils';
 import { LayoutPanel } from './layout-panel';
 
@@ -32,18 +33,21 @@ function show(
     meta?: Parameters<typeof jobsDatabase>[0];
     canEditViews?: boolean;
     propertyIds?: string[];
+    colorRules?: ColorRule[];
   } = {},
 ) {
   const meta = jobsDatabase(options.meta);
-  const view: View | undefined = options.layout
+  const found: View | undefined = options.layout
     ? { ...defaultView(options.layout, meta.properties), id: 'view-other' }
     : meta.views.find((v) => v.id === (options.viewId ?? VIEWS.table));
-  if (!view) throw new Error('No view');
+  if (!found) throw new Error('No view');
+  const view = options.colorRules ? { ...found, colorRules: options.colorRules } : found;
   const actions = mockActions();
   render(
     <LayoutPanel
       meta={meta}
       view={view}
+      viewer={testViewer()}
       actions={actions}
       canEditViews={options.canEditViews ?? true}
       propertyIds={options.propertyIds}
@@ -231,7 +235,56 @@ describe('Layout panel', () => {
   it('says when a layout has no settings here', () => {
     show({ layout: 'form' });
     expect(screen.getByText('This layout has no settings here.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Conditional color' })).toBeNull();
   });
+
+  it('opens conditional color and comes back to its button', () => {
+    const done: ColorRule = {
+      id: 'rule-done',
+      filter: {
+        kind: 'group',
+        id: 'g-done',
+        combinator: 'and',
+        children: [
+          {
+            kind: 'condition',
+            id: 'c-done',
+            propertyId: PROPS.status,
+            op: 'is',
+            value: [STATUS.done],
+          },
+        ],
+      },
+      target: { kind: 'row' },
+      color: 'green',
+    };
+    show({ colorRules: [done, { ...done, id: 'rule-again' }] });
+    const open = screen.getByRole('button', { name: 'Conditional color' });
+    expect(open).toHaveAccessibleDescription('2 rules');
+    fireEvent.click(open);
+    expect(screen.getByRole('heading', { name: 'Conditional color' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Open rows in' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('button', { name: 'Conditional color' })).toHaveFocus();
+    expect(select('Open rows in')).toBeInTheDocument();
+  });
+
+  it("lists the color rules for people who can't change them", () => {
+    show({ canEditViews: false });
+    const open = screen.getByRole('button', { name: 'Conditional color' });
+    expect(open).toBeEnabled();
+    fireEvent.click(open);
+    expect(screen.getByText('No color rules yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add color rule' })).toBeNull();
+  });
+
+  it.each(['list', 'board', 'gallery', 'calendar', 'timeline'] as const)(
+    'offers conditional color on a %s',
+    (layout) => {
+      show({ layout });
+      expect(screen.getByRole('button', { name: 'Conditional color' })).toBeInTheDocument();
+    },
+  );
 
   it('puts a setting back when the save is refused', async () => {
     const meta = jobsDatabase();
@@ -239,7 +292,9 @@ describe('Layout panel', () => {
     if (!view) throw new Error('No view');
     const actions = mockActions();
     actions.updateView.mockRejectedValueOnce(new Error('Refused'));
-    render(<LayoutPanel meta={meta} view={view} actions={actions} canEditViews />);
+    render(
+      <LayoutPanel meta={meta} view={view} viewer={testViewer()} actions={actions} canEditViews />,
+    );
     fireEvent.click(toggle('Show page icons'));
     expect(toggle('Show page icons')).not.toBeChecked();
     await waitFor(() => expect(toggle('Show page icons')).toBeChecked());

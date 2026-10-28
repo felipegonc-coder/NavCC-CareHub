@@ -38,15 +38,19 @@ export function AdvancedFilter({ editing, onDelete }: { editing: Editing; onDele
   );
 }
 
-function GroupEditor({
+/** One "All of" or "Any of" group and what's in it; color rules use it for their condition. */
+export function GroupEditor({
   group,
   depth,
   editing,
+  label = FILTER_TEXT.advancedFilter,
 }: {
   group: FilterGroup;
   /** The top group is layer 1. */
   depth: number;
   editing: Editing;
+  /** The top group's name. */
+  label?: string;
 }) {
   const { root, properties, save } = editing;
   const first = properties[0];
@@ -55,7 +59,7 @@ function GroupEditor({
   return (
     <div
       role="group"
-      aria-label={nested ? FILTER_TEXT.filterGroup : FILTER_TEXT.advancedFilter}
+      aria-label={nested ? FILTER_TEXT.filterGroup : label}
       className={
         nested ? 'flex flex-col gap-2 rounded border border-border p-2' : 'flex flex-col gap-2'
       }
