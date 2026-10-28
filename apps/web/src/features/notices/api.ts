@@ -74,7 +74,10 @@ export interface NoticeView {
   icon: string | null;
   title: string;
   text: string | null;
+  /** The first card. */
   card: NoticeCardView | null;
+  /** Every card, in order: up to 3, `card` first. Without it, the notice shows `card`. */
+  cards?: NoticeCardView[];
   buttons: NoticeButtonView[];
   /** How many notices were grouped into this one (1 when none were). */
   count: number;

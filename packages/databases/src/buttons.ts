@@ -74,6 +74,9 @@ export const BUTTON_MESSAGES = {
   addNumber: 'Only Number properties can be added to.',
   formulaTarget: "Files and checklists can't be set by a formula.",
   messageProperty: 'Messages can only go to people in a Person, Created by or Edited by property.',
+  adminsOnly: 'Only Admins can send messages to Everyone or to roles.',
+  noGroup: "That group doesn't exist.",
+  noRole: "That role doesn't exist.",
 } as const;
 const M = BUTTON_MESSAGES;
 
@@ -90,6 +93,9 @@ export const BUTTON_INPUTS = {
 
 /** A Button property's settings. */
 export type ButtonConfig = ConfigOf<'button'>;
+
+/** Who a "Send a message" step goes to. */
+type MessageTo = Extract<ButtonAction, { kind: 'send_message' }>['to'];
 type OpenIn = Extract<ButtonAction, { kind: 'open_page' }>['openIn'];
 type OpenAdded = NonNullable<Extract<ButtonAction, { kind: 'add_row' }>['open']>;
 
@@ -206,6 +212,10 @@ export interface RunContext {
   formulaReads?(formula: string): Id[];
   /** For filters on Person properties. */
   userName(id: Id): string | undefined;
+  /** For messages: the members (not guests) of a group or a role; null when there's no such one. */
+  membersOf(kind: 'group' | 'role', id: Id): readonly Id[] | null;
+  /** For messages to Everyone: every member of the workspace (not guests). */
+  everyone(): readonly Id[];
   /** For filters on formulas and rollups. */
   computed?(row: Row, propertyId: Id): ComputedValue;
   /** How many "Show a confirmation" steps the presser has already continued past. */
@@ -259,16 +269,18 @@ export function whyCantPress(
  * Checks a button's settings before they're saved. Up to 10 steps; every property a step sets
  * exists, stores a value and gets one that fits (Today and Now only on dates, Me only in Person
  * lists, This page only in Relation lists); "Edit rows" filters fit their database; "Open a page"
- * with no page comes after an "Add a row"; links are http or https; a message goes to at most 50
- * people, through Person, Created by or Edited by properties only; variable names are different and
- * each variable is defined before a formula uses it. `propertiesOf` gives another database's
- * properties (null: no such database); without it, steps there skip the property checks. Warns
- * when anyone who can view may press it but a step changes rows.
+ * with no page comes after an "Add a row"; links are http or https; a message names at most 50
+ * people, uses Person, Created by or Edited by properties only, and goes to Everyone or to roles
+ * only when an Admin sets it up (opts.admin); variable names are different and each variable is
+ * defined before a formula uses it. `propertiesOf` gives another database's properties (null: no
+ * such database); without it, steps there skip the property checks. Warns when anyone who can
+ * view may press it but a step changes rows.
  */
 export function validateButton(
   config: ButtonConfig,
   properties: readonly Property[],
   propertiesOf?: (databaseId: Id) => readonly Property[] | null,
+  opts: { admin?: boolean } = {},
 ): ButtonCheck {
   const { actions } = config;
   const changesRows = actions.some((a) => CHANGES_ROWS.has(a.kind));
@@ -310,7 +322,7 @@ export function validateButton(
         if (!isSafeWebLink(a.url)) problem = M.unsafeLink;
         break;
       case 'send_message':
-        problem = messageProblem(a.to, properties);
+        problem = messageProblem(a.to, properties, opts.admin === true);
         break;
       case 'define_variables':
         for (const v of a.variables) {
@@ -375,12 +387,17 @@ function setProblem(prop: Property, raw: unknown): string | null {
   return result.ok ? null : result.error;
 }
 
-/** Why a message can't go as set up: too many people, or a property that doesn't hold people. */
+/**
+ * Why a message can't go as set up: too many people, a property that doesn't hold people, or
+ * Everyone or roles from someone who isn't an Admin.
+ */
 function messageProblem(
-  to: { userIds: Id[]; propertyIds: Id[] },
+  to: MessageTo,
   properties: readonly Property[],
+  admin: boolean,
 ): string | null {
   if (new Set(to.userIds).size > LIMITS.buttonMessagePeople) return M.tooManyPeople;
+  if (!admin && (to.everyone === true || (to.roleIds ?? []).length > 0)) return M.adminsOnly;
   for (const id of to.propertyIds) {
     const t = findProperty(properties, id)?.config.type;
     if (t === undefined) return TEMPLATE_MESSAGES.noProperty;
@@ -626,7 +643,7 @@ function planSteps(
         steps.push({ step, kind: a.kind, url: a.url });
         break;
       case 'send_message': {
-        const userIds = recipients(step, a.to, current(row), db);
+        const userIds = recipients(step, a.to, current(row), ctx);
         steps.push({ step, kind: a.kind, userIds, message: a.message });
         break;
       }
@@ -658,16 +675,24 @@ function openDatabase(step: number, id: Id, ctx: RunContext): ButtonDatabase {
   return db;
 }
 
-/** Everyone a message goes to: the people named, plus the people in those properties of the row. */
-function recipients(
-  step: number,
-  to: { userIds: Id[]; propertyIds: Id[] },
-  row: Row,
-  db: ButtonDatabase,
-): Id[] {
-  const people = new Set(to.userIds);
+/**
+ * Everyone a message goes to, each once: the people named, the people in those properties of the
+ * row, the members of those groups and roles, and every member for Everyone.
+ */
+function recipients(step: number, to: MessageTo, row: Row, ctx: RunContext): Id[] {
+  const members = (kind: 'group' | 'role', id: Id): readonly Id[] => {
+    const ids = ctx.membersOf(kind, id);
+    if (ids === null) throw new Stop(step, kind === 'group' ? M.noGroup : M.noRole);
+    return ids;
+  };
+  const people = new Set([
+    ...to.userIds,
+    ...(to.groupIds ?? []).flatMap((id) => members('group', id)),
+    ...(to.roleIds ?? []).flatMap((id) => members('role', id)),
+    ...(to.everyone === true ? ctx.everyone() : []),
+  ]);
   for (const id of to.propertyIds) {
-    const t = findProperty(db.properties, id)?.config.type;
+    const t = findProperty(ctx.database.properties, id)?.config.type;
     if (t === undefined) throw new Stop(step, TEMPLATE_MESSAGES.noProperty);
     if (t === 'created_by' && row.createdBy) people.add(row.createdBy);
     else if (t === 'edited_by' && row.editedBy) people.add(row.editedBy);

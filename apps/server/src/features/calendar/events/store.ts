@@ -115,9 +115,18 @@ export async function insertEvent(db: Database, event: NewEvent): Promise<string
   return row.id;
 }
 
-/** Names and pictures of these people. */
-export const profilesOf = (db: Database, ids: Iterable<string>): Promise<Profiles> =>
-  getProfiles(db, ids);
+/** Ids in one query for names and pictures (Postgres takes at most 65,535 parameters). */
+export const PROFILES_PER_QUERY = 1000;
+
+/** Names and pictures of these people, read a thousand at a time. */
+export async function profilesOf(db: Database, ids: Iterable<string>): Promise<Profiles> {
+  const unique = [...new Set(ids)];
+  const parts: Profiles[] = [];
+  for (let start = 0; start < unique.length; start += PROFILES_PER_QUERY) {
+    parts.push(await getProfiles(db, unique.slice(start, start + PROFILES_PER_QUERY)));
+  }
+  return new Map(parts.flatMap((part) => [...part]));
+}
 
 /** Which of these people are members (not guests) of the workspace. */
 export async function membersAmong(

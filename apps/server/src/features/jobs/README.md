@@ -21,6 +21,10 @@ are ids only, never secrets or file contents.
 `lateByMs` counts from the time the job was due, retries included. `signal` aborts on timeout,
 cancel and shutdown. Progress is saved at most twice a second.
 
+Periodic tasks get a `PeriodicTaskContext`: the same, plus `now`, the time the run counts as
+(when it started, or the time the test hook gave). Use `ctx.now` instead of the clock, so
+end-to-end tests can pick the time.
+
 Owners get `{ type: 'job-updated', data: { jobId } }` over live updates when their job starts,
 makes progress and ends.
 
@@ -32,7 +36,8 @@ back in the queue without using up an attempt. Finished jobs are deleted after 7
 ## Tests
 
 `drainJobsForTest({ now? })` from `testing.ts` runs every due job, and due retries, in the test
-process. Periodic tasks don't run there: call your task function directly. Without the database
+process. Periodic tasks don't run there: call your task function directly (or, end to end, use
+the test hook below). Without the database
 (jobs in memory), `scheduleJob(input, { db })` queues the job at once.
 
 ## Routes (`routes.ts`, mounted at `/api/jobs`)
@@ -48,6 +53,12 @@ cancelRequested, progress, result, error, createdAt, startedAt, finishedAt }`.
 - `POST /api/jobs/:jobId/cancel` cancels it and returns `{ job }`.
 - Errors use the shared shape `{ error: { code, message } }`: 401 `signed_out`, 404 `not_found`
   (no such job) and 403 `forbidden` (someone else's job).
+- Test hook, only when `CAREHUB_TEST_HOOKS=1` (end-to-end test servers, never production):
+  `POST /api/jobs/test/periodic/:name` with `{ now? }` (ISO date and time; default the current
+  time) runs that periodic task once, at once and off its grid, with `ctx.now` set to `now`, and
+  returns `{ task, now }`. Site admins only: 401 `signed_out`, 403 `forbidden`, 400 `invalid` (a
+  bad time) and 404 `not_found` (no such task). Options for tests: `testHooks` and
+  `isSiteAdmin(request)`.
 
 ## Data
 

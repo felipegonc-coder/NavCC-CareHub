@@ -36,6 +36,7 @@ export function createMemoryNoticeStore(): MemoryNoticeStore {
     title: notice.title,
     text: notice.text,
     card: notice.card,
+    extraCards: notice.extraCards,
     buttons: notice.buttons,
   });
 

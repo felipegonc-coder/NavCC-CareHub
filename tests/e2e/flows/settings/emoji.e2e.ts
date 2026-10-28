@@ -4,13 +4,15 @@ import * as chat from '../messages/messages-page.js';
 import { makePage } from '../pages/page-data.js';
 import { PageScreen } from '../pages/page-screen.js';
 import * as emoji from './emoji-page.js';
-import { MB, picture } from './settings-data.js';
+import { MB, newPerson, picture } from './settings-data.js';
+import { createInviteLink, join } from './settings-page.js';
 
 // Settings and members, Done means 8 and section 7 (SM-12). Avery (the fictional admin) adds the
-// custom emoji blue-pine, uses it in a page, a comment and a message to Eli, then deletes it, which
-// leaves its name as text in all three. A blue-pine left over from an earlier run is deleted
-// first; the emoji is the workspace's, so the check runs once, on desktop-light. The limit of 500
-// fills the whole workspace up, so it's checked in security.workspace.e2e.ts.
+// custom emoji blue-pine, uses it in a page, a comment and a message, then deletes it, which
+// leaves its name as text in all three. The message goes to Sage, someone new who joins for this
+// check, so no other check's unread counts move. A blue-pine left over from an earlier run is
+// deleted first; the emoji is the workspace's, so the check runs once, on desktop-light. The limit
+// of 500 fills the whole workspace up, so it's checked in security.workspace.e2e.ts.
 
 const NAME = 'blue-pine';
 
@@ -20,6 +22,7 @@ test.describe('Settings: custom emoji', () => {
 
   test('SM-12 the custom emoji blue-pine: upload and name rules, used in a page, a comment and a message, and deleting it leaves its name as text', async ({
     page,
+    browser,
   }) => {
     test.setTimeout(3 * 60_000);
     await signInAs(page, 'admin');
@@ -86,9 +89,12 @@ test.describe('Settings: custom emoji', () => {
         await expect(emoji.emojiIn(comments.comment(note), NAME)).toBeVisible();
       });
 
-      await test.step('and in a message to Eli', async () => {
+      const sage = newPerson('Sage');
+      await test.step('and in a message to Sage, who joins for this check', async () => {
+        const invite = await createInviteLink(page, { role: 'Editor', uses: 1 });
+        await (await join(browser, invite, sage)).context().close();
         await chat.openMessages(page);
-        await chat.startChat(page, ['editor']);
+        await chat.startChatWith(page, [sage.name]);
         await chat.composer(page).click();
         await page.keyboard.type(`${note} `);
         await emoji.insertEmoji(page, NAME, emoji.emojiButton(page.getByRole('main')));
@@ -108,7 +114,7 @@ test.describe('Settings: custom emoji', () => {
         await expect(emoji.emojiIn(comments.comment(note), NAME)).toHaveCount(0);
 
         await chat.openMessages(page);
-        await chat.openChat(page, chat.firstName.editor);
+        await chat.openChat(page, sage.name);
         await expect(chat.messageRow(page, note)).toContainText(emoji.emojiName(NAME));
         await expect(emoji.emojiIn(chat.messageRow(page, note), NAME)).toHaveCount(0);
       });

@@ -32,6 +32,8 @@ import {
   type ValueEdit,
   type Viewer,
 } from './types';
+
+type MessageTo = Extract<ButtonAction, { kind: 'send_message' }>['to'];
 import { VALUE_MESSAGES } from './values';
 
 // ---------------------------------------------------------------- fixtures
@@ -152,6 +154,11 @@ const NAMES: Record<string, string> = {
   'u-sam': 'Sam Ortiz',
 };
 
+/** Groups and roles with their members, and every member of the workspace. */
+const GROUPS: Record<string, string[]> = { 'g-dispatch': ['u-jordan', 'u-sam'] };
+const ROLES: Record<string, string[]> = { 'r-agent': ['u-jordan', 'u-riley'] };
+const MEMBERS = ['u-avery', 'u-jordan', 'u-sam', 'u-riley'];
+
 type Fake = (row: Row, vars: Readonly<Record<string, ComputedValue>>) => ComputedValue;
 const FORMULAS: Record<string, Fake> = {
   'prop("pressed_by")': (_row, vars) => vars.pressed_by ?? { kind: 'empty' },
@@ -181,6 +188,8 @@ function context(over: Partial<RunContext> = {}): RunContext {
       p.id !== 'p-salary' && !HIDDEN.has(p.id) && atLeast(level, 'edit_content'),
     evaluate,
     userName: (id) => NAMES[id],
+    membersOf: (kind, id) => (kind === 'group' ? GROUPS : ROLES)[id] ?? null,
+    everyone: () => MEMBERS,
     newId: () => `new-${++n}`,
     ...over,
   };
@@ -254,6 +263,26 @@ describe('validateButton', () => {
     id === 'db-projects' ? projectProps : id === 'db-tickets' ? ticketProps : null;
   const check = (actions: ButtonAction[], whoCanPress?: 'editors' | 'viewers') =>
     validateButton(button(actions, whoCanPress).config, ticketProps, propertiesOf);
+
+  it('TB-14: lets anyone send to groups, and only Admins to Everyone or to roles', () => {
+    const message = (to: Partial<MessageTo>): ButtonConfig =>
+      button([{ kind: 'send_message', to: { userIds: [], propertyIds: [], ...to }, message: 'Hi' }])
+        .config;
+    const admin = { admin: true };
+    const adminsOnly = { error: { step: 1, message: M.adminsOnly }, warnings: [] };
+    expect(validateButton(message({ groupIds: ['g-dispatch'] }), ticketProps).error).toBeNull();
+    expect(validateButton(message({ everyone: true }), ticketProps)).toEqual(adminsOnly);
+    expect(validateButton(message({ roleIds: ['r-agent'] }), ticketProps, undefined, {})).toEqual(
+      adminsOnly,
+    );
+    expect(
+      validateButton(message({ everyone: true }), ticketProps, undefined, admin).error,
+    ).toBeNull();
+    expect(
+      validateButton(message({ roleIds: ['r-agent'] }), ticketProps, undefined, admin).error,
+    ).toBeNull();
+    expect(validateButton(message({ everyone: false, roleIds: [] }), ticketProps).error).toBeNull();
+  });
 
   it('accepts a good button', () => {
     const actions: ButtonAction[] = [
@@ -853,6 +882,58 @@ describe('planRun: messages, links, pages and confirmations', () => {
       },
     ]);
     expect(plan.run.messaged).toBe(3);
+  });
+
+  it('TB-14: sends to the members of groups and roles, and to Everyone, each person once', () => {
+    const send = (to: Partial<MessageTo>) =>
+      ready(
+        press([
+          { kind: 'send_message', to: { userIds: [], propertyIds: [], ...to }, message: 'Hi' },
+        ]),
+      ).steps[0];
+    expect(send({ userIds: ['u-sam'], groupIds: ['g-dispatch'], roleIds: ['r-agent'] })).toEqual({
+      step: 1,
+      kind: 'send_message',
+      userIds: ['u-sam', 'u-jordan', 'u-riley'],
+      message: 'Hi',
+    });
+    expect(send({ everyone: true, propertyIds: ['p-created'] })).toMatchObject({
+      userIds: MEMBERS,
+    });
+  });
+
+  it('stops when a group or role no longer exists', () => {
+    const send = (to: Partial<MessageTo>) =>
+      press([{ kind: 'send_message', to: { userIds: [], propertyIds: [], ...to }, message: 'Hi' }]);
+    expect(send({ groupIds: ['g-dispatch', 'g-gone'] })).toMatchObject({
+      status: 'refused',
+      message: "Couldn't finish step 1: That group doesn't exist.",
+    });
+    expect(send({ roleIds: ['r-gone'] })).toMatchObject({
+      message: "Couldn't finish step 1: That role doesn't exist.",
+    });
+  });
+
+  it('counts groups, roles and Everyone toward the 50 people', () => {
+    const crowd = Array.from({ length: 51 }, (_, i) => `u-${i}`);
+    const plan = press(
+      [
+        {
+          kind: 'send_message',
+          to: { userIds: [], propertyIds: [], everyone: true },
+          message: 'Hi',
+        },
+      ],
+      { everyone: () => crowd },
+    );
+    expect(plan).toMatchObject({
+      message: "Couldn't finish step 1: This message would go to more than 50 people.",
+    });
+    const fifty = { everyone: () => crowd.slice(0, 50), membersOf: () => crowd.slice(10, 20) };
+    const to = { userIds: ['u-1'], propertyIds: [], groupIds: ['g-big'], everyone: true };
+    expect(ready(press([{ kind: 'send_message', to, message: 'Hi' }], fifty)).run.messaged).toBe(
+      50,
+    );
   });
 
   it('stops when a message would reach more than 50 people', () => {
