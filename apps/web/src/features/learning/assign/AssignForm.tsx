@@ -1,4 +1,4 @@
-import { ASSIGNMENT_LIMITS } from '@carehub/learning';
+import { ASSIGNMENT_LIMITS, learningToday } from '@carehub/learning';
 import { Button, Checkbox, Field, Input, useFieldControlProps } from '@carehub/ui';
 import {
   useId,
@@ -24,7 +24,6 @@ import {
   errorsFromIssues,
   FIELD_ORDER,
   findPeople,
-  localToday,
   requestFrom,
   targetValue,
   type AssignDraft,
@@ -121,7 +120,8 @@ export function AssignForm({ onAssigned }: AssignFormProps) {
     dueDate: useRef<HTMLInputElement>(null),
     dueInDays: useRef<HTMLInputElement>(null),
   } satisfies Record<DraftField, unknown>;
-  const today = localToday();
+  // The earliest due date: today in Learning's day zone (decision 0317), as the server checks it.
+  const today = learningToday();
 
   const update = (change: Partial<AssignDraft>) =>
     setDraft((current) => ({ ...current, ...change }));

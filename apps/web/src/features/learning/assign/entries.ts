@@ -111,15 +111,19 @@ export function dueText(entry: Pick<AssignmentEntry, 'dueDate' | 'dueInDays'>): 
   return 'No due date';
 }
 
-/** Who assigned it and when, or that Care Hub did, for a re-certification. */
+/**
+ * Who assigned it and on which day (in `timeZone`, the profile's), or that Care Hub did, for a
+ * re-certification.
+ */
 export function byText(
   entry: Pick<AssignmentEntry, 'createdBy' | 'createdAt'>,
   people: ReadonlyMap<string, string> | null,
+  timeZone: string,
 ): string {
   if (entry.createdBy === RECERTIFICATION_ASSIGNER) {
     return 'Assigned by Care Hub for re-certification';
   }
   const name = people?.get(entry.createdBy);
   const by = name ?? (people ? 'a former member' : 'someone in this workspace');
-  return `Assigned by ${by} on ${formatDay(entry.createdAt)}`;
+  return `Assigned by ${by} on ${formatDay(entry.createdAt, timeZone)}`;
 }

@@ -5,7 +5,6 @@ import {
   emptyDraft,
   errorsFromIssues,
   findPeople,
-  localToday,
   requestFrom,
   targetValue,
   type AssignDraft,
@@ -106,12 +105,11 @@ describe('errorsFromIssues', () => {
 });
 
 describe('the words and choices of the form', () => {
-  it('counts people and groups, and knows the day on this device', () => {
+  it('counts people and groups', () => {
     expect(countText(1, 0)).toBe('1 person');
     expect(countText(3, 1)).toBe('3 people and 1 group');
     expect(countText(0, 2)).toBe('2 groups');
     expect(countText(0, 0)).toBe('no one');
-    expect(localToday(new Date(2026, 9, 7, 23, 30))).toBe('2026-10-07');
   });
 
   it('finds people by any part of their name or email, accents and case aside', () => {

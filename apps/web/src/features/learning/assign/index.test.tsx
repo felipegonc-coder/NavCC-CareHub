@@ -2,12 +2,14 @@ import type { Assignment, PathSummary } from '@carehub/learning';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CatalogEntry } from '../catalog/data';
+import { LEARNING_DAY_ZONE } from '../data/timeZone';
 import { formatDay, formatDueDate } from '../home/entry';
 import { errorReply, jsonReply, renderRoute } from '../player/test-utils';
 import type { StudioCourse } from './form';
 import { AssignScreen } from './index';
 
-// Fictional people and courses only.
+// Fictional people and courses only. GET /api/auth/me isn't served (404), so days show in
+// America/Denver: Learning's day zone, and the profile default.
 const DANA = '00000000-0000-4000-8000-00000000000a';
 const TARA = '00000000-0000-4000-8000-00000000000b';
 const OMAR = '00000000-0000-4000-8000-00000000000c';
@@ -206,7 +208,9 @@ describe('AssignScreen', () => {
     expect(entry.getByText('For Tara Okafor and Front desk (group)')).toBeInTheDocument();
     expect(entry.getByText(`Due ${formatDueDate('2030-11-20')} · Required`)).toBeInTheDocument();
     expect(
-      entry.getByText(`Assigned by Dana Reyes on ${formatDay('2026-10-27T15:00:00.000Z')}`),
+      entry.getByText(
+        `Assigned by Dana Reyes on ${formatDay('2026-10-27T15:00:00.000Z', LEARNING_DAY_ZONE)}`,
+      ),
     ).toBeInTheDocument();
     // The form starts again, empty.
     expect(target()).toHaveValue('');
@@ -277,7 +281,9 @@ describe('AssignScreen', () => {
     const entry = await entryOf(CALLS.title);
     expect(entry.getByText('For Tara Okafor')).toBeInTheDocument();
     expect(entry.getByText("Due 14 days after it's assigned · Required")).toBeInTheDocument();
-    expect(entry.getByText(`Assigned by Dana Reyes on ${formatDay(MADE_AT)}`)).toBeInTheDocument();
+    expect(
+      entry.getByText(`Assigned by Dana Reyes on ${formatDay(MADE_AT, LEARNING_DAY_ZONE)}`),
+    ).toBeInTheDocument();
     const remove = entry.getByRole('button', { name: `Remove ${CALLS.title} for Tara Okafor` });
 
     fireEvent.click(remove);
@@ -357,7 +363,9 @@ describe('AssignScreen', () => {
     const entry = await entryOf(CALLS.title);
     expect(entry.getByText('For 1 person and 1 group')).toBeInTheDocument();
     expect(
-      entry.getByText(`Assigned by someone in this workspace on ${formatDay(MADE_AT)}`),
+      entry.getByText(
+        `Assigned by someone in this workspace on ${formatDay(MADE_AT, LEARNING_DAY_ZONE)}`,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("Care Hub can't list the people here yet.")).toBeInTheDocument();
     expect(screen.getByText("Care Hub can't list the groups here yet.")).toBeInTheDocument();

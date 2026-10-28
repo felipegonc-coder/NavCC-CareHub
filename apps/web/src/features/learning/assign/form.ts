@@ -101,12 +101,6 @@ export function errorsFromIssues(issues: readonly ApiIssue[]): {
   return { errors, other };
 }
 
-/** Today on this device, YYYY-MM-DD: the earliest due date the form offers. */
-export function localToday(now = new Date()): string {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
 /** "1 person", "3 people and 1 group": who an assignment was made for. */
 export function countText(people: number, groups: number): string {
   const parts = [

@@ -1,6 +1,7 @@
 import { ErrorState, LoadingState, NoAccessState } from '@carehub/ui';
 import { useMemo, useState } from 'react';
 import { LearningApiError } from '../data';
+import { LEARNING_DAY_ZONE, useProfileTimeZone } from '../data/timeZone';
 import { AssignForm } from './AssignForm';
 import { AssignmentList } from './AssignmentList';
 import { useAssignments, useGroups, usePathOptions, usePeople } from './data';
@@ -15,6 +16,8 @@ export function AssignScreen() {
   const people = usePeople();
   const groups = useGroups();
   const paths = usePathOptions();
+  // Days show in the profile's zone; until the profile loads, in Learning's day zone.
+  const timeZone = useProfileTimeZone() ?? LEARNING_DAY_ZONE;
   const [status, setStatus] = useState('');
   const entries = useMemo(() => entriesOf(assignments.data ?? []), [assignments.data]);
   const names = useMemo<Names>(
@@ -38,6 +41,7 @@ export function AssignScreen() {
           entries={entries}
           names={names}
           pathTitles={pathTitles}
+          timeZone={timeZone}
           onRemoved={setStatus}
         />
       </>

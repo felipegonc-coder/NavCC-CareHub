@@ -114,13 +114,17 @@ describe('what an entry says', () => {
     expect(dueText({ dueDate: null, dueInDays: 14 })).toBe("Due 14 days after it's assigned");
     expect(dueText({ dueDate: null, dueInDays: null })).toBe('No due date');
 
-    const made = { createdBy: trainer, createdAt: at(9) };
-    expect(byText(made, names.people)).toBe(`Assigned by Sam Trainer on ${formatDay(at(9))}`);
-    expect(byText({ ...made, createdBy: person(99) }, names.people)).toBe(
-      `Assigned by a former member on ${formatDay(at(9))}`,
+    // 20:00 UTC is already the next day in Tokyo: the day shown is the profile zone's.
+    const zone = 'Asia/Tokyo';
+    const day = formatDay(at(20), zone);
+    expect(day).not.toBe(formatDay(at(20), 'America/Denver'));
+    const made = { createdBy: trainer, createdAt: at(20) };
+    expect(byText(made, names.people, zone)).toBe(`Assigned by Sam Trainer on ${day}`);
+    expect(byText({ ...made, createdBy: person(99) }, names.people, zone)).toBe(
+      `Assigned by a former member on ${day}`,
     );
-    expect(byText(made, null)).toBe(`Assigned by someone in this workspace on ${formatDay(at(9))}`);
-    expect(byText({ ...made, createdBy: RECERTIFICATION_ASSIGNER }, names.people)).toBe(
+    expect(byText(made, null, zone)).toBe(`Assigned by someone in this workspace on ${day}`);
+    expect(byText({ ...made, createdBy: RECERTIFICATION_ASSIGNER }, names.people, zone)).toBe(
       'Assigned by Care Hub for re-certification',
     );
   });

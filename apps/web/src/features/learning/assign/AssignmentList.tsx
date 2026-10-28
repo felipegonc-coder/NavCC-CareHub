@@ -27,6 +27,8 @@ export type AssignmentListProps = {
   entries: readonly AssignmentEntry[];
   names: Names;
   pathTitles: ReadonlyMap<string, string>;
+  /** The profile's time zone: the day each assignment was made is shown in it. */
+  timeZone: string;
   /** Says what happened, in the screen's status line. */
   onRemoved(message: string): void;
 };
@@ -38,7 +40,13 @@ const entryClasses = [
   'md:flex-row md:items-start md:justify-between md:gap-4',
 ].join(' ');
 
-export function AssignmentList({ entries, names, pathTitles, onRemoved }: AssignmentListProps) {
+export function AssignmentList({
+  entries,
+  names,
+  pathTitles,
+  timeZone,
+  onRemoved,
+}: AssignmentListProps) {
   const remove = useRemoveAssignment();
   const [removing, setRemoving] = useState<Removing | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -92,7 +100,7 @@ export function AssignmentList({ entries, names, pathTitles, onRemoved }: Assign
                   <p className="text-small text-muted">
                     {`${dueText(entry)} · ${entry.required ? 'Required' : 'Optional'}`}
                   </p>
-                  <p className="text-small text-muted">{byText(entry, names.people)}</p>
+                  <p className="text-small text-muted">{byText(entry, names.people, timeZone)}</p>
                 </div>
                 <Button
                   variant="secondary"
