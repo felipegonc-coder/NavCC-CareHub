@@ -21,6 +21,7 @@ import { DIALOG_PANELS, type LayoutProps, type OpenMode } from '../contract';
 import { useDatabase, useViewData } from '../hooks';
 import { LAYOUTS } from '../layouts';
 import { ErrorBoundary } from './boundary';
+import { ConfirmProvider } from './confirm';
 import { useDatabaseLive } from './live';
 import { PanelDialog, usePanels } from './panel-host';
 import { useSearch } from './search';
@@ -73,7 +74,9 @@ export interface DatabaseViewProps {
 export function DatabaseView(props: DatabaseViewProps) {
   return (
     <WithToasts>
-      <DatabaseScreen {...props} />
+      <ConfirmProvider>
+        <DatabaseScreen {...props} />
+      </ConfirmProvider>
     </WithToasts>
   );
 }

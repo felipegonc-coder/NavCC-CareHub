@@ -66,6 +66,9 @@ describe('createDatabaseClient', () => {
     await client.moveRow('db1', 'v1', 'r1', 'r2');
     await client.pickRows('db1', 'sink & drain');
     await client.applyTemplate('db1', 't1', 'r1', true);
+    await client.pressButton('db1', 'r1', 'p9');
+    await client.pressButton('db1', 'r1', 'p9', 1);
+    await client.undoButtonRun('db1', 'run1');
     await client.exportCsv('db1', { scope: 'all' });
     await client.submitForm('code1', { q1: 'Yes' });
     await client.changeFormLink('db1', 'v2');
@@ -94,6 +97,9 @@ describe('createDatabaseClient', () => {
         path: '/api/databases/db1/templates/t1/apply',
         body: { rowId: 'r1', replace: true },
       },
+      { method: 'POST', path: '/api/databases/db1/rows/r1/buttons/p9', body: undefined },
+      { method: 'POST', path: '/api/databases/db1/rows/r1/buttons/p9', body: { confirmed: 1 } },
+      { method: 'POST', path: '/api/databases/db1/button-runs/run1/undo', body: undefined },
       { method: 'POST', path: '/api/databases/db1/export', body: { scope: 'all' } },
       { method: 'POST', path: '/api/forms/code1/responses', body: { answers: { q1: 'Yes' } } },
       { method: 'POST', path: '/api/forms/db1/views/v2/link', body: undefined },

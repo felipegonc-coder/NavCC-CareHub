@@ -9,6 +9,7 @@
 import type {
   DatabaseMeta,
   Id,
+  Instant,
   Property,
   PropertyAccess,
   PropertyConfig,
@@ -225,6 +226,39 @@ export interface JobStarted {
   jobId: Id;
 }
 
+/** What a run opens, in step order: a page (in a peek, this tab or a new tab) or a web link. */
+export type RunOpen =
+  | { kind: 'page'; pageId: Id; openIn: 'side_peek' | 'center_peek' | 'full_page' | 'new_tab' }
+  | { kind: 'link'; url: string };
+
+/** A press that ran: its toast ("Done · Undo", the failure or null) and until when Undo works. */
+export interface ButtonRunAnswer {
+  status: 'done' | 'failed';
+  runId: Id;
+  message: string | null;
+  /** null: the run changed nothing. */
+  undoUntil: Instant | null;
+  open: RunOpen[];
+}
+
+/** A "Show a confirmation" step: Continue presses again with `confirmed` one higher. */
+export interface ButtonConfirmAnswer {
+  status: 'confirm';
+  step: number;
+  title: string;
+  message: string;
+  confirmLabel: string;
+}
+
+/** What pressing a button answers. A refusal of the presser's own access is a 403 instead. */
+export type PressAnswer = ButtonRunAnswer | ButtonConfirmAnswer;
+
+/** What Undo on a run answers: changes left as they are (someone changed them since), and a note. */
+export interface UndoRunAnswer {
+  kept: number;
+  note: string | null;
+}
+
 /** Form answers by question id. */
 export type FormAnswers = Partial<Record<Id, unknown>>;
 
@@ -299,8 +333,9 @@ export interface DatabaseClient {
 
   setAccessRules(databaseId: Id, rules: readonly RowAccessRule[]): Promise<SettingsAnswer>;
 
-  pressButton(databaseId: Id, rowId: Id, propertyId: Id): Promise<unknown>;
-  undoButtonRun(databaseId: Id, runId: Id): Promise<Ok>;
+  /** `confirmed`: how many confirmation steps the presser continued past (0 at first). */
+  pressButton(databaseId: Id, rowId: Id, propertyId: Id, confirmed?: number): Promise<PressAnswer>;
+  undoButtonRun(databaseId: Id, runId: Id): Promise<UndoRunAnswer>;
 
   previewImport(databaseId: Id, request: ImportRequest): Promise<unknown>;
   startImport(databaseId: Id, request: ImportRequest): Promise<unknown>;
@@ -423,8 +458,12 @@ export function createDatabaseClient(request: RequestJson = fetchJson): Database
 
     setAccessRules: (databaseId, rules) => write('PUT', databaseId, '/access-rules', { rules }),
 
-    pressButton: (databaseId, rowId, propertyId) =>
-      request('POST', db(databaseId, `/rows/${seg(rowId)}/buttons/${seg(propertyId)}`)),
+    pressButton: (databaseId, rowId, propertyId, confirmed = 0) =>
+      request(
+        'POST',
+        db(databaseId, `/rows/${seg(rowId)}/buttons/${seg(propertyId)}`),
+        confirmed > 0 ? { confirmed } : undefined,
+      ),
     undoButtonRun: (databaseId, runId) =>
       request('POST', db(databaseId, `/button-runs/${seg(runId)}/undo`)),
 
