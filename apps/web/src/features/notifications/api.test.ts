@@ -29,25 +29,58 @@ afterEach(() => {
 describe('notificationsClient', () => {
   it('reads and saves the notification settings', async () => {
     fetchMock.mockResolvedValueOnce(
-      answer(200, { preferences: { notifyAbout: 'all', showText: true } }),
+      answer(200, { preferences: { notifyAbout: 'all', showText: true, pause: null } }),
     );
     await expect(notificationsClient.getPreferences()).resolves.toEqual({
       notifyAbout: 'all',
       showText: true,
+      pause: null,
     });
     expect(lastCall()).toMatchObject({ path: '/api/push/preferences', method: 'GET' });
 
     fetchMock.mockResolvedValueOnce(
-      answer(200, { preferences: { notifyAbout: 'mentions', showText: true } }),
+      answer(200, { preferences: { notifyAbout: 'mentions', showText: true, pause: null } }),
     );
     await expect(
       notificationsClient.updatePreferences({ notifyAbout: 'mentions' }),
-    ).resolves.toEqual({ notifyAbout: 'mentions', showText: true });
+    ).resolves.toEqual({ notifyAbout: 'mentions', showText: true, pause: null });
     expect(lastCall()).toEqual({
       path: '/api/push/preferences',
       method: 'PATCH',
       body: JSON.stringify({ notifyAbout: 'mentions' }),
     });
+  });
+
+  it('reads settings with no pause as not paused', async () => {
+    fetchMock.mockResolvedValueOnce(
+      answer(200, { preferences: { notifyAbout: 'nothing', showText: false } }),
+    );
+    await expect(notificationsClient.getPreferences()).resolves.toEqual({
+      notifyAbout: 'nothing',
+      showText: false,
+      pause: null,
+    });
+  });
+
+  it('pauses notifications and turns them back on', async () => {
+    const until = '2026-10-28T14:00:00.000Z';
+    fetchMock.mockResolvedValueOnce(
+      answer(200, { preferences: { notifyAbout: 'all', showText: true, pause: { until } } }),
+    );
+    await expect(notificationsClient.pause('tomorrow_8am')).resolves.toMatchObject({
+      pause: { until },
+    });
+    expect(lastCall()).toEqual({
+      path: '/api/push/pause',
+      method: 'PUT',
+      body: JSON.stringify({ ends: 'tomorrow_8am' }),
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      answer(200, { preferences: { notifyAbout: 'all', showText: true, pause: null } }),
+    );
+    await expect(notificationsClient.resume()).resolves.toMatchObject({ pause: null });
+    expect(lastCall()).toEqual({ path: '/api/push/pause', method: 'DELETE', body: undefined });
   });
 
   it('lists and removes browsers', async () => {
