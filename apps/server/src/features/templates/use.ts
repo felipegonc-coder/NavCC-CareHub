@@ -12,6 +12,7 @@ import { atLeast, type AccessLevel } from '@carehub/shared';
 import { eq, sql } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
+import { copyButtons } from './buttons';
 import { core, type CorePage, type TemplatesViewer } from './core';
 import { tplMadeFrom, tplTemplates, type TemplateRow } from './schema';
 import { forbidden, loadTemplate, notFound, UUID, type TemplatePage } from './service';
@@ -143,6 +144,13 @@ export async function useTemplate(
         now,
       });
       let markdown = fillVariables(fillPageTokens(page.markdown, ids), values);
+      // The new page gets its own copies of the template's buttons.
+      markdown = await copyButtons(
+        tx,
+        markdown,
+        { workspaceId: viewer.workspaceId, pageId, templateId: null, by },
+        { templateId: template.row?.id ?? null },
+      );
       if (page.key === 0 && target.applyTo) {
         const existing = (await core().markdown(tx, pageId)).trimEnd();
         if (existing) markdown = `${existing}\n\n${markdown}`;
