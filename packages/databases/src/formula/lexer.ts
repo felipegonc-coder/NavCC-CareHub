@@ -44,8 +44,11 @@ export function syntaxError(
   throw new FormulaSyntaxError({ message, start, end });
 }
 
-const TWO = new Set(['>=', '<=', '==', '!=', '&&', '||']);
-const ONE = new Set('()[],.+-*/%^><!?:');
+/** Operators written with two characters, and with one. */
+export const TWO_CHAR_OPS: ReadonlySet<string> = new Set(['>=', '<=', '==', '!=', '&&', '||']);
+export const ONE_CHAR_OPS: ReadonlySet<string> = new Set('()[],.+-*/%^><!?:');
+const TWO = TWO_CHAR_OPS;
+const ONE = ONE_CHAR_OPS;
 const ESCAPES = new Map([
   ['"', '"'],
   ['\\', '\\'],
@@ -55,7 +58,55 @@ const SPACE = /\s/;
 const NAME_START = /[\p{L}_]/u;
 const NAME_PART = /[\p{L}\p{N}_]/u;
 
-const isDigit = (c: string | undefined) => c !== undefined && c >= '0' && c <= '9';
+/** Whether a character is a space, can start a name, or can be part of one. */
+export const isSpace = (c: string): boolean => SPACE.test(c);
+export const isNameStart = (c: string): boolean => NAME_START.test(c);
+export const isNamePart = (c: string): boolean => NAME_PART.test(c);
+export const isDigit = (c: string | undefined): boolean => c !== undefined && c >= '0' && c <= '9';
+
+/** Where a number starting at `from` ends: digits, then a decimal part and an exponent if any. */
+export function numberEnd(source: string, from: number): number {
+  let i = from;
+  while (isDigit(source[i])) i++;
+  if (source[i] === '.' && isDigit(source[i + 1])) {
+    i++;
+    while (isDigit(source[i])) i++;
+  }
+  if (source[i] === 'e' || source[i] === 'E') {
+    let j = i + 1;
+    if (source[j] === '+' || source[j] === '-') j++;
+    if (isDigit(source[j])) {
+      i = j;
+      while (isDigit(source[i])) i++;
+    }
+  }
+  return i;
+}
+
+/**
+ * A "text" starting at its quote: where it ends (after the closing quote, or at the end of the
+ * formula when there's none), its value with \" \\ and \n worked out, and whether it's closed.
+ */
+export function readTextLiteral(
+  source: string,
+  from: number,
+): { end: number; value: string; closed: boolean } {
+  let value = '';
+  let i = from + 1;
+  while (i < source.length) {
+    const ch = source[i] ?? '';
+    if (ch === '"') return { end: i + 1, value, closed: true };
+    if (ch === '\\' && i + 1 < source.length) {
+      const next = source[i + 1] ?? '';
+      value += ESCAPES.get(next) ?? `\\${next}`;
+      i += 2;
+      continue;
+    }
+    value += ch;
+    i++;
+  }
+  return { end: source.length, value, closed: false };
+}
 
 /** The tokens of a formula, ending with an "end" token. */
 export function tokenize(source: string): Token[] {
@@ -76,24 +127,15 @@ export function tokenize(source: string): Token[] {
     }
     const start = i;
     if (isDigit(c)) {
-      while (isDigit(source[i])) i++;
-      if (source[i] === '.' && isDigit(source[i + 1])) {
-        i++;
-        while (isDigit(source[i])) i++;
-      }
-      if (source[i] === 'e' || source[i] === 'E') {
-        let j = i + 1;
-        if (source[j] === '+' || source[j] === '-') j++;
-        if (isDigit(source[j])) {
-          i = j;
-          while (isDigit(source[i])) i++;
-        }
-      }
+      i = numberEnd(source, i);
       tokens.push({ kind: 'number', value: source.slice(start, i), start, end: i });
       continue;
     }
     if (c === '"') {
-      i = readText(source, i, tokens);
+      const text = readTextLiteral(source, i);
+      if (!text.closed) syntaxError(source, `Missing '"'`, start, source.length);
+      tokens.push({ kind: 'text', value: text.value, start, end: text.end });
+      i = text.end;
       continue;
     }
     if (NAME_START.test(c)) {
@@ -118,25 +160,4 @@ export function tokenize(source: string): Token[] {
   }
   tokens.push({ kind: 'end', value: '', start: n, end: n });
   return tokens;
-}
-
-/** Reads a "text" starting at the quote; \" \\ and \n are escapes, other backslashes stay. */
-function readText(source: string, from: number, tokens: Token[]): number {
-  let value = '';
-  let i = from + 1;
-  for (;;) {
-    if (i >= source.length) syntaxError(source, `Missing '"'`, from, source.length);
-    const ch = source[i] ?? '';
-    if (ch === '"') break;
-    if (ch === '\\' && i + 1 < source.length) {
-      const next = source[i + 1] ?? '';
-      value += ESCAPES.get(next) ?? `\\${next}`;
-      i += 2;
-      continue;
-    }
-    value += ch;
-    i++;
-  }
-  tokens.push({ kind: 'text', value, start: from, end: i + 1 });
-  return i + 1;
 }

@@ -115,12 +115,13 @@ describe('DatabaseView', () => {
     const client = mockClient();
     client.query.mockResolvedValue(queryData([]));
     const onOpenRow = vi.fn();
-    const onImportCsv = vi.fn();
-    show({ onOpenRow, onImportCsv }, client);
+    show({ onOpenRow }, client);
     await screen.findByText('No rows yet.');
     const empty = around('No rows yet.');
     fireEvent.click(within(empty).getByRole('button', { name: 'Import CSV' }));
-    expect(onImportCsv).toHaveBeenCalledTimes(1);
+    const dialog = await screen.findByRole('dialog', { name: 'Import CSV' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(within(empty).getByRole('button', { name: 'New' }));
     await waitFor(() => expect(onOpenRow).toHaveBeenCalledWith('row-new', 'side_peek'));
     expect(client.createRow).toHaveBeenCalledWith(
@@ -133,7 +134,7 @@ describe('DatabaseView', () => {
     const client = mockClient();
     client.getDatabase.mockResolvedValue(jobsDatabase({ viewerAccess: 'edit_content' }));
     client.query.mockResolvedValue(queryData([]));
-    show({ onImportCsv: vi.fn() }, client);
+    show({}, client);
     await screen.findByText('No rows yet.');
     expect(within(around('No rows yet.')).getByRole('button', { name: 'New' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Import CSV' })).toBeNull();
