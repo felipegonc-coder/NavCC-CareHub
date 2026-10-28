@@ -14,8 +14,9 @@ export interface SheetContentProps extends Omit<
 }
 
 /**
- * A panel that slides in from the left edge, such as the phone menu. Put it inside <Dialog>:
- * focus stays inside, Escape closes it, and focus goes back to what opened it.
+ * A panel that slides in from the left edge, such as the phone menu; on a phone it covers the
+ * whole screen. Put it inside <Dialog>: focus stays inside, Escape closes it, and focus goes back
+ * to what opened it.
  */
 export function SheetContent({
   title,
@@ -30,7 +31,7 @@ export function SheetContent({
       <DialogPrimitive.Content
         aria-describedby={undefined}
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-sidebar max-w-full animate-slide-in-left flex-col bg-bg text-fg shadow-dialog focus:outline-none',
+          'fixed inset-y-0 left-0 z-50 flex w-sidebar max-w-full animate-slide-in-left flex-col bg-bg text-fg shadow-dialog focus:outline-none max-md:w-full',
           className,
         )}
         {...props}

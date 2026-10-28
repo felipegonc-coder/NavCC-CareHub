@@ -89,7 +89,12 @@ function statusIn(statuses: readonly ReminderStatus[]): SQL {
 
 function assignments(changes: ReminderChanges): SQL[] {
   const set: SQL[] = [];
-  const { dueAt, minutesBefore, note, status, timeZone, use24h, sentAt } = changes;
+  const { target, dueAt, minutesBefore, note, status, timeZone, use24h, sentAt } = changes;
+  if (target) {
+    const t = targetColumns(target);
+    set.push(sql`target_type = ${t.type}, page_id = ${t.pageId}::uuid, event_id = ${t.eventId},
+      occurrence_start = ${t.occurrenceStart}`);
+  }
   if (dueAt) set.push(sql`due_at = ${iso(dueAt)}::timestamptz`);
   if (minutesBefore !== undefined) set.push(sql`minutes_before = ${minutesBefore}::int`);
   if (note !== undefined) set.push(sql`note = ${note}`);

@@ -78,8 +78,18 @@ describe('repeatScheduleSchema', () => {
     ['an unknown time zone', { timeZone: 'Mars/Base' }],
     ['a bad start date', { start: '2025-02-30' }],
     ['an unknown key', { skipHolidays: true }],
+    ['times left below 0', { timesLeft: -1 }],
+    ['more than 1,000 times', { timesLeft: LIMITS.repeatTimes + 1 }],
+    ['part of a time', { timesLeft: 2.5 }],
+    ['an end date and a number of times', { end: '2025-12-31', timesLeft: 3 }],
   ])('refuses %s', (_, change) => {
     expect(ok(repeatScheduleSchema, { ...weekly, ...change })).toBe(false);
+  });
+
+  it('takes a number of times left, 0 once it has ended', () => {
+    for (const timesLeft of [0, 1, LIMITS.repeatTimes, null]) {
+      expect(ok(repeatScheduleSchema, { ...weekly, timesLeft })).toBe(true);
+    }
   });
 
   it('takes the last quarter hour and an end on the start day', () => {

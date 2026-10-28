@@ -2,7 +2,7 @@ import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn';
-import { controlClasses, menuItemClasses, surfaceClasses } from './classes';
+import { bottomSheetClasses, controlClasses, menuItemClasses, surfaceClasses } from './classes';
 import { useFieldControlProps } from './field-context';
 
 export const Select = SelectPrimitive.Root;
@@ -40,14 +40,18 @@ export function SelectContent({
   position = 'popper',
   ...props
 }: ComponentProps<typeof SelectPrimitive.Content>) {
+  // Only the list placed next to its field becomes a bottom sheet on a phone.
+  const sheet = position === 'popper';
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         position={position}
         sideOffset={4}
+        data-sheet={sheet ? '' : undefined}
         className={cn(
           surfaceClasses,
           'max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)]',
+          sheet && bottomSheetClasses,
           className,
         )}
         {...props}

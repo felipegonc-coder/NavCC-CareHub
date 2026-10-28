@@ -4,7 +4,7 @@
  */
 import { LIMITS } from '../types';
 import type { ComputedKind, Id, Property } from '../types';
-import { LENGTH_MESSAGE, checkFormula } from './check';
+import { LENGTH_MESSAGE, checkFormula, findByName } from './check';
 import { basicSchema, resultKindOf } from './kinds';
 import { childrenOf, parseFormula, type Node } from './parser';
 import { getFunction, paramsFor, type FormulaError, type FormulaSchema } from './registry';
@@ -46,7 +46,7 @@ export function toStoredFormula(
   const edits = checked.refs.map((r) => ({
     start: r.start,
     end: r.end,
-    text: quoteText(r.property.id),
+    text: quoteText(r.id),
   }));
   const expression = applyEdits(source, edits);
   if (expression.length > LIMITS.formulaLength) return { ok: false, error: tooLong };
@@ -83,8 +83,10 @@ function propertyNames(root: FormulaSchema, deleted: readonly { id: Id; name: st
 }
 
 /**
- * The formula as the editor shows it: prop("<id>") becomes prop("Name"), deleted properties
- * included. A formula that can't be read comes back unchanged.
+ * The formula as the editor shows it: prop("<id>") becomes prop("Name"), deleted properties and
+ * inputs (a button's Pressed by, variables) included. On the formula's own row, a name that would
+ * read something else when saved again (an input with the same name) stays as its id. A formula
+ * that can't be read comes back unchanged.
  */
 export function toDisplayFormula(
   expression: string,
@@ -93,14 +95,20 @@ export function toDisplayFormula(
 ): string {
   const parsed = parseFormula(expression);
   if (!parsed.ok || !parsed.ast) return expression;
-  const names = propertyNames(asSchema(schema), deleted);
+  const root = asSchema(schema);
+  const names = propertyNames(root, deleted);
+  const inputs = new Map((root.inputs ?? []).map((i) => [i.id, i.name]));
   const edits: { start: number; end: number; text: string }[] = [];
   forEachNode(parsed.ast, (node) => {
     if (node.type !== 'call' || node.name !== 'prop') return;
     const key = node.args[node.method ? 1 : 0];
-    const name = key?.type === 'text' ? names.get(key.value) : undefined;
-    if (key && name !== undefined)
-      edits.push({ start: key.start, end: key.end, text: quoteText(name) });
+    if (key?.type !== 'text') return;
+    const own = !node.method;
+    const name = (own ? inputs.get(key.value) : undefined) ?? names.get(key.value);
+    if (name === undefined) return;
+    const reads = own ? findByName(root, name, true) : undefined;
+    if (reads && reads.id !== key.value) return;
+    edits.push({ start: key.start, end: key.end, text: quoteText(name) });
   });
   return applyEdits(expression, edits);
 }

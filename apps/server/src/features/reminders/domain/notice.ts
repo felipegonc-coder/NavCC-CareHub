@@ -1,5 +1,14 @@
 // What a due reminder looks like in the 🔔 Care Hub chat (Home and reminders spec, section 3).
-import { datePart, formatDate, formatTime, toCivil } from '@carehub/team-time';
+import {
+  addDays,
+  combine,
+  datePart,
+  formatDate,
+  formatTime,
+  toCivil,
+  toInstant,
+  todayIn,
+} from '@carehub/team-time';
 import type { NoticeButton, SendNoticeInput } from '../../notices';
 import type { Reminder, ReminderTarget } from '../types';
 
@@ -15,6 +24,24 @@ type Prefs = Pick<Reminder, 'timeZone' | 'use24h'>;
 export function snoozeLabel(snooze: Snooze, prefs: Prefs): string {
   if (snooze === 'tomorrow') return `Tomorrow at ${formatTime('09:00', prefs)}`;
   return snooze === '1h' ? '1 hour' : '15 minutes';
+}
+
+export function isSnooze(value: string): value is Snooze {
+  return (SNOOZES as readonly string[]).includes(value);
+}
+
+/** When a snoozed reminder comes back: in 15 minutes or 1 hour, or tomorrow at 9:00 AM. */
+export function snoozeUntil(snooze: Snooze, now: Date, timeZone: string): Date {
+  if (snooze === 'tomorrow') {
+    return toInstant(combine(addDays(todayIn(timeZone, now), 1), '09:00'), timeZone);
+  }
+  return new Date(now.getTime() + (snooze === '1h' ? 60 : 15) * 60_000);
+}
+
+/** "Snoozed for 15 minutes", or "Snoozed until tomorrow at 9:00 AM". */
+export function snoozedMessage(snooze: Snooze, prefs: Prefs): string {
+  if (snooze === 'tomorrow') return `Snoozed until tomorrow at ${formatTime('09:00', prefs)}`;
+  return `Snoozed for ${snoozeLabel(snooze, prefs)}`;
 }
 
 /** "Late: was due at 9:00 AM", or "Late: was due Oct 25 at 9:00 AM" on another day. */

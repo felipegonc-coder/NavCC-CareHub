@@ -25,7 +25,7 @@ export const LAYOUTS: Record<ViewLayout, LayoutComponent> = {
 
   chart: lazy(() => import('./shell/not-built')),
 
-  form: lazy(() => import('./shell/not-built')),
+  form: lazy(() => import('../forms/layout')),
 
   feed: lazy(() => import('./shell/not-built')),
 
