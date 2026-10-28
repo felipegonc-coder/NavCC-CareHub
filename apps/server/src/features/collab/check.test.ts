@@ -8,6 +8,7 @@ import {
   URL_KEYS,
   checkUpdate,
   pageSchemaInfo,
+  pageSize,
   type SchemaInfo,
 } from './check';
 import { MAX_DEPTH, pageFragment, readContent, replaceContent } from './ydoc';
@@ -120,11 +121,16 @@ describe('checkUpdate', () => {
         [...keys].map((key) => `${name}.${key}${URL_KEYS.has(key) ? ' (address)' : ''}`),
       );
     expect(list(info.nodeAttrs).sort()).toEqual([
+      'codeBlock.blockId',
       'codeBlock.language',
+      'database.blockId',
       'database.databaseId',
+      'heading.blockId',
       'heading.level',
+      'horizontalRule.blockId',
       'orderedList.start',
       'orderedList.type',
+      'paragraph.blockId',
       'taskItem.checked',
     ]);
     expect(list(info.markAttrs).sort()).toEqual([
@@ -231,12 +237,17 @@ describe('checkUpdate', () => {
       fragment.delete(0, 1);
       fragment.insert(0, [paragraph('Instead')]);
     });
-    expect(checkUpdate(adding, server, info)).toEqual({
+    const full = pageSize(server, info);
+    const now = Date.now();
+    expect(checkUpdate(adding, server, info, full, now)).toEqual({
       ok: false,
       reason: 'too many blocks',
       tooLong: true,
     });
-    expect(checkUpdate(replacing, server, info)).toEqual(accepted(MAX_BLOCKS));
+    // Once the page may be counted again, an update that leaves it at the limit goes through.
+    expect(checkUpdate(replacing, server, info, full, now + MEASURE_EVERY_MS)).toEqual(
+      accepted(MAX_BLOCKS),
+    );
 
     // A caller's estimate that's too high is corrected by the count.
     const small = serverDoc();
@@ -374,5 +385,27 @@ describe('checkUpdate', () => {
       tooLong: true,
     });
     expect(checkUpdate(typing, server, info, estimate, now + MEASURE_EVERY_MS).ok).toBe(true);
+  }, 30_000);
+
+  it('counts the blocks of a page at most once every MEASURE_EVERY_MS', () => {
+    const server = new Y.Doc();
+    const blocks = Array.from({ length: MAX_BLOCKS }, () => new Y.XmlElement('paragraph'));
+    pageFragment(server).insert(0, blocks);
+    const replacing = changeOn(server, (fragment) => {
+      fragment.delete(0, 1);
+      fragment.insert(0, [paragraph('Instead')]);
+    });
+    const size = pageSize(server, info);
+    const now = Date.now();
+    expect(checkUpdate(replacing, server, info, size, now)).toEqual(accepted(MAX_BLOCKS));
+    // Until the page may be counted again, an update that adds a block is refused.
+    expect(checkUpdate(replacing, server, info, size, now + 1_000)).toEqual({
+      ok: false,
+      reason: 'too many blocks',
+      tooLong: true,
+    });
+    expect(checkUpdate(replacing, server, info, size, now + MEASURE_EVERY_MS)).toEqual(
+      accepted(MAX_BLOCKS),
+    );
   }, 30_000);
 });
