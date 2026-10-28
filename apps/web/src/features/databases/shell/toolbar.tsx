@@ -234,7 +234,7 @@ export function Toolbar({
           }}
           onCloseAutoFocus={panels.closeAutoFocus}
         >
-          <PanelBody {...shared} panel={popover} close={panels.close} />
+          <PanelBody {...shared} panel={popover} target={panels.target} close={panels.close} />
         </PopoverContent>
       )}
     </Popover>
