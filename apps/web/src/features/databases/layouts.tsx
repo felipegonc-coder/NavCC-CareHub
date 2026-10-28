@@ -15,9 +15,9 @@ export const LAYOUTS: Record<ViewLayout, LayoutComponent> = {
 
   board: lazy(() => import('./board/layout')),
 
-  list: lazy(() => import('./shell/not-built')),
+  list: lazy(() => import('./list/layout')),
 
-  gallery: lazy(() => import('./shell/not-built')),
+  gallery: lazy(() => import('./gallery/layout')),
 
   calendar: lazy(() => import('./shell/not-built')),
 

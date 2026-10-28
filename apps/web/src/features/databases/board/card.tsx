@@ -54,6 +54,8 @@ export interface BoardCardProps {
   size: CardSize;
   fitImage: boolean;
   showIcon: boolean;
+  /** Off: the title is only read out (View.showTitle). */
+  showTitle?: boolean;
   wrap: boolean;
   hiddenByFilter: boolean;
   /** Picked up with Space. */
@@ -85,6 +87,7 @@ export function BoardCard({
   size,
   fitImage,
   showIcon,
+  showTitle = true,
   wrap,
   hiddenByFilter,
   lifted,
@@ -148,7 +151,10 @@ export function BoardCard({
               className="min-w-0 flex-1 cursor-pointer font-medium outline-none after:absolute after:inset-0 after:rounded focus-visible:after:ring-2 focus-visible:after:ring-ring"
             >
               <span
-                className={cn(wrap ? 'break-words' : 'block truncate', !row.title && 'text-muted')}
+                className={cn(
+                  !showTitle ? 'sr-only' : wrap ? 'break-words' : 'block truncate',
+                  !row.title && 'text-muted',
+                )}
               >
                 {title}
               </span>
@@ -186,29 +192,33 @@ export function BoardCard({
         })}
       </div>
       <CardMenu
-        title={title}
+        label={BOARD_TEXT.cardMenu(title)}
         open={menuOpen}
         onOpenChange={onMenuOpenChange}
         onClosed={onMenuClosed}
         menu={menu}
+        className="absolute right-1 top-1 opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 data-[state=open]:opacity-100 max-md:opacity-100"
       />
     </article>
   );
 }
 
-/** The card's menu: Open, Move to…, Duplicate, Copy link and Delete. */
-function CardMenu({
-  title,
+/** A card's or line's menu: Open, Move to…, Duplicate, Copy link and Delete. */
+export function CardMenu({
+  label,
   open,
   onOpenChange,
   onClosed,
   menu,
+  className,
 }: {
-  title: string;
+  label: string;
   open: boolean;
   onOpenChange(open: boolean): void;
   onClosed(): void;
   menu: CardMenuActions;
+  /** Where its "…" button sits. */
+  className?: string;
 }) {
   // "Move to…" turns the menu into the list of columns.
   const [moving, setMoving] = useState(false);
@@ -229,7 +239,7 @@ function CardMenu({
     >
       <DropdownMenuTrigger asChild>
         <IconButton
-          label={BOARD_TEXT.cardMenu(title)}
+          label={label}
           size="sm"
           tabIndex={-1}
           data-no-drag=""
@@ -238,7 +248,7 @@ function CardMenu({
             if (event.pointerType !== 'touch') event.preventDefault();
           }}
           onClick={() => onOpenChange(true)}
-          className="absolute right-1 top-1 text-muted opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 data-[state=open]:opacity-100 max-md:hidden"
+          className={cn('text-muted', className)}
         >
           <MoreHorizontal aria-hidden className="size-4" />
         </IconButton>

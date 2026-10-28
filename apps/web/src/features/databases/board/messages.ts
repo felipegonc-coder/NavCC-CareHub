@@ -16,6 +16,13 @@ export const BOARD_TEXT = {
   delete: 'Delete',
   collapse: (label: string) => `Collapse ${label}`,
   expand: (label: string) => `Expand ${label}`,
+  columnMenu: (label: string) => `Column menu for ${label}`,
+  hide: 'Hide',
+  moveLeft: 'Move left',
+  moveRight: 'Move right',
+  calculate: 'Calculate',
+  /** Phones: the buttons that bring a column into view. */
+  columns: 'Columns',
   newTitle: 'Name',
   /** Read out when Space picks a card up. */
   pickedUp: (title: string) =>
