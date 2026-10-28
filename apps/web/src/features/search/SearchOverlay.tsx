@@ -1,9 +1,13 @@
 import { lazy, Suspense, useEffect } from 'react';
+import { useLocation } from 'react-router';
+import { reportVisit } from './data';
 import { isSearchShortcut } from './keys';
 import { closeSearch, openSearch, useSearchOpen } from './open';
 
 const loadWindow = () => import('./SearchWindow');
 const SearchWindow = lazy(loadWindow);
+
+const PAGE_PATH = /^\/p\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
 
 /**
  * Search's overlay in the shell: Ctrl+K and Ctrl+P open the search window from any screen. The
@@ -12,6 +16,8 @@ const SearchWindow = lazy(loadWindow);
  */
 export function SearchOverlay() {
   const open = useSearchOpen();
+  const { pathname } = useLocation();
+  const pageId = PAGE_PATH.exec(pathname)?.[1];
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -27,6 +33,10 @@ export function SearchOverlay() {
       clearTimeout(idle);
     };
   }, []);
+
+  useEffect(() => {
+    if (pageId) reportVisit(pageId);
+  }, [pageId]);
 
   if (!open) return null;
   return (

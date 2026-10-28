@@ -76,11 +76,19 @@ export const LANES = {
 /**
  * Core tests that every run in that app includes, because a lane change can break them: the
  * server's app and route wiring, sign-in, sessions and CSRF, workspaces, roles and members (the
- * guard matrix), and the web app's routes and slots.
+ * guard matrix), page access (lanes register access resolvers), and the web app's routes and
+ * slots.
  * @type {Record<string, string[]>}
  */
 export const CORE_TESTS = {
-  'apps/server': ['src/app.test.ts', 'src/core/', 'src/features/auth/', 'src/features/workspaces/'],
+  'apps/server': [
+    'src/app.test.ts',
+    'src/core/',
+    'src/features/auth/',
+    'src/features/workspaces/',
+    'src/features/roles/',
+    'src/features/pages/',
+  ],
   'apps/web': ['src/routes.test.tsx', 'src/slots.test.ts'],
 };
 

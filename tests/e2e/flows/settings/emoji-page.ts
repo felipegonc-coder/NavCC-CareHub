@@ -1,4 +1,5 @@
 import type { APIResponse, Locator, Page } from '@playwright/test';
+import { csrfTokenOf } from '../_support/api.js';
 import { apiFor, expect, test } from '../_support/index.js';
 import { choice } from '../sharing/share-dialog.js';
 import { clickAndConfirm } from './account-page.js';
@@ -156,11 +157,9 @@ export async function listEmoji(page: Page): Promise<CustomEmoji[]> {
 export async function sendEmoji(page: Page, name: string, file: Buffer): Promise<APIResponse> {
   // A form upload, so not apiFor's JSON: the same CSRF header and Origin (decision 0007, 3.1).
   const baseURL = test.info().project.use.baseURL ?? '';
-  const cookies = await page.context().cookies(baseURL || undefined);
-  const csrf = cookies.find((cookie) => cookie.name === 'carehub_csrf')?.value ?? '';
   return page.request.fetch('/api/emoji', {
     method: 'POST',
-    headers: { 'X-CSRF-Token': csrf, Origin: new URL(baseURL).origin },
+    headers: { 'X-CSRF-Token': await csrfTokenOf(page), Origin: new URL(baseURL).origin },
     multipart: { name, file: { name: `${name}.png`, mimeType: 'image/png', buffer: file } },
   });
 }
