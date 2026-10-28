@@ -10,6 +10,8 @@ const database = Node.create({
   name: 'database',
   group: 'block',
   atom: true,
+  // Moved in the page by its own grip; the web view keeps every other drag inside the block.
+  draggable: true,
 
   addAttributes() {
     return {
