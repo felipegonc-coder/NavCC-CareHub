@@ -75,6 +75,19 @@ describe('uploadWithProgress', () => {
     await expect(done).resolves.toEqual(SAVED);
   });
 
+  it('sends the token from the HTTPS cookie when there is one', () => {
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => 'theme=dark; __Host-carehub_csrf=csrf-secure-1; carehub_csrf=csrf-plain-1',
+    });
+    try {
+      void uploadWithProgress(photo(), { scope: 'forms:form-1' });
+      expect(sent().headers['X-CSRF-Token']).toBe('csrf-secure-1');
+    } finally {
+      Reflect.deleteProperty(document, 'cookie');
+    }
+  });
+
   it('sends no CSRF header when there is no cookie', () => {
     void uploadWithProgress(photo(), { scope: 'forms:form-1' });
     expect(sent().headers['X-CSRF-Token']).toBeUndefined();

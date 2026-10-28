@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import type { FormDefinition } from '@carehub/databases';
 import { draftKey } from '@carehub/databases/forms';
-import { ApiError } from '../databases/api';
+import { ApiError, OFFLINE_MESSAGE } from '../databases/api';
 import { FormsClientProvider, type FillForm } from './api';
-import { FormFill, OFFLINE_TEXT } from './form-fill';
+import { FormFill, OFFLINE_TEXT, REFILE_NOTE } from './form-fill';
 import {
   fillForm,
   IDS,
@@ -315,6 +315,83 @@ describe('FormFill', () => {
       anonymous: true,
       fill: 'fill-1',
     });
+  });
+
+  it('leaves out files from before a page reload when the form has a new token, and asks for them again', async () => {
+    const key = draftKey('form-1', null);
+    const before = { id: 'file-old', name: 'old.heic', size: 4, mime: 'image/heic' };
+    window.sessionStorage.setItem(key, JSON.stringify({ answers: { [IDS.photos]: [before] } }));
+    const data = fillForm(
+      { audience: 'anyone', questions: [question(IDS.photos, 'Photos')] },
+      { respondent: null, fill: 'fill-2' },
+    );
+    renderWithForms(<FormFill data={data} code="code-123" signedOut />);
+    expect(screen.queryByText('old.heic')).toBeNull();
+    const note = screen.getByText(REFILE_NOTE);
+    const upload = screen.getByRole('button', { name: 'Upload files' });
+    expect(upload.getAttribute('aria-describedby')).toContain(note.id);
+    expect(window.sessionStorage.getItem(key) ?? '').not.toContain('file-old');
+    const file = new File(['leak'], 'sink.heic', { type: 'image/heic' });
+    fireEvent.change(screen.getByLabelText('Photos'), { target: { files: [file] } });
+    expect(await screen.findByText('sink.heic')).toBeInTheDocument();
+    expect(screen.queryByText(REFILE_NOTE)).toBeNull();
+  });
+
+  it('keeps files from before a page reload when the form has no fill token', () => {
+    const key = draftKey('form-1', null);
+    const before = { id: 'file-old', name: 'old.heic', size: 4, mime: 'image/heic' };
+    window.sessionStorage.setItem(key, JSON.stringify({ answers: { [IDS.photos]: [before] } }));
+    const data = fillForm(
+      { audience: 'anyone', questions: [question(IDS.photos, 'Photos')] },
+      { respondent: null },
+    );
+    renderWithForms(<FormFill data={data} code="code-123" signedOut />);
+    expect(screen.getByText('old.heic')).toBeInTheDocument();
+    expect(screen.queryByText(REFILE_NOTE)).toBeNull();
+  });
+
+  it('gets the form again, for a fresh fill token, before another response', async () => {
+    const client = mockFormsClient();
+    const data = (fill: string) =>
+      fillForm(
+        { audience: 'anyone', allowMultiple: true, questions: [question(IDS.photos, 'Photos')] },
+        { respondent: null, fill },
+      );
+    const onReload = vi.fn(() => Promise.resolve(data('fill-2')));
+    renderWithForms(
+      <FormFill data={data('fill-1')} code="code-123" signedOut onReload={onReload} />,
+      client,
+    );
+    async function sendPhoto(name: string, fill: string) {
+      const file = new File(['leak'], name, { type: 'image/heic' });
+      fireEvent.change(await screen.findByLabelText('Photos'), { target: { files: [file] } });
+      expect(await screen.findByText(name)).toBeInTheDocument();
+      expect(client.uploadFile).toHaveBeenLastCalledWith(file, { scope: 'forms:form-1', fill });
+      fireEvent.click(submitButton());
+      await screen.findByRole('status');
+      expect(client.submitPublicResponse).toHaveBeenLastCalledWith('code-123', {
+        answers: { [IDS.photos]: [{ id: `file-${name}`, name, size: 4, mime: 'image/heic' }] },
+        anonymous: true,
+        fill,
+      });
+    }
+    await sendPhoto('sink.heic', 'fill-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Submit another response' }));
+    await sendPhoto('tap.heic', 'fill-2');
+    expect(onReload).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays on the confirmation, saying why, when the form can't be fetched again", async () => {
+    const onReload = vi.fn(() => Promise.reject(new ApiError(0, 'offline', OFFLINE_MESSAGE)));
+    renderWithForms(
+      <FormFill data={fillForm({ allowMultiple: true })} code="code-123" onReload={onReload} />,
+    );
+    answerRequired();
+    fireEvent.click(submitButton());
+    await screen.findByRole('status');
+    fireEvent.click(screen.getByRole('button', { name: 'Submit another response' }));
+    expect(await screen.findByText(OFFLINE_MESSAGE)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Thanks! Your response was sent.');
   });
 
   it('uploads files to the form, signed in', async () => {

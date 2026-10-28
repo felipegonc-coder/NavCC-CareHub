@@ -73,6 +73,40 @@ describe('FormPage', () => {
     });
   });
 
+  it('gets the form again, with a fresh fill token, for another response', async () => {
+    const client = mockFormsClient();
+    client.getForm.mockRejectedValue(unauthorized());
+    const open = (fill: string) =>
+      fillForm({ audience: 'anyone', allowMultiple: true }, { respondent: null, fill });
+    client.getPublicForm.mockResolvedValueOnce(open('fill-1')).mockResolvedValue(open('fill-2'));
+    renderFormPage('code-123', client);
+    const answers = { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing' };
+    async function answerAndSend() {
+      fireEvent.change(await screen.findByRole('textbox', { name: 'Your name' }), {
+        target: { value: 'Avery Lin' },
+      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Billing' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Send request' }));
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'Thanks! Your response was sent.',
+      );
+    }
+    await answerAndSend();
+    expect(client.submitPublicResponse).toHaveBeenLastCalledWith('code-123', {
+      answers,
+      anonymous: true,
+      fill: 'fill-1',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit another response' }));
+    await answerAndSend();
+    expect(client.getPublicForm).toHaveBeenCalledTimes(2);
+    expect(client.submitPublicResponse).toHaveBeenLastCalledWith('code-123', {
+      answers,
+      anonymous: true,
+      fill: 'fill-2',
+    });
+  });
+
   it('says why the form could not open, with Retry', async () => {
     const client = mockFormsClient();
     client.getForm.mockRejectedValueOnce(new ApiError(500, 'unknown', UNKNOWN_ERROR_MESSAGE));
