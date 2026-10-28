@@ -3,12 +3,14 @@
  * field `file`, query `scope=<feature>:<id>`), with progress. A stand-in for `uploadFile` from
  * apps/web/src/lib/files.ts until it lands. Forms anyone can fill in upload the same way with
  * nobody signed in: the `forms` scope takes anonymous uploads (decision 0010). Like every POST, an
- * upload carries the CSRF token from the `carehub_csrf` cookie, which core checks. When the form
- * came with a `fill` token, an upload sends it as `X-Form-Fill`, which ties the file to this fill.
+ * upload carries the CSRF token, which core checks: `readCsrfToken` from @carehub/shared reads the
+ * `__Host-carehub_csrf` cookie over HTTPS and `carehub_csrf` on a plain-HTTP development server.
+ * When the form came with a `fill` token, an upload sends it as `X-Form-Fill`, which ties the file
+ * to this fill.
  */
 import type { FileRef } from '@carehub/databases';
+import { readCsrfToken } from '@carehub/shared';
 import { ApiError, OFFLINE_MESSAGE, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
-import { readCsrfToken } from '../live/client';
 
 /** What `POST /api/files` answers. */
 export interface UploadedFile {
@@ -79,7 +81,7 @@ export function uploadWithProgress(file: File, options: UploadOptions): Promise<
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/files?scope=${encodeURIComponent(options.scope)}`);
     xhr.setRequestHeader('Accept', 'application/json');
-    const token = readCsrfToken();
+    const token = readCsrfToken(document.cookie);
     if (token) xhr.setRequestHeader('X-CSRF-Token', token);
     if (options.fill) xhr.setRequestHeader('X-Form-Fill', options.fill);
     xhr.upload.onprogress = (event) => {

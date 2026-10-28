@@ -23,12 +23,19 @@ import {
 import { validateValue } from '@carehub/databases/values';
 import { Button, Logo } from '@carehub/ui';
 import { isApiError, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
-import { DEFAULT_CONFIRMATION, publicCoverUrl, useFormsClient, type FillForm } from './api';
+import {
+  DEFAULT_CONFIRMATION,
+  problemText,
+  publicCoverUrl,
+  useFormsClient,
+  type FillForm,
+} from './api';
 import {
   answerInput,
   answerInputs,
   askedQuestions,
   clearDraft,
+  filesOf,
   loadDraft,
   logicValues,
   newQuestionsText,
@@ -36,6 +43,7 @@ import {
   saveDraft,
   uploadingText,
   type Answers,
+  type AskedQuestion,
   type DraftPlace,
 } from './answers';
 import { Question, questionDomId } from './questions';
@@ -43,6 +51,7 @@ import { RichText } from './rich-text';
 
 export const OFFLINE_TEXT = "You're offline. Your answers are kept here; submit when you're back.";
 export const RATE_LIMITED_TEXT = 'Too many responses. Try again in a minute.';
+export const REFILE_NOTE = 'The page reloaded. Add your files again.';
 
 function localTimeZone(): string {
   try {
@@ -84,6 +93,28 @@ function submitProblem(error: unknown): Notice {
   return { text: error.message, retry: true };
 }
 
+/**
+ * Unsent answers kept from before the page loaded. Their files went up with an earlier fill token,
+ * which this fill's response can't take (decision 0010), and tokens are never kept in the browser.
+ * So when the form comes with a token, those files are left out and their questions ask for them
+ * again.
+ */
+function restoredAnswers(
+  saved: Answers,
+  asked: readonly AskedQuestion[],
+  fill: string | undefined,
+): { answers: Answers; refile: ReadonlySet<Id> } {
+  const refile = new Set<Id>();
+  if (!fill) return { answers: saved, refile };
+  const answers = { ...saved };
+  for (const q of asked) {
+    if (q.kind !== 'files' || filesOf(answers[q.prop.id]).length === 0) continue;
+    delete answers[q.prop.id];
+    refile.add(q.prop.id);
+  }
+  return { answers, refile };
+}
+
 /** Moves the focus into a question's box: its first control. */
 function focusQuestion(propertyId: Id): void {
   const box = document.getElementById(questionDomId(propertyId));
@@ -109,8 +140,12 @@ export interface FormFillProps {
   code: string;
   /** Nobody is signed in (a form anyone can fill in): the response goes through the public route. */
   signedOut?: boolean;
-  /** Asks for the form again after the server says it changed. */
-  onReload?: () => void;
+  /**
+   * Asks for the form again: after the server says it changed, and for a fresh fill token before
+   * another response. Resolves with the form as it is now (null when it can't be filled in here
+   * any more), or rejects with what went wrong.
+   */
+  onReload?: () => Promise<FillForm | null>;
 }
 
 /**
@@ -134,7 +169,9 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   const place: DraftPlace = signedOut ? 'session' : 'local';
   const asked = useMemo(() => askedQuestions(def, properties), [def, properties]);
 
-  const [answers, setAnswers] = useState<Answers>(() => loadDraft(key, place) ?? {});
+  const [restored] = useState(() => restoredAnswers(loadDraft(key, place) ?? {}, asked, data.fill));
+  const [answers, setAnswers] = useState<Answers>(restored.answers);
+  const [refile, setRefile] = useState<ReadonlySet<Id>>(restored.refile);
   const [errors, setErrors] = useState<Partial<Record<Id, string>>>({});
   const [summary, setSummary] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -144,9 +181,12 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   const [announcement, setAnnouncement] = useState('');
   const [focusTarget, setFocusTarget] = useState<{ propertyId: Id } | null>(null);
   const [brokenCover, setBrokenCover] = useState<string | null>(null);
-  // The fill token the screen opened with (decision 0010). Uploads made so far are tied to it, and
-  // the time of the fill counts from it, so a reload of the form doesn't swap it.
-  const [fill] = useState(data.fill);
+  // The fill token (decision 0010). Uploads made so far are tied to it, and the time of the fill
+  // counts from it, so a reload of the form after a change doesn't swap it; another response gets
+  // a fresh one. It's only ever kept here, never in the browser's storage.
+  const [fill, setFill] = useState(data.fill);
+  const [starting, setStarting] = useState(false);
+  const [startProblem, setStartProblem] = useState<string | null>(null);
   const sendingNow = useRef(false);
   const shownBefore = useRef<ReadonlySet<Id> | null>(null);
   const online = useOnline();
@@ -186,6 +226,12 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
       if (previous[propertyId] === undefined) return previous;
       const next = { ...previous };
       delete next[propertyId];
+      return next;
+    });
+    setRefile((previous) => {
+      if (!previous.has(propertyId)) return previous;
+      const next = new Set(previous);
+      next.delete(propertyId);
       return next;
     });
   }, []);
@@ -247,7 +293,7 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
       setAnswers({});
       setSent(true);
     } catch (error) {
-      if (isApiError(error) && error.code === 'form_changed') onReload?.();
+      if (isApiError(error) && error.code === 'form_changed') void onReload?.().catch(() => null);
       setNotice(submitProblem(error));
     } finally {
       sendingNow.current = false;
@@ -271,9 +317,25 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
     void submit();
   }
 
-  function startAgain() {
+  async function startAgain() {
+    if (onReload) {
+      // Another response gets a fresh fill token: the form is fetched again first.
+      setStarting(true);
+      setStartProblem(null);
+      try {
+        const fresh = await onReload();
+        if (!fresh) return;
+        setFill(fresh.fill);
+      } catch (error) {
+        setStartProblem(problemText(error));
+        return;
+      } finally {
+        setStarting(false);
+      }
+    }
     shownBefore.current = null;
     setAnswers({});
+    setRefile(new Set());
     setErrors({});
     setSummary(null);
     setNotice(null);
@@ -299,10 +361,11 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
       >
         <RichText value={confirmationOf(def)} className="text-body text-fg" />
         {def.allowMultiple && (
-          <Button variant="secondary" onClick={startAgain}>
+          <Button variant="secondary" loading={starting} onClick={() => void startAgain()}>
             Submit another response
           </Button>
         )}
+        {startProblem && <p className="text-small text-danger">{startProblem}</p>}
       </div>
     );
   } else {
@@ -349,6 +412,7 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
               formId={formId}
               databaseId={databaseId}
               fill={fill}
+              note={refile.has(q.prop.id) ? REFILE_NOTE : undefined}
             />
           ))}
         <div aria-live="polite" className="sr-only">

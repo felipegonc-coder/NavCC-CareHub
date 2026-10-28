@@ -70,7 +70,11 @@ export function FormByCode({ code, setsTitle = false }: { code: string; setsTitl
         data={loaded.data}
         code={code}
         signedOut={loaded.signedOut}
-        onReload={() => void query.refetch()}
+        onReload={async () => {
+          const result = await query.refetch();
+          if (result.isError) throw result.error;
+          return result.data?.kind === 'form' ? result.data.data : null;
+        }}
       />
     );
   }

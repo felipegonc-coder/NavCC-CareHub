@@ -47,6 +47,8 @@ export interface QuestionProps {
   databaseId: Id;
   /** The form's fill token, if it came with one: it goes with each upload. */
   fill?: string | undefined;
+  /** A files question's note above its files (to add them again after the page reloaded). */
+  note?: string | undefined;
 }
 
 interface Ids {
@@ -541,11 +543,15 @@ function FilesControl({
   onUploads,
   formId,
   fill,
+  note,
   ids,
 }: QuestionProps & { ids: Ids }) {
   const client = useFormsClient();
   const { prop } = asked;
   const files = filesOf(value);
+  const noteId = `${ids.box}-note`;
+  const describedBy =
+    [ids.describedBy, note ? noteId : null].filter(Boolean).join(' ') || undefined;
   const [pending, setPending] = useState<Pending[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -585,13 +591,18 @@ function FilesControl({
 
   return (
     <div className="flex flex-col gap-2">
+      {note && (
+        <p id={noteId} className="text-small text-fg">
+          {note}
+        </p>
+      )}
       <input
         ref={input}
         id={ids.control}
         type="file"
         multiple
         className="hidden"
-        aria-describedby={ids.describedBy}
+        aria-describedby={describedBy}
         onChange={(event) => {
           add(event.target.files);
           event.target.value = '';
@@ -620,7 +631,7 @@ function FilesControl({
         <Button
           variant="secondary"
           size="sm"
-          aria-describedby={ids.describedBy}
+          aria-describedby={describedBy}
           aria-invalid={error ? true : undefined}
           disabled={room <= 0}
           onClick={() => input.current?.click()}
