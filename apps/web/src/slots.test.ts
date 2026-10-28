@@ -18,15 +18,31 @@ describe('mergeSlots', () => {
     expect(mergeSlots([])).toEqual({
       sidebarItems: [],
       sidebarSections: [],
+      treeItemChildren: {},
       settingsSections: [],
       commands: [],
       pageMenuItems: [],
       pageKindViews: {},
       pageHeaderExtras: {},
-      treeItemChildren: {},
+      overlays: [],
       pageBanners: [],
       editor: { nodeViews: {}, slashItems: [], linkPickers: [], bubbleItems: [], extensions: [] },
     });
+  });
+
+  it('joins overlays in line order and sorts page banners by order', () => {
+    const merged = mergeSlots([
+      {
+        overlays: [{ id: 'search', Component: View }],
+        pageBanners: [{ id: 'verified', order: 20, Component: View }],
+      },
+      {
+        overlays: [{ id: 'assistant', Component: OtherView }],
+        pageBanners: [{ id: 'archived', order: 10, Component: OtherView }],
+      },
+    ]);
+    expect(merged.overlays.map((overlay) => overlay.id)).toEqual(['search', 'assistant']);
+    expect(merged.pageBanners.map((banner) => banner.id)).toEqual(['archived', 'verified']);
   });
 
   it('joins lists and sorts them by order, keeping line order for ties', () => {
