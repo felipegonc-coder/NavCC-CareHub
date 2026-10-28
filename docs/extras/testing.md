@@ -63,3 +63,15 @@ The tests never reach Claude. The server is pointed at a local stub:
 - **CL-02:** the fictional key never appears in the server output, any API answer, any page, an export or the web bundle.
 
 The two environment lines go in the browser-test workflow (`.github/`), on the e2e server step only, with the fictional key.
+
+### Writing help (CL-06 to CL-08)
+
+- `POST /api/claude/write` with `{ pageId, action, tone?, selection, at?, prompt? }` answers `{ text }` in Markdown.
+  - Actions: `improve`, `fix_grammar`, `change_tone` (with `tone`: `professional`, `friendly`, `direct` or `empathetic`), `make_shorter`, `simplify`, `continue`, `summarize` and `draft` (with `prompt`).
+  - `at` is where the selection starts in the page's text, so the server picks the right one when the words appear twice.
+- What reaches the stub (CL-07):
+  - The selection; for `continue`, the last 4,000 characters above the cursor.
+  - The page title, with up to 2,000 characters of the page's text on each side of the selection, which the server reads itself.
+  - For `summarize` with nothing selected, the whole page up to 40,000 characters; for `draft`, only the title and what was typed.
+- Refusals: 403 without Use Claude or Can edit, 413 over 10,000 selected characters, and Claude's own reasons with `error.details.reason` ([claude.md](claude.md)).
+- `POST /api/claude/write/applied` with `{ pageId, action, placement }` follows Replace or Insert below. Page history reads its `claude.write.applied` event to show "(with Claude)".
