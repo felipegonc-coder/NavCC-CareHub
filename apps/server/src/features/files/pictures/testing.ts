@@ -1,6 +1,7 @@
 // Fictional sample pictures for the tests: the real structure of each format, with made-up details
 // that must go. The image data is filler (the cleaners never decode pixels), except in samplePhoto.
 
+import { deflateSync } from 'node:zlib';
 import jpeg from 'jpeg-js';
 import { orientationExif } from './exif';
 import { pngChunk } from './png';
@@ -49,7 +50,10 @@ export function sampleExif(orientation: number): Buffer {
 const segment = (marker: number, payload: Buffer) =>
   Buffer.concat([u16(0xff00 | marker), u16(payload.length + 2), payload]);
 
-/** A JPEG with Exif (orientation 6), XMP, IPTC and a comment, and a second picture after its end. */
+/**
+ * A JPEG with Exif (orientation 6), XMP, IPTC and a comment, then a second picture and a motion
+ * photo's video after its end.
+ */
 export function sampleJpeg() {
   const start = u16(0xffd8);
   const end = u16(0xffd9);
@@ -82,13 +86,27 @@ export function sampleJpeg() {
     start,
     exif(1),
     end,
+    u32(20),
+    text('ftypmp42'),
+    u32(0),
+    text(`isom${DETAIL}`),
   ]);
   const orientationOnly = segment(0xe1, Buffer.concat([text('Exif\0\0'), orientationExif(6)]));
   const cleaned = Buffer.concat([start, jfif, orientationOnly, colours, tables, frame, scan, end]);
   return { file, cleaned, width: 48, height: 64, orientation: 6 };
 }
 
-/** A PNG with text, Exif (orientation 6) and a time, and bytes after its end. */
+/** How ImageMagick keeps Exif, XMP or IPTC in a PNG: in hex, in a compressed text chunk. */
+function rawProfile(name: string, data: Buffer): Buffer {
+  const hex = data.toString('hex').replace(/.{1,72}/g, '$&\n');
+  const profile = text(`\n${name}\n${String(data.length).padStart(8)}\n${hex}`);
+  return pngChunk(
+    'zTXt',
+    Buffer.concat([text(`Raw profile type ${name}\0\0`), deflateSync(profile)]),
+  );
+}
+
+/** A PNG with text, a raw Exif profile, Exif (orientation 6) and a time, and bytes after its end. */
 export function samplePng() {
   const signature = Buffer.from('89504e470d0a1a0a', 'hex');
   const header = pngChunk('IHDR', Buffer.concat([u32(64), u32(48), Buffer.from([8, 2, 0, 0, 0])]));
@@ -99,6 +117,7 @@ export function samplePng() {
     signature,
     header,
     pngChunk('tEXt', text(`Location\0${DETAIL}`)),
+    rawProfile('exif', Buffer.concat([text('Exif\0\0'), sampleExif(6)])),
     pngChunk('eXIf', sampleExif(6)),
     colours,
     pngChunk('iTXt', text(`XML:com.adobe.xmp\0\0\0\0\0${DETAIL}`)),
