@@ -99,12 +99,23 @@ const SLOW: PatternResult<never> = { ok: false, error: PATTERN_MESSAGES.tooSlow 
 const failed = (error: string): PatternResult<never> => ({ ok: false, error });
 
 /**
+ * performance.now where there is one, or Date.now. Unlike Date.now, performance.now never steps
+ * back or jumps when the system clock is set. Read through globalThis: the package is built
+ * without DOM or Node types.
+ */
+const steadyClock: () => number = (() => {
+  const perf = (globalThis as { performance?: { now(): number } }).performance;
+  return perf ? () => perf.now() : () => Date.now();
+})();
+
+/**
  * An engine with its own cache of up to `cacheSize` patterns, which times each match and replace
- * on `now` (milliseconds from any fixed point, Date.now unless the caller brings its own clock).
+ * on `now` (milliseconds from any fixed point; performance.now unless the caller brings its own
+ * clock, Date.now where there's no performance.now).
  */
 export function createPatternEngine(
   cacheSize: number = PATTERN_CACHE_SIZE,
-  now: () => number = Date.now,
+  now: () => number = steadyClock,
 ): CachedPatternEngine {
   const cache = new Map<string, Entry>();
   let compiled = 0;
