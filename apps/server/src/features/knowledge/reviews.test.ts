@@ -5,7 +5,7 @@ import {
   addDays,
   type Verification,
 } from '@carehub/extras/knowledge';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../../core/events';
