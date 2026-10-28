@@ -6,3 +6,12 @@ export const NoticesChat = lazy(() => import('./NoticesChatView'));
 export type { NoticesChatProps } from './NoticesChatView';
 export { useNoticesPreview, useNoticesUnread } from './hooks';
 export type { NoticesPreview } from './api';
+export {
+  ALWAYS_ON_NOTICES,
+  NOTICE_SETTINGS,
+  useChangeNoticeSettings,
+  useNoticeSettings,
+  type NoticeSettingInfo,
+  type NoticeSettingKey,
+  type NoticeSettings,
+} from './settings';
