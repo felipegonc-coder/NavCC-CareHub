@@ -1,9 +1,10 @@
+import { REPORT_REASONS, REPORT_STATUSES } from '@carehub/extras/knowledge';
 import { sql } from 'drizzle-orm';
 import { boolean, date, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from '../auth/schema';
 
-// Mirrors migrations/202610271140_knowledge_pages.sql, which is the source of truth (a test
-// compares them).
+// Mirrors migrations/202610271140_knowledge_pages.sql and 202610271150_knowledge_reports.sql,
+// which are the source of truth (tests compare them).
 
 const at = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -40,5 +41,39 @@ export const kbPages = pgTable('kb_pages', {
   updatedAt: at('updated_at').notNull().defaultNow(),
 });
 
+export const kbReports = pgTable('kb_reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pageId: uuid('page_id').notNull(),
+  databaseId: uuid('database_id')
+    .notNull()
+    .references(() => kbBases.databaseId, { onDelete: 'cascade' }),
+  workspaceId: uuid('workspace_id').notNull(),
+  reporterId: uuid('reporter_id')
+    .notNull()
+    .references(() => users.id),
+  reason: text('reason', { enum: REPORT_REASONS }).notNull(),
+  text: text('text').notNull().default(''),
+  quote: text('quote'),
+  blockId: text('block_id'),
+  status: text('status', { enum: REPORT_STATUSES }).notNull().default('new'),
+  createdAt: at('created_at').notNull().defaultNow(),
+  updatedAt: at('updated_at').notNull().defaultNow(),
+  closedBy: uuid('closed_by').references(() => users.id),
+  closedAt: at('closed_at'),
+});
+
+export const kbReportReplies = pgTable('kb_report_replies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  reportId: uuid('report_id')
+    .notNull()
+    .references(() => kbReports.id, { onDelete: 'cascade' }),
+  authorId: uuid('author_id')
+    .notNull()
+    .references(() => users.id),
+  text: text('text').notNull(),
+  createdAt: at('created_at').notNull().defaultNow(),
+});
+
 export type KbBase = typeof kbBases.$inferSelect;
 export type KbPage = typeof kbPages.$inferSelect;
+export type KbReportRecord = typeof kbReports.$inferSelect;
