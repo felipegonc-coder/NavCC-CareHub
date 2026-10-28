@@ -2,12 +2,14 @@ import { apiFor, expect, needs, onlyIn, signInAs, test, uniqueName } from '../_s
 import { makeDatabase } from '../databases/database-api.js';
 import { DatabaseScreen } from '../databases/database-page.js';
 import { Editor } from '../editor/editor-page.js';
+import { confirmDialog } from '../history-trash/history-page.js';
 import { literally, pageIdOf } from '../pages/page-screen.js';
 import { ButtonSettings, undoOf } from './templates-page.js';
 
 // Templates and buttons, sections 2 and 3.4: a "/button" block with three actions run in order,
-// and Undo for 8 seconds after a run that changed things. Eli (Editor) sets it up and presses it:
-// the default "People who can edit" lets Eli press it, and Eli can add rows to own database.
+// and Undo for 8 seconds after a run that changed things; Show a confirmation and its Cancel. Eli
+// (Editor) sets them up and presses them: the default "People who can edit" lets Eli press them,
+// and Eli can add rows to own database.
 
 test.describe('Templates: button blocks', () => {
   onlyIn('desktop-light');
@@ -72,6 +74,55 @@ test.describe('Templates: button blocks', () => {
       const ticketsScreen = new DatabaseScreen(page, tickets.id);
       await ticketsScreen.open();
       await expect(ticketsScreen.rows()).toHaveCount(0);
+    });
+  });
+
+  test('TB-13 Cancel in Show a confirmation stops the run with no changes, and Continue runs the rest', async ({
+    page,
+  }) => {
+    await signInAs(page, 'editor');
+    const tickets = await makeDatabase(page, uniqueName('Fictional QA Tickets'));
+    const label = 'Fictional QA log a callback';
+    const question = 'Fictional QA add a callback ticket?';
+    const editor = await Editor.onNewPage(page);
+    const pageId = pageIdOf(page);
+    const settings = new ButtonSettings(page);
+    const button = editor.content.getByRole('button', { name: label });
+    const asking = confirmDialog(page, question);
+    const ticketsScreen = new DatabaseScreen(page, tickets.id);
+
+    await test.step('"/button": Show a confirmation, then Add a row to Tickets', async () => {
+      await page.keyboard.type('/button');
+      await editor.option('Button').click();
+      await expect(settings.dialog).toBeVisible();
+      await settings.label.fill(label);
+      const confirming = await settings.addAction('Show a confirmation');
+      await confirming.getByRole('textbox').first().fill(question);
+      const adding = await settings.addAction('Add a row');
+      await settings.choose(adding, /database/i, literally(tickets.title));
+      await settings.done();
+      await expect(button).toBeVisible();
+    });
+
+    await test.step('Pressing it asks with Continue and Cancel; Cancel stops the run', async () => {
+      await button.click();
+      await expect(asking).toBeVisible();
+      await expect(asking.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
+      await asking.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(asking).toBeHidden();
+      await expect(undoOf(page)).toHaveCount(0);
+      await ticketsScreen.open();
+      await expect(ticketsScreen.rows()).toHaveCount(0);
+    });
+
+    await test.step('Pressing it again and choosing Continue adds the row', async () => {
+      await editor.screen.goto(pageId);
+      await button.click();
+      await asking.getByRole('button', { name: 'Continue', exact: true }).click();
+      await expect(asking).toBeHidden();
+      await expect(undoOf(page)).toBeVisible();
+      await ticketsScreen.open();
+      await expect(ticketsScreen.rows()).toHaveCount(1);
     });
   });
 });

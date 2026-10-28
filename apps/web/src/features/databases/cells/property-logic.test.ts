@@ -10,6 +10,7 @@ import {
   clearedByChange,
   hideInView,
   NEW_PROPERTY_TYPES,
+  newPropertyTypes,
   placeInView,
   rowsWithValues,
   typeChoices,
@@ -25,6 +26,13 @@ const byId = (id: string): Property => {
   return found;
 };
 const rows = jobsRows().map(queryRow);
+const verification = prop({ type: 'verification' }, 'Verification');
+const verified = {
+  state: 'verified',
+  verifiedBy: USERS.jordan.id,
+  verifiedAt: '2026-10-20T15:00:00Z',
+  until: '2027-01-20',
+};
 const people = [
   { id: USERS.avery.id, name: USERS.avery.name, email: 'avery@bluepine.example' },
   { id: USERS.jordan.id, name: USERS.jordan.name },
@@ -99,14 +107,15 @@ describe('typeChoices', () => {
     expect(typeChoices(byId(PROPS.technician))).toEqual(['text']);
   });
 
-  it('never changes Name, and nothing turns into Formula, Rollup, ID or Button', () => {
+  it('never changes Name, and nothing turns into Formula, Rollup, ID, Button or Verification', () => {
     expect(typeChoices(byId(PROPS.name))).toEqual([]);
     const id = prop({ type: 'unique_id', prefix: 'JOB' });
     expect(typeChoices(id)).toEqual(['text', 'number']);
     const formula = prop({ type: 'formula', expression: '1', resultKind: 'number', number: null });
     expect(typeChoices(formula)).toEqual(['text']);
+    expect(typeChoices(verification)).toEqual(['text']);
     for (const p of props) {
-      for (const added of ['formula', 'rollup', 'unique_id', 'button'] as const) {
+      for (const added of ['formula', 'rollup', 'unique_id', 'button', 'verification'] as const) {
         expect(typeChoices(p)).not.toContain(added);
       }
     }
@@ -122,6 +131,16 @@ describe('NEW_PROPERTY_TYPES', () => {
     expect(NEW_PROPERTY_TYPES).toContain('formula');
     expect(NEW_PROPERTY_TYPES).toContain('unique_id');
     expect(NEW_PROPERTY_TYPES).toContain('button');
+  });
+});
+
+describe('newPropertyTypes', () => {
+  it('offers Verification in wiki databases only', () => {
+    const notWiki = NEW_PROPERTY_TYPES.filter((t) => t !== 'verification');
+    expect(newPropertyTypes({})).toEqual(notWiki);
+    expect(newPropertyTypes({ wiki: false })).toEqual(notWiki);
+    expect(newPropertyTypes({ wiki: true })).toEqual(NEW_PROPERTY_TYPES);
+    expect(NEW_PROPERTY_TYPES).toContain('verification');
   });
 });
 
@@ -172,6 +191,16 @@ describe('rowsWithValues', () => {
   it('does not count unticked boxes or automatic values', () => {
     expect(rowsWithValues(byId(PROPS.paid), rows)).toBe(1);
     expect(rowsWithValues(prop({ type: 'created_by' }), rows)).toBe(0);
+  });
+
+  it('counts verified and expired rows, not Not verified ones', () => {
+    const expired = { ...verified, state: 'expired', until: '2026-10-01' };
+    const some = [
+      queryRow(fixtureRow('r1', 'Shutoff valves', 1, { [verification.id]: verified })),
+      queryRow(fixtureRow('r2', 'Water heaters', 2, { [verification.id]: expired })),
+      queryRow(fixtureRow('r3', 'Drain care', 3)),
+    ];
+    expect(rowsWithValues(verification, some)).toBe(2);
   });
 });
 

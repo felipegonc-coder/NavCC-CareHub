@@ -1,8 +1,8 @@
 # Roles and permissions
 
-_Copied from the Notion spec (https://app.notion.com/p/d2e6352004d64a9b93a0b3ee29ee4259) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
-> 🔐 Phase 3, except sharing: core builds the sharing parts (share dialog, general access, guests, groups, share links, access requests, moving pages) in Phase 1 · Builds on the accounts and spaces from Phase 1 · The other specs use the words defined here
+> 🔐 Phase 3, except sharing: the sharing parts (share dialog, general access, guests, groups, share links, access requests, moving pages) are part of Phase 1 · Builds on the accounts and spaces from Phase 1 · The other specs use the words defined here
 >
 > 🆕 **v2 (Oct 28):** sharing now lives here in full (share dialog, general access, guests, groups, share links, access requests, moving pages), matching Notion. Related: Sidebar, spaces and nested pages; Settings and members. New parts are marked 🆕.
 
@@ -13,7 +13,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 ## 2. Screens and states
 
 - **Settings → Members:** name, email, role (a dropdown), joined, last active; search; filter by role. 🆕 Tabs for Guests and Groups (Settings and members spec).
-- 🆕 **Share dialog** (Share at the top right of every page, database and space, and in the page menu): described in section 3 under Sharing. Core builds it in Phase 1.
+- 🆕 **Share dialog** (Share at the top right of every page, database and space, and in the page menu): described in section 3 under Sharing. It's part of Phase 1.
 - 🆕 **Request access screen** for people who open a link to something they can't open (section 3).
 - 🆕 **Settings → Security → Share links** (Admins): every page with a live share link.
 - **Settings → Roles:** each role with its number of members. A role's page lists its permissions with a one-line explanation each, and its members. "New role" starts as a copy of any role.
@@ -75,7 +75,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 **🆕 Guests**
 
 - A guest is someone outside the team who can open only the pages shared with them (and those pages' sub-pages). They get their own account: name, sign-in name, password, and optional 2-step verification.
-- Care Hub never sends email, so whoever adds a guest gets a one-time setup link (valid 7 days) to pass on another way. The setup screen reminds the inviter that the guest also needs access to the Tailscale network, which Felipe gives in Tailscale.
+- Care Hub never sends email, so whoever adds a guest gets a one-time setup link (valid 7 days) to pass on another way. The setup screen reminds the inviter that the guest also needs access to the Tailscale network, which a site admin gives in Tailscale.
 - Adding guests needs the Add guests permission and the workspace setting "Allow guests" (on by default; Settings and members). Up to 100 guests per workspace.
 - Guests can get Can edit, Can comment or Can view, never Full access, and they can't share. With Can edit they can add sub-pages inside that page.
 - Guests see a "Shared with me" sidebar section, search only what they can open, and see names only of people on pages they can open. They don't get spaces, the member list, Messages chats (🟨 RP-D2), Calendar, Meetings, Learning, Analytics, templates, automations or workspace settings. They do get their 🔔 chat, comments and mentions on their pages, and their own account settings.
@@ -140,7 +140,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **RP-16** Share Onboarding plan with Sam (Can edit), the group Phoenix team, the role Agent and the guest Casey (Can view), then change Sam's level on a sub-page. → Each gets the chosen level and inherited entries show their source; the sub-page change asks first and turns on Stop inheriting.
 2. ⭐ **RP-03** Give Morgan, a Viewer, Can edit on a page. → Morgan can still only view, and the Share dialog says why.
@@ -182,8 +182,8 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - 🆕 **RP-25** Moving a page to a place with different access first shows the section 3 sentence, such as "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." Afterwards access matches it: the people counted can't open the page, and those named have the stated level.
 - 🆕 **RP-26** The permission test (RP-12) and leak tests (RP-13) also pass for guests, groups and share-link visitors.
 
-## Decisions for Felipe
+## Decisions
 
-- ✅ **RP-D1** Can Admins open other people's private spaces, chats, private events and transcripts? **Felipe: the default** (no, never).
+- ✅ **RP-D1** Can Admins open other people's private spaces, chats, private events and transcripts? **Decided: the default** (no, never).
 - 🟨 **RP-D2** 🆕 Can guests use Messages to chat with members? **Default:** no; guests only get their 🔔 chat.
 - 🟨 **RP-D3** 🆕 View-only share links that anyone on the Care Hub network can open without signing in (Care Hub's version of Notion's Publish). **Default:** yes; Admins can turn them off for the workspace.
