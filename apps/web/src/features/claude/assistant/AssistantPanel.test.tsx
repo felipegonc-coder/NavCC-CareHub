@@ -6,7 +6,7 @@ import {
   type AssistantScope,
 } from '@carehub/extras/claude/assistant';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { UNAVAILABLE } from '../write/api';
@@ -198,6 +198,60 @@ describe('AssistantPanel', () => {
     expect(source).toHaveAttribute('href', `/p/${SOURCE}`);
     fireEvent.click(source);
     expect(panel()).not.toBeInTheDocument();
+  });
+
+  it('asks with no pages when the person says so', async () => {
+    api.routes[ASK] = 'hold';
+    const box = await openPanel(`/p/${PAGE}`);
+    const chip = screen.getByRole('button', { name: 'What Claude may read: This page' });
+    fireEvent.keyDown(chip, { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'No pages' }));
+    expect(
+      screen.getByRole('button', { name: 'What Claude may read: No pages' }),
+    ).toBeInTheDocument();
+
+    ask(box, 'What goes in a care plan?');
+    expect(api.to(ASK).map(({ body }) => body)).toEqual([
+      { question: 'What goes in a care plan?', scope: 'no_pages', pageIds: [] },
+    ]);
+  });
+
+  it('adds pages with @, found with Search as the person', async () => {
+    api.routes['POST /api/search/query'] = {
+      status: 200,
+      body: {
+        results: [
+          { id: SOURCE, title: 'Refund rules', path: [] },
+          { id: PAGE, title: 'Visit notes', path: ['Team'] },
+        ],
+      },
+    };
+    api.routes[ASK] = 'hold';
+    const box = await openPanel();
+    fireEvent.change(box, { target: { value: 'Compare ' } });
+    fireEvent.change(box, { target: { value: 'Compare @' } });
+
+    const find = await screen.findByRole('textbox', { name: 'Find a page' });
+    fireEvent.change(find, { target: { value: 'refund' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund rules' }));
+    expect(api.to('POST /api/search/query').at(-1)?.body).toEqual({
+      text: 'refund',
+      limit: 8,
+      filters: { types: ['page', 'database', 'row'] },
+    });
+    const chips = screen.getByRole('list', { name: 'Pages Claude reads in full' });
+    expect(chips).toHaveTextContent('Refund rules');
+    expect(box).toHaveValue('Compare ');
+    await waitFor(() => expect(box).toHaveFocus());
+
+    ask(box, 'Compare these');
+    expect(api.to(ASK).map(({ body }) => body)).toEqual([
+      { question: 'Compare these', scope: 'all_pages', pageIds: [SOURCE] },
+    ]);
+    expect(conversation().getByText('All pages I can open · Refund rules')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('list', { name: 'Pages Claude reads in full' }),
+    ).not.toBeInTheDocument();
   });
 
   it('Stop gives the question back and keeps nothing', async () => {
