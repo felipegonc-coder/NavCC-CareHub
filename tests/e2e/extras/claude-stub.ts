@@ -19,8 +19,8 @@ export const STUB_JSON = {
 };
 
 export const DEFAULT_STUB_PORT = 4599;
-/** How long a STUB-SLOW request waits: longer than the server's 30 s timeout. */
-export const SLOW_MS = 35_000;
+/** How long a STUB-SLOW request waits: longer than the 60 s the server waits for Claude. */
+export const SLOW_MS = 65_000;
 
 const SECRET_HEADERS = new Set(['x-api-key', 'authorization']);
 const JSON_REQUEST = 'Answer with one JSON value';
