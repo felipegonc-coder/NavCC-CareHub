@@ -1,4 +1,4 @@
-import { expect, needs, onlyIn, signInAs, test } from '../_support/index.js';
+import { expect, needs, onlyIn, sendAgainAs, signInAs, test } from '../_support/index.js';
 import { markdownZip, notionExport } from './import-files.js';
 import {
   FORBIDDEN,
@@ -10,7 +10,6 @@ import {
   openAs,
   pageHref,
   pagesUnder,
-  sendAgainAs,
 } from './import-screen.js';
 import { wordFile } from './word-file.js';
 

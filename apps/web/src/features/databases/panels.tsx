@@ -10,13 +10,13 @@ export type PanelComponent =
  * that takes PanelProps, so parallel pull requests never edit the same lines.
  */
 export const PANELS: Record<PanelName, PanelComponent> = {
-  filter: lazy(() => import('./shell/panel-not-built')),
+  filter: lazy(() => import('./filters/filter-entry')),
 
-  sort: lazy(() => import('./shell/panel-not-built')),
+  sort: lazy(() => import('./filters/sort-entry')),
 
   group: lazy(() => import('./shell/panel-not-built')),
 
-  properties: lazy(() => import('./shell/panel-not-built')),
+  properties: lazy(() => import('./filters/properties-entry')),
 
   layout: lazy(() => import('./shell/panel-not-built')),
 

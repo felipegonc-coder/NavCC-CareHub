@@ -93,7 +93,13 @@ export interface SendNoticeInput {
   /** Generic and shown as given. Never a page or event title: only cards carry titles. */
   title: string;
   text?: string;
+  /** One card. For more, use `cards` instead. */
   card?: NoticeCard;
+  /**
+   * 1 to 3 cards, shown in this order, instead of `card` (not both). Each reader sees each card
+   * open or locked by their own access.
+   */
+  cards?: readonly NoticeCard[];
   /** At most 3. */
   buttons?: readonly NoticeButton[];
   /**
@@ -118,6 +124,8 @@ export interface SendNoticeResult {
   duplicate?: true;
   /** Set when the person isn't in the workspace (any more): nothing was saved. */
   dropped?: true;
+  /** Set when the person turned this kind of notice off in Settings: nothing was saved. */
+  turnedOff?: true;
 }
 
 export type SendNotice = (input: SendNoticeInput) => Promise<SendNoticeResult>;
@@ -135,6 +143,23 @@ export interface NoticeCreatedEvent {
 
 /** The live event type published to a person whenever their notices change. */
 export const NOTICES_CHANGED_EVENT = 'notices-changed';
+
+/**
+ * The kinds of notices a person can turn off in Settings → Notifications (Settings spec 3.3),
+ * each for one workspace. Mentions, replies, reminders and access requests are always on.
+ * - `comments`: comments and suggested edits on pages they follow (`comment`, `suggestion`).
+ * - `edits`: summaries of edits to pages they follow (`edit_summary`).
+ * - `formResponses`: responses to their forms. No kind uses it yet: Forms' `form_response` kind
+ *   comes in its own change.
+ * - `automations`: messages from automations (`automation`).
+ */
+export type NoticeSettingKey = 'comments' | 'edits' | 'formResponses' | 'automations';
+
+/** On (true) or off for each; every kind is on until the person turns it off. */
+export type NoticeSettings = Record<NoticeSettingKey, boolean>;
+
+/** The live event type published to a person when their notice settings change. */
+export const NOTICE_SETTINGS_CHANGED_EVENT = 'notice-settings-changed';
 
 /** What an action handler receives when the notice's owner clicks one of its action buttons. */
 export interface NoticeActionContext {
@@ -200,7 +225,10 @@ export interface NoticeView {
   icon: string | null;
   title: string;
   text: string | null;
+  /** The first card. */
   card: NoticeCardView | null;
+  /** Every card, in order: up to 3, `card` first. */
+  cards: NoticeCardView[];
   buttons: NoticeButtonView[];
   /** How many notices were grouped into this one (1 when none were). */
   count: number;
@@ -223,8 +251,8 @@ export interface NoticeSummary {
   /** The `sender` it was sent with. */
   senderName: string;
   /**
-   * A relative path: the first link button's, else the page card's page (`/p/<pageId>`), else the
-   * 🔔 Care Hub chat (`/messages/care-hub`).
+   * A relative path: the first link button's, else the first page card's page (`/p/<pageId>`),
+   * else the 🔔 Care Hub chat (`/messages/care-hub`).
    */
   link: string;
   /** When it first arrived. */

@@ -2,15 +2,19 @@
 // resolved and checked before connecting, redirects are checked again, the connection uses
 // only the checked addresses and is dropped if it reaches any other, so DNS rebinding can't
 // point it at Care Hub's network. Links with a user name and password are refused.
+// Browser tests can also allow http links to their stand-in calendars on this computer, by
+// exact origin (test-origins.ts); every other check still applies to those.
 
 import { lookup } from 'node:dns/promises';
 import type { IncomingHttpHeaders } from 'node:http';
+import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import type { LookupFunction } from 'node:net';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import { blockedReason } from './ip-address';
+import { isTestOrigin } from './test-origins';
 
 export const LINK_TIMEOUT_MS = 15_000;
 export const LINK_MAX_BYTES = 10 * 1024 * 1024;
@@ -27,7 +31,7 @@ export interface ResolvedAddress {
 export type Resolver = (hostname: string) => Promise<readonly ResolvedAddress[]>;
 
 export interface TransportRequest {
-  url: URL; // https, without credentials
+  url: URL; // https (http only for a test origin), without credentials
   addresses: readonly ResolvedAddress[]; // already checked; connect only to these
   headers: Record<string, string>;
   signal: AbortSignal;
@@ -50,6 +54,12 @@ export interface FetchLinkOptions {
   maxBytes?: number;
   resolve?: Resolver; // injectable for tests
   transport?: Transport; // injectable for tests
+  /**
+   * Browser tests only: origins from readTestCalendarOrigins, like http://127.0.0.1:4598. Links
+   * and redirects to exactly these may use http, and must reach only loopback addresses. Entries
+   * that aren't http loopback origins with a port are ignored.
+   */
+  testOrigins?: readonly string[];
 }
 
 export type FetchLinkResult =
@@ -81,10 +91,13 @@ export class FetchLinkError extends Error {
   }
 }
 
-/** Reads a private link as an https URL, or throws `invalid-link`. */
-export function toHttpsUrl(link: string): URL {
+/** Reads a private link as an https URL (http only for a test origin), or throws `invalid-link`. */
+export function toHttpsUrl(link: string, testOrigins: readonly string[] = []): URL {
   const url = safeUrl(link.trim().replace(/^webcals?:\/\//i, 'https://'));
-  if (!url?.hostname || url.protocol !== 'https:') {
+  if (
+    !url?.hostname ||
+    (url.protocol !== 'https:' && !testOriginsOf(testOrigins).has(url.origin))
+  ) {
     throw new FetchLinkError(
       'invalid-link',
       'Calendar links must start with https:// or webcal://.',
@@ -116,7 +129,11 @@ export async function fetchCalendarLink(
   if (options.signal?.aborted) cancel();
   options.signal?.addEventListener('abort', cancel, { once: true });
   try {
-    return await fetchWithRedirects(toHttpsUrl(link), options, controller.signal);
+    return await fetchWithRedirects(
+      toHttpsUrl(link, options.testOrigins),
+      options,
+      controller.signal,
+    );
   } catch (error) {
     const reason: unknown = controller.signal.reason;
     throw reason instanceof FetchLinkError ? reason : toFetchError(error);
@@ -131,14 +148,16 @@ async function fetchWithRedirects(
   options: FetchLinkOptions,
   signal: AbortSignal,
 ): Promise<FetchLinkResult> {
-  const transport = options.transport ?? nodeTransport;
+  const testOrigins = testOriginsOf(options.testOrigins);
   const maxBytes = options.maxBytes ?? LINK_MAX_BYTES;
   let url = first;
   for (let redirects = 0; ; redirects++) {
+    const testOrigin = testOrigins.has(url.origin);
     const addresses = await checkedAddresses(
       url.hostname,
       options.resolve ?? systemResolver,
       signal,
+      testOrigin,
     );
     const headers: Record<string, string> = {
       accept: 'text/calendar, */*;q=0.5',
@@ -147,6 +166,7 @@ async function fetchWithRedirects(
     };
     if (options.etag) headers['if-none-match'] = options.etag;
     if (options.lastModified) headers['if-modified-since'] = options.lastModified;
+    const transport = options.transport ?? (testOrigin ? plainTransport : nodeTransport);
     const response = await transport({ url, addresses, headers, signal });
     const get = (name: string) => {
       const value = response.headers[name];
@@ -160,7 +180,12 @@ async function fetchWithRedirects(
       }
       const location = get('location');
       const next = location ? safeUrl(location, url) : undefined;
-      if (next?.protocol !== 'https:' || next.username || next.password) {
+      if (
+        !next ||
+        (next.protocol !== 'https:' && !testOrigins.has(next.origin)) ||
+        next.username ||
+        next.password
+      ) {
         throw new FetchLinkError(
           'invalid-link',
           "The link redirected to an address Care Hub can't use.",
@@ -210,10 +235,16 @@ function safeUrl(value: string, base?: URL): URL | undefined {
   }
 }
 
+/** The usable test origins. */
+function testOriginsOf(entries: readonly string[] = []): Set<string> {
+  return new Set(entries.filter(isTestOrigin));
+}
+
 async function checkedAddresses(
   hostname: string,
   resolve: Resolver,
   signal: AbortSignal,
+  testOrigin: boolean, // reaches only loopback addresses; any other link only public ones
 ): Promise<ResolvedAddress[]> {
   const host = hostname.replace(/^\[|\]$/g, '');
   const literal = isIP(host);
@@ -231,7 +262,8 @@ async function checkedAddresses(
   if (addresses.length === 0) {
     throw new FetchLinkError('dns', "Couldn't find the calendar's server. Check the link.", true);
   }
-  if (addresses.some((a) => blockedReason(a.address) !== undefined)) {
+  const allowed = testOrigin ? 'loopback' : undefined;
+  if (addresses.some((a) => blockedReason(a.address) !== allowed)) {
     throw new FetchLinkError('blocked-address', BLOCKED);
   }
   return [...addresses];
@@ -330,6 +362,7 @@ export function createTransport(request: typeof httpsRequest = httpsRequest): Tr
 }
 
 const nodeTransport = createTransport();
+const plainTransport = createTransport(httpRequest); // test origins only
 
 function compact<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T;
