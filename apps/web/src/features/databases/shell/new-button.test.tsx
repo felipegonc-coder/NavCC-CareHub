@@ -46,7 +46,10 @@ async function shown(client = withTemplates()) {
   return client;
 }
 
+/** Opens the list of templates, which stays open after a template's "…" sets a default. */
 async function openTemplates() {
+  const open = screen.queryByRole('dialog', { name: 'Templates' });
+  if (open) return open;
   fireEvent.click(screen.getByRole('button', { name: 'Templates' }));
   return screen.findByRole('dialog', { name: 'Templates' });
 }
