@@ -8,8 +8,7 @@ import { isUuid } from './http';
 type TreeRow = {
   id: string;
   parentId: string | null;
-  kind: 'page' | 'database' | 'row';
-  isInline: boolean;
+  kind: 'page' | 'database';
   title: string;
   icon: PageIcon | null;
   position: string;
@@ -24,16 +23,18 @@ function add<K, V>(map: Map<K, V[]>, key: K, value: V) {
 /** The space's pages and databases the person can open, in sidebar order (`PageTreeJson`). */
 export async function spaceTree(db: Executor, viewer: Viewer, spaceId: string) {
   const { rows } = await db.execute<TreeRow>(sql`
-    SELECT id, parent_id AS "parentId", kind, is_inline AS "isInline", title, icon, position
-    FROM pages WHERE space_id = ${spaceId} AND deleted_at IS NULL ORDER BY position, id`);
+    SELECT id, parent_id AS "parentId", kind, title, icon, position
+    FROM pages WHERE space_id = ${spaceId} AND deleted_at IS NULL AND kind <> 'row'
+      AND NOT is_inline
+    ORDER BY position, id`);
   const under = new Map<string | null, TreeRow[]>();
   for (const row of rows) add(under, row.parentId, row);
 
-  // Depth first from the top. Rows, inline databases and everything under them stay out.
+  // Depth first from the top. The query leaves out rows and inline databases, so nothing under
+  // them is reached either.
   const inTree: TreeRow[] = [];
   const walk = (parentId: string | null) => {
     for (const row of under.get(parentId) ?? []) {
-      if (row.kind === 'row' || row.isInline) continue;
       inTree.push(row);
       if (row.kind === 'page') walk(row.id);
     }
@@ -103,7 +104,7 @@ export async function listSubtree(db: Executor, rootId: string): Promise<Subtree
       WHERE id = ${isUuid(rootId) ? rootId : null}::uuid AND deleted_at IS NULL
       UNION ALL
       SELECT p.id, sub.depth + 1 FROM pages p JOIN sub ON p.parent_id = sub.id
-      WHERE p.deleted_at IS NULL
+      WHERE p.deleted_at IS NULL AND sub.depth < 1000
     )
     SELECT p.id, p.parent_id AS "parentId", p.kind, p.is_inline AS "isInline", p.title,
       p.position, p.archived_at IS NOT NULL AS archived, sub.depth

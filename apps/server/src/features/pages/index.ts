@@ -17,5 +17,8 @@ export {
   setUpWorkspaceSpaces,
 } from './spaces';
 export { getPageCards } from './cards';
+export { changePageKind } from './move';
 export { createPage, getPagePlace, setPageTitle } from './pages';
 export type { NewPage, PageRow } from './pages';
+export { listSubtree } from './tree';
+export type { SubtreePage } from './tree';
