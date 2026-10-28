@@ -53,5 +53,8 @@ database.
 
 - ports.ts: pages, content, files, databases, Trash and the Create permission deny by default,
   so until they're bound every import is refused.
+- ports.ts, for people, row links and dates: `findMembers` finds nobody, `timeZoneOf` gives
+  America/Denver (the default time zone), `linkRows` refuses and `noteImported` keeps nothing, so
+  the source's dates aren't kept yet.
 - The upload waits in Postgres (`ie_import_uploads`) until the files service stores it.
 - A planned zip's size isn't compared with the file's.
