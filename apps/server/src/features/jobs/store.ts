@@ -110,7 +110,18 @@ export function createPostgresJobStore(sql: SqlRunner): JobStore {
       throw new Error(`Could not add a ${job.kind} job.`);
     },
 
-    async claim({ kind, limit, workerId, now, lockedUntil }) {
+    async claim({ kind, limit, workerId, now, lockedUntil, id }) {
+      if (id !== undefined) {
+        const { rows } = await sql.query<Row>(
+          `UPDATE jobs_queue SET status = 'running', attempts = attempts + 1, locked_by = $3,
+             locked_until = $4::timestamptz, started_at = COALESCE(started_at, $2::timestamptz),
+             updated_at = $2::timestamptz
+           WHERE id = $5::uuid AND kind = $1 AND status = 'queued'
+           RETURNING ${COLUMNS}`,
+          [kind, iso(now), workerId, iso(lockedUntil), id],
+        );
+        return rows.map(toJob);
+      }
       const { rows } = await sql.query<Row>(
         `WITH next AS MATERIALIZED (
            SELECT id FROM jobs_queue

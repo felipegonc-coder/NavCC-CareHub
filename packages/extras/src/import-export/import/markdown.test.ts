@@ -157,6 +157,7 @@ describe('markdownImporter', () => {
       read: async () => new Uint8Array(),
       text: async (name) => entries[name] ?? '',
     },
+    options: {},
   });
 
   it('reads a zip, opening only its documents', async () => {
@@ -180,6 +181,7 @@ describe('markdownImporter', () => {
       bytes: new Uint8Array(),
       text: async () => 'Welcome',
       zip: null,
+      options: {},
     });
     expect(plan.pages.map((page) => [page.title, page.content])).toEqual([
       ['Intake guide', { markdown: 'Welcome' }],

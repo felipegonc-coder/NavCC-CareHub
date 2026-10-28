@@ -7,6 +7,7 @@ import {
   checkPlan,
   planUploadSchema,
   type ImportPlan,
+  type ImportOptions,
   type ImportProblem,
   type ImportSourceId,
   type ImportZip,
@@ -22,6 +23,8 @@ export interface ReadRequest {
   bytes: Uint8Array;
   /** The Import screen read the file itself: the upload is a zip of plan.json and the files. */
   planned: boolean;
+  /** The source's options that the person ticked, kept with the import. */
+  options?: ImportOptions;
 }
 
 /** The plan, with each file's bytes in the order of `plan.files`. */
@@ -108,8 +111,9 @@ async function planOf(request: ReadRequest, zip: ImportZip | null): Promise<Impo
   }
   const importer = SERVER_IMPORTERS[request.source];
   if (!importer) throw new ImportFileError("this kind of file can't be imported yet");
-  const { fileName, bytes } = request;
-  return importer.plan({ fileName, bytes, text: async () => decodeCsvBytes(bytes), zip });
+  const { fileName, bytes, options = {} } = request;
+  const text = async () => decodeCsvBytes(bytes);
+  return importer.plan({ fileName, bytes, text, zip, options });
 }
 
 /**

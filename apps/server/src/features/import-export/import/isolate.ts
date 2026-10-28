@@ -59,7 +59,7 @@ export function readInWorker(request: ReadRequest, options: ReadOptions = {}): P
   if (signal?.aborted) return Promise.reject(signal.reason);
   const file = options.workerFile === undefined ? bundledWorker() : options.workerFile;
   if (file === null) {
-    // stand-in: dist/import-worker.js (an esbuild entry in apps/server/build.mjs). Without it,
+    // dist/import-worker.js (an esbuild entry in apps/server/build.mjs). Without it,
     // production reads nothing. In development and tests the read runs here, with the same limits
     // on what it makes and the same timeout, but without the thread's memory limit.
     const production = options.production ?? process.env.NODE_ENV === 'production';

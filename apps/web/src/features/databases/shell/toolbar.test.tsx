@@ -13,7 +13,7 @@ import {
   VIEWS,
 } from '../test-utils';
 import { DatabaseView, type DatabaseViewProps } from './database-view';
-import { panelProbe } from './test-layout';
+import { panelProbe, probe } from './test-layout';
 
 vi.mock('../layouts', async () => {
   const { probeLayouts } = await import('./test-layout');
@@ -118,6 +118,29 @@ describe('Toolbar', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(group).toHaveFocus());
+  });
+
+  it("opens a panel where a layout asks, like a column's Filter on its property", async () => {
+    await shown();
+    const header = document.body.appendChild(document.createElement('button'));
+    act(() => probe.props?.actions.openPanel('filter', { propertyId: PROPS.status }, header));
+    const panel = await screen.findByRole('dialog', { name: 'Filter' });
+    expect(within(panel).getByText('Filter for All jobs')).toBeInTheDocument();
+    expect(panelProbe.props?.target).toEqual({ propertyId: PROPS.status });
+    expect(screen.getByRole('button', { name: 'Filter' })).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(header).toHaveFocus());
+    header.remove();
+
+    // From its button, the panel opens without a target.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await screen.findByRole('dialog', { name: 'Filter' });
+    expect(panelProbe.props?.target).toBeUndefined();
+
+    act(() => probe.props?.actions.openPanel('exportCsv'));
+    expect(await screen.findByRole('dialog', { name: 'Export CSV' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Filter' })).toBeNull();
   });
 
   it('lists everything in "…" for Full access, and Delete only where the page allows it', async () => {

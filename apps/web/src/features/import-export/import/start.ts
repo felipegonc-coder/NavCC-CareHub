@@ -1,6 +1,8 @@
 import {
   ImportFileError,
+  optionsFor,
   stoppedMessage,
+  type ImportOptions,
   type ImportSource,
   type ImportView,
 } from '@carehub/extras/import-export/import/index';
@@ -17,6 +19,8 @@ export interface StartRequest {
   file: File;
   /** Where it goes: a page, or null for Private. */
   pageId: string | null;
+  /** The source's options that the person ticked. */
+  options?: ImportOptions;
 }
 
 /** The import, waiting in line; or what to tell the person, with nothing added. */
@@ -31,14 +35,15 @@ function refusal(error: unknown): string {
 }
 
 export async function startImport(
-  { source, file, pageId }: StartRequest,
-  options?: PrepareOptions,
+  { source, file, pageId, options: ticked }: StartRequest,
+  prepare: PrepareOptions = {},
 ): Promise<StartResult> {
   const problem = fileProblem(source, file);
   if (problem) return { ok: false, message: problem };
+  const options = optionsFor(source, ticked);
   let upload;
   try {
-    upload = await prepareUpload(source, file, options);
+    upload = await prepareUpload(source, file, { ...prepare, options });
   } catch (error) {
     const reason = error instanceof ImportFileError ? error.message : "the file couldn't be read";
     return { ok: false, message: stoppedMessage(reason) };
@@ -51,6 +56,7 @@ export async function startImport(
       size: file.size,
       pageId,
       planned: upload.planned,
+      ...(Object.keys(options).length > 0 ? { options } : {}),
     });
   } catch (error) {
     return { ok: false, message: refusal(error) };

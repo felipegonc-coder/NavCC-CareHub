@@ -1,6 +1,6 @@
 # 0007: Shared contracts between lanes
 
-- **Status:** accepted (2026-10-26). Owner: the main lead. Binding for every lane.
+- **Status:** accepted (2026-10-26); amended 2026-10-27 (section 5.3: `appStart` gets `user`; the `beforeSignOut` and `signOut` slots; the sign-out order) and 2026-10-28 (section 2.2: link codes stay out of the logs). Owner: the main lead. Binding for every lane.
 - **Context:** Five lanes build in parallel: **Core** (main lead), **Learning**, **Databases and Forms**, **Team tools** and **Extras** (decision 0400). They need fixed names for folders, branches, the user and session API, the page model, permission checks, and how a feature adds tables, routes and screens. Anything here that turns out wrong is changed by a new decision record from the main lead, never by a lane on its own.
 - **How to read it:** names in `code` are exact. Until a piece is on `main`, code against the names here (behind a small stand-in if needed) and switch when it lands. [docs/STATUS.md](../STATUS.md) lists what is on `main`.
 
@@ -53,6 +53,7 @@ Each feature replaces only its own line with one lazy registration. Lines are se
 - A feature's routes are a Fastify plugin, the default export of `features/<f>/routes.ts`, registered on its line with the prefix `/api/<f>`. Other features import only from `features/<f>/index.ts` (or the files a lane names as public, such as `databases/api.ts`).
 - Validate params, query and body with zod schemas from your lane package (core: `@carehub/shared`).
 - **Every `/api` route needs a signed-in user unless it says `config: { public: true }`** (for example `GET /api/health`, sign-in, and `GET /api/status`). State-changing requests also need the CSRF header (section 3.1). Public routes still validate input and are rate-limited where they accept writes.
+- **Link codes stay out of the logs.** Every server log line goes through `apps/server/src/core/request-log.ts`: query values, the rest of a path that starts with a prefix in `CAPABILITY_PATHS` (`/forms/` and `/api/forms/` so far) or follows a link word (`share`, `invite`, `feed`, `reset` and others), and any path segment that looks like a code (22 or more base64url characters, UUIDs excepted) become `***`, in messages and errors too. Request lines with a code leave out the address, and no request line says who is signed in. A route that takes a link code adds its prefix there. Don't log link codes, or who answered a public form (their user id or address), yourself: a per-IP rate limiter on those paths logs without the address.
 - Errors are JSON `{ "error": { "code": "...", "message": "..." } }`, with the message in plain words:
 
 | Status | `code` | When |
@@ -191,10 +192,14 @@ Each web feature may export `slots` (a partial `Slots` object) from `features/<f
 | `pageKindViews` | `{ database?: Component<{ page }> }` | the page view shows the Databases lane's `<DatabasePage>` for `kind = 'database'` |
 | `pageHeaderExtras` | `{ row?: Component<{ page }> }` | a row's properties above the editor |
 | `treeItemChildren` | `{ database?: Component<{ page }> }` | a database's views under it in the sidebar tree when expanded |
-| `appStart` | `{ id, run(ctx: { api, navigate }) }` | run once after sign-in, from `RequireAuth` (Team tools re-sends the push subscription, opens a chat from a notification) |
+| `appStart` | `{ id, run(ctx: { api, navigate, user }) }` | run once per person after sign-in (and again after a reload), from `RequireAuth`; items run side by side and nothing waits for them (Team tools re-sends the push subscription, opens a chat from a notification) |
+| `beforeSignOut` | `{ id, run(ctx: { api, user }) }` | run first when someone signs out, while the session still works, for anything that has to tell the server (Team tools removes this device's push subscription); best effort |
+| `signOut` | `{ id, run(ctx: { user }) }` | run after the server has ended the session and before the query cache is cleared, for local clean-up only (Learning's `clearQueuedEvents`) |
 | `editor` | `{ nodeViews?, slashItems?, linkPickers?, bubbleItems?, extensions? }` | React views for lane blocks by node name (`nodeViews`, e.g. `database`, meeting notes), "/database", writing help; `extensions` only for things that aren't nodes or marks |
 | `overlays` | `{ id, Component }` | rendered once by the app shell, such as the Ctrl+K window (0400) |
 | `pageBanners` | `{ id, order, Component<{ page }> }` | rendered by the page view above the title (0400) |
+
+Sign-out (`useSignOut()` from `features/auth`) goes: the `beforeSignOut` items, `POST /api/auth/sign-out`, the `signOut` hooks, `queryClient.clear()`, then a fresh page load of `/sign-in`, so nothing a feature keeps in memory (open connections, caches, editor documents) outlives the session. Each set of hooks runs side by side; sign-out waits at most 3 seconds for a set, and a hook that fails is logged and never stops sign-out. A 401 from `POST /api/auth/sign-out` means the session had already ended, so sign-out goes on. If the server can't be told (no connection, or any other error), sign-out stops after `beforeSignOut`: the person stays signed in with their offline work kept, so a `beforeSignOut` step should be one the next app start redoes. `user` is `null` if it was never loaded.
 
 ### 5.4 The editor (`@carehub/editor`)
 

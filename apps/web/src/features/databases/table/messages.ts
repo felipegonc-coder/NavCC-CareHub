@@ -22,4 +22,16 @@ export const TABLE_TEXT = {
   setProperty: 'Set property',
   delete: 'Delete',
   clearSelection: 'Clear selection',
+  /** The handle at the start of a row, and the row menu. */
+  rowMenu: (title: string) => `Row menu for ${title}`,
+  copyLink: 'Copy link',
+  linkCopied: 'Link copied.',
+  linkNotCopied: "Couldn't copy the link.",
+  moveUp: 'Move up',
+  moveDown: 'Move down',
+  /** After a paste, when some values couldn't go in. */
+  skipped: (count: number) =>
+    count === 1
+      ? "1 value didn't fit and was skipped."
+      : `${count} values didn't fit and were skipped.`,
 } as const;

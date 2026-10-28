@@ -2,20 +2,26 @@
 // resolved and checked before connecting, redirects are checked again, the connection uses
 // only the checked addresses and is dropped if it reaches any other, so DNS rebinding can't
 // point it at Care Hub's network. Links with a user name and password are refused.
+// Browser tests can also allow http links to their stand-in calendars on this computer, by
+// exact origin (test-origins.ts); every other check still applies to those.
 
-import { lookup } from 'node:dns/promises';
+import { Resolver as DnsResolver } from 'node:dns/promises';
 import type { IncomingHttpHeaders } from 'node:http';
+import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import type { LookupFunction } from 'node:net';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import { blockedReason } from './ip-address';
+import { isTestOrigin } from './test-origins';
 
 export const LINK_TIMEOUT_MS = 15_000;
 export const LINK_MAX_BYTES = 10 * 1024 * 1024;
 export const LINK_MAX_REDIRECTS = 3;
 export const LINK_MAX_HEADER_BYTES = 16 * 1024;
+export const DNS_TIMEOUT_MS = 2500; // for each try of each DNS query
+export const DNS_TRIES = 2;
 const USER_AGENT = 'CareHub-Calendar/1.0';
 const BLOCKED = "This link points to a private or local network address, which Care Hub can't use.";
 
@@ -24,10 +30,14 @@ export interface ResolvedAddress {
   family: 4 | 6;
 }
 
-export type Resolver = (hostname: string) => Promise<readonly ResolvedAddress[]>;
+/** Finds a host's addresses. `signal` is the fetch's: once it's aborted, stop looking. */
+export type Resolver = (
+  hostname: string,
+  signal: AbortSignal,
+) => Promise<readonly ResolvedAddress[]>;
 
 export interface TransportRequest {
-  url: URL; // https, without credentials
+  url: URL; // https (http only for a test origin), without credentials
   addresses: readonly ResolvedAddress[]; // already checked; connect only to these
   headers: Record<string, string>;
   signal: AbortSignal;
@@ -50,6 +60,13 @@ export interface FetchLinkOptions {
   maxBytes?: number;
   resolve?: Resolver; // injectable for tests
   transport?: Transport; // injectable for tests
+  /**
+   * Browser tests only: the list readTestCalendarOrigins read when the server started, like
+   * http://127.0.0.1:4598, and never anything from a request or a saved connection. Links and
+   * redirects to exactly these may use http, and must reach only loopback addresses. Entries that
+   * aren't http loopback origins with a port are ignored.
+   */
+  testOrigins?: readonly string[];
 }
 
 export type FetchLinkResult =
@@ -81,10 +98,13 @@ export class FetchLinkError extends Error {
   }
 }
 
-/** Reads a private link as an https URL, or throws `invalid-link`. */
-export function toHttpsUrl(link: string): URL {
+/** Reads a private link as an https URL (http only for a test origin), or throws `invalid-link`. */
+export function toHttpsUrl(link: string, testOrigins: readonly string[] = []): URL {
   const url = safeUrl(link.trim().replace(/^webcals?:\/\//i, 'https://'));
-  if (!url?.hostname || url.protocol !== 'https:') {
+  if (
+    !url?.hostname ||
+    (url.protocol !== 'https:' && !testOriginsOf(testOrigins).has(url.origin))
+  ) {
     throw new FetchLinkError(
       'invalid-link',
       'Calendar links must start with https:// or webcal://.',
@@ -116,7 +136,11 @@ export async function fetchCalendarLink(
   if (options.signal?.aborted) cancel();
   options.signal?.addEventListener('abort', cancel, { once: true });
   try {
-    return await fetchWithRedirects(toHttpsUrl(link), options, controller.signal);
+    return await fetchWithRedirects(
+      toHttpsUrl(link, options.testOrigins),
+      options,
+      controller.signal,
+    );
   } catch (error) {
     const reason: unknown = controller.signal.reason;
     throw reason instanceof FetchLinkError ? reason : toFetchError(error);
@@ -131,14 +155,16 @@ async function fetchWithRedirects(
   options: FetchLinkOptions,
   signal: AbortSignal,
 ): Promise<FetchLinkResult> {
-  const transport = options.transport ?? nodeTransport;
+  const testOrigins = testOriginsOf(options.testOrigins);
   const maxBytes = options.maxBytes ?? LINK_MAX_BYTES;
   let url = first;
   for (let redirects = 0; ; redirects++) {
+    const testOrigin = testOrigins.has(url.origin);
     const addresses = await checkedAddresses(
       url.hostname,
-      options.resolve ?? systemResolver,
+      options.resolve ?? defaultResolver,
       signal,
+      testOrigin,
     );
     const headers: Record<string, string> = {
       accept: 'text/calendar, */*;q=0.5',
@@ -147,6 +173,7 @@ async function fetchWithRedirects(
     };
     if (options.etag) headers['if-none-match'] = options.etag;
     if (options.lastModified) headers['if-modified-since'] = options.lastModified;
+    const transport = options.transport ?? (testOrigin ? plainTransport : nodeTransport);
     const response = await transport({ url, addresses, headers, signal });
     const get = (name: string) => {
       const value = response.headers[name];
@@ -160,7 +187,12 @@ async function fetchWithRedirects(
       }
       const location = get('location');
       const next = location ? safeUrl(location, url) : undefined;
-      if (next?.protocol !== 'https:' || next.username || next.password) {
+      if (
+        !next ||
+        (next.protocol !== 'https:' && !testOrigins.has(next.origin)) ||
+        next.username ||
+        next.password
+      ) {
         throw new FetchLinkError(
           'invalid-link',
           "The link redirected to an address Care Hub can't use.",
@@ -210,10 +242,16 @@ function safeUrl(value: string, base?: URL): URL | undefined {
   }
 }
 
+/** The usable test origins. */
+function testOriginsOf(entries: readonly string[] = []): Set<string> {
+  return new Set(entries.filter(isTestOrigin));
+}
+
 async function checkedAddresses(
   hostname: string,
   resolve: Resolver,
   signal: AbortSignal,
+  testOrigin: boolean, // reaches only loopback addresses; any other link only public ones
 ): Promise<ResolvedAddress[]> {
   const host = hostname.replace(/^\[|\]$/g, '');
   const literal = isIP(host);
@@ -222,7 +260,7 @@ async function checkedAddresses(
     addresses = [{ address: host, family: literal === 6 ? 6 : 4 }];
   } else {
     try {
-      addresses = await abortable(resolve(host), signal);
+      addresses = await abortable(resolve(host, signal), signal);
     } catch (error) {
       if (signal.aborted) throw error;
       throw new FetchLinkError('dns', "Couldn't find the calendar's server. Check the link.", true);
@@ -231,7 +269,8 @@ async function checkedAddresses(
   if (addresses.length === 0) {
     throw new FetchLinkError('dns', "Couldn't find the calendar's server. Check the link.", true);
   }
-  if (addresses.some((a) => blockedReason(a.address) !== undefined)) {
+  const allowed = testOrigin ? 'loopback' : undefined;
+  if (addresses.some((a) => blockedReason(a.address) !== allowed)) {
     throw new FetchLinkError('blocked-address', BLOCKED);
   }
   return [...addresses];
@@ -262,11 +301,64 @@ function toFetchError(error: unknown): FetchLinkError {
   return new FetchLinkError('network', "Couldn't read the calendar from its server.", true);
 }
 
-const systemResolver: Resolver = async (hostname) =>
-  (await lookup(hostname, { all: true, verbatim: true })).map((a) => ({
-    address: a.address,
-    family: a.family === 6 ? 6 : 4,
-  }));
+/** The part of node:dns's Resolver that createResolver uses. */
+export interface DnsClient {
+  resolve4(hostname: string): Promise<string[]>;
+  resolve6(hostname: string): Promise<string[]>;
+  cancel(): void;
+}
+
+export interface ResolverOptions {
+  timeoutMs?: number; // for each try of each query
+  tries?: number;
+  dns?: (options: { timeout: number; tries: number }) => DnsClient; // for tests
+}
+
+const LOOPBACK: readonly ResolvedAddress[] = [
+  { address: '127.0.0.1', family: 4 },
+  { address: '::1', family: 6 },
+];
+
+/**
+ * Looks hosts up with DNS queries (A and AAAA), not the system's getaddrinfo, which runs on the
+ * threads Node uses for files and crypto and can't be stopped: a link's slow DNS server could
+ * hold those up. Each try has a time limit, and a cancelled fetch cancels its queries.
+ * `localhost` and names under it are loopback without a query (RFC 6761).
+ */
+export function createResolver({
+  timeoutMs = DNS_TIMEOUT_MS,
+  tries = DNS_TRIES,
+  dns = (options) => new DnsResolver(options),
+}: ResolverOptions = {}): Resolver {
+  return async (hostname, signal) => {
+    signal.throwIfAborted();
+    const name = hostname.toLowerCase().replace(/\.$/, '');
+    if (name === 'localhost' || name.endsWith('.localhost')) return LOOPBACK;
+    const client = dns({ timeout: timeoutMs, tries }); // its own, so cancel() stops only these
+    const cancel = () => client.cancel();
+    signal.addEventListener('abort', cancel, { once: true });
+    try {
+      const [v4, v6] = await Promise.allSettled([
+        client.resolve4(hostname),
+        client.resolve6(hostname),
+      ]);
+      const found: ResolvedAddress[] = [
+        ...(v4.status === 'fulfilled'
+          ? v4.value.map((address) => ({ address, family: 4 as const }))
+          : []),
+        ...(v6.status === 'fulfilled'
+          ? v6.value.map((address) => ({ address, family: 6 as const }))
+          : []),
+      ];
+      if (found.length > 0) return found;
+      throw v4.status === 'rejected' ? v4.reason : new Error('No addresses found');
+    } finally {
+      signal.removeEventListener('abort', cancel);
+    }
+  };
+}
+
+const defaultResolver = createResolver();
 
 /** A lookup function that answers only with the checked addresses. */
 export function pinnedLookup(addresses: readonly ResolvedAddress[]): LookupFunction {
@@ -330,6 +422,7 @@ export function createTransport(request: typeof httpsRequest = httpsRequest): Tr
 }
 
 const nodeTransport = createTransport();
+const plainTransport = createTransport(httpRequest); // test origins only
 
 function compact<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T;
