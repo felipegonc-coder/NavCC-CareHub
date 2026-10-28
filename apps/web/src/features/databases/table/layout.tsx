@@ -1208,6 +1208,11 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
               }}
             />
           )}
+          {isName && view.showPageIcon && line.row.icon && (
+            <span aria-hidden className="shrink-0">
+              {line.row.icon}
+            </span>
+          )}
           <CellView
             property={property}
             value={cell.value}
