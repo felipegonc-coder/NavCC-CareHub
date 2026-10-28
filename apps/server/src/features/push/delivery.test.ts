@@ -190,6 +190,16 @@ describe('push delivery for new notices', () => {
     expect(requests).toHaveLength(1);
   });
 
+  it('sends no notice to a locked account', async () => {
+    const { store, requests, addBrowser, send } = setup();
+    await addBrowser(avery, 'laptop');
+    store.locked.add(avery);
+    expect(await send(notice())).toEqual(pushedTo(0));
+    expect(requests).toHaveLength(0);
+    store.locked.delete(avery);
+    expect(await send(notice())).toEqual(pushedTo(1));
+  });
+
   it('sends nothing while a Care Hub tab is open, push is off or there is no browser', async () => {
     const tab = setup({ tabOpen: true });
     await tab.addBrowser(avery, 'laptop');

@@ -39,8 +39,10 @@ const summary = await pushToUser(
 `pushToUser` builds the notification with the person's "Show message text" setting and sends it to
 each of their browsers. It deletes subscriptions that expired or that the push service says are
 gone, marks the others as used, and logs failures without the payload, endpoint or keys. It
-answers `{ sent, removed, failed }`. While push is off, or while the person paused notifications,
-it sends nothing.
+answers `{ sent, removed, failed }`. It sends nothing while push is off or the person paused
+notifications. It never sends to an account a site admin locked (`users.locked_at`), not even the
+test, and checks this last, right before sending, because memberships, chats and notices still
+include locked accounts. Nothing is retried, so a notification skipped this way is never sent later.
 
 Use one tag per chat, so a chat's newer notification replaces the older one, and
 `{ urgency: 'high' }` for reminders. `sendPush` sends to one browser, for anything else.
@@ -68,6 +70,7 @@ The routes plugin follows `notices.notice.created` on `app.events` and pushes ea
 its person (`delivery.ts`). Nothing is pushed when:
 
 - push is off, or the person has no browser with notifications on;
+- the person's account is locked (see `pushToUser` above);
 - a Care Hub tab is open for them (live's `hasOpenTabs`): the tab tells them instead;
 - `notifyDecision` from `@carehub/team-chat` says no: Settings → Notifications is set to nothing,
   or the person paused notifications (the notice still arrives in the 🔔 chat).

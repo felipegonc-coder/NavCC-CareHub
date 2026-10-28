@@ -7,11 +7,14 @@ import { MAX_SUBSCRIPTIONS_PER_PERSON, type PushStore, type PushSubscriptionReco
 export interface MemoryPushStore extends PushStore {
   /** Every saved subscription, for checks in tests. */
   readonly subscriptions: PushSubscriptionRecord[];
+  /** People whose account is locked: add one to lock it. */
+  readonly locked: Set<string>;
 }
 
 export function createMemoryPushStore(): MemoryPushStore {
   const subscriptions: PushSubscriptionRecord[] = [];
   const preferences = new Map<string, NotificationPreferences>();
+  const locked = new Set<string>();
   /** Deletes the subscriptions that match and says how many there were. */
   const remove = (matches: (subscription: PushSubscriptionRecord) => boolean): number => {
     const kept = subscriptions.filter((subscription) => !matches(subscription));
@@ -23,6 +26,7 @@ export function createMemoryPushStore(): MemoryPushStore {
 
   return {
     subscriptions,
+    locked,
 
     async saveSubscription({ replaces, ...subscription }, now) {
       const { userId, endpoint } = subscription;
@@ -78,6 +82,10 @@ export function createMemoryPushStore(): MemoryPushStore {
       const updated = { ...DEFAULT_PREFERENCES, ...preferences.get(userId), ...changes };
       preferences.set(userId, copyPreferences(updated));
       return copyPreferences(updated);
+    },
+
+    async isLocked(userId) {
+      return locked.has(userId);
     },
   };
 }

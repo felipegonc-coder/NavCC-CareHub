@@ -35,7 +35,7 @@ export interface PushToUserOptions {
 /**
  * Builds the notification with the person's "Show message text" setting and sends it to each of
  * their browsers at once. A newer notification with the same tag replaces one not yet delivered.
- * While the person paused notifications, it sends nothing.
+ * It sends nothing while the person paused notifications, or to a locked account.
  */
 export async function pushToUser(
   runtime: PushRuntime,
@@ -52,6 +52,8 @@ export async function pushToUser(
   const now = runtime.now?.() ?? new Date();
   const { showText, pause } = await store.getPreferences(userId);
   if (!options.evenIfPaused && activePause(pause, now)) return summary;
+  // Last, right before sending: memberships, chats and notices still include locked accounts.
+  if (await store.isLocked(userId)) return summary;
   const payload = buildPushPayload(notice, { showText });
   const sender = { fetch: runtime.fetch, vapid: config.vapid };
   const sendOptions = { urgency: options.urgency, topic: topicFor(notice.tag), now };

@@ -1,6 +1,6 @@
 // Push subscriptions and notification settings in Postgres (schema.ts). testing.ts has the same
 // store in memory for unit tests; store.test.ts runs the same checks on both.
-import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { Db } from '../../db';
 import { DEFAULT_PREFERENCES, type NotificationPreferences } from './domain/preferences';
 import { pushPreferences, pushSubscriptions } from './schema';
@@ -106,6 +106,14 @@ export function createPostgresPushStore(db: Db): PushStore {
         .returning(preferenceColumns);
       if (!row) throw new Error('The notification settings were not saved.');
       return toPreferences(row);
+    },
+
+    async isLocked(userId) {
+      // `users` belongs to accounts, so plain SQL, as for the foreign keys (schema.ts).
+      const { rows } = await db.execute<{ locked: boolean }>(
+        sql`SELECT locked_at IS NOT NULL AS locked FROM users WHERE id = ${userId}`,
+      );
+      return rows[0]?.locked === true;
     },
   };
 }
