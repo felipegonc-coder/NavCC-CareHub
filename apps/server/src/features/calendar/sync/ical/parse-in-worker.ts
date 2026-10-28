@@ -1,14 +1,19 @@
 // Runs parseCalendar in a worker thread with a time limit and memory limits (issue #213), so a
 // crafted calendar can't hold up the server's event loop or use up its memory. A calendar that
 // runs out of either fails with `too-complex`; the sync should back off that subscription.
+// At most MAX_PARSE_WORKERS run at once, so their memory limits add up to a known amount; other
+// calendars wait their turn, and the time limit starts when a calendar's worker starts.
 
 import { existsSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
+import { createLimit } from '../limit';
 import { IcalParseError } from './parse';
 import type { IcalParseErrorCode, ParseOptions, ParseResult } from './parse';
 
 export const PARSE_TIMEOUT_MS = 10_000;
+export const MAX_PARSE_WORKERS = 2;
 const RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 };
+const workers = createLimit(MAX_PARSE_WORKERS);
 
 /**
  * The worker's file: next to the server bundle (build.mjs builds it there), or, running from
@@ -24,7 +29,9 @@ type Reply =
   { ok: true; result: ParseResult } | { ok: false; code: IcalParseErrorCode; message: string };
 
 export interface WorkerParseOptions {
-  timeoutMs?: number;
+  timeoutMs?: number; // from when the worker starts
+  /** Cancels the read, waiting or running; it then fails with the signal's reason. */
+  signal?: AbortSignal;
   workerFile?: URL; // for tests
 }
 
@@ -32,7 +39,17 @@ export interface WorkerParseOptions {
 export function parseCalendarInWorker(
   input: string | Uint8Array,
   options: ParseOptions = {},
-  { timeoutMs = PARSE_TIMEOUT_MS, workerFile = WORKER_FILE }: WorkerParseOptions = {},
+  { timeoutMs = PARSE_TIMEOUT_MS, signal, workerFile = WORKER_FILE }: WorkerParseOptions = {},
+): Promise<ParseResult> {
+  return workers(() => runWorker(input, options, timeoutMs, workerFile, signal), signal);
+}
+
+function runWorker(
+  input: string | Uint8Array,
+  options: ParseOptions,
+  timeoutMs: number,
+  workerFile: URL,
+  signal: AbortSignal | undefined,
 ): Promise<ParseResult> {
   return new Promise<ParseResult>((resolve, reject) => {
     const worker = new Worker(workerFile, {
@@ -41,25 +58,33 @@ export function parseCalendarInWorker(
     });
     const tooComplex = (why: string) =>
       new IcalParseError('too-complex', `This calendar ${why}, so it wasn't read.`);
-    const timer = setTimeout(() => fail(tooComplex('took too long to read')), timeoutMs);
-    const done = () => {
+    // Settles once, after the worker has stopped, so its place is free only when it's gone.
+    let finished = false;
+    const finish = (settle: () => void) => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
-      void worker.terminate();
+      signal?.removeEventListener('abort', cancel);
+      void worker.terminate().then(settle, settle);
     };
-    const fail = (error: Error) => {
-      done();
-      reject(error);
-    };
-    worker.once('message', (reply: Reply) => {
-      done();
-      if (reply.ok) resolve(reply.result);
-      else reject(new IcalParseError(reply.code, reply.message));
-    });
-    worker.once('error', (error: NodeJS.ErrnoException) =>
-      fail(
-        error.code === 'ERR_WORKER_OUT_OF_MEMORY' ? tooComplex('needed too much memory') : error,
+    const timer = setTimeout(
+      () => finish(() => reject(tooComplex('took too long to read'))),
+      timeoutMs,
+    );
+    const cancel = () => finish(() => reject(signal?.reason));
+    signal?.addEventListener('abort', cancel, { once: true });
+    worker.once('message', (reply: Reply) =>
+      finish(() =>
+        reply.ok ? resolve(reply.result) : reject(new IcalParseError(reply.code, reply.message)),
       ),
     );
-    worker.once('exit', () => fail(tooComplex('stopped the reader')));
+    worker.on('error', (error: NodeJS.ErrnoException) =>
+      finish(() =>
+        reject(
+          error.code === 'ERR_WORKER_OUT_OF_MEMORY' ? tooComplex('needed too much memory') : error,
+        ),
+      ),
+    );
+    worker.once('exit', () => finish(() => reject(tooComplex('stopped the reader'))));
   });
 }

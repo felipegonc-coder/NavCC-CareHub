@@ -108,3 +108,34 @@ export interface KbReportDetail {
   /** Owners and editors set the status; the reporter can only add to it. */
   canManage: boolean;
 }
+
+/** GET /api/knowledge/pages/:pageId/turn-into: the confirm before turning a page into one. */
+export interface KbTurnIntoPreview {
+  title: string;
+  /** The direct sub-pages the person can open: they become knowledge base pages. */
+  subPages: number;
+  /** "Turn Support handbook into a knowledge base? Its 24 sub-pages become …" */
+  text: string;
+}
+
+/** GET /api/knowledge/bases/:databaseId/turn-back: what turning it back removes. */
+export interface KbTurnBackPreview {
+  openReports: number;
+  /** "Owner, status, verification, tags and 3 open reports will be removed." */
+  text: string;
+}
+
+/** GET /api/knowledge/bases/:databaseId/health: the health line on Home, for editors (KB-12). */
+export interface KbHealth {
+  /** Every page in the knowledge base (the All pages view). */
+  pages: number;
+  verified: number;
+  expired: number;
+  openReports: number;
+  /** The Needs review view: due for review, or without an owner. */
+  needsReview: number;
+  /** Whole percent verified, or null when there are no pages. */
+  percent: number | null;
+  /** "86% verified · 4 expired · 2 open reports", or null when there are no pages. */
+  text: string | null;
+}

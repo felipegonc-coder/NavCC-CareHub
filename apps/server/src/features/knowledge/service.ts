@@ -20,6 +20,7 @@ import {
   readOwners,
   readStatus,
   readVerification,
+  verificationState,
   todayIn,
   untilFor,
   wikiRowLimiter,
@@ -35,6 +36,7 @@ import { and, count, eq, inArray } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { users } from '../auth/schema';
+import { verificationChanged } from './events';
 import { kbPorts, type WikiRow } from './ports';
 import { kbBases, kbPages, kbReports } from './schema';
 
@@ -126,6 +128,15 @@ export async function saveValues(
     await kbPorts().writeValues(tx, { databaseId: row.databaseId, rowId: row.id, values, by });
     await indexPage(tx, { ...row, values: { ...row.values, ...values } }, by, now);
   });
+  if (KB_PROPERTY.verification in values) {
+    const value = readVerification(values[KB_PROPERTY.verification]);
+    verificationChanged({
+      workspaceId: row.workspaceId,
+      pageId: row.id,
+      state: verificationState(value),
+      until: value?.until ?? null,
+    });
+  }
 }
 
 export async function indexPage(tx: Tx, row: WikiRow, by: string | null, now: Date) {
