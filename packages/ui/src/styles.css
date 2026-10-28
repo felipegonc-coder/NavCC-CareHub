@@ -41,6 +41,7 @@
  * bottom sheets (`bottomSheetClasses` in components/classes.ts). Radix places each one with
  * inline styles on the element around it; there, that element sits along the bottom edge
  * instead, as wide as the screen, over a dimmed page that closes the sheet when tapped.
+ * A submenu (`data-sheet="stacked"`) opens over its menu without dimming it again.
  */
 @media not all and screen(md) {
   :has(> [data-sheet]) {
@@ -49,7 +50,7 @@
     transform: none !important;
     will-change: auto !important;
   }
-  :has(> [data-sheet])::before {
+  :has(> [data-sheet]:not([data-sheet='stacked']))::before {
     content: '';
     position: fixed;
     inset: 0;
