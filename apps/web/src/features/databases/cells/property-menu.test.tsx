@@ -212,6 +212,20 @@ describe('PropertyMenu: the items each property gets', () => {
     ]);
   });
 
+  it('lets a layout item open a panel once the menu has closed, keeping focus there', async () => {
+    render(<input aria-label="Filter rule" />);
+    const rule = screen.getByRole('textbox', { name: 'Filter rule' });
+    const { trigger } = renderMenu(PROPS.cost, {
+      viewItems: (afterClose) => (
+        <DropdownMenuItem onSelect={() => afterClose(() => rule.focus())}>Filter</DropdownMenuItem>
+      ),
+    });
+    await openMenu(trigger);
+    await choose('Filter');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(rule).toHaveFocus();
+  });
+
   it('leaves out Hide and Insert without a view to change', async () => {
     const { trigger } = renderMenu(PROPS.cost, { view: undefined });
     await openMenu(trigger);

@@ -20,9 +20,11 @@ import {
 } from '@carehub/ui';
 import { useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { PropertyChange } from '../api';
+import type { QueryRow } from '../contract';
 import { DiscardDrafts, useDraft } from './draft';
 import { PROPERTY_TEXT, SETTINGS_TEXT } from './messages';
 import { NumberDisplaySettings } from './number-settings';
+import { OptionSettings } from './option-settings';
 import type { PropertyActions } from './property-actions';
 import { canChangeProperties, checkPropertyName } from './property-logic';
 import { ChoiceSetting, DraftField, SwitchSetting } from './setting-fields';
@@ -45,6 +47,8 @@ export interface PropertySettingsProps {
   meta: Pick<DatabaseMeta, 'viewerAccess' | 'locked' | 'properties'>;
   property: Property;
   actions: PropertyActions;
+  /** The rows on screen, for "3 rows use this option" before an option is deleted. */
+  rows?: readonly QueryRow[];
   /** Databases the viewer can open: a relation shows the one it's related to. */
   databases?: readonly DatabaseChoice[];
   /** A two-way relation's other side, named before it's turned off. */
@@ -57,14 +61,15 @@ export interface PropertySettingsProps {
 
 /**
  * Edit property (spec 3.4): name, description, how it shows on row pages, and the settings of its
- * type: number display; date and time format; one person only and notify; related database, one
- * row only and two-way; ID prefix.
+ * type: number display; date and time format; Select and Multi-select options; one person only
+ * and notify; related database, one row only and two-way; ID prefix.
  * Pickers and switches save at once; typed settings save on Enter or when the field is left.
  */
 export function PropertySettings({
   meta,
   property,
   actions,
+  rows = [],
   databases,
   twoWay,
   onError,
@@ -139,6 +144,17 @@ export function PropertySettings({
             onChange={(timeFormat) => saveConfig({ ...config, timeFormat })}
           />
         </>
+      );
+      break;
+    case 'select':
+    case 'multi_select':
+      section = (
+        <OptionSettings
+          property={{ ...shown, config }}
+          rows={rows}
+          disabled={disabled}
+          save={saveConfig}
+        />
       );
       break;
     case 'person':
