@@ -26,10 +26,30 @@ export function DatabaseBlockSlot(props: DatabaseBlockProps) {
   return createElement(Suspense, { fallback: null }, createElement(LazyBlock, props));
 }
 
+/** The block's own grip (shell/database-block.tsx), where the editor picks the block up. */
+const GRIP = '[data-database-block] > [data-drag-handle]';
+
+/**
+ * The block's `stopEvent`: true leaves an event to the block, so clicks, keys, pastes and drops
+ * reach its cells, menus and search box. Only the events on its grip go to the editor, which
+ * drags the block from there. The block is draggable, so a drag started anywhere else in it
+ * would carry the whole block off; that drag is cancelled, as in Tiptap's own default.
+ */
+export function stopBlockEvent(event: Event): boolean {
+  const target = event.target;
+  if (!(target instanceof Element)) return true;
+  if (target.closest(GRIP)) return false;
+  // A drag of the block's own box: the editor's outer element, around the block's view.
+  if (event.type === 'dragstart' && !target.closest('[data-database-block]')) {
+    event.preventDefault();
+  }
+  return true;
+}
+
 export const slots: FeatureSlots = {
   pageKindViews: { database: DatabasePageSlot },
   editor: {
-    nodeViews: { database: DatabaseBlockSlot },
+    nodeViews: { database: { component: DatabaseBlockSlot, stopEvent: stopBlockEvent } },
     slashItems: [databaseSlashItem],
   },
 };

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { JOBS_ID, jobsDatabase } from './fixtures';
-import { addDatabaseBlock, databaseSlashItem, pageIdFromPath } from './slash';
+import { addDatabaseBlock, databaseSlashItem } from './slash';
 
-const PAGE = '/p/page-intake';
+const PAGE = 'page-intake';
 
 /** Stands in for the Tiptap editor, with the cursor at `from`. */
 function fakeEditor(from = 7) {
@@ -33,21 +33,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   document.cookie = 'carehub_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
   window.history.replaceState(null, '', '/');
-});
-
-describe('pageIdFromPath', () => {
-  it('reads the page from /p/<pageId>', () => {
-    expect(pageIdFromPath('/p/page-intake')).toBe('page-intake');
-    expect(pageIdFromPath('/p/page-intake/')).toBe('page-intake');
-    expect(pageIdFromPath('/p/a%2Fb')).toBe('a/b');
-  });
-
-  it('gives null away from a page', () => {
-    expect(pageIdFromPath('/')).toBeNull();
-    expect(pageIdFromPath('/p/')).toBeNull();
-    expect(pageIdFromPath('/settings/members')).toBeNull();
-    expect(pageIdFromPath('/p/%E0%A4%A')).toBeNull();
-  });
 });
 
 describe('addDatabaseBlock', () => {
@@ -88,9 +73,9 @@ describe('addDatabaseBlock', () => {
     expect(editor.commands.insertContentAt).not.toHaveBeenCalled();
   });
 
-  it('refuses away from a page without asking the server', async () => {
+  it('refuses without a page, without asking the server', async () => {
     const editor = fakeEditor();
-    await expect(addDatabaseBlock(editor, '/settings')).rejects.toThrow('"/database" needs a page');
+    await expect(addDatabaseBlock(editor, null)).rejects.toThrow('"/database" needs the page');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(editor.commands.insertContentAt).not.toHaveBeenCalled();
   });
@@ -118,27 +103,39 @@ describe('databaseSlashItem', () => {
     expect(databaseSlashItem.icon).toBeTruthy();
   });
 
-  it('adds the block to the page in the address', async () => {
-    window.history.replaceState(null, '', PAGE);
+  it('adds the block to the page the editor gives, not the one in the address', async () => {
+    window.history.replaceState(null, '', '/p/page-other');
     const editor = fakeEditor(3);
-    databaseSlashItem.run(editor);
+    databaseSlashItem.run(editor, { pageId: PAGE });
     await vi.waitFor(() =>
       expect(editor.commands.insertContentAt).toHaveBeenCalledWith(3, {
         type: 'database',
         attrs: { databaseId: JOBS_ID },
       }),
     );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ parentId: PAGE, inline: true });
   });
 
   it('logs a failure instead of throwing', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
-    window.history.replaceState(null, '', PAGE);
     const editor = fakeEditor();
-    expect(() => databaseSlashItem.run(editor)).not.toThrow();
+    expect(() => databaseSlashItem.run(editor, { pageId: PAGE })).not.toThrow();
     await vi.waitFor(() =>
       expect(logged).toHaveBeenCalledWith("Couldn't add the database.", expect.anything()),
     );
+    expect(editor.commands.insertContentAt).not.toHaveBeenCalled();
+  });
+
+  it('logs instead of asking the server when the editor has no page', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const editor = fakeEditor();
+    databaseSlashItem.run(editor, { pageId: null });
+    await vi.waitFor(() =>
+      expect(logged).toHaveBeenCalledWith("Couldn't add the database.", expect.anything()),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(editor.commands.insertContentAt).not.toHaveBeenCalled();
   });
 });

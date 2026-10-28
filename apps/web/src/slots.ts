@@ -101,7 +101,11 @@ export interface PageBanner {
 /** Additions to the page editor, such as the `database` block and "/database". */
 export interface EditorSlots {
   /** React views for blocks, by node name. */
-  nodeViews?: Record<string, ComponentType<ReactNodeViewProps>>;
+  nodeViews?: Record<
+    string,
+    | ComponentType<ReactNodeViewProps>
+    | { component: ComponentType<ReactNodeViewProps>; stopEvent?(event: Event): boolean }
+  >;
   slashItems?: EditorSlashItem[];
   linkPickers?: LinkPicker[];
   bubbleItems?: EditorBubbleItem[];
