@@ -46,9 +46,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: workspaces
 
-  // feature: pages
+  await app.register(import('./features/pages/routes'));
 
-  // feature: collab
+  await app.register(import('./features/collab/routes'), {
+    prefix: '/api/collab',
+    version: config.CAREHUB_VERSION,
+    publicUrl: config.CAREHUB_PUBLIC_URL,
+  });
 
   await app.register(import('./features/comments/routes'), { prefix: '/api/comments' });
 
@@ -72,33 +76,36 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(import('./features/learning/routes'), { prefix: '/api/learning' });
 
-  // feature: databases
+  await app.register(import('./features/databases/routes'), { prefix: '/api/databases' });
 
   // feature: forms
 
   // feature: messages
 
-  // feature: notices
+  await app.register(import('./features/notices/routes'), { prefix: '/api/notices' });
 
-  // feature: live
+  await app.register(import('./features/live/routes'), {
+    prefix: '/api/live',
+    getUserId: (request) => request.user?.id,
+  });
 
-  // feature: push
+  await app.register(import('./features/push/routes'), { prefix: '/api/push' });
 
-  // feature: jobs
+  await app.register(import('./features/jobs/routes'), { prefix: '/api/jobs' });
 
-  // feature: reminders
+  await app.register(import('./features/reminders/routes'), { prefix: '/api/reminders' });
 
-  // feature: home
+  await app.register(import('./features/home/routes'), { prefix: '/api/home' });
 
   // feature: calendar
 
   // feature: meetings
 
-  // feature: automations
+  await app.register(import('./features/automations/routes'), { prefix: '/api/automations' });
 
   // feature: analytics
 
-  // feature: status
+  await app.register(import('./features/status/routes'), { prefix: '/api/status' });
 
   await app.register(import('./features/claude/routes'), { prefix: '/api/claude' });
 

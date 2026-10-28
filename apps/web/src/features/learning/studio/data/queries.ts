@@ -48,6 +48,17 @@ export function useStudioDraft(courseId: Id) {
   });
 }
 
+/** The saved draft for the preview: its own query, so it never shows the copy an editor opened with. */
+export function usePreviewDraft(courseId: Id) {
+  const client = useStudioClient();
+  return useQuery({
+    queryKey: studioKeys.preview(courseId),
+    queryFn: () => client.getCourse(courseId),
+    gcTime: 0,
+    retry: false,
+  });
+}
+
 /** What New course sends: a course type, or an example to copy. */
 export type NewCourseInput = { type: CourseType; title?: string; exampleId?: Id };
 

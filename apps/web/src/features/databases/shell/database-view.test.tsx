@@ -1,17 +1,20 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FilterGroup, View } from '@carehub/databases';
-import { ApiError, UNKNOWN_ERROR_MESSAGE } from '../api';
+import { ApiError, OFFLINE_MESSAGE, UNKNOWN_ERROR_MESSAGE } from '../api';
+import type { PersonChoice } from '../cells/types';
 import type { LayoutProps } from '../contract';
 import {
   JOBS_ID,
   jobsDatabase,
   mockClient,
+  PRIORITY,
   PROPS,
   queryData,
   renderWithDatabase,
   STATUS,
   testViewer,
+  USERS,
   VIEWS,
 } from '../test-utils';
 import { DatabaseView, type DatabaseViewProps } from './database-view';
@@ -112,12 +115,13 @@ describe('DatabaseView', () => {
     const client = mockClient();
     client.query.mockResolvedValue(queryData([]));
     const onOpenRow = vi.fn();
-    const onImportCsv = vi.fn();
-    show({ onOpenRow, onImportCsv }, client);
+    show({ onOpenRow }, client);
     await screen.findByText('No rows yet.');
     const empty = around('No rows yet.');
     fireEvent.click(within(empty).getByRole('button', { name: 'Import CSV' }));
-    expect(onImportCsv).toHaveBeenCalledTimes(1);
+    const dialog = await screen.findByRole('dialog', { name: 'Import CSV' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(within(empty).getByRole('button', { name: 'New' }));
     await waitFor(() => expect(onOpenRow).toHaveBeenCalledWith('row-new', 'side_peek'));
     expect(client.createRow).toHaveBeenCalledWith(
@@ -130,7 +134,7 @@ describe('DatabaseView', () => {
     const client = mockClient();
     client.getDatabase.mockResolvedValue(jobsDatabase({ viewerAccess: 'edit_content' }));
     client.query.mockResolvedValue(queryData([]));
-    show({ onImportCsv: vi.fn() }, client);
+    show({}, client);
     await screen.findByText('No rows yet.');
     expect(within(around('No rows yet.')).getByRole('button', { name: 'New' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Import CSV' })).toBeNull();
@@ -316,7 +320,96 @@ describe('DatabaseView actions', () => {
     await act(() => drawn().actions.createRow({ templateId: null }));
     expect(client.createRow).toHaveBeenLastCalledWith(
       JOBS_ID,
-      expect.objectContaining({ templateId: undefined }),
+      expect.objectContaining({ templateId: null }),
     );
+  });
+
+  it('adds options typed into a cell and says which ids to save, or why it was refused', async () => {
+    const client = mockClient();
+    show({}, client);
+    await screen.findByTestId('probe-layout');
+    const urgent = { id: 'typed-urgent', name: 'Urgent', color: 'orange' as const };
+    const high = { id: 'typed-high', name: 'high', color: 'blue' as const };
+
+    let ids: Record<string, string> = {};
+    await act(async () => {
+      ids = await drawn().actions.addOptions(PROPS.priority, [urgent, high]);
+    });
+    // "high" is the property's own "High".
+    expect(ids).toEqual({ 'typed-urgent': 'typed-urgent', 'typed-high': PRIORITY.high });
+    expect(client.updateProperty).toHaveBeenCalledTimes(1);
+
+    await act(() =>
+      drawn().actions.updateValues(
+        'row-sink',
+        { [PROPS.priority]: 'typed-high' },
+        { [PROPS.priority]: [high] },
+      ),
+    );
+    expect(client.updateRow).toHaveBeenLastCalledWith(JOBS_ID, 'row-sink', {
+      [PROPS.priority]: PRIORITY.high,
+    });
+
+    client.updateProperty.mockRejectedValueOnce(
+      new ApiError(403, 'forbidden', "You don't have access to this."),
+    );
+    await act(async () => {
+      await expect(
+        drawn().actions.addOptions(PROPS.priority, [
+          { id: 'typed-rush', name: 'Rush', color: 'red' },
+        ]),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+    });
+    expect(screen.getByRole('status')).toHaveTextContent("You don't have access to this.");
+  });
+
+  it('finds people to pick by name or email, and a failed search shows no toast', async () => {
+    const client = mockClient();
+    show({}, client);
+    await screen.findByTestId('probe-layout');
+
+    let people: PersonChoice[] = [];
+    await act(async () => {
+      people = await drawn().actions.searchPeople('  jordan ');
+    });
+    expect(client.listMembers).toHaveBeenCalledWith('jordan');
+    expect(people).toEqual([
+      {
+        id: USERS.jordan.id,
+        name: 'Jordan Park',
+        email: 'jordan.park@bluepine.example',
+        avatarUrl: '/api/files/photo-jordan',
+      },
+    ]);
+
+    client.listMembers.mockRejectedValueOnce(new ApiError(0, 'offline', OFFLINE_MESSAGE));
+    await act(async () => {
+      await expect(drawn().actions.searchPeople('avery')).rejects.toMatchObject({
+        code: 'offline',
+      });
+    });
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('duplicates ticked rows in order, and says why when it is refused', async () => {
+    const client = mockClient();
+    show({}, client);
+    await screen.findByTestId('probe-layout');
+
+    await act(() => drawn().actions.duplicateRows(['row-sink', 'row-heater']));
+    expect(client.duplicateRow.mock.calls).toEqual([
+      [JOBS_ID, 'row-sink'],
+      [JOBS_ID, 'row-heater'],
+    ]);
+
+    client.duplicateRow.mockRejectedValueOnce(
+      new ApiError(403, 'forbidden', "You don't have access to this."),
+    );
+    await act(async () => {
+      await expect(drawn().actions.duplicateRows(['row-sink'])).rejects.toMatchObject({
+        code: 'forbidden',
+      });
+    });
+    expect(screen.getByRole('status')).toHaveTextContent("You don't have access to this.");
   });
 });

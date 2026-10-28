@@ -1,10 +1,10 @@
 # Roles and permissions
 
-_Copied from the Notion spec (https://app.notion.com/p/d2e6352004d64a9b93a0b3ee29ee4259) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
-> 🔐 Phase 3, except sharing: core builds the sharing parts (share dialog, general access, guests, groups, share links, access requests, moving pages) in Phase 1 · Builds on the accounts and spaces from Phase 1 · The other specs use the words defined here
+> 🔐 Phase 3, except sharing: the sharing parts (share dialog, general access, guests, groups, share links, access requests, moving pages) are part of Phase 1 · Builds on the accounts and spaces from Phase 1 · The other specs use the words defined here
 >
-> 🆕 **v2 (Oct 28):** sharing now lives here in full (share dialog, general access, guests, groups, share links, access requests, moving pages), matching Notion. Related: Sidebar, spaces and nested pages; Settings and members. New parts are marked 🆕.
+> 🆕 **v2 (Oct 27):** sharing now lives here in full (share dialog, general access, guests, groups, share links, access requests, moving pages), matching Notion. Related: Sidebar, spaces and nested pages; Settings and members. New parts are marked 🆕.
 
 ## 1. What it's for
 
@@ -13,7 +13,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 ## 2. Screens and states
 
 - **Settings → Members:** name, email, role (a dropdown), joined, last active; search; filter by role. 🆕 Tabs for Guests and Groups (Settings and members spec).
-- 🆕 **Share dialog** (Share at the top right of every page, database and space, and in the page menu): described in section 3 under Sharing. Core builds it in Phase 1.
+- 🆕 **Share dialog** (Share at the top right of every page, database and space, and in the page menu): described in section 3 under Sharing. It's part of Phase 1.
 - 🆕 **Request access screen** for people who open a link to something they can't open (section 3).
 - 🆕 **Settings → Security → Share links** (Admins): every page with a live share link.
 - **Settings → Roles:** each role with its number of members. A role's page lists its permissions with a one-line explanation each, and its members. "New role" starts as a copy of any role.
@@ -59,7 +59,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 3. Limit it by the role. Without Edit, the most is Can comment (with Comment) or Can view. Without Share, Full access works as Can edit. Without Comment, there's no commenting.
 - People can give access only up to their own level.
 - Admins can see and manage every shared space (including limited ones) and join any of them. They can't open other people's private spaces, chats they aren't in, private events, connected calendars, transcripts or Claude chats (RP-D1: never).
-- A workspace always keeps at least one Admin: the last one can't be removed or changed ("A workspace needs at least one Admin."). A site admin can make any member an Admin.
+- A workspace always keeps at least one Admin: the last one can't be removed or changed ("A workspace needs at least one Admin."). A site admin can make any member an Admin, even in a workspace they aren't in: Settings → Site → Accounts → the person → their workspaces → Make Admin. This is the way back in when no Admin can sign in. It doesn't add the site admin to the workspace or let them open its pages, and it's recorded in that workspace's Security log. Inside a workspace's Settings → Members, only its Admins change roles; being a site admin adds nothing there.
 - Changes take effect at once. Open pages switch to the new access within 5 seconds with a banner ("Your access changed. This page is now view-only."), and live editing stops for anyone who lost it.
 - Nothing leaks: search, page cards, mentions, backlinks, relation chips, notices, Home, Calendar and Analytics never show the title or text of anything the person can't open.
 
@@ -75,7 +75,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 **🆕 Guests**
 
 - A guest is someone outside the team who can open only the pages shared with them (and those pages' sub-pages). They get their own account: name, sign-in name, password, and optional 2-step verification.
-- Care Hub never sends email, so whoever adds a guest gets a one-time setup link (valid 7 days) to pass on another way. The setup screen reminds the inviter that the guest also needs access to the Tailscale network, which Felipe gives in Tailscale.
+- Care Hub never sends email, so whoever adds a guest gets a one-time setup link (valid 7 days) to pass on another way. The setup screen reminds the inviter that the guest also needs access to the Tailscale network, which a site admin gives in Tailscale.
 - Adding guests needs the Add guests permission and the workspace setting "Allow guests" (on by default; Settings and members). Up to 100 guests per workspace.
 - Guests can get Can edit, Can comment or Can view, never Full access, and they can't share. With Can edit they can add sub-pages inside that page.
 - Guests see a "Shared with me" sidebar section, search only what they can open, and see names only of people on pages they can open. They don't get spaces, the member list, Messages chats (🟨 RP-D2), Calendar, Meetings, Learning, Analytics, templates, automations or workspace settings. They do get their 🔔 chat, comments and mentions on their pages, and their own account settings.
@@ -140,7 +140,7 @@ Decide what each person may do. A **role** sets what kinds of things someone can
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **RP-16** Share Onboarding plan with Sam (Can edit), the group Phoenix team, the role Agent and the guest Casey (Can view), then change Sam's level on a sub-page. → Each gets the chosen level and inherited entries show their source; the sub-page change asks first and turns on Stop inheriting.
 2. ⭐ **RP-03** Give Morgan, a Viewer, Can edit on a page. → Morgan can still only view, and the Share dialog says why.
@@ -149,7 +149,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 5. ⭐ **RP-21** Make a share link with sub-pages off, open it signed out, then Turn off the link. → The page is read only and its sub-pages are locked; afterwards the link says "This link isn't active."
 6. **RP-07** Share a page with the role Agent as Can view, then add a new Agent. → Every Agent can see it, including the new one.
 7. **RP-05** Turn off Create for the Agent role and sign in as Avery, an Agent. → New page, New database, Duplicate and Import are gone.
-8. **RP-10** Try to remove the last Admin or change their role. → Care Hub refuses.
+8. **RP-10** Try to remove the last Admin or change their role. → Care Hub refuses. Then Jordan, a site admin who isn't in the workspace, makes Sam an Admin from Settings → Site → Accounts. → Sam is an Admin, and Jordan still can't open the workspace's pages.
 9. **RP-24** As Riley, open a link to a page you can't open and choose Request access; decline it as the owner, then ask again as Riley. → Riley never sees the title and is told the answer; asking again within 24 hours is refused.
 10. **RP-25** Move a page into a space with different access. → Care Hub lists the exact changes first, and afterwards access matches the list.
 
@@ -164,7 +164,7 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **RP-07** Sharing a page with the role "Agent" as Can view lets every Agent see it, including one added later.
 - **RP-08** The highest grant wins, then the role limit applies; "Stop inheriting" removes inherited access.
 - **RP-09** Changing someone's role while they have a page open makes it view-only within 5 seconds, with the banner.
-- **RP-10** The last Admin can't be removed or changed; a site admin can appoint one.
+- **RP-10** The last Admin can't be removed or changed; a site admin can appoint one from Settings → Site → Accounts, even without being in the workspace, and that doesn't let them open its pages.
 - **RP-11** Deleting a custom role moves its members to the chosen role.
 - **RP-12** An automated test sends every kind of request as every built-in role and gets the expected answer (allowed or 403).
 - **RP-13** Leak tests: search, cards, mentions, backlinks, relation chips, notices, Home, Calendar and Analytics show nothing from pages the person can't open.
@@ -182,8 +182,8 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - 🆕 **RP-25** Moving a page to a place with different access first shows the section 3 sentence, such as "Moving Refund steps to Billing changes who can open it: 4 people lose access; the Agents group gets Can view." Afterwards access matches it: the people counted can't open the page, and those named have the stated level.
 - 🆕 **RP-26** The permission test (RP-12) and leak tests (RP-13) also pass for guests, groups and share-link visitors.
 
-## Decisions for Felipe
+## Decisions
 
-- ✅ **RP-D1** Can Admins open other people's private spaces, chats, private events and transcripts? **Felipe: the default** (no, never).
+- ✅ **RP-D1** Can Admins open other people's private spaces, chats, private events and transcripts? **Decided: the default** (no, never).
 - 🟨 **RP-D2** 🆕 Can guests use Messages to chat with members? **Default:** no; guests only get their 🔔 chat.
 - 🟨 **RP-D3** 🆕 View-only share links that anyone on the Care Hub network can open without signing in (Care Hub's version of Notion's Publish). **Default:** yes; Admins can turn them off for the workspace.

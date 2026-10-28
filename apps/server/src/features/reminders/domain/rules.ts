@@ -2,6 +2,7 @@
 import { addMinutes, combine, toInstant } from '@carehub/team-time';
 import { z } from 'zod';
 import type { EventStart, Reminder, ReminderView } from '../types';
+import { reminderHref } from './notice';
 
 export const REMINDER_LIMITS = {
   note: 280,
@@ -102,11 +103,14 @@ export function reminderList(reminders: readonly Reminder[], now: Date) {
   };
 }
 
-export function toReminderView(reminder: Reminder): ReminderView {
+/** `title` is the page or event title for the person, or null when they can't open it. */
+export function toReminderView(reminder: Reminder, title: string | null): ReminderView {
   const { id, target, minutesBefore, dueAt, note, status, sentAt, createdAt } = reminder;
   return {
     id,
     target,
+    title,
+    href: reminderHref(target),
     minutesBefore,
     dueAt: dueAt.toISOString(),
     note,
