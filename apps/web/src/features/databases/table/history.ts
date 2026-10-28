@@ -102,6 +102,26 @@ export class EditHistory {
     this.future = this.future.map(keep).filter(left);
   }
 
+  /** A property changed type or went: its values in the history can't be written back. */
+  forgetProperty(propertyId: Id): void {
+    for (const step of [...this.past, ...this.future]) {
+      for (const row of step.added) {
+        if (!row.input.values || !(propertyId in row.input.values)) continue;
+        // Updated in place, as its id is (see AddedRow).
+        const values = { ...row.input.values };
+        delete values[propertyId];
+        row.input = { ...row.input, values };
+      }
+    }
+    const keep = (step: Step): Step => ({
+      ...step,
+      values: step.values.filter((v) => v.propertyId !== propertyId),
+    });
+    const left = (step: Step) => step.values.length > 0 || step.added.length > 0;
+    this.past = this.past.map(keep).filter(left);
+    this.future = this.future.map(keep).filter(left);
+  }
+
   clear(): void {
     this.past = [];
     this.future = [];

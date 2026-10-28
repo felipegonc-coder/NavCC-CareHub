@@ -31,6 +31,32 @@ export interface TotalsRowProps {
 const isAggregate = (value: string): value is Aggregate =>
   (AGGREGATES as readonly string[]).includes(value);
 
+/** The calculations a property offers, as a menu's choices: in the footer and a column's menu. */
+export function CalculationChoices({
+  property,
+  value,
+  onCalculate,
+}: {
+  property: Property;
+  value: Aggregate | undefined;
+  onCalculate(aggregate: Aggregate): void;
+}) {
+  return (
+    <DropdownMenuRadioGroup
+      value={value ?? 'none'}
+      onValueChange={(next) => {
+        if (isAggregate(next)) onCalculate(next);
+      }}
+    >
+      {aggregatesFor(property).map((aggregate) => (
+        <DropdownMenuRadioItem key={aggregate} value={aggregate}>
+          {aggregateLabel(aggregate)}
+        </DropdownMenuRadioItem>
+      ))}
+    </DropdownMenuRadioGroup>
+  );
+}
+
 /** A row of column totals: under each group, and at the bottom with a Calculate menu per column. */
 export function TotalsRow({
   columns,
@@ -86,18 +112,11 @@ export function TotalsRow({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">
-                  <DropdownMenuRadioGroup
-                    value={calculations[property.id] ?? 'none'}
-                    onValueChange={(value) => {
-                      if (isAggregate(value)) onCalculate(property, value);
-                    }}
-                  >
-                    {aggregatesFor(property).map((aggregate) => (
-                      <DropdownMenuRadioItem key={aggregate} value={aggregate}>
-                        {aggregateLabel(aggregate)}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
+                  <CalculationChoices
+                    property={property}
+                    value={calculations[property.id]}
+                    onCalculate={(aggregate) => onCalculate(property, aggregate)}
+                  />
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (

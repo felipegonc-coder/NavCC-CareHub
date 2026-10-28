@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import type { Id, Property, View, ViewPropertySetting } from '@carehub/databases';
+import {
+  LIMITS,
+  type Id,
+  type Property,
+  type View,
+  type ViewPropertySetting,
+} from '@carehub/databases';
+import type { ViewActions } from '../contract';
 import { clampWidth, dropTarget, type TableColumn } from './columns';
 import { DRAG_START, followDrag } from './drag';
 import type { ColumnChanges } from './header';
-import { moveSetting, withSetting, withTableOptions } from './view-settings';
+import { moveSetting, withCalculation, withSetting, withTableOptions } from './view-settings';
 
 /** Makes a change to the view from the view with the changes so far in it, and saves it. */
 export type ChangeView = (make: (current: View) => Partial<View>) => Promise<void>;
@@ -20,11 +27,19 @@ export function settingsWith(
   return withSetting(current.properties, property.id, full);
 }
 
+/** How long after Filter is chosen in a column's menu its panel may still open (the menu's exit). */
+const FILTER_WAIT = 2000;
+
 /**
  * The header's column tools: drag an edge to resize, drag a header to move it (a press opens its
- * menu), the column menus, the Properties menu and Wrap cells. `gridLeft` is the table's left edge.
+ * menu), the table's items in the column menus, the Properties menu and Wrap cells. `gridLeft` is
+ * the table's left edge; `actions.openPanel` opens a column's Filter.
  */
-export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
+export function useColumnTools(
+  changeView: ChangeView,
+  gridLeft: () => number,
+  actions: Pick<ViewActions, 'openPanel'>,
+) {
   // A column's width while its edge is dragged, and until saving it is done.
   const [resize, setResize] = useState<{ propertyId: Id; width: number } | null>(null);
   // A header being dragged to a new place: where the pointer is, px from the table's left edge.
@@ -32,6 +47,9 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
   const [menuFor, setMenuFor] = useState<Id | null>(null);
   const dragStop = useRef<(() => void) | null>(null);
   const dragged = useRef(false);
+  // Filter, chosen in a column's menu: the panel opens once the menu has given focus back to the
+  // header, so focus goes on into the panel (and back to the header when it closes).
+  const filterFor = useRef<{ propertyId: Id; at: number } | null>(null);
 
   useEffect(
     () => () => {
@@ -42,6 +60,9 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
   );
 
   const columnChanges = (column: TableColumn): ColumnChanges => ({
+    filter: () => {
+      filterFor.current = { propertyId: column.property.id, at: Date.now() };
+    },
     width: (width) =>
       void changeView((v) => ({
         properties: settingsWith(v, column.property, { width: clampWidth(width) }),
@@ -52,9 +73,19 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
       void changeView((v) => ({
         table: withTableOptions(v, { frozenUpTo: frozen ? column.property.id : null }),
       })),
-    hide: () =>
+    // This property first; the view's other sorts stay after it.
+    sort: (direction) =>
       void changeView((v) => ({
-        properties: settingsWith(v, column.property, { visible: false }),
+        sorts: [
+          { propertyId: column.property.id, direction },
+          ...v.sorts.filter((s) => s.propertyId !== column.property.id),
+        ].slice(0, LIMITS.sorts),
+      })),
+    group: (grouped) =>
+      void changeView(() => ({ grouping: grouped ? { propertyId: column.property.id } : null })),
+    calculate: (aggregate) =>
+      void changeView((v) => ({
+        calculations: withCalculation(v.calculations, column.property.id, aggregate),
       })),
   });
 
@@ -130,6 +161,14 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
     });
   };
 
+  const focusHeader = (column: TableColumn, button: HTMLElement) => {
+    const chosen = filterFor.current;
+    if (!chosen) return;
+    filterFor.current = null;
+    if (chosen.propertyId !== column.property.id || Date.now() - chosen.at > FILTER_WAIT) return;
+    actions.openPanel('filter', { propertyId: column.property.id }, button);
+  };
+
   const pressHeader = (column: TableColumn) => {
     if (dragged.current) {
       dragged.current = false;
@@ -146,8 +185,12 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
     startResize,
     startMove,
     pressHeader,
+    focusHeader,
     columnChanges,
     showColumn,
     wrapCells,
   };
 }
+
+/** The header's column tools (useColumnTools). */
+export type ColumnTools = ReturnType<typeof useColumnTools>;

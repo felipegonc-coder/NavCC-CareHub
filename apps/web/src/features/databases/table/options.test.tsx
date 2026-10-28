@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ToastProvider } from '@carehub/ui';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -8,6 +8,7 @@ import {
   PRIORITY,
   PROPS,
   queryData,
+  renderWithDatabase,
   USERS,
   viewData,
 } from '../test-utils';
@@ -37,7 +38,7 @@ beforeEach(() => {
 describe('TableLayout new options', () => {
   it('saves an option typed into a Select cell with the value; redo adds it again', () => {
     const { actions, ...props } = layoutProps();
-    render(<TableLayout {...props} actions={actions} />);
+    renderWithDatabase(<TableLayout {...props} actions={actions} />);
     fireEvent.click(cellOf('row-sink', PROPS.priority));
     typeOption('Urgent');
 
@@ -59,7 +60,7 @@ describe('TableLayout new options', () => {
 
   it('adds an option typed into Set property once, then sets every ticked row', async () => {
     const { actions, ...props } = layoutProps();
-    render(<TableLayout {...props} actions={actions} />);
+    renderWithDatabase(<TableLayout {...props} actions={actions} />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Fix kitchen sink leak' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Annual boiler service' }));
     const bar = screen.getByRole('toolbar', { name: 'Selected rows' });
@@ -87,7 +88,7 @@ describe('TableLayout new options', () => {
     actions.addOptions.mockImplementation(async (_propertyId, options) =>
       Object.fromEntries(options.map((o) => [o.id, 'opt-urgent-saved'])),
     );
-    render(<TableLayout {...props} actions={actions} />);
+    renderWithDatabase(<TableLayout {...props} actions={actions} />);
     paste(cellOf('row-sink', PROPS.priority), 'Urgent\nurgent\nLow');
 
     expect(actions.addOptions).toHaveBeenCalledTimes(1);
@@ -106,7 +107,7 @@ describe('TableLayout new options', () => {
   it('skips pasted names that need options when the options can’t be added', async () => {
     const meta = { ...jobsDatabase(), viewerAccess: 'edit_content' as const };
     const { actions, ...props } = layoutProps({ meta });
-    render(
+    renderWithDatabase(
       <ToastProvider>
         <TableLayout {...props} actions={actions} />
       </ToastProvider>,
@@ -123,7 +124,7 @@ describe('TableLayout new options', () => {
 describe('TableLayout people', () => {
   it('lists the workspace’s people in a Person cell', async () => {
     const { actions, ...props } = layoutProps();
-    render(<TableLayout {...props} actions={actions} />);
+    renderWithDatabase(<TableLayout {...props} actions={actions} />);
     fireEvent.click(cellOf('row-drain', PROPS.technician));
     expect(actions.searchPeople).toHaveBeenCalledWith('');
     fireEvent.click(await screen.findByRole('option', { name: /Jordan Park/ }));
@@ -136,7 +137,7 @@ describe('TableLayout people', () => {
     // No names in the answer: the workspace's people are looked up.
     const data = viewData(queryData(jobsRows(), { people: {} }));
     const { actions, ...props } = layoutProps({ data });
-    render(<TableLayout {...props} actions={actions} />);
+    renderWithDatabase(<TableLayout {...props} actions={actions} />);
     paste(cellOf('row-heater', PROPS.technician), 'avery lin\nJORDAN.PARK@bluepine.example');
     expect(actions.searchPeople).toHaveBeenCalledWith('');
     await waitFor(() => expect(actions.updateValues).toHaveBeenCalledTimes(2));

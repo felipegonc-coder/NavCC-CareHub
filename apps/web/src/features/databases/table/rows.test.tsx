@@ -1,8 +1,16 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ToastProvider } from '@carehub/ui';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { View } from '@carehub/databases';
-import { groupedByStatus, jobsDatabase, layoutProps, PROPS, STATUS, viewData } from '../test-utils';
+import {
+  groupedByStatus,
+  jobsDatabase,
+  layoutProps,
+  PROPS,
+  renderWithDatabase,
+  STATUS,
+  viewData,
+} from '../test-utils';
 import TableLayout from './layout';
 
 const rowOf = (rowId: string): HTMLElement => {
@@ -83,7 +91,7 @@ describe('TableLayout row menu', () => {
   it('opens from the handle without ticking the row: Open, Duplicate, Copy link, Move up and down, Delete', async () => {
     const props = layoutProps();
     const { actions } = props;
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(handleOf('row-heater', 'Replace water heater'));
     expect(items()).toEqual(['Open', 'Duplicate', 'Copy link', 'Move up', 'Move down', 'Delete']);
     expect(rowOf('row-heater')).toHaveAttribute('aria-selected', 'false');
@@ -109,7 +117,7 @@ describe('TableLayout row menu', () => {
   it('deletes the row and moves focus to the next one', async () => {
     const props = layoutProps();
     const { actions } = props;
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(handleOf('row-boiler', 'Annual boiler service'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
     expect(actions.trashRows).toHaveBeenCalledWith(['row-boiler']);
@@ -118,7 +126,7 @@ describe('TableLayout row menu', () => {
 
   it('duplicates the row and gives focus back to the row', async () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(handleOf('row-heater', 'Replace water heater'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
     expect(props.actions.duplicateRows).toHaveBeenCalledWith(['row-heater']);
@@ -129,7 +137,7 @@ describe('TableLayout row menu', () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     const props = layoutProps();
-    render(
+    renderWithDatabase(
       <ToastProvider>
         <TableLayout {...props} />
       </ToastProvider>,
@@ -144,7 +152,7 @@ describe('TableLayout row menu', () => {
   it('opens with Shift+F10 on a cell and gives focus back to it', async () => {
     const props = layoutProps();
     const { actions } = props;
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     const cost = cellOf('row-boiler', PROPS.cost);
     cost.focus();
     fireEvent.keyDown(cost, { key: 'F10', shiftKey: true });
@@ -159,12 +167,12 @@ describe('TableLayout row menu', () => {
 
   it('has no moves in a sorted view, and no handles when read-only', () => {
     const sorted = layoutProps({ view: tableView({ sorts: byCost }) });
-    const { unmount } = render(<TableLayout {...sorted} />);
+    const { unmount } = renderWithDatabase(<TableLayout {...sorted} />);
     fireEvent.click(handleOf('row-drain', 'Unclog bathroom drain'));
     expect(items()).toEqual(['Open', 'Duplicate', 'Copy link', 'Delete']);
     unmount();
 
-    render(<TableLayout {...layoutProps({ readOnly: true })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ readOnly: true })} />);
     expect(screen.queryByRole('button', { name: /^Row menu for/ })).toBeNull();
     fireEvent.keyDown(cellOf('row-boiler', PROPS.cost), { key: 'F10', shiftKey: true });
     expect(screen.queryByRole('menu')).toBeNull();
@@ -175,7 +183,7 @@ describe('TableLayout row drag', () => {
   it('drags a row to another place in manual order', () => {
     const props = layoutProps();
     const { actions } = props;
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     layOutRows();
     // Rows: sink 0-40, heater 40-80, boiler 80-120, drain 120-160.
     dragTo(handleOf('row-drain', 'Unclog bathroom drain'), 42);
@@ -191,7 +199,7 @@ describe('TableLayout row drag', () => {
   it('shows where the row lands, and Escape cancels', () => {
     const props = layoutProps();
     const { actions } = props;
-    const { container } = render(<TableLayout {...props} />);
+    const { container } = renderWithDatabase(<TableLayout {...props} />);
     layOutRows();
     const handle = handleOf('row-drain', 'Unclog bathroom drain');
     pointer(handle, 'pointerdown', 140);
@@ -207,7 +215,7 @@ describe('TableLayout row drag', () => {
   it('moves a row into another group; sorted, only the group changes', () => {
     const grouped = tableView({ grouping: { propertyId: PROPS.status } });
     const first = layoutProps({ view: grouped, data: viewData(groupedByStatus()) });
-    const { unmount } = render(<TableLayout {...first} />);
+    const { unmount } = renderWithDatabase(<TableLayout {...first} />);
     layOutRows();
     // Not started: heater 0-40, drain 40-80; In progress: sink 80-120; Done: boiler 120-160.
     dragTo(handleOf('row-sink', 'Fix kitchen sink leak'), 122);
@@ -223,7 +231,7 @@ describe('TableLayout row drag', () => {
       view: { ...grouped, sorts: byCost },
       data: viewData(groupedByStatus()),
     });
-    render(<TableLayout {...sorted} />);
+    renderWithDatabase(<TableLayout {...sorted} />);
     layOutRows();
     dragTo(handleOf('row-sink', 'Fix kitchen sink leak'), 130);
     expect(sorted.actions.moveRow).toHaveBeenCalledWith('row-sink', {
@@ -237,7 +245,7 @@ describe('TableLayout row drag', () => {
 
   it("doesn't drag in a sorted view without groups", () => {
     const props = layoutProps({ view: tableView({ sorts: byCost }) });
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     layOutRows();
     dragTo(handleOf('row-drain', 'Unclog bathroom drain'), 0);
     expect(props.actions.moveRow).not.toHaveBeenCalled();

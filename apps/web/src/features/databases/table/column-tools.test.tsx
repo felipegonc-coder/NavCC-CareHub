@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { View, ViewPropertySetting } from '@carehub/databases';
-import { jobsDatabase, layoutProps, PROPS } from '../test-utils';
+import { jobsDatabase, layoutProps, PROPS, renderWithDatabase } from '../test-utils';
 import TableLayout from './layout';
 
 function tableView(patch: Partial<View> = {}): View {
@@ -41,7 +41,7 @@ beforeEach(() => {
 describe('TableLayout column tools', () => {
   it('resizes a column by dragging its edge, between 80 and 800 px', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     const handle = header('Cost').querySelector('[data-resize-handle]');
     if (!handle) throw new Error('No resize handle');
     pointer(handle, 'pointerdown', 500);
@@ -59,7 +59,7 @@ describe('TableLayout column tools', () => {
 
   it('changes a column from its menu: wrap, freeze, hide and a typed width', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(headerButton('Status'));
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Wrap column' }));
     expect(setting(savedPatch(props), PROPS.status)?.wrap).toBe(true);
@@ -79,11 +79,12 @@ describe('TableLayout column tools', () => {
     fireEvent.change(width, { target: { value: '330' } });
     fireEvent.keyDown(width, { key: 'Enter' });
     expect(setting(savedPatch(props), PROPS.status)?.width).toBe(330);
-    expect(screen.queryByRole('menu')).toBeNull();
+    // The menu stays: closing it from here would drop a name typed at its top.
+    expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
   it("doesn't offer to hide Name", () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     fireEvent.click(headerButton('Name'));
     expect(screen.getByRole('menuitemcheckbox', { name: 'Wrap column' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Hide in this view' })).toBeNull();
@@ -91,7 +92,7 @@ describe('TableLayout column tools', () => {
 
   it('keeps quick changes to two columns', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(headerButton('Status'));
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Wrap column' }));
     fireEvent.click(headerButton('Cost'));
@@ -103,7 +104,7 @@ describe('TableLayout column tools', () => {
 
   it('moves a column dragged by its header, and Name stays first', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     // Name 0–280, Status 280–480, ..., Cost 1080–1280.
     drag(headerButton('Cost'), 1100, 300);
     const order = savedPatch(props).properties?.map((s) => s.propertyId) ?? [];
@@ -124,7 +125,7 @@ describe('TableLayout column tools', () => {
       ],
     });
     const props = layoutProps({ view });
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.keyDown(screen.getByRole('button', { name: 'Properties' }), { key: 'Enter' });
     expect(screen.getByRole('menuitemcheckbox', { name: 'Status' })).toBeChecked();
     expect(screen.getByRole('menuitemcheckbox', { name: 'Cost' })).not.toBeChecked();
@@ -139,7 +140,7 @@ describe('TableLayout column tools', () => {
 
   it('sets a calculation from the footer', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     const cost = screen
       .getByTestId('db-totals')
       .querySelector(`[data-property-id="${PROPS.cost}"]`);
@@ -152,12 +153,13 @@ describe('TableLayout column tools', () => {
 
   it("leaves the columns alone for someone who can't edit the view", () => {
     const meta = { ...jobsDatabase(), viewerAccess: 'edit_content' as const };
-    render(<TableLayout {...layoutProps({ meta })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ meta })} />);
     const columns = screen
       .getAllByRole('columnheader')
       .filter((h) => h.hasAttribute('data-property-id'));
     expect(columns).toHaveLength(8);
-    expect(within(header('Status')).queryByRole('button')).toBeNull();
+    // The header still opens the property's menu: sorting and grouping for them.
+    expect(headerButton('Status')).toBeInTheDocument();
     expect(document.querySelector('[data-resize-handle]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Properties' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Calculate' })).toBeNull();
@@ -168,11 +170,11 @@ describe('TableLayout column tools', () => {
 describe('TableLayout groups and options', () => {
   it('remembers collapsed groups for the person', () => {
     const view = tableView({ grouping: { propertyId: PROPS.status } });
-    const first = render(<TableLayout {...layoutProps({ view })} />);
+    const first = renderWithDatabase(<TableLayout {...layoutProps({ view })} />);
     const group = screen.getByRole('rowgroup', { name: 'In progress' });
     fireEvent.click(within(group).getByRole('button', { name: /In progress/ }));
     first.unmount();
-    render(<TableLayout {...layoutProps({ view })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ view })} />);
     const again = screen.getByRole('rowgroup', { name: 'In progress' });
     expect(within(again).getByRole('button', { name: /In progress/ })).toHaveAttribute(
       'aria-expanded',
@@ -183,7 +185,7 @@ describe('TableLayout groups and options', () => {
 
   it("doesn't offer new options to someone who can't change properties", () => {
     const meta = { ...jobsDatabase(), viewerAccess: 'edit_content' as const };
-    render(<TableLayout {...layoutProps({ meta, view: tableView() })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ meta, view: tableView() })} />);
     const status = screen.getAllByRole('gridcell').find((c) => c.textContent === 'High');
     if (!status) throw new Error('No Priority cell');
     fireEvent.click(status);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { colorClasses } from '@carehub/ui';
 import type { View } from '@carehub/databases';
@@ -10,6 +10,7 @@ import {
   layoutProps,
   PROPS,
   queryData,
+  renderWithDatabase,
   STATUS,
   viewData,
 } from '../test-utils';
@@ -53,7 +54,7 @@ beforeEach(() => {
 
 describe('TableLayout columns', () => {
   it('shows a column for each visible property, Name first', () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     expect(screen.getByRole('grid', { name: 'All jobs' })).toBeInTheDocument();
     expect(headers()).toEqual([
       'Name',
@@ -76,7 +77,7 @@ describe('TableLayout columns', () => {
         { propertyId: PROPS.notes, visible: true, width: 2000 },
       ],
     });
-    render(<TableLayout {...layoutProps({ view })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ view })} />);
     expect(headers()).toEqual(['Name', 'Cost', 'Notes']);
     expect(screen.getByRole('columnheader', { name: 'Name' })).toHaveStyle({ width: '280px' });
     expect(screen.getByRole('columnheader', { name: 'Cost' })).toHaveStyle({ width: '120px' });
@@ -85,7 +86,7 @@ describe('TableLayout columns', () => {
 
   it("leaves out properties the viewer can't see", () => {
     const data = viewData(queryData(jobsRows(), { propertyIds: [PROPS.name, PROPS.status] }));
-    render(<TableLayout {...layoutProps({ data })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ data })} />);
     expect(headers()).toEqual(['Name', 'Status']);
   });
 
@@ -93,7 +94,7 @@ describe('TableLayout columns', () => {
     const view = tableView({
       table: { frozenUpTo: PROPS.status, wrapCells: false, showVerticalLines: true },
     });
-    render(<TableLayout {...layoutProps({ view })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ view })} />);
     // After the selection column (44 px) and Name (280 px).
     expect(screen.getByRole('columnheader', { name: 'Status' })).toHaveStyle({ left: '324px' });
     expect(cellOf('row-sink', PROPS.name)).toHaveClass('sticky');
@@ -105,7 +106,7 @@ describe('TableLayout columns', () => {
 describe('TableLayout rows', () => {
   it('shows every row with its cells, and "Untitled" for an empty Name', () => {
     const rows = [...jobsRows(), fixtureRow('row-empty', '', 9)];
-    render(<TableLayout {...layoutProps({ data: viewData(queryData(rows)) })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ data: viewData(queryData(rows)) })} />);
     expect(bodyRows().map((r) => r.getAttribute('data-row-id'))).toEqual([
       'row-sink',
       'row-heater',
@@ -122,7 +123,7 @@ describe('TableLayout rows', () => {
   });
 
   it('groups rows under headers with the label, colour and count', () => {
-    render(<TableLayout {...layoutProps({ view: byStatus() })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ view: byStatus() })} />);
     const names = screen
       .getAllByRole('rowgroup')
       .map((g) => g.getAttribute('aria-label'))
@@ -142,7 +143,7 @@ describe('TableLayout rows', () => {
   });
 
   it('collapses and expands a group', () => {
-    render(<TableLayout {...layoutProps({ view: byStatus() })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ view: byStatus() })} />);
     const group = screen.getByRole('rowgroup', { name: 'In progress' });
     const toggle = within(group).getByRole('button', { name: /In progress/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -156,7 +157,7 @@ describe('TableLayout rows', () => {
 
   it('opens a row from its Open button', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(within(rowOf('row-heater')).getByRole('button', { name: 'Open' }));
     expect(props.actions.openRow).toHaveBeenCalledWith('row-heater');
     expect(screen.queryByRole('textbox')).toBeNull();
@@ -164,7 +165,7 @@ describe('TableLayout rows', () => {
 
   it('loads more rows of the view', () => {
     const props = layoutProps({ data: viewData(queryData(jobsRows(), { nextCursor: 'next' })) });
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
     expect(props.actions.loadMore).toHaveBeenCalledTimes(1);
     expect(props.actions.loadMore.mock.calls[0]).toEqual([]);
@@ -172,7 +173,7 @@ describe('TableLayout rows', () => {
 
   it('shows "Load more" as busy while it loads', () => {
     const data = { ...viewData(queryData(jobsRows(), { nextCursor: 'next' })), loadingMore: [''] };
-    render(<TableLayout {...layoutProps({ data })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ data })} />);
     expect(screen.getByRole('button', { name: 'Load more' })).toHaveAttribute('aria-busy', 'true');
   });
 
@@ -182,7 +183,7 @@ describe('TableLayout rows', () => {
       grouped.groups?.map((g) => (g.key === STATUS.done ? { ...g, nextCursor: 'more' } : g)) ??
       null;
     const props = layoutProps({ view: byStatus(), data: viewData({ ...grouped, groups }) });
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     const done = screen.getByRole('rowgroup', { name: 'Done' });
     fireEvent.click(within(done).getByRole('button', { name: 'Load more' }));
     expect(props.actions.loadMore).toHaveBeenCalledWith(STATUS.done);
@@ -195,7 +196,9 @@ describe('TableLayout totals', () => {
     const totals = {
       [PROPS.cost]: { value: { kind: 'number' as const, value: 1850 }, text: 'Sum $1,850.00' },
     };
-    render(<TableLayout {...layoutProps({ data: viewData(queryData(jobsRows(), { totals })) })} />);
+    renderWithDatabase(
+      <TableLayout {...layoutProps({ data: viewData(queryData(jobsRows(), { totals })) })} />,
+    );
     const footer = screen.getByTestId('db-totals');
     const cell = within(footer).getByText('Sum $1,850.00').closest('[data-property-id]');
     expect(cell).toHaveAttribute('data-property-id', PROPS.cost);
@@ -208,7 +211,7 @@ describe('TableLayout totals', () => {
       grouped.groups?.map((g) =>
         g.key === STATUS.notStarted ? { ...g, totals: { [PROPS.name]: total } } : g,
       ) ?? null;
-    render(
+    renderWithDatabase(
       <TableLayout
         {...layoutProps({ view: byStatus(), data: viewData({ ...grouped, groups }) })}
       />,
@@ -221,7 +224,7 @@ describe('TableLayout totals', () => {
 describe('TableLayout editing', () => {
   it('edits a cell on click and saves with Enter', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(cellOf('row-drain', PROPS.name));
     const input = screen.getByRole('textbox', { name: 'Name' });
     expect(input).toHaveValue('Unclog bathroom drain');
@@ -236,7 +239,7 @@ describe('TableLayout editing', () => {
 
   it('leaves without saving on Escape', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(cellOf('row-sink', PROPS.notes));
     const input = screen.getByRole('textbox', { name: 'Notes' });
     fireEvent.change(input, { target: { value: 'Call before going' } });
@@ -248,7 +251,7 @@ describe('TableLayout editing', () => {
 
   it("doesn't save an unchanged value, and Tab moves to the next cell", () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(cellOf('row-sink', PROPS.name));
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name' }), { key: 'Tab' });
     expect(props.actions.updateValues).not.toHaveBeenCalled();
@@ -257,14 +260,14 @@ describe('TableLayout editing', () => {
 
   it('ticks a checkbox straight from the cell', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(within(rowOf('row-sink')).getByRole('checkbox', { name: 'Paid' }));
     expect(props.actions.updateValues).toHaveBeenCalledWith('row-sink', { [PROPS.paid]: true });
   });
 
   it('adds a row with New and starts on its Name', async () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(screen.getByRole('button', { name: 'New' }));
     expect(props.actions.createRow).toHaveBeenCalledWith({});
     const input = await screen.findByRole('textbox', { name: 'Name' });
@@ -281,7 +284,7 @@ describe('TableLayout editing', () => {
 
   it('adds a row inside a group', async () => {
     const props = layoutProps({ view: byStatus() });
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     const group = screen.getByRole('rowgroup', { name: 'In progress' });
     fireEvent.click(within(group).getByRole('button', { name: 'New' }));
     expect(props.actions.createRow).toHaveBeenCalledWith({ groupKey: STATUS.inProgress });
@@ -291,7 +294,7 @@ describe('TableLayout editing', () => {
 
   it('says "Hidden by filter" when the newer answer leaves a new row out', async () => {
     const props = layoutProps();
-    const { rerender } = render(<TableLayout {...props} />);
+    const { rerender } = renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(screen.getByRole('button', { name: 'New' }));
     const input = await screen.findByRole('textbox', { name: 'Name' });
     fireEvent.keyDown(input, { key: 'Escape' });
@@ -302,7 +305,7 @@ describe('TableLayout editing', () => {
 
   it('turns editing off when read-only', () => {
     const props = layoutProps({ readOnly: true });
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     expect(screen.getByRole('grid')).toHaveAttribute('aria-readonly', 'true');
     expect(screen.queryByRole('button', { name: 'New' })).toBeNull();
     expect(screen.queryByRole('checkbox')).toBeNull();
@@ -319,7 +322,7 @@ describe('TableLayout editing', () => {
 
 describe('TableLayout keyboard', () => {
   it('moves between cells with the arrows, Home, End and Tab', () => {
-    render(<TableLayout {...layoutProps({ readOnly: true })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ readOnly: true })} />);
     const start = cellOf('row-sink', PROPS.status);
     fireEvent.click(start);
     fireEvent.keyDown(start, { key: 'ArrowDown' });
@@ -339,7 +342,7 @@ describe('TableLayout keyboard', () => {
   });
 
   it('makes only one cell a tab stop', () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     const stops = document.querySelectorAll(
       '[role="gridcell"][tabindex="0"], [role="rowheader"][tabindex="0"]',
     );
@@ -349,7 +352,7 @@ describe('TableLayout keyboard', () => {
 
   it('edits with Enter or by typing, and clears with Delete', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.keyDown(cellOf('row-heater', PROPS.notes), { key: 'Enter' });
     expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveValue('');
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Notes' }), { key: 'Escape' });
@@ -362,7 +365,7 @@ describe('TableLayout keyboard', () => {
 
   it('opens the row with Space on its Name and ticks a checkbox with Space', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.keyDown(cellOf('row-boiler', PROPS.name), { key: ' ' });
     expect(props.actions.openRow).toHaveBeenCalledWith('row-boiler');
     fireEvent.keyDown(cellOf('row-boiler', PROPS.paid), { key: ' ' });

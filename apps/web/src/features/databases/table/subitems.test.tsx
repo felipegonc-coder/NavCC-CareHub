@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { View } from '@carehub/databases';
 import type { QueryRow } from '../contract';
@@ -9,6 +9,7 @@ import {
   PROPS,
   queryData,
   queryRow,
+  renderWithDatabase,
   viewData,
 } from '../test-utils';
 import TableLayout from './layout';
@@ -62,7 +63,7 @@ beforeEach(() => {
 
 describe('TableLayout sub-items', () => {
   it('starts with sub-items closed; the arrow and → open them, ← closes them', () => {
-    render(<TableLayout {...nestedProps()} />);
+    renderWithDatabase(<TableLayout {...nestedProps()} />);
     expect(shownRows()).toEqual(['row-sink', 'row-drain']);
     expect(arrow()).toHaveAttribute('aria-expanded', 'false');
     expect(within(rowOf('row-drain')).queryByRole('button', { name: /^Sub-items of/ })).toBeNull();
@@ -84,18 +85,18 @@ describe('TableLayout sub-items', () => {
   });
 
   it('starts context rows open, and shows no arrows when flattened', () => {
-    const { unmount } = render(<TableLayout {...nestedProps({ context: true })} />);
+    const { unmount } = renderWithDatabase(<TableLayout {...nestedProps({ context: true })} />);
     expect(shownRows()).toEqual(['row-sink', 'row-heater', 'row-boiler', 'row-drain']);
     expect(rowOf('row-sink')).toHaveClass('text-muted');
     unmount();
 
-    render(<TableLayout {...nestedProps({ subItems: 'flattened' })} />);
+    renderWithDatabase(<TableLayout {...nestedProps({ subItems: 'flattened' })} />);
     expect(screen.queryByRole('button', { name: /^Sub-items of/ })).toBeNull();
   });
 
   it('moves a sub-item among the rows under the same parent', () => {
     const props = nestedProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(arrow());
     fireEvent.click(
       within(rowOf('row-boiler')).getByRole('button', {
