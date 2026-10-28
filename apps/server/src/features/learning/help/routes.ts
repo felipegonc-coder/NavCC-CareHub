@@ -1,10 +1,22 @@
 import {
   blockHelpText,
   cutHelpSelection,
+  HELP_QUESTION_TYPES,
   helpAnswerText,
+  HelpQuestionDraftsSchema,
+  helpQuestions,
+  HelpQuestionsRequestSchema,
+  helpQuestionsPrompt,
+  HelpSummaryRequestSchema,
+  HelpSummarySchema,
+  helpSummaryPrompt,
   HelpWriteRequestSchema,
   helpWritePrompt,
+  lessonHelpText,
   type Course,
+  type HelpQuestionsReply,
+  type HelpQuestionType,
+  type HelpSummary,
   type HelpWriteReply,
   type Lesson,
 } from '@carehub/learning';
@@ -13,6 +25,7 @@ import { errorBody, HttpError } from '../../../core/errors';
 import type { Db } from '../../../db';
 import {
   askClaude,
+  askClaudeJson,
   claudeErrorReason,
   claudeHttpError,
   isClaudeFeatureOn,
@@ -21,9 +34,10 @@ import { requirePermission, viewerOf, type Viewer } from '../auth';
 import { getStudioCourse } from '../courses/service';
 import { errorReply, httpError, parseInput } from '../errors';
 
-// Learning help (decision 0315), under /api/learning/help. Studio only (learning.build); the shared Claude
-// client checks everything else, claude.use and the learning_help switch included. The server reads the
-// saved draft itself, by id, and sends Claude course content only.
+// Learning help (decision 0315), under /api/learning/help: writing help, summaries with key points, and quiz
+// questions. Studio only (learning.build); the shared Claude client checks everything else, claude.use and the
+// learning_help switch included. The server reads the saved draft itself, by id, and sends Claude course
+// content only. Nothing here saves: Studio adds an answer to the draft when the author accepts it.
 
 const FEATURE = 'learning_help';
 const STALE = 'This course changed since you opened it. Reload, then try again.';
@@ -109,6 +123,61 @@ const helpRoutes: FastifyPluginAsync = async (app) => {
     const cleaned = helpAnswerText(answer);
     if (!cleaned) throw claudeHttpError('bad_output');
     return { text: cleaned };
+  });
+
+  app.post('/summary', build, async (request): Promise<HelpSummary> => {
+    const input = parseInput(HelpSummaryRequestSchema, request.body);
+    const viewer = viewerOf(request);
+    const course = await savedDraft(app.db, viewer, input.courseId, input.revision);
+    const { lessonId } = input;
+    const chosen = course.lessons.flatMap((lesson, index) =>
+      lessonId === undefined || lesson.id === lessonId
+        ? [lessonDocument(course, lesson, index, lessonHelpText(lesson))]
+        : [],
+    );
+    if (lessonId !== undefined && chosen.length === 0) throw httpError(404);
+    const documents = chosen.filter((document) => document.text.trim() !== '');
+    if (documents.length === 0) throw httpError(400, "There's no text here to summarize yet.");
+
+    const { data } = await ask(app.db, viewer, () =>
+      askClaudeJson(app.db, {
+        workspaceId: viewer.workspaceId,
+        userId: viewer.userId,
+        feature: FEATURE,
+        ...helpSummaryPrompt(lessonId === undefined ? 'course' : 'lesson'),
+        documents,
+        schema: HelpSummarySchema,
+      }),
+    );
+    return data;
+  });
+
+  app.post('/questions', build, async (request): Promise<HelpQuestionsReply> => {
+    const input = parseInput(HelpQuestionsRequestSchema, request.body);
+    const viewer = viewerOf(request);
+    const course = await savedDraft(app.db, viewer, input.courseId, input.revision);
+    const index = course.lessons.findIndex((lesson) => lesson.id === input.lessonId);
+    const lesson = course.lessons[index];
+    if (!lesson) throw httpError(404);
+    const text = lessonHelpText(lesson);
+    if (!text.trim()) throw httpError(400, "There's no text here to write questions about yet.");
+    const types: readonly HelpQuestionType[] = input.types ?? HELP_QUESTION_TYPES;
+
+    const { data } = await ask(app.db, viewer, () =>
+      askClaudeJson(app.db, {
+        workspaceId: viewer.workspaceId,
+        userId: viewer.userId,
+        feature: FEATURE,
+        ...helpQuestionsPrompt(input.count, types),
+        documents: [lessonDocument(course, lesson, index, text)],
+        schema: HelpQuestionDraftsSchema,
+      }),
+    );
+    // Claude's questions go through the course checks; only the ones that pass, of the types asked for, go back.
+    const asked = data.questions.filter((draft) => types.includes(draft.type));
+    const questions = helpQuestions(course, asked.slice(0, input.count));
+    if (questions.length === 0) throw claudeHttpError('bad_output');
+    return { questions };
   });
 };
 
