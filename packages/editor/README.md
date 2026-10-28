@@ -12,7 +12,8 @@ import { BlockEditor } from '@carehub/editor';
   y-websocket; anything with `awareness`) and the `user` to show carets and selections with names.
 - `BlockEditor` imports its own content styles, built on the `@carehub/ui` tokens for colors,
   sizes and type (`--ch-*`).
-- `@carehub/editor/schema` has the page schema with no UI (no DOM, no React) for the server.
+- `@carehub/editor/schema` has the page schema with no UI (no DOM, no React) for the server,
+  and `sanitizeRichText` for rich text field values.
 
 ## Props
 
@@ -29,7 +30,7 @@ import { BlockEditor } from '@carehub/editor';
 | `nodeViews`   | `{}`               | React views of lane blocks by node name (read on creation).    |
 | `slashItems`  | `[]`               | More "/" menu entries (`SlashItem`); can change at any time.   |
 | `linkPickers` | `[]`               | More link targets in the link panel (`LinkPicker`).            |
-| `bubbleItems` | `[]`               | More selection toolbar buttons (`BubbleItem`).                 |
+| `bubbleItems` | `[]`               | More selection toolbar buttons (`BubbleItem`), see below.      |
 | `extensions`  | `[]`               | Shortcuts and plugins, not nodes or marks (read on creation).  |
 
 ## Block groups
@@ -75,11 +76,14 @@ right, like `#` or `---`.
 
 ## The selection toolbar
 
-Selecting text (outside code) shows a toolbar above it: Bold, Italic, Underline, Strikethrough,
-Inline code and Link, then any `bubbleItems`. It's a `toolbar` with arrow-key movement; Alt+F10
-moves focus into it and Escape goes back to the text. The link panel takes a web or email address
-(`example.com` becomes `https://example.com`, `robin@example.com` becomes `mailto:`), shows a
-message for anything else, and lists the `linkPickers`:
+Selecting text (outside code) shows a toolbar above it, in the spec's order: Link, Comment (the
+`bubbleItems` entry with the id `comment`), Bold, Italic, Underline, Strikethrough and Inline code,
+then the other `bubbleItems`. Turn into, Equation, Color and "…" come with their block groups. In a
+read-only editor, selecting text shows only the `bubbleItems` marked `readOnly` (like Comment for
+people who can comment), or no toolbar if there are none. It's a `toolbar` with arrow-key movement;
+Alt+F10 moves focus into it and Escape goes back to the text. The link panel takes a web or email
+address (`example.com` becomes `https://example.com`, `robin@example.com` becomes `mailto:`), shows
+a message for anything else, and lists the `linkPickers`:
 
 ```tsx
 const lessonPicker: LinkPicker = {
@@ -93,6 +97,38 @@ Links from the panel or a picker go through `safeHref` and open like every other
 sites in a new tab; Care Hub (like `/p/<pageId>`), `mailto` and `tel` links in the same tab. An
 address starting with `//` becomes `https://`, and an unsafe href from a picker is ignored.
 
+## RichTextField
+
+A small rich text input for forms and properties, without live co-editing: paragraphs, hard
+breaks (Shift+Enter) and the marks you allow, with the same selection toolbar.
+
+```tsx
+import { RichTextField, type JSONContent } from '@carehub/editor';
+
+const [description, setDescription] = useState<JSONContent>({ type: 'doc', content: [] });
+<RichTextField
+  value={description}
+  onChange={setDescription}
+  ariaLabel="Lesson description"
+  marks={['bold', 'italic', 'link']}
+  onPickPage={pickPage} // adds "Link to a page", which links to /p/<pageId>
+/>;
+```
+
+- `value` is Tiptap JSON. Whatever it holds, the field shows (and `onChange` sends) only
+  paragraphs of text and hard breaks with the allowed marks and safe links; anything nested more
+  than 64 levels deep is dropped. `sanitizeRichText` does the same cleanup, for example on the
+  server before saving (from `@carehub/editor/schema` there).
+- A link keeps only its `href`, through `safeHref` (`//host` becomes `https://host`). Where it
+  opens comes from the href when it's drawn, as in the page editor.
+- `singleLine`: Enter adds nothing, and pasted or dropped lines join with spaces.
+- `ariaLabel` names the text box, so make it match the visible label: a `<label htmlFor>` doesn't
+  name or focus a contenteditable. `id` goes on the text box, as a target for other elements'
+  `aria-labelledby` or `aria-describedby`; `ariaDescribedBy` points to a hint.
+- Also `placeholder` (also given as `aria-placeholder`), `autoFocus`, `readOnly` and
+  `linkPickers`. With no `marks`, selecting text shows no toolbar. Changing `marks` or
+  `singleLine` makes a new editor.
+
 ## Lane blocks and extension points (shared contract, see docs/decisions/0007)
 
 - **Lane nodes** go in `src/lanes/<lane>.ts` (`export const nodes: AnyExtension[]`). Each lane owns
@@ -100,8 +136,12 @@ address starting with `//` becomes `https://`, and an unsafe href from a picker 
   name, attributes, group, atom or content, `parseHTML` and `renderHTML`, importing only from
   `@tiptap/core` or `@tiptap/pm` (a test checks this). `pageExtensions()` and `createPageSchema()`
   always include them, so the server and every client know every block.
-- **`nodeViews`**: the React view of a node, by name, from the web `editor` slot. A lane block
-  without a view shows a plain box ("This block needs Databases.") and is kept.
+- **`nodeViews`** (`NodeViews`): the React view of a node, by name, from the web `editor` slot: a
+  component, or `{ component, stopEvent }`. `stopEvent(event)` returns true for an event inside the
+  view that the editor should leave alone, like a click, a key, a paste or a drop in a table. It
+  replaces Tiptap's default, where the editor takes clicks that select the block, copy, cut, paste,
+  drops and everything in the view's editable content. A lane block without a view shows a plain
+  box ("This block needs Databases.") and is kept.
 - **`extensions`**: only behavior, like shortcuts or plugins. Nodes and marks there are ignored with
   a console warning: when y-prosemirror meets a node it doesn't know, it removes it from the shared
   `Y.Doc`, so a block that only some clients know would be deleted for everyone.
@@ -127,6 +167,10 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
   <NodeViewWrapper>{/* the inline database for node.attrs.databaseId */}</NodeViewWrapper>
 );
 <BlockEditor ydoc={ydoc} nodeViews={{ database: DatabaseView }} />;
+
+// Or the table keeps its clicks, keys, pastes and drops, except on its drag handle.
+const stopEvent = (event: Event) => !(event.target as Element).closest('[data-drag-handle]');
+<BlockEditor ydoc={ydoc} nodeViews={{ database: { component: DatabaseView, stopEvent } }} />;
 ```
 
 ## Document format
@@ -139,15 +183,40 @@ const DatabaseView = ({ node }: ReactNodeViewProps) => (
   `blockquote` and `horizontalRule` in `callout`; `codeBlock` (`language`) in `code`; plus the
   lane nodes.
 - Marks: `bold`, `italic`, `underline`, `strike`, `code`, `link` (`href`, `target`, `rel`).
+  Inline code drops the other formatting marks, links too, but keeps marks that may overlap
+  anything, like comments.
 - Links keep only `http`, `https`, `mailto`, `tel` and relative hrefs (like `/p/<pageId>`); other
   schemes are dropped when typed, pasted or loaded from HTML, and never drawn as an href, even when
   another client sends one. A href starting with `//` goes to another site, so it is only kept as
-  `https://...`. `safeHref(href)` gives the href to use, or null.
+  `https://...`. `safeHref(href)` gives the href to use, or null. It trims spaces and invisible
+  characters (like U+00A0 and U+200B) and reads the scheme without them.
 - Where a link opens comes from its href each time it is drawn, never from a stored or pasted
   `target` or `rel`: other sites open in a new tab with `rel="noopener noreferrer"`; Care Hub,
   `mailto` and `tel` links open in the same tab.
 - Names are part of the stored data: never rename or remove a node, mark or attribute once it is
   on main; only add new ones.
+
+## Block IDs
+
+Every line and one-piece block has a `blockId`: a UUID, stored as an attribute of its Y.Doc
+element and drawn as `data-block-id`. Links to a block (`/p/<pageId>#<blockId>`), block comments
+and search use it.
+
+- Lines are paragraphs, headings and code blocks, also in lists, to-do items and quotes; one-piece
+  blocks are dividers and atom blocks, like a lane's database. Lists, list items and quotes have
+  no ID of their own (a list item goes by its first line), so Turn into keeps the ID.
+- Your editor fills IDs in for your own changes; a read-only editor adds none. A page nobody has
+  changed yet (one empty line) gets its first ID with the first change, so opening a page writes
+  nothing, and a block made on an empty page has its ID before you type in it. A new block gets a
+  new ID, and so does a copy: pasted blocks (IDs are never read from HTML, so cut and paste is a
+  copy too), the copy in a duplicate and the second part of a split line (Enter at the start leaves
+  the ID with the text). Turn into, Markdown shortcuts, drag and drop and undo keep IDs. A block
+  loaded without one gets it when you edit it.
+- `@carehub/editor/schema` has `blockIdAt(doc, pos)` (the block a position belongs to),
+  `findBlock(doc, blockId)` (`{ node, pos }` or null) and `withBlockIds(json)`, for content made
+  outside an editor (import, templates, the API).
+- `revealBlock(editor, blockId)` scrolls to the block and highlights it for 2 seconds (PB-18), or
+  returns false if the page has no such block.
 
 ## Keyboard
 

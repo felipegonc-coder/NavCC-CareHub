@@ -1,5 +1,5 @@
 // ESLint rule carehub/no-one-off-styles: every colour, font, size, spacing and corner comes from
-// the design kit (AGENTS.md, decision 0008), so Felipe can restyle Care Hub from one place. It
+// the design kit (AGENTS.md, decision 0008), so a designer can restyle Care Hub from one place. It
 // reads every string and template literal (class lists, SVG attributes, media queries) and the
 // object in a JSX `style` attribute. Wired up in the root eslint.config.js.
 
