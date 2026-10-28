@@ -6,6 +6,8 @@ type CourseCardProps = {
   title: string;
   /** The course start page. */
   href: string;
+  /** Router state for the link, such as `RESUME_STATE` to go on to where the learner stopped. */
+  linkState?: unknown;
   summary?: string;
   /** Its size in a few words: "4 lessons · About 20 minutes". */
   facts?: string;
@@ -18,7 +20,15 @@ type CourseCardProps = {
  * A course on My learning or in the catalog. The whole card opens the start page (its title is
  * the link), so it is easy to tap on a phone.
  */
-export function CourseCard({ title, href, summary, facts, topics, children }: CourseCardProps) {
+export function CourseCard({
+  title,
+  href,
+  linkState,
+  summary,
+  facts,
+  topics,
+  children,
+}: CourseCardProps) {
   return (
     <article
       className={cn(
@@ -29,6 +39,7 @@ export function CourseCard({ title, href, summary, facts, topics, children }: Co
       <h3 className="break-words text-h3">
         <Link
           to={href}
+          state={linkState}
           className={cn(
             'after:absolute after:inset-0 after:rounded hover:underline focus-visible:outline-none',
             'focus-visible:after:ring-2 focus-visible:after:ring-ring',

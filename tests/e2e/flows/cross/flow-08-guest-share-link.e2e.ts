@@ -219,8 +219,9 @@ test.describe('Cross-area flow: a guest and a share link, then both turned off',
         // With sub-pages off the sub-page shows as "🔒 A page", with no title anywhere.
         await expect(visitor.getByText(/🔒\s*A page/).first()).toBeVisible();
         expect(await visitor.content()).not.toContain(subTitle);
+        // Refused, or not found when the API doesn't say the page exists.
         const asked = await visitor.request.get(`/api/pages/${subId}`);
-        expect([401, 403]).toContain(asked.status());
+        expect([401, 403, 404], `GET /api/pages/${subId} signed out`).toContain(asked.status());
         expect(await asked.text()).not.toContain(subTitle);
       });
 

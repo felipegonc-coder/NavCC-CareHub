@@ -11,7 +11,7 @@ import {
   type TestApp,
   type TestUser,
 } from '../../testing';
-import { listComments, type CommentCreatedEvent } from './index';
+import { listComments, mayRemoveThreads, type CommentCreatedEvent } from './index';
 import { bindCommentPages } from './pages';
 import { comments, commentThreads } from './schema';
 
@@ -199,6 +199,37 @@ describe.skipIf(!hasDatabase)('comments on Postgres', () => {
       ['One', true],
       ['Three', false],
     ]);
+  });
+
+  it('lets a commenter take off the marks only of threads they could delete', async () => {
+    const pageId = teamPage();
+    const text = (user: TestUser, blockId: string) =>
+      comment(user, { pageId, text: 'About this', blockId, quote: 'this' });
+    const own = await text(sam, 'b1');
+    const shared = await text(sam, 'b2');
+    const reply = await comment(avery, { pageId, threadId: shared.threadId, text: 'Agreed' });
+    const averys = await text(avery, 'b3');
+    const may = (user: TestUser, threadIds: string[], page = pageId) =>
+      mayRemoveThreads(test.db, user.id, page, threadIds);
+
+    expect(await may(sam, [own.threadId])).toBe(true);
+    expect(await may(sam, [own.threadId, shared.threadId])).toBe(false);
+    expect(await may(sam, [averys.threadId])).toBe(false);
+    // Not threads on this page: nothing is left to keep.
+    expect(await may(sam, [randomUUID(), 'not-a-thread'])).toBe(true);
+    expect(await may(riley, [own.threadId])).toBe(false);
+    expect(await may(sam, [own.threadId], randomUUID())).toBe(false);
+
+    // A thread Sam deleted loses its mark after it's gone.
+    expect((await call(sam, 'DELETE', `/api/comments/${own.id}`)).statusCode).toBe(204);
+    expect(await may(sam, [own.threadId])).toBe(true);
+    // Once Avery's reply goes, the thread is all Sam's.
+    expect((await call(avery, 'DELETE', `/api/comments/${reply.id}`)).statusCode).toBe(204);
+    expect(await may(sam, [shared.threadId])).toBe(true);
+    // Can edit doesn't remove someone else's thread; Full access does.
+    expect(await may(avery, [shared.threadId])).toBe(false);
+    pages.get(pageId)?.set(avery.id, 'full');
+    expect(await may(avery, [shared.threadId])).toBe(true);
   });
 
   it('needs Can view to read and Can comment to comment (403 otherwise)', async () => {
