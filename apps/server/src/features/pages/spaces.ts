@@ -298,6 +298,10 @@ export async function getPrivateSpaceId(
   return rows[0].id;
 }
 
+/** `getPrivateSpaceId` with the workspace first, as the Meetings lane calls it. */
+export const getPersonalSpaceId = (db: Executor, workspaceId: string, userId: string) =>
+  getPrivateSpaceId(db, userId, workspaceId);
+
 export type SpacePlace = {
   id: string;
   workspaceId: string;

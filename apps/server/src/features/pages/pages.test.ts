@@ -7,8 +7,8 @@ import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
 import { grantAccess } from './access';
 import { getPageCards } from './cards';
-import { createPage, insertPage } from './pages';
-import { getPrivateSpaceId, joinSpace } from './spaces';
+import { createPage, getPagePlace, insertPage, MAX_DEPTH } from './pages';
+import { getPersonalSpaceId, getPrivateSpaceId, joinSpace } from './spaces';
 
 let app: Awaited<ReturnType<typeof createTestApp>>['app'];
 let db: Db;
@@ -121,6 +121,13 @@ describe.skipIf(!hasDatabase)('pages', () => {
     });
     expect((await newPage(eli, { parentId: clients.id })).status).toBe(400);
     expect((await newPage(eli, { spaceId: elisOwn, parentId: policies.id })).status).toBe(400);
+
+    // Nothing about a parent before Can edit on it: 404 when it's gone, 403 when it's closed.
+    const unknown = '00000000-0000-4000-8000-000000000000';
+    expect((await newPage(eli, { parentId: unknown })).status).toBe(404);
+    const closed = await newPage(olive, { spaceId: elisOwn, parentId: clients.id });
+    expect(closed.status).toBe(403);
+    expect(JSON.stringify(closed.body)).not.toMatch(/database|space/i);
   });
 
   it('gives the creator a person grant of Full access, Can edit for guests (0007, section 3.3)', async () => {
@@ -217,6 +224,8 @@ describe.skipIf(!hasDatabase)('pages', () => {
       { id: shared.id, title: 'Shared with Casey', icon: null },
     ]);
     expect(JSON.stringify(seen.body).toLowerCase()).not.toContain('restricted');
+    expect(seen.body.parentId).toBe(shared.id);
+    expect((await call(casey, 'GET', `/api/pages/${shared.id}`)).body.parentId).toBeNull();
     expect((await call(casey, 'GET', `/api/pages/${closed.id}`)).status).toBe(403);
     // Stopping inheritance closes the page to the space's owners too; Admins keep Full access.
     expect((await call(eli, 'GET', `/api/pages/${notes.id}`)).status).toBe(403);
@@ -255,6 +264,10 @@ describe.skipIf(!hasDatabase)('pages', () => {
     expect((await call(casey, 'PATCH', url, { title: 'Mine now' })).status).toBe(403);
     expect((await call(emery, 'PATCH', url, { title: 'x'.repeat(2001) })).status).toBe(400);
     expect((await call(emery, 'PATCH', url, { owner: emery.id })).status).toBe(400);
+    // Uploaded covers wait for the files API and its checks.
+    const fileId = '00000000-0000-4000-8000-000000000000';
+    const upload = await call(emery, 'PATCH', url, { cover: { type: 'file', fileId } });
+    expect(upload.status).toBe(400);
 
     // Locked: nothing changes, sub-pages included, until someone with Can edit unlocks it.
     const locked = await call(emery, 'PATCH', url, { locked: true });
@@ -262,6 +275,9 @@ describe.skipIf(!hasDatabase)('pages', () => {
     expect(locked.body.lockedAt).toEqual(expect.any(String));
     expect((await call(eli, 'PATCH', url, { title: 'Renamed' })).status).toBe(403);
     expect((await newPage(eli, { parentId: page.id })).status).toBe(403);
+    const outsider = await newPage(olive, { parentId: page.id });
+    expect(outsider.status).toBe(403);
+    expect(JSON.stringify(outsider.body)).not.toContain('locked');
     expect((await call(eli, 'PATCH', url, { locked: true })).body.lockedBy?.id).toBe(emery.id);
     expect((await call(casey, 'PATCH', url, { locked: false })).status).toBe(403);
     const unlocked = await call(eli, 'PATCH', url, { locked: false, title: 'Renamed' });
@@ -321,5 +337,70 @@ describe.skipIf(!hasDatabase)('pages', () => {
     expect((await call(emery, 'GET', `/api/pages/${trashed.id}/card`)).status).toBe(404);
     expect((await call(emery, 'GET', `/api/pages/${trashed.id}`)).status).toBe(404);
     expect((await call(emery, 'POST', '/api/pages/cards', { ids: [] })).status).toBe(400);
+
+    // A page shared out of a Private space doesn't name the space to people outside it.
+    const board = await newSpace(eli, { name: 'Board room', kind: 'private' });
+    const minutes = await add('Board minutes', { spaceId: board.id });
+    const principal = { type: 'user' as const, id: casey.id };
+    await grantAccess(db, { pageId: minutes.id, principal, level: 'view', grantedBy: eli.id });
+    const shown = await call(casey, 'GET', `/api/pages/${minutes.id}`);
+    expect(shown.body.space).toEqual({
+      id: board.id,
+      name: 'Private space',
+      icon: null,
+      kind: 'private',
+    });
+    const caseysCards = await call<PageCardsJson>(casey, 'POST', '/api/pages/cards', {
+      ids: [minutes.id],
+    });
+    expect(caseysCards.body.cards).toEqual([
+      { id: minutes.id, kind: 'page', title: 'Board minutes', icon: null, spaceName: null },
+    ]);
+    expect(JSON.stringify([shown.body, caseysCards.body])).not.toContain('Board room');
+    expect((await call(admin, 'GET', `/api/pages/${minutes.id}`)).body.space.name).toBe(
+      'Board room',
+    );
+    expect((await getPageCards(db, eli.id, [minutes.id])).get(minutes.id)).toMatchObject({
+      spaceName: 'Board room',
+    });
+  });
+
+  it('makes pages that keep their own access, tells where a page is and limits nesting', async () => {
+    const notes = await createPage(db, {
+      workspaceId,
+      spaceId: team.id,
+      kind: 'page',
+      title: 'Meeting notes',
+      createdBy: eli.id,
+      inheritAccess: false,
+    });
+    expect((await call(eli, 'GET', `/api/pages/${notes.id}`)).body.inheritAccess).toBe(false);
+    expect((await call(emery, 'GET', `/api/pages/${notes.id}`)).status).toBe(403);
+
+    expect(await getPagePlace(db, notes.id)).toEqual({
+      workspaceId,
+      spaceId: team.id,
+      parentId: null,
+      inTrash: false,
+    });
+    const items = await add('Action items', { parentId: notes.id });
+    expect(await getPagePlace(db, items.id)).toMatchObject({ parentId: notes.id, inTrash: false });
+    await db.execute(sql`UPDATE pages SET deleted_at = now() WHERE id = ${notes.id}`);
+    expect(await getPagePlace(db, notes.id)).toMatchObject({ inTrash: true });
+    expect(await getPagePlace(db, items.id)).toMatchObject({ inTrash: true });
+    expect(await getPagePlace(db, '00000000-0000-4000-8000-000000000000')).toBeNull();
+    expect(await getPagePlace(db, 'not-a-page')).toBeNull();
+    expect(await getPersonalSpaceId(db, workspaceId, emery.id)).toBe(
+      await getPrivateSpaceId(db, emery.id, workspaceId),
+    );
+
+    const deep = await newSpace(eli, { name: 'Deep notes' });
+    let parent = await add('Level 1', { spaceId: deep.id });
+    for (let level = 2; level <= MAX_DEPTH; level++) {
+      parent = await add(`Level ${level}`, { parentId: parent.id });
+    }
+    await expect(add('Too deep', { parentId: parent.id })).rejects.toMatchObject({
+      statusCode: 400,
+    });
   });
 });
