@@ -66,7 +66,7 @@ export function useSearchActions() {
         ...old,
         searches: old.searches.filter((s) => s.id !== id),
       }));
-      api.delete(`/api/search/recent/${id}`).catch(reload);
+      api.delete(`/api/search/recent/${encodeURIComponent(id)}`).catch(reload);
     },
     clear: () => {
       changeRecent(client, (old) => ({ ...old, searches: [] }));

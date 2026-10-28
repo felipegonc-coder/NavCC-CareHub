@@ -1,10 +1,12 @@
 import type { NoticeFilter } from './domain/filters';
+import { isNoticeOn, noticeSettingFor } from './domain/settings';
 import { parseSendNoticeInput, type ValidNotice } from './domain/validate';
 import type { NoticeRecord } from './domain/view';
 import {
   NOTICE_CREATED_EVENT,
   NOTICES_CHANGED_EVENT,
   type NoticeCreatedEvent,
+  type NoticeSettings,
   type SendNoticeInput,
   type SendNoticeResult,
 } from './types';
@@ -41,6 +43,14 @@ export interface NoticeStore {
   markRead(scope: NoticeScope, target: ReadTarget, now: Date): Promise<number>;
   /** The notice, or null when it doesn't exist. */
   get(noticeId: string): Promise<NoticeRecord | null>;
+  /** The person's notice settings in this workspace: all on until they change one. */
+  getSettings(scope: NoticeScope): Promise<NoticeSettings>;
+  /** Changes some of the person's notice settings and returns all of them. */
+  changeSettings(
+    scope: NoticeScope,
+    change: Partial<NoticeSettings>,
+    now: Date,
+  ): Promise<NoticeSettings>;
 }
 
 /** A live nudge, as `publishToUsers` from features/live takes it. */
@@ -78,7 +88,8 @@ export function bindNoticesRuntime(runtime: NoticesRuntime): () => void {
 /**
  * Puts a notice in a person's 🔔 Care Hub chat. Call it after your own transaction has
  * committed. Throws a NoticeInputError when the input breaks the rules (a bug in the caller).
- * Notices for someone who isn't in the workspace are dropped (`dropped: true`).
+ * Notices for someone who isn't in the workspace are dropped (`dropped: true`), and so are kinds
+ * the person turned off in Settings (`turnedOff: true`).
  */
 export async function sendNotice(input: SendNoticeInput): Promise<SendNoticeResult> {
   if (!bound) throw new Error("Notices aren't running: the notices routes aren't registered.");
@@ -93,6 +104,10 @@ export async function deliverNotice(
   const { workspaceId, userId, kind } = notice;
   if (runtime.isMember && !(await runtime.isMember(workspaceId, userId))) {
     return { noticeId: '', grouped: false, dropped: true };
+  }
+  // Only kinds the person can turn off need their settings.
+  if (noticeSettingFor(kind) && !isNoticeOn(await runtime.store.getSettings(notice), kind)) {
+    return { noticeId: '', grouped: false, turnedOff: true };
   }
   const result = await runtime.store.save(notice, runtime.now?.() ?? new Date());
   // A retry: the first send already told everyone.
