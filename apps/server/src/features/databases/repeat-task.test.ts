@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
 import { bindMemoryNotices } from '../notices/testing';
+import { syncDefaultWorkspace } from '../workspaces';
 import { onDatabaseEvent, type DatabaseEvent } from './api';
 import type { DatabaseRecord, DatabaseSettings } from './record';
 import {
@@ -25,11 +26,6 @@ import {
 import { changeDatabase, loadDatabase } from './store';
 
 type Role = 'admin' | 'editor';
-const PERMISSIONS: Record<Role, string[]> = {
-  admin: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share', 'workspace.admin'],
-  editor: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share'],
-};
-
 describe('repeat words', () => {
   it('uses fixed words', () => {
     expect(REPEAT_NOTICES).toEqual({
@@ -56,37 +52,13 @@ describe.skipIf(!hasDatabase)('repeating templates', () => {
   let pageId: string;
   const events: DatabaseEvent[] = [];
   const people = {} as Record<'admin' | 'sam' | 'jordan' | 'avery', TestUser>;
-  const roles = {} as Record<'jordan', string>;
 
-  // Stand-ins for the roles pull request's tables (decision 0007 names) until it lands.
-  async function standInWorkspace() {
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS roles (id uuid PRIMARY KEY DEFAULT
-      gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL,
-      permissions text[] NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspace_members (workspace_id uuid NOT NULL,
-      user_id uuid NOT NULL, role_id uuid, kind text NOT NULL DEFAULT 'member',
-      PRIMARY KEY (workspace_id, user_id))`);
-    const { rows } = await db.execute<{ id: string }>(
-      sql`INSERT INTO workspaces (name) VALUES ('Blue Pine Plumbing') RETURNING id`,
-    );
-    workspaceId = rows[0]!.id;
-  }
-
-  /** A member of the Operations space with a role of their own; answers it and its role. */
-  async function person(role: Role, name: string) {
-    const { rows } = await db.execute<{ id: string }>(sql`
-      INSERT INTO roles (workspace_id, name, permissions)
-      VALUES (${workspaceId}, ${`${role} for ${name}`},
-        ${`{${PERMISSIONS[role].join(',')}}`}::text[])
-      RETURNING id`);
-    const user = await createUser(db, { name });
-    await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
-      VALUES (${workspaceId}, ${user.id}, ${rows[0]!.id})`);
+  /** A member of the Operations space with a built-in role. */
+  async function person(role: Role, name: string): Promise<TestUser> {
+    const user = await createUser(db, { role, name });
     await db.execute(sql`INSERT INTO space_members (space_id, principal_type, principal_id)
       VALUES (${spaceId}, 'user', ${user.id})`);
-    return { user, roleId: rows[0]!.id };
+    return user;
   }
 
   async function newDatabase(title: string): Promise<string> {
@@ -212,7 +184,7 @@ describe.skipIf(!hasDatabase)('repeating templates', () => {
     stopEvents = onDatabaseEvent(app, (event) => {
       events.push(event);
     });
-    await standInWorkspace();
+    workspaceId = (await syncDefaultWorkspace(db)).id;
     const space = await db.execute<{ id: string }>(sql`
       INSERT INTO spaces (workspace_id, kind, name)
       VALUES (${workspaceId}, 'open', 'Operations') RETURNING id`);
@@ -221,12 +193,10 @@ describe.skipIf(!hasDatabase)('repeating templates', () => {
       INSERT INTO pages (workspace_id, space_id, kind, title, position)
       VALUES (${workspaceId}, ${spaceId}, 'page', 'Dispatch', 'a0') RETURNING id`);
     pageId = page.rows[0]!.id;
-    people.admin = (await person('admin', 'Morgan Reyes')).user;
-    people.sam = (await person('editor', 'Sam Ortiz')).user;
-    const jordan = await person('editor', 'Jordan Park');
-    people.jordan = jordan.user;
-    roles.jordan = jordan.roleId;
-    people.avery = (await person('editor', 'Avery Lin')).user;
+    people.admin = await person('admin', 'Morgan Reyes');
+    people.sam = await person('editor', 'Sam Ortiz');
+    people.jordan = await person('editor', 'Jordan Park');
+    people.avery = await person('editor', 'Avery Lin');
   });
 
   afterAll(async () => {
@@ -302,7 +272,7 @@ describe.skipIf(!hasDatabase)('repeating templates', () => {
       INSERT INTO db_repeat_state (template_id, database_id, next_run_at, last_run_at)
       VALUES (${check.id}, ${checks}, '2031-11-11T15:00:00Z', '2031-11-10T15:00:00Z')`);
     await db.execute(sql`
-      DELETE FROM workspace_members
+      UPDATE workspace_members SET removed_at = now()
       WHERE workspace_id = ${workspaceId} AND user_id = ${people.jordan.id}`);
 
     expect(await at('2031-11-11T15:05:00.000Z')).toBe(0);
@@ -319,8 +289,9 @@ describe.skipIf(!hasDatabase)('repeating templates', () => {
     expect(pausedNotices(checks)).toHaveLength(1);
 
     // Jordan is back and turns it on again: it starts from then.
-    await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
-      VALUES (${workspaceId}, ${people.jordan.id}, ${roles.jordan})`);
+    await db.execute(sql`
+      UPDATE workspace_members SET removed_at = NULL
+      WHERE workspace_id = ${workspaceId} AND user_id = ${people.jordan.id}`);
     await changeRepeat(checks, check.id, { paused: false });
     await syncDatabaseRepeats(db, checks, new Date('2031-11-13T12:00:00.000Z'));
     expect(await stateOf(check.id)).toEqual({

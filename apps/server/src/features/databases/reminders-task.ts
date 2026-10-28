@@ -25,6 +25,7 @@ import type { Db, Tx } from '../../db';
 import { registerPeriodicTask } from '../jobs';
 import { NOTICE_LIMITS, sendNotice, type SendNoticeInput } from '../notices';
 import { getAccessForPages } from '../pages';
+import { getMembership } from '../workspaces';
 import type { RowUpdatedEvent } from './events';
 import { isUuid, type DatabaseRecord } from './record';
 import { loadDatabase, loadPropertyViewer, loadRows, uuidList, type Executor } from './store';
@@ -249,8 +250,9 @@ interface Taken {
 }
 
 /**
- * Whether this person can open the row (their level from the page model with the database's row
- * access rules, as the rows routes check it) and see the Date property (its access list).
+ * Whether this person is still in the workspace, can open the row (their level from the page model
+ * with the database's row access rules, as the rows routes check it) and can see the Date property
+ * (its access list).
  */
 async function canSee(
   tx: Tx,
@@ -259,6 +261,7 @@ async function canSee(
   prop: Property,
   userId: string,
 ) {
+  if (!(await getMembership(tx, record.workspaceId, userId))) return false;
   const levels = await getAccessForPages(tx, userId, [rowId]);
   if (!atLeast(levels.get(rowId), 'view')) return false;
   return canSeeProperty(prop, await loadPropertyViewer(tx, userId, record.workspaceId));
@@ -328,7 +331,8 @@ async function takeDue(tx: Tx, now: Date): Promise<Taken> {
   }
   if (sent.length) {
     await tx.execute(sql`
-      UPDATE db_reminders SET sent_at = ${iso(now)}::timestamptz WHERE id = ANY(${uuidList(sent)})`);
+      UPDATE db_reminders SET sent_at = ${iso(now)}::timestamptz
+      WHERE id = ANY(${uuidList(sent)})`);
   }
   return taken;
 }
@@ -383,8 +387,8 @@ export function registerReminders(app: FastifyInstance): void {
     }),
   ];
   running = app;
-  registerPeriodicTask(REMINDERS_TASK, REMINDERS_EVERY_MS, async ({ signal }) => {
-    if (running === app) await sendDueReminders(app, new Date(), signal);
+  registerPeriodicTask(REMINDERS_TASK, REMINDERS_EVERY_MS, async ({ signal, now }) => {
+    if (running === app) await sendDueReminders(app, now, signal);
   });
   app.addHook('onClose', async () => {
     for (const stop of stops) stop();

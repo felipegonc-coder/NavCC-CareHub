@@ -31,6 +31,7 @@ import type { Db, Tx } from '../../db';
 import { registerPeriodicTask } from '../jobs';
 import { sendNotice, type SendNoticeInput } from '../notices';
 import { getPageAccess } from '../pages';
+import { getMembership } from '../workspaces';
 import { createRow, runRowWrites } from './api';
 import { isUuid, type DatabaseRecord } from './record';
 import { lockDatabase, saveSettings, type Executor } from './store';
@@ -188,15 +189,14 @@ async function lockIfThere(tx: Tx, id: string): Promise<DatabaseRecord | null> {
 
 /**
  * Whether the person a repeat runs as can still make its rows: a member of the workspace (not a
- * guest), not locked, with their level on the database.
+ * guest or removed), not locked, with their level on the database.
  */
 async function ownerOf(tx: Tx, record: DatabaseRecord, ownerId: string) {
   if (!isUuid(ownerId)) return { active: false, access: null };
-  const { rows } = await tx.execute<{ user_id: string }>(sql`
-    SELECT m.user_id FROM workspace_members m JOIN users u ON u.id = m.user_id
-    WHERE m.workspace_id = ${record.workspaceId} AND m.user_id = ${ownerId}
-      AND m.kind = 'member' AND u.locked_at IS NULL`);
-  if (rows.length === 0) return { active: false, access: null };
+  const member = await getMembership(tx, record.workspaceId, ownerId);
+  const { rows } = await tx.execute<{ id: string }>(sql`
+    SELECT id FROM users WHERE id = ${ownerId} AND locked_at IS NULL`);
+  if (member?.kind !== 'member' || rows.length === 0) return { active: false, access: null };
   return { active: true, access: await getPageAccess(tx, ownerId, record.id) };
 }
 
@@ -277,7 +277,8 @@ async function runDatabase(app: FastifyInstance, databaseId: string, now: Date) 
 async function fullAccessPeople(db: Executor, record: DatabaseRecord): Promise<string[]> {
   const { rows } = await db.execute<{ user_id: string }>(sql`
     SELECT m.user_id FROM workspace_members m JOIN users u ON u.id = m.user_id
-    WHERE m.workspace_id = ${record.workspaceId} AND m.kind = 'member' AND u.locked_at IS NULL
+    WHERE m.workspace_id = ${record.workspaceId} AND m.kind = 'member' AND m.removed_at IS NULL
+      AND u.locked_at IS NULL
     ORDER BY m.user_id`);
   const people: string[] = [];
   for (const { user_id } of rows) {
@@ -367,8 +368,8 @@ export function registerRepeats(app: FastifyInstance): void {
     }
   });
   running = app;
-  registerPeriodicTask(REPEATS_TASK, REPEATS_EVERY_MS, async ({ signal }) => {
-    if (running === app) await runRepeats(app, new Date(), signal);
+  registerPeriodicTask(REPEATS_TASK, REPEATS_EVERY_MS, async ({ signal, now }) => {
+    if (running === app) await runRepeats(app, now, signal);
   });
   app.addHook('onClose', async () => {
     stop();
