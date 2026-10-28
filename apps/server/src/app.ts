@@ -101,7 +101,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: analytics
 
-  // feature: status
+  await app.register(import('./features/status/routes'), { prefix: '/api/status' });
 
   await app.register(import('./features/claude/routes'), { prefix: '/api/claude' });
 
