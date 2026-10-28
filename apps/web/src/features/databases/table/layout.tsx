@@ -70,6 +70,7 @@ import { TotalsRow } from './footer';
 import { HeaderCell, PropertiesMenu, type ColumnChanges } from './header';
 import { EditHistory, type AddedRow, type Step, type ValueChange, type Write } from './history';
 import { TABLE_TEXT } from './messages';
+import { isOpen, isTopLevel, siblingIds, visibleRows } from './nesting';
 import { Notice } from './notice';
 import { readPaste, withSavedIds, type PasteResult } from './paste';
 import { WRITES_AT_ONCE, writeQueue } from './queue';
@@ -229,6 +230,9 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const [collapsed, toggleCollapsed] = useCollapsedGroups(
     collapsedStorageKey(meta.id, view.id, viewer.userId),
   );
+  // Sub-items nested under their parents: the rows the person opened or closed here.
+  const nested = Boolean(meta.subItems) && (view.subItems ?? 'nested') === 'nested';
+  const [chosenOpen, setChosenOpen] = useState<ReadonlyMap<Id, boolean>>(() => new Map());
   const [created, setCreated] = useState<readonly Created[]>([]);
   const [adding, setAdding] = useState<string | null>(null);
   const [active, setActive] = useState<CellAt | null>(null);
@@ -305,7 +309,12 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       nextCursor: string | null,
     ): Section => {
       const shown = new Set(rows.map((r) => r.id));
-      const lines: Line[] = rows.map((row) => ({ key: lineKey(key, row.id), row, hidden: false }));
+      const showing = nested ? visibleRows(rows, (r) => isOpen(r, chosenOpen)) : rows;
+      const lines: Line[] = showing.map((row) => ({
+        key: lineKey(key, row.id),
+        row,
+        hidden: false,
+      }));
       for (const c of created) {
         if (c.sectionKey !== key || shown.has(c.row.id)) continue;
         shown.add(c.row.id);
@@ -329,7 +338,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         .map((g) => section(g.key, g, g.rows, g.nextCursor));
     }
     return [section('', null, data.rows, data.nextCursor)];
-  }, [data, created, collapsed]);
+  }, [data, created, collapsed, nested, chosenOpen]);
 
   const lines = useMemo(() => sections.flatMap((s) => (s.collapsed ? [] : s.lines)), [sections]);
   const lineAt = useMemo(() => new Map(lines.map((line, index) => [line.key, index])), [lines]);
@@ -364,6 +373,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   // With no sort, rows keep a manual order; with one, dragging a row only changes its group.
   const manual = view.sorts.length === 0;
   const canMoveRows = canSelect && (manual || data.groups !== null);
+  // Nested, only top-level rows are dragged (sub-items move with their parent, or from the menu).
+  const canDrag = (line: Line) => canMoveRows && (!nested || isTopLevel(line.row));
 
   // The one cell Tab stops on (roving tabindex): the active cell, or the first one.
   const first = lines[0];
@@ -794,6 +805,18 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       case 'ArrowRight': {
         const down = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
         const right = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        // On a Name with sub-items, → opens them and ← closes them.
+        if (
+          nested &&
+          right !== 0 &&
+          !event.shiftKey &&
+          column?.property.config.type === 'title' &&
+          (line.row.childCount ?? 0) > 0 &&
+          isOpen(line.row, chosenOpen) === (right === -1)
+        ) {
+          toggleRow(line);
+          break;
+        }
         if (column && event.shiftKey) {
           // Shift+arrows on a value cell make a block of cells (the selection column stays out).
           if (!box) setRange({ line: line.key, propertyId: id });
@@ -957,7 +980,9 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       const rows: MeasuredRow[] = [];
       for (const line of section.collapsed ? [] : section.lines) {
         const r = rowEls.current.get(line.key)?.getBoundingClientRect();
-        if (r) rows.push({ rowId: line.row.id, top: r.top - top, bottom: r.bottom - top });
+        if (!r) continue;
+        const place = !nested || isTopLevel(line.row);
+        rows.push({ rowId: line.row.id, top: r.top - top, bottom: r.bottom - top, place });
       }
       measured.push({
         key: section.key,
@@ -971,9 +996,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   };
 
   /** Moves a row to another place in manual order, or into another group. */
-  const moveLine = (line: Line, from: Section, target: RowTarget) => {
-    const ids = from.lines.map((l) => l.row.id);
-    if (samePlace(target, from.key, ids, line.row.id, manual)) return;
+  const moveLine = (line: Line, from: Section, target: RowTarget, among: readonly Id[]) => {
+    if (samePlace(target, from.key, among, line.row.id, manual)) return;
     const place: RowPlace = data.groups
       ? { beforeRowId: target.beforeRowId, fromGroupKey: from.key, toGroupKey: target.sectionKey }
       : { beforeRowId: target.beforeRowId };
@@ -994,7 +1018,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   // Dragging a row's handle moves the row; a press without a drag opens its menu (on click).
   const startRowDrag = (event: PointerEvent<HTMLButtonElement>, line: Line, section: Section) => {
     rowDragged.current = false;
-    if (!canMoveRows || event.button !== 0 || event.pointerType === 'touch') return;
+    if (!canDrag(line) || event.button !== 0 || event.pointerType === 'touch') return;
     dragStop.current?.();
     const measured = measureSections();
     const start = { x: event.clientX, y: event.clientY };
@@ -1026,7 +1050,10 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           rowDragged.current = false;
         }, 0);
         const drop = dropAt(point.y);
-        if (!cancelled && drop) moveLine(line, section, drop);
+        const among = section.lines
+          .filter((l) => !nested || isTopLevel(l.row))
+          .map((l) => l.row.id);
+        if (!cancelled && drop) moveLine(line, section, drop, among);
       },
     });
   };
@@ -1075,12 +1102,14 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
 
   /** The row menu's actions (made only while it's open). */
   const rowItems = (line: Line, section: Section): RowMenuItems => {
-    const ids = section.lines.map((l) => l.row.id);
+    // Nested, a row moves among the rows under the same parent.
+    const rows = section.lines.map((l) => l.row);
+    const ids = nested ? siblingIds(rows, line.row) : rows.map((r) => r.id);
     const more = section.nextCursor !== null;
     const step = (direction: 1 | -1) => {
       const beforeRowId = stepPlace(ids, line.row.id, direction, more);
       if (beforeRowId === undefined) return undefined;
-      return () => moveLine(line, section, { sectionKey: section.key, beforeRowId });
+      return () => moveLine(line, section, { sectionKey: section.key, beforeRowId }, ids);
     };
     return {
       open: () => {
@@ -1158,6 +1187,48 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
 
   const toggleGroup = (group: QueryGroup) => toggleCollapsed(group.collapsedKey);
 
+  /** Opens or closes a row's sub-items. */
+  const toggleRow = (line: Line) => {
+    const open = isOpen(line.row, chosenOpen);
+    setChosenOpen((map) => new Map(map).set(line.row.id, !open));
+  };
+
+  /** Before the Name: one step in per level, and the arrow when the row has sub-items. */
+  const renderNesting = (line: Line, propertyId: Id) => {
+    const row = line.row;
+    const steps = Array.from({ length: row.depth ?? 0 }, (_, level) => (
+      <span key={level} aria-hidden className="w-5 shrink-0" />
+    ));
+    if ((row.childCount ?? 0) === 0) {
+      return (
+        <>
+          {steps}
+          <span aria-hidden className="w-5 shrink-0 max-md:w-11" />
+        </>
+      );
+    }
+    const open = isOpen(row, chosenOpen);
+    const Arrow = open ? ChevronDown : ChevronRight;
+    return (
+      <>
+        {steps}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-expanded={open}
+          aria-label={TABLE_TEXT.subItemsOf(row.title || CELL_TEXT.untitled)}
+          onClick={() => {
+            toggleRow(line);
+            focusCell(line.key, propertyId);
+          }}
+          className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-fill-hover max-md:size-11"
+        >
+          <Arrow aria-hidden className="size-4" />
+        </button>
+      </>
+    );
+  };
+
   // Frozen columns stay in place; so does Name on phones (`left` only counts once it's sticky).
   const placeOf = (column: TableColumn): CSSProperties =>
     column.frozen || column.property.config.type === 'title'
@@ -1228,7 +1299,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             if (open) openRowMenu(line, { line: line.key, propertyId: SELECT_KEY });
             else setRowMenu(null);
           }}
-          draggable={canMoveRows}
+          draggable={canDrag(line)}
           onPressStart={(event) => startRowDrag(event, line, section)}
           onPress={() => pressHandle(line)}
           items={rowMenu === line.key ? rowItems(line, section) : null}
@@ -1284,6 +1355,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          {isName && nested && renderNesting(line, property.id)}
           <CellView
             property={property}
             value={cell.value}
