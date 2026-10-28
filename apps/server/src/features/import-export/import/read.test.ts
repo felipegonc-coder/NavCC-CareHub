@@ -79,6 +79,45 @@ describe('readUpload', () => {
     ]);
   });
 
+  it('takes the location and camera details out of photos (IE-09)', async () => {
+    const xmp = utf8('http://ns.adobe.com/xap/1.0/\0<x:xmpmeta exif:GPSLatitude="39,44N"/>');
+    const block = [0xff, 0xe1, (xmp.length + 2) >> 8, (xmp.length + 2) & 0xff, ...xmp];
+    const image = [0xff, 0xda, 0, 4, 1, 2, 0xaa, 0xbb, 0xff, 0xd9];
+    const { plan, files } = await readUpload(
+      request(
+        zip([
+          { name: 'Visit.md', data: '# Visit\n\n![Porch](porch.jpg)\n' },
+          { name: 'porch.jpg', data: Uint8Array.from([0xff, 0xd8, ...block, ...image]) },
+        ]),
+      ),
+    );
+    expect(plan.files.map((file) => file.name)).toEqual(['porch.jpg']);
+    expect(files).toEqual([Uint8Array.from([0xff, 0xd8, ...image])]);
+    expect(plan.problems).toEqual([]);
+  });
+
+  it("refuses pictures whose details can't be taken out, and lists them", async () => {
+    const tiff = Uint8Array.from([0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 0, 0]);
+    const damaged = Uint8Array.from([0xff, 0xd8, 0xff, 0xe1, 0, 200, 1, 2]);
+    const { plan, files } = await readUpload(
+      request(
+        zip([
+          { name: 'Visit.md', data: '![Scan](scan.tif) ![Porch](porch.jpg) ![Desk](desk.png)' },
+          { name: 'scan.tif', data: tiff },
+          { name: 'porch.jpg', data: damaged },
+          { name: 'desk.png', data: picture(3) },
+        ]),
+      ),
+    );
+    expect(plan.files.map((file) => file.name)).toEqual(['desk.png']);
+    expect(files).toEqual([picture(3)]);
+    const why = "Its location and camera details couldn't be removed.";
+    expect(plan.problems).toEqual([
+      { file: 'scan.tif', what: 'Refused', why },
+      { file: 'porch.jpg', what: 'Refused', why },
+    ]);
+  });
+
   it('stops with a reason the person can read', async () => {
     await expect(readUpload(request(utf8('not a zip')))).rejects.toThrow("the file isn't a zip");
     const damaged = zip([{ name: 'a.md', data: 'Hello', crc: 1 }]);
