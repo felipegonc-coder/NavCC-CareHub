@@ -16,6 +16,7 @@ export type {
   CollabProvider,
   EditorUser,
   LinkPicker,
+  NodeViewEntry,
   NodeViews,
   SlashItem,
 } from './types';
