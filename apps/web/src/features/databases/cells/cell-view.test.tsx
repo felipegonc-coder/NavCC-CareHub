@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { jobsProperties, PRIORITY, PROPS, STATUS, USERS } from '../fixtures';
 import { CellView } from './cell-view';
+import { FileChip } from './chips';
 import { CELL_TEXT } from './messages';
 import { CUSTOMERS, cellCtx, numberConfig, prop } from './test-helpers';
 import type { CellViewProps } from './types';
@@ -240,6 +241,18 @@ describe('CellView: files', () => {
     );
     const photo = screen.getByRole('link', { name: 'leak.jpg' });
     expect(photo.querySelector('img')).toHaveAttribute('src', '/api/uploads/file-photo');
+  });
+
+  it('shows a web link that isn’t http or https as its name only', () => {
+    render(
+      <FileChip
+        file={{ id: 'file-x', name: 'plans.png', size: 0, mime: '', url: 'javascript:alert(1)' }}
+        ctx={cellCtx({ fileHref: (f) => `/api/uploads/${f.id}` })}
+      />,
+    );
+    expect(screen.getByText('plans.png')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(document.querySelector('img')).toBeNull();
   });
 });
 
