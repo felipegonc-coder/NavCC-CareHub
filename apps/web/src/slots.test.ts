@@ -139,7 +139,7 @@ describe('loadSlots', () => {
   });
 
   it('loads without any feature lines', async () => {
-    await loadSlots();
+    await loadSlots([]);
     expect(slots.sidebarItems).toEqual([]);
   });
 });
