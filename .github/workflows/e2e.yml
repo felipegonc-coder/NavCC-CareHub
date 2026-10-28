@@ -318,8 +318,8 @@ jobs:
           path: ${{ runner.temp }}/e2e-results
 
       # One commit without parents on ci-screenshots; each run replaces only its own folder
-      # (pr-<number>, or the branch name, so main/ for nightly runs) with the screenshots and
-      # results.json. Only git objects are written, from $RUNNER_TEMP.
+      # (pr-<number>, or the branch name, so main/ for nightly runs) with the screenshots,
+      # results.json and results-slim.json. Only git objects are written, from $RUNNER_TEMP.
       - name: Push the screenshots
         id: push
         continue-on-error: true
@@ -348,6 +348,22 @@ jobs:
           elif [ -e "$json" ]; then
             echo '::warning::Skipped results.json: not a JSON file of up to 20 MB.'
           fi
+          # results-slim.json: the same tree of suites and tests with only what the results page
+          # needs (titles, file, each project's status, annotations, the last error's first line),
+          # small enough for tools that read files of up to 1 MB. jq only reads the JSON.
+          slim="$RUNNER_TEMP/results-slim.json"
+          if [ "$results" = true ] && ! jq -c '
+            def firstline: gsub("\u001b\\[[0-9;]*m"; "") | split("\n") | map(select(test("\\S"))) | (.[0] // "") | .[0:300];
+            def slim: {title, file}
+              + (if .specs then {specs: [.specs[] | {title, file, line, tests: [.tests[] | {projectName, status,
+                  annotations: [.annotations[]? | {type, description: ((.description // "") | .[0:200])}],
+                  results: [.results[-1:][] | {error: {message: ((.error.message // .errors[0].message // "") | firstline)}}]}]}]}
+                else {} end)
+              + (if .suites then {suites: [.suites[] | slim]} else {} end);
+            {suites: [.suites[] | slim]}' "$json" > "$slim"; then
+            echo '::warning::Could not write results-slim.json.'
+            rm -f "$slim"
+          fi
           if [ ! -s "$list" ] && [ "$results" = false ]; then echo 'There are no screenshots or results.'; exit 0; fi
 
           if [ -n "$PR_NUMBER" ]; then folder="pr-$PR_NUMBER"; else folder=${REF_NAME//[^A-Za-z0-9._-]/-}; fi
@@ -368,6 +384,7 @@ jobs:
               printf '100644 blob %s\t%s\n' "$(git hash-object -w -- "$RESULTS/screenshots/$name")" "$name"
             done < "$list"
             if [ "$results" = true ]; then printf '100644 blob %s\tresults.json\n' "$(git hash-object -w -- "$json")"; fi
+            if [ -s "$slim" ]; then printf '100644 blob %s\tresults-slim.json\n' "$(git hash-object -w -- "$slim")"; fi
           )
           files=$(printf '%s\n' "$files" | sed '/^$/d' | git mktree)
           for attempt in 1 2 3; do
