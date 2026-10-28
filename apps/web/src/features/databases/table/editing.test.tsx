@@ -1,7 +1,14 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { ToastProvider } from '@carehub/ui';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fixtureRow, layoutProps, PRIORITY, PROPS, STATUS } from '../test-utils';
+import {
+  fixtureRow,
+  layoutProps,
+  PRIORITY,
+  PROPS,
+  renderWithDatabase,
+  STATUS,
+} from '../test-utils';
 import TableLayout from './layout';
 
 const rowOf = (rowId: string): HTMLElement => {
@@ -58,7 +65,7 @@ beforeEach(() => {
 
 describe('TableLayout blocks of cells and copying', () => {
   it('makes a block with Shift+arrows and copies it as tab-separated text', () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     fireEvent.keyDown(cellOf('row-sink', PROPS.name), { key: 'ArrowRight' });
     fireEvent.keyDown(cellOf('row-sink', PROPS.status), { key: 'ArrowDown', shiftKey: true });
     fireEvent.keyDown(cellOf('row-heater', PROPS.status), { key: 'ArrowRight', shiftKey: true });
@@ -76,7 +83,7 @@ describe('TableLayout blocks of cells and copying', () => {
   });
 
   it('makes a block with Shift-click, without opening an editor', () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     fireEvent.keyDown(cellOf('row-sink', PROPS.name), { key: 'ArrowRight' });
     fireEvent.click(cellOf('row-boiler', PROPS.due), { shiftKey: true });
     expect(screen.queryByRole('textbox')).toBeNull();
@@ -85,7 +92,7 @@ describe('TableLayout blocks of cells and copying', () => {
   });
 
   it('copies one cell as exports write it', () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     expect(copied(cellOf('row-sink', PROPS.cost))).toBe('$180.00');
     expect(copied(cellOf('row-sink', PROPS.paid))).toBe('No');
     expect(copied(cellOf('row-sink', PROPS.priority))).toBe('High');
@@ -96,7 +103,7 @@ describe('TableLayout pasting, undo and redo', () => {
   it('pastes a 5 × 3 block: fills cells, adds rows, counts what didn’t fit; Ctrl+Z undoes it', async () => {
     const props = editingProps();
     const { actions } = props;
-    render(
+    renderWithDatabase(
       <ToastProvider>
         <TableLayout {...props} />
       </ToastProvider>,
@@ -106,7 +113,8 @@ describe('TableLayout pasting, undo and redo', () => {
       'Clear drain\tIn progress\tHigh',
       'Fit new tap\tNot started\tMedium',
       'Bleed radiators\t\tLow',
-      'Service pump\tDone\tUrgent',
+      // A Status the property doesn't have isn't added.
+      'Service pump\tFinished\tLow',
     ].join('\r\n');
     paste(cellOf('row-boiler', PROPS.name), clip);
 
@@ -131,7 +139,7 @@ describe('TableLayout pasting, undo and redo', () => {
         },
       ],
       [{ title: 'Bleed radiators', values: { [PROPS.priority]: PRIORITY.low }, templateId: null }],
-      [{ title: 'Service pump', values: { [PROPS.status]: STATUS.done }, templateId: null }],
+      [{ title: 'Service pump', values: { [PROPS.priority]: PRIORITY.low }, templateId: null }],
     ]);
     expect(await screen.findByText("1 value didn't fit and was skipped.")).toBeInTheDocument();
     await waitFor(() => expect(rowOf('row-new-3')).toBeInTheDocument());
@@ -166,7 +174,7 @@ describe('TableLayout pasting, undo and redo', () => {
 
   it('fills a block with one pasted value', () => {
     const props = editingProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.keyDown(cellOf('row-sink', PROPS.name), { key: 'ArrowRight' });
     fireEvent.keyDown(cellOf('row-sink', PROPS.status), { key: 'ArrowRight' });
     fireEvent.keyDown(cellOf('row-sink', PROPS.priority), { key: 'ArrowDown', shiftKey: true });
@@ -179,33 +187,41 @@ describe('TableLayout pasting, undo and redo', () => {
     ]);
   });
 
-  it('clears a block with Delete in one step; Ctrl+Z and Ctrl+Y', () => {
+  it('clears a block with Delete in one step; Ctrl+Z and Ctrl+Y', async () => {
     const props = editingProps();
     const { updateValues } = props.actions;
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.keyDown(cellOf('row-sink', PROPS.name), { key: 'ArrowRight' });
     fireEvent.keyDown(cellOf('row-sink', PROPS.status), { key: 'ArrowRight', shiftKey: true });
     fireEvent.keyDown(cellOf('row-sink', PROPS.priority), { key: 'ArrowDown', shiftKey: true });
+    // Writes go out four at a time (writeQueue), so the later ones wait for earlier ones.
     fireEvent.keyDown(focused(), { key: 'Delete' });
+    await waitFor(() => expect(updateValues).toHaveBeenCalledTimes(2));
     expect(updateValues.mock.calls).toEqual([
       ['row-sink', { [PROPS.status]: null, [PROPS.priority]: null }],
       ['row-heater', { [PROPS.status]: null, [PROPS.priority]: null }],
     ]);
     undo(focused());
+    await waitFor(() => expect(updateValues).toHaveBeenCalledTimes(4));
     expect(updateValues.mock.calls.slice(2)).toEqual([
       ['row-sink', { [PROPS.status]: STATUS.inProgress, [PROPS.priority]: PRIORITY.high }],
       ['row-heater', { [PROPS.status]: STATUS.notStarted, [PROPS.priority]: PRIORITY.high }],
     ]);
     fireEvent.keyDown(focused(), { key: 'y', ctrlKey: true });
-    expect(updateValues).toHaveBeenCalledTimes(6);
+    await waitFor(() => expect(updateValues).toHaveBeenCalledTimes(6));
     undo(focused());
     undo(focused());
-    expect(updateValues).toHaveBeenCalledTimes(8);
+    await waitFor(() => expect(updateValues).toHaveBeenCalledTimes(8));
+    // In order: the last write puts the heater's values back.
+    expect(updateValues).toHaveBeenLastCalledWith('row-heater', {
+      [PROPS.status]: STATUS.notStarted,
+      [PROPS.priority]: PRIORITY.high,
+    });
   });
 
   it('undoes a cleared cell and puts focus back on it', () => {
     const props = editingProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.keyDown(cellOf('row-sink', PROPS.cost), { key: 'Delete' });
     expect(props.actions.updateValues).toHaveBeenLastCalledWith('row-sink', { [PROPS.cost]: null });
     undo(cellOf('row-heater', PROPS.name));
@@ -217,7 +233,7 @@ describe('TableLayout pasting, undo and redo', () => {
 
   it('read-only: copies, but pastes and undoes nothing', () => {
     const props = editingProps(true);
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     expect(copied(cellOf('row-sink', PROPS.priority))).toBe('High');
     paste(cellOf('row-sink', PROPS.priority), 'Low');
     undo(cellOf('row-sink', PROPS.priority));
