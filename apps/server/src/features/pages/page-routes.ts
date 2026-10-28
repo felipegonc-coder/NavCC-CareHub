@@ -36,25 +36,29 @@ import {
   type MovedPage,
   type PageMove,
 } from './move';
-import { grantCreator, insertPage, readPage, updatePage } from './pages';
+import { grantCreator, insertPage, pageArchived, pageLocked, readPage, updatePage } from './pages';
 import { spacePlace } from './spaces';
 
-const locked = () => httpError(403, 'forbidden', 'This page is locked. Unlock it to change it.');
-
 /**
- * Where a new page goes: a page the person can edit that isn't locked, a space they may add to,
- * or Private. Nothing about a parent is told before the person is found to edit it.
+ * Where a new page goes: a page the person can edit that isn't locked or archived, a space they
+ * may add to, or Private. Nothing about a parent is told before the person is found to edit it
+ * (as if it weren't archived: it then answers 409).
  */
 async function checkPlace(tx: Executor, viewer: Viewer, input: CreatePageInput) {
   if (input.parentId !== undefined) {
-    const parent = (await resolvePages(tx, viewer, [input.parentId])).get(input.parentId);
+    const unarchiving = { unarchiving: true };
+    const parent = (await resolvePages(tx, viewer, [input.parentId], unarchiving)).get(
+      input.parentId,
+    );
     if (!parent || parent.deleted) throw notFound();
     if (!atLeast(parent.level, parent.kind === 'database' ? 'edit_content' : 'edit')) {
       throw forbidden();
     }
-    const { rows } = await tx.execute<{ locked: boolean }>(sql`
-      SELECT locked_at IS NOT NULL AS locked FROM pages WHERE id = ${input.parentId}`);
-    if (rows[0]?.locked) throw locked();
+    const { rows } = await tx.execute<{ locked: boolean; archived: boolean }>(sql`
+      SELECT locked_at IS NOT NULL AS locked, archived_at IS NOT NULL AS archived
+      FROM pages WHERE id = ${input.parentId}`);
+    if (rows[0]?.locked) throw pageLocked();
+    if (rows[0]?.archived) throw pageArchived();
   } else if (input.spaceId !== undefined) {
     const space = await spacePlace(tx, viewer, input.spaceId);
     if (space.archived) throw spaceArchived();
@@ -187,7 +191,8 @@ export function pageRoutes(app: FastifyInstance): void {
       const { rows } = await tx.execute<{ locked: boolean }>(sql`
         SELECT locked_at IS NOT NULL AS locked FROM pages WHERE id = ${pageId} FOR UPDATE`);
       const unlocking = changes.locked === false;
-      if (rows[0]?.locked && !unlocking && named.some((key) => key !== 'locked')) throw locked();
+      if (rows[0]?.locked && !unlocking && named.some((key) => key !== 'locked'))
+        throw pageLocked();
       await updatePage(tx, pageId, changes, viewer.userId);
     });
     const page = await readPage(db, viewer, pageId, level);

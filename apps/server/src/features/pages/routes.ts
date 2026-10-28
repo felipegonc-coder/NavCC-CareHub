@@ -2,6 +2,7 @@
 import fp from 'fastify-plugin';
 import { getDefaultWorkspace } from '../workspaces';
 import { requirePageAccess } from './access';
+import { archiveRoutes } from './archive';
 import { registerPageTopics } from './live';
 import { pageRoutes } from './page-routes';
 import { spaceRoutes } from './space-routes';
@@ -29,6 +30,7 @@ export default fp(
     registerPageTopics(app.db);
     spaceRoutes(app);
     pageRoutes(app);
+    archiveRoutes(app);
     // Trash, favorites and recent pages come in the next pull requests.
   },
   { name: 'carehub-pages', fastify: '5.x', dependencies: ['carehub-auth'] },
