@@ -7,7 +7,7 @@ import {
   type CalendarView,
   type CivilDate,
 } from '@carehub/team-time';
-import { Button, useMediaQuery } from '@carehub/ui';
+import { Button, breakpoints, useMediaQuery } from '@carehub/ui';
 import { TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { usePageTitle } from '../../../lib/usePageTitle';
@@ -24,10 +24,13 @@ import { TopBar, ViewSwitch } from './TopBar';
 /** The settings that change the grid: the defaults until the screen loads the person's own. */
 const SETTINGS = DEFAULT_SETTINGS;
 
+/** Phones: narrower than the kit's `md` breakpoint, as in the app shell. */
+export const PHONE = `not all and (min-width: ${breakpoints.md})`;
+
 /** `/calendar`: Day, Week and Month with the person's items from every layer that's on. */
 export function CalendarScreen() {
   usePageTitle('Calendar');
-  const phone = useMediaQuery('(max-width: 767px)');
+  const phone = useMediaQuery(PHONE);
   // Week start and 24-hour time come from the person's profile once the web app has it.
   const [timeZone, setTimeZone] = useState(DEFAULT_TIME_PREFS.timeZone);
   const prefs = { ...DEFAULT_TIME_PREFS, timeZone };

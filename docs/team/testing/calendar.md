@@ -1,6 +1,6 @@
 # Calendar: notes for browser tests
 
-For the Testing lane and our own builders (see `docs/team/testing.md`). From the Calendar spec v2. Fictional data only.
+Notes for browser tests (see `docs/team/testing.md`). From the Calendar spec v2. Fictional data only.
 
 ## Paths
 

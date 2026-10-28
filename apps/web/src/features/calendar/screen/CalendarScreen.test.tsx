@@ -4,7 +4,7 @@ import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HeaderTargetContext } from '../../shell/header-context';
 import { TEST_ZONE, testEvent, testLayer } from '../data/testItems';
-import { CalendarScreen } from './CalendarScreen';
+import { CalendarScreen, PHONE } from './CalendarScreen';
 
 // Fictional data only: the week of Sunday, October 25, 2026, in Denver (UTC-6 until Nov 1).
 const HUDDLE = 'Daily huddle, Tuesday, October 27, 9:00 to 9:15 AM, My events';
@@ -141,7 +141,7 @@ describe('CalendarScreen', () => {
 
   it('opens on Day on phones', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query === '(max-width: 767px)',
+      matches: query === PHONE,
       addEventListener: () => {},
       removeEventListener: () => {},
     }));
