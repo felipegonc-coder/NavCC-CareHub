@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   CLAUDE_FIELD_ERRORS,
+  CLAUDE_FIELD_FAILURES,
+  claudeFieldFailureMessage,
   claudeFieldFillRequestSchema,
   claudeFieldInputProblem,
   claudeFieldPlanRequestSchema,
   claudeFieldProgressQuerySchema,
   claudeFieldSetupSchema,
+  claudeFieldValueSchema,
   type ClaudeFieldAudience,
   type ClaudeFieldInput,
 } from './fields';
@@ -102,5 +105,20 @@ describe('claudeFieldFillRequestSchema', () => {
     expect(claudeFieldProgressQuerySchema.safeParse(target).success).toBe(true);
     const progress = { ...target, rowIds: 'all' };
     expect(claudeFieldProgressQuerySchema.safeParse(progress).success).toBe(false);
+  });
+});
+
+describe('claudeFieldValueSchema', () => {
+  const failed = { text: 'Old summary.', filledAt: null, filledFor: null, status: 'failed' };
+
+  it('says why a row failed, in plain words', () => {
+    expect(claudeFieldValueSchema.safeParse(failed).success).toBe(true);
+    for (const reason of CLAUDE_FIELD_FAILURES) {
+      expect(claudeFieldValueSchema.safeParse({ ...failed, reason }).success).toBe(true);
+      expect(claudeFieldFailureMessage(reason)).toMatch(/\.$/);
+    }
+    for (const reason of ['rows_changed', 'database_hour', 'Claude was busy']) {
+      expect(claudeFieldValueSchema.safeParse({ ...failed, reason }).success).toBe(false);
+    }
   });
 });

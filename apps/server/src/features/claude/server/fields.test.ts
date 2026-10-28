@@ -5,11 +5,12 @@ import type {
   ClaudeFieldSetup,
   ClaudeFieldValue,
 } from '@carehub/extras/claude/fields';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, runMigrations, type DatabaseConnection, type Db } from '../../../db';
 import { createTestDatabase, createUser, hasDatabase, type TestUser } from '../../../testing';
+import { bindMemoryNotices } from '../../notices/testing';
 import { claudeFieldFills, claudeFieldQueue, claudeUsage } from '../schema';
 import { ClaudeError } from './errors';
 import { fieldErrorReason, fillClaudeFields, planClaudeFieldFill } from './fields';
@@ -100,6 +101,7 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
   async function setUp(options: Setup = {}) {
     const workspaceId = randomUUID();
     const databaseId = randomUUID();
+    const pageId = randomUUID();
     const propertyId = 'property-summary';
     const avery = await createUser(db, { name: 'Avery Lin' });
     const morgan = await createUser(db, { name: 'Morgan Diaz' });
@@ -129,6 +131,7 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
         { id: 'property-request', type: 'text', see: null },
         { id: 'property-status', type: 'status', see: null },
       ],
+      pageId,
     });
 
     restores.push(
@@ -194,10 +197,13 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
             filledFor: null,
             status: 'filled',
           };
-          row.value = input.value ?? { ...old, status: 'failed' };
+          row.value = input.value ?? { ...old, status: 'failed', reason: input.reason };
         },
       }),
     );
+
+    const notices = bindMemoryNotices();
+    restores.push(notices.unbind);
 
     function addRow(editors: TestUser[] = [avery, morgan]): FakeRow {
       const row: FakeRow = {
@@ -219,9 +225,11 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
     return {
       workspaceId,
       databaseId,
+      pageId,
       avery,
       morgan,
       rows,
+      notices: notices.store,
       bodies,
       logs,
       most,
@@ -357,6 +365,7 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
       filledAt: START.toISOString(),
       filledFor: t.avery.id,
       status: 'failed',
+      reason: 'unavailable',
     });
     const fills = await db
       .select()
@@ -532,8 +541,85 @@ describe.skipIf(!hasDatabase)('Claude fields', () => {
     }
   });
 
+  it("doesn't count background fills toward the person's limit", async () => {
+    const t = await setUp();
+    const [first, second, third] = [t.addRow(), t.addRow(), t.addRow()];
+    await db.insert(claudeUsage).values(
+      Array.from({ length: 30 }, () => ({
+        workspaceId: t.workspaceId,
+        userId: t.avery.id,
+        feature: 'writing_help' as const,
+        status: 'ok' as const,
+        createdAt: new Date(START.getTime() - MINUTE),
+      })),
+    );
+    const one = { userId: t.avery.id, ...t.target, rowIds: [first!.id] };
+    expect(await outcome(fillClaudeFields(db, one))).toBe('user_rate_limit');
+    const two = { ...one, rowIds: [second!.id, third!.id], confirmedRows: 2 };
+    expect(await outcome(fillClaudeFields(db, two))).toBe('queued');
+    expect(await runClaudeFieldQueue(db)).toBe(2);
+    expect([second!.value?.status, third!.value?.status]).toEqual(['filled', 'filled']);
+    const usage = await db
+      .select()
+      .from(claudeUsage)
+      .where(and(eq(claudeUsage.workspaceId, t.workspaceId), eq(claudeUsage.feature, 'fields')));
+    expect(usage.map((row) => row.background)).toEqual([true, true]);
+  });
+
+  it("marks the rows a background Fill couldn't fill, then sends one notice", async () => {
+    const off: string[] = [];
+    const t = await setUp({ off });
+    const rows = [t.addRow(), t.addRow(), t.addRow()];
+    const all = { userId: t.avery.id, ...t.target, rowIds: 'all' as const, confirmedRows: 3 };
+    expect(await fillClaudeFields(db, all)).toEqual({ status: 'queued', rows: 3 });
+    rows[2]!.editors = [t.morgan.id];
+    off.push('claude.fields');
+
+    expect(await runClaudeFieldQueue(db)).toBe(3);
+    expect(t.bodies).toHaveLength(0);
+    const failed = { text: '', filledAt: null, filledFor: null, status: 'failed' };
+    expect(rows.map((row) => row.value ?? null)).toEqual([
+      { ...failed, reason: 'switched_off' },
+      { ...failed, reason: 'switched_off' },
+      null,
+    ]);
+    expect(await db.select().from(claudeFieldQueue)).toHaveLength(0);
+    expect(t.notices.records.map((n) => [n.userId, n.kind, n.sender, n.title, n.text])).toEqual([
+      [
+        t.avery.id,
+        'alert',
+        'Claude fields',
+        "Claude couldn't fill 3 rows you asked for",
+        'This Claude feature is switched off. An Admin can turn it on in Settings → Claude. The rows keep their old text.',
+      ],
+    ]);
+    expect(t.notices.records[0]?.card).toMatchObject({ type: 'page', pageId: t.pageId });
+  });
+
+  it("tells the owner once when automatic fills couldn't fill", async () => {
+    const t = await setUp({ setup: { fill: 'auto' }, replies: [answer(''), answer('')] });
+    const rows = [t.addRow(), t.addRow()];
+    for (const row of rows) {
+      const change = { databaseId: t.databaseId, rowId: row.id, propertyIds: ['property-request'] };
+      await claudeFieldRowChanged(db, { ...change, source: 'user' });
+    }
+    clock.now = new Date(START.getTime() + 2 * MINUTE);
+    expect(await runClaudeFieldQueue(db)).toBe(2);
+    expect(t.bodies).toHaveLength(2);
+    for (const row of rows)
+      expect(row.value).toMatchObject({ status: 'failed', reason: 'bad_output' });
+    expect(t.notices.records.map((n) => [n.userId, n.title, n.text])).toEqual([
+      [
+        t.morgan.id,
+        "Claude couldn't fill 2 rows automatically",
+        "Claude's answer couldn't be used. Try again. The rows keep their old text.",
+      ],
+    ]);
+    expect(await db.select().from(claudeFieldQueue)).toHaveLength(0);
+  });
+
   it('keeps the migration and the Drizzle tables the same', async () => {
-    for (const table of [claudeFieldFills, claudeFieldQueue]) {
+    for (const table of [claudeUsage, claudeFieldFills, claudeFieldQueue]) {
       const config = getTableConfig(table);
       const { rows } = await db.execute<{
         name: string;

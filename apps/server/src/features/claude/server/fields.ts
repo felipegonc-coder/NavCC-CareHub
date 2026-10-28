@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import type { ClaudeErrorReason } from '@carehub/extras/claude';
 import {
   CLAUDE_FIELD_ERRORS,
   CLAUDE_FIELD_LIMITS,
   claudeFieldInputProblem,
   type ClaudeFieldErrorReason,
+  type ClaudeFieldFailure,
   type ClaudeFieldFillResult,
   type ClaudeFieldKind,
   type ClaudeFieldPlan,
@@ -74,7 +76,7 @@ export async function fillClaudeFields(
   if (typeof input.rowIds !== 'string' && input.rowIds.length === 1) {
     const [rowId] = rowIds;
     if (!rowId || rowId !== input.rowIds[0]) throw new ClaudeError('no_permission');
-    const value = await fillRow(db, field, rowId, { userId, auto: false });
+    const value = await fillRow(db, field, rowId, { userId, auto: false, background: false });
     return { status: 'filled', rowId, value };
   }
   if (input.confirmedRows !== rowIds.length) {
@@ -83,6 +85,7 @@ export async function fillClaudeFields(
   if (rowIds.length > 0) {
     const { workspaceId, databaseId, propertyId } = field;
     const dueAt = claudeRuntime().now();
+    const batchId = randomUUID();
     const q = claudeFieldQueue;
     await db
       .insert(q)
@@ -95,6 +98,7 @@ export async function fillClaudeFields(
           auto: false,
           requestedBy: userId,
           dueAt,
+          batchId,
         })),
       )
       .onConflictDoUpdate({
@@ -106,6 +110,8 @@ export async function fillClaudeFields(
           dueAt,
           attempts: 0,
           version: sql`${q.version} + 1`,
+          batchId,
+          failedReason: null,
         },
       });
   }
@@ -157,11 +163,14 @@ export interface Filler {
   userId: string;
   /** Automatically, with the owner's access, rather than By hand for userId. */
   auto: boolean;
+  /** From the queue: nobody is waiting, so it doesn't count toward the person's limit. */
+  background: boolean;
 }
 
 /**
  * Asks Claude for one row's value, as `by.userId` reads the row, and saves it. When a request was
- * sent and failed, the row keeps its old text, is marked failed and the error is thrown.
+ * sent and failed, the row keeps its old text, is marked failed with the reason (in the background,
+ * by the queue) and the error is thrown.
  */
 export async function fillRow(
   db: Db,
@@ -190,8 +199,8 @@ export async function fillRow(
     content: field.setup.usesPageContent,
   });
   if (!row) throw new ClaudeError('no_permission');
-  const save = (value: ClaudeFieldValue | null) =>
-    host.saveFill(db, { databaseId, propertyId, rowId, userId: by.userId, value });
+  const save = (value: ClaudeFieldValue | null, reason?: ClaudeFieldFailure) =>
+    host.saveFill(db, { databaseId, propertyId, rowId, userId: by.userId, value, reason });
   const record = (status: 'ok' | 'failed') =>
     db.insert(claudeFieldFills).values({
       workspaceId,
@@ -216,12 +225,13 @@ export async function fillRow(
         instruction: instructionFor(field.setup),
         documents,
         maxTokens: FIELD_MAX_TOKENS,
+        background: by.background,
       }));
     } catch (error) {
       const reason = claudeErrorReason(error);
       if (reason && !REFUSALS.has(reason)) {
         await record('failed');
-        await save(null);
+        if (!by.background) await save(null, reason);
       }
       throw error;
     }

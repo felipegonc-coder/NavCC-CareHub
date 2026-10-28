@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CLAUDE_ERROR_REASONS, CLAUDE_ERRORS } from './index';
 
 // Claude fields (docs/extras/claude.md, "Claude fields"; spec section 3.4), shared by the server's
 // /api/claude/fields routes and the web app. Databases owns the property type and its cell; these
@@ -68,6 +69,14 @@ export const claudeFieldSetupSchema = z
   });
 export type ClaudeFieldSetup = z.infer<typeof claudeFieldSetupSchema>;
 
+/** Why a row couldn't fill, shown on its cell: a CLAUDE_ERRORS reason, or inputs it can't send. */
+export const CLAUDE_FIELD_FAILURES = [
+  ...CLAUDE_ERROR_REASONS,
+  'unusable_input',
+  'hidden_input',
+] as const;
+export type ClaudeFieldFailure = (typeof CLAUDE_FIELD_FAILURES)[number];
+
 /** A Claude field's value on a row. It's plain text: show it as text, never as HTML. */
 export const claudeFieldValueSchema = z.object({
   text: z.string().max(CLAUDE_FIELD_LIMITS.value),
@@ -77,6 +86,8 @@ export const claudeFieldValueSchema = z.object({
   filledFor: z.string().nullable(),
   /** failed: the last try didn't work and `text` is the old value ("Couldn't fill. Try again."). */
   status: z.enum(['filled', 'failed']),
+  /** Why it failed, for the cell: claudeFieldFailureMessage(reason). */
+  reason: z.enum(CLAUDE_FIELD_FAILURES).optional(),
 });
 export type ClaudeFieldValue = z.infer<typeof claudeFieldValueSchema>;
 
@@ -117,6 +128,13 @@ export const CLAUDE_FIELD_ERRORS = {
   },
 } as const;
 export type ClaudeFieldErrorReason = keyof typeof CLAUDE_FIELD_ERRORS;
+
+/** The plain words for why a row couldn't fill, on its cell and in the notice. */
+export function claudeFieldFailureMessage(reason: ClaudeFieldFailure): string {
+  return reason === 'unusable_input' || reason === 'hidden_input'
+    ? CLAUDE_FIELD_ERRORS[reason].message
+    : CLAUDE_ERRORS[reason].message;
+}
 
 /**
  * Why a field can't use its inputs, or null. Its value reaches everyone who can see the field, so

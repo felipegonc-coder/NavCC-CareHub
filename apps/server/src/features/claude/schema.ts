@@ -1,4 +1,5 @@
 import { CLAUDE_ERROR_REASONS, CLAUDE_FEATURES } from '@carehub/extras/claude';
+import { CLAUDE_FIELD_FAILURES } from '@carehub/extras/claude/fields';
 import {
   boolean,
   index,
@@ -14,8 +15,9 @@ import {
 import { users } from '../auth/schema';
 
 // Mirrors migrations/202610271330_claude_usage.sql, 202610271400_claude_settings.sql,
-// 202610271600_claude_fields.sql and 202610271630_claude_field_queue.sql, which are the source of
-// truth (the tests in server/ compare them).
+// 202610271600_claude_fields.sql, 202610271630_claude_field_queue.sql and
+// 202610271700_claude_field_failures.sql, which are the source of truth (the tests in server/
+// compare them).
 
 /** 'ok', or why a request that was sent failed. */
 export const CLAUDE_USAGE_STATUSES = ['ok', ...CLAUDE_ERROR_REASONS] as const;
@@ -30,6 +32,8 @@ export const claudeUsage = pgTable('claude_usage', {
   status: text('status', { enum: CLAUDE_USAGE_STATUSES }).notNull(),
   inputTokens: integer('input_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
+  /** A fill nobody is waiting for (Claude fields): not counted toward the person's limit. */
+  background: boolean('background').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -79,6 +83,10 @@ export const claudeFieldQueue = pgTable(
     dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
     attempts: integer('attempts').notNull().default(0),
     version: integer('version').notNull().default(1),
+    /** The By-hand Fill it's part of; null when automatic (a field's automatic fills are one). */
+    batchId: uuid('batch_id'),
+    /** Why it couldn't fill. It stays until its batch is done, for the one notice. */
+    failedReason: text('failed_reason', { enum: CLAUDE_FIELD_FAILURES }),
   },
   (table) => [
     uniqueIndex('claude_field_queue_row_idx').on(table.databaseId, table.propertyId, table.rowId),

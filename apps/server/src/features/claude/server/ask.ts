@@ -28,6 +28,8 @@ export interface AskClaudeInput {
   documents?: ClaudeDocument[];
   selection?: string;
   maxTokens?: number;
+  /** A Claude field fill nobody is waiting for: it doesn't count toward the person's limit. */
+  background?: boolean;
 }
 
 export interface AskClaudeJsonInput<T> extends AskClaudeInput {
@@ -101,12 +103,19 @@ async function ask<T>(db: Db | Tx, input: AskClaudeInput, finish: (text: string)
   const now = runtime.now();
   const used = await requestsThisMonth(db, input.workspaceId, now);
   if (used >= runtime.settings().monthlyRequests) throw new ClaudeError('monthly_cap');
+  // Only Claude fields fill in the background, and each database has its own hourly cap there.
+  const background = input.background === true && input.feature === 'fields';
   const since = new Date(now.getTime() - PERSON_WINDOW_MS);
-  if ((await requestsSince(db, input.userId, since)) >= PERSON_REQUESTS) {
+  if (!background && (await requestsSince(db, input.userId, since)) >= PERSON_REQUESTS) {
     throw new ClaudeError('user_rate_limit');
   }
 
-  const usage = { workspaceId: input.workspaceId, userId: input.userId, feature: input.feature };
+  const usage = {
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    feature: input.feature,
+    background,
+  };
   let reply: ClaudeReply;
   try {
     reply = await sendToClaude(runtime, {
