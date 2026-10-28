@@ -71,6 +71,18 @@ export function pressOutside(): void {
   fireEvent.pointerDown(document.body);
 }
 
+/** A pointer press, move or release at height `y`, as a drag handle gets it. */
+export function pointer(
+  target: Element,
+  kind: 'pointerdown' | 'pointermove' | 'pointerup',
+  y: number,
+): void {
+  fireEvent(
+    target,
+    new MouseEvent(kind, { bubbles: true, cancelable: true, button: 0, clientY: y }),
+  );
+}
+
 export type EditorOptions = Partial<CellEditorProps> & Pick<CellEditorProps, 'property'>;
 
 /** Opens a CellEditor over a cell; onCommit and onCancel are mocks. */

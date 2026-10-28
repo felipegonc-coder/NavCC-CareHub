@@ -35,6 +35,7 @@ export const CELL_TEXT = {
   uploading: 'Uploading',
   uploadFailed: "Couldn't upload",
   retry: 'Retry',
+  moveFile: (name: string) => `Move ${name}`,
   webLink: 'Web link',
   addLink: 'Add link',
   addItem: 'Add an item',
@@ -89,9 +90,11 @@ export const PROPERTY_TEXT = {
   nameTooLong: 'Property names can be up to 100 characters.',
   nameTaken: (name: string) => `A property named "${name}" already exists.`,
   changeTitle: (name: string, type: string) => `Change "${name}" to ${type}?`,
-  valuesCleared: (count: number) => `Values in ${rows(count)} will be cleared.`,
+  valuesCleared: (count: number, atLeast = false) =>
+    `Values in ${atLeast ? 'at least ' : ''}${rows(count)} will be cleared.`,
   deleteTitle: (name: string) => `Delete "${name}"?`,
-  valuesRemoved: (count: number) => `Values in ${rows(count)} will be removed.`,
+  valuesRemoved: (count: number, atLeast = false) =>
+    `Values in ${atLeast ? 'at least ' : ''}${rows(count)} will be removed.`,
   restoreLater:
     'Deleted properties can be restored with their values for 30 days from Properties → Deleted.',
   twoWay: (name: string, database: string) => `This also deletes "${name}" in ${database}.`,
@@ -156,6 +159,32 @@ export const SETTINGS_TEXT = {
   stopTwoWay: (name: string, database: string) => `This deletes "${name}" in ${database}.`,
   stopTwoWayUnnamed: 'This deletes the matching property in the other database.',
   stopShowing: 'Stop showing',
+  options: 'Options',
+  noOptions: 'No options yet.',
+  addOption: 'Add an option',
+  addOptionTo: (group: string) => `Add an option to ${group}`,
+  renameOption: (name: string) => `Rename ${name}`,
+  moveOption: (name: string) => `Move ${name}`,
+  moveHint: 'Drag, or press the up and down arrow keys, to change the order.',
+  editOption: (name: string) => `Edit ${name}`,
+  isDefault: 'Default',
+  setDefault: 'Set as default',
+  defaultHint: 'New rows get the default option.',
+  moveTo: (group: string) => `Move to ${group}`,
+  keepOne: 'Each group keeps at least one option.',
+  deleteOption: 'Delete option',
+  /** `atLeast`: the view hasn't loaded every row, so others may use it too. */
+  optionUsed: (count: number, atLeast = false) =>
+    atLeast
+      ? count === 0
+        ? 'None of the rows shown use this option. It will be cleared from any that do.'
+        : `At least ${rows(count)} ${count === 1 ? 'uses' : 'use'} this option. ` +
+          'It will be cleared from all of them.'
+      : count === 0
+        ? 'No rows use this option.'
+        : count === 1
+          ? '1 row uses this option. It will be cleared from that row.'
+          : `${rows(count)} use this option. It will be cleared from them.`,
   prefix: 'Prefix',
   prefixExample: (example: string) => `Rows are numbered ${example}.`,
   prefixInvalid: 'Use up to 20 letters, numbers, hyphens or underscores.',
