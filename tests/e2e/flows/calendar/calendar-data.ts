@@ -8,12 +8,6 @@ import { apiFor, DEFAULT_TIME_ZONE } from '../_support/index.js';
 
 export const MINUTE = 60_000;
 
-/** The signed-in person's user ID (GET /api/auth/me, decision 0007). */
-export async function myUserId(page: Page): Promise<string> {
-  const me = await (await apiFor(page)).get<{ user: { id: string } }>('/api/auth/me');
-  return me.user.id;
-}
-
 /** A timed Care Hub event. Times are epoch milliseconds; `people` are member IDs. */
 export type NewEvent = {
   title: string;

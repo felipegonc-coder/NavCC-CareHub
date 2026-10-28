@@ -1,5 +1,14 @@
 import type { Page } from '@playwright/test';
-import { apiFor, expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
+import {
+  apiFor,
+  expect,
+  needs,
+  onlyIn,
+  signInAs,
+  test,
+  uniqueName,
+  userIdOf,
+} from '../_support/index.js';
 import * as data from './calendar-data.js';
 import * as cal from './calendar-page.js';
 
@@ -151,8 +160,12 @@ test.describe('Calendar: views and single-key shortcuts', () => {
       await test.step('C makes an event at the next half hour, and typing its title switches nothing', async () => {
         await page.keyboard.press('w');
         await expect.poll(view).toBe('Week');
+        // The next :00 or :30 after now. The screen's clock moves on every 30 seconds, so it may
+        // still go by the half hour before.
         const halfHour = 30 * MINUTE;
-        const start = Math.ceil(Date.now() / halfHour) * halfHour;
+        const nextHalfHour = (at: number) => (Math.floor(at / halfHour) + 1) * halfHour;
+        const pressedAt = Date.now();
+        const starts = [nextHalfHour(pressedAt - 30_000), nextHalfHour(pressedAt)];
         await page.keyboard.press('c');
         await page.keyboard.type(title);
         expect(await cal.focusedText(page), 'every key went into the title').toBe(title);
@@ -163,9 +176,12 @@ test.describe('Calendar: views and single-key shortcuts', () => {
           (await data.itemsBetween(page, day, cal.addDays(day, 2))).find(
             (item) => item.title === title,
           );
-        await expect.poll(async () => (await made())?.start).toBe(new Date(start).toISOString());
+        await expect
+          .poll(async () => starts.includes(Date.parse((await made())?.start ?? '')))
+          .toBe(true);
         const item = await made();
-        expect(Date.parse(item?.end ?? '') - start, 'the default length').toBe(60 * MINUTE);
+        const length = Date.parse(item?.end ?? '') - Date.parse(item?.start ?? '');
+        expect(length, 'the default length').toBe(60 * MINUTE);
       });
 
       await test.step('with single-key shortcuts off in Settings, D does nothing', async () => {
@@ -262,7 +278,7 @@ test.describe('Calendar: Upcoming', () => {
     await signInAs(page, 'commenter');
     const eli = await cal.windowFor(browser, 'editor');
     const avery = await cal.windowFor(browser, 'admin');
-    const people = [await data.myUserId(avery)];
+    const people = [await userIdOf(avery)];
     const now = Date.now();
     // Not quite 11 minutes ahead, so Join comes within a minute or so instead of 5.
     const soon = {

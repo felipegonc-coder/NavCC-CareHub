@@ -1,4 +1,13 @@
-import { expect, needs, onlyIn, shownTime, signInAs, test, uniqueName } from '../_support/index.js';
+import {
+  expect,
+  needs,
+  onlyIn,
+  shownTime,
+  signInAs,
+  test,
+  uniqueName,
+  userIdOf,
+} from '../_support/index.js';
 import * as data from './home-data.js';
 import * as home from './home-page.js';
 
@@ -63,7 +72,7 @@ test.describe('Home: My tasks', () => {
     await signInAs(page, 'admin');
     const today = home.dateAndTime(Date.now()).date;
     const tickets = await data.createTickets(page, uniqueName('Tickets'));
-    const me = await data.myUserId(page);
+    const me = await userIdOf(page);
     const overdue = uniqueName('Fictional QA ticket: refund for order');
     const open = uniqueName('Fictional QA ticket: address change');
     const overdueId = await data.addTicket(page, tickets, overdue, me, home.addDays(today, -2));

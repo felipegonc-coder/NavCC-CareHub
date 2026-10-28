@@ -145,22 +145,11 @@ export async function showView(page: Page, view: View): Promise<void> {
   await expect.poll(() => chosenView(page)).toBe(view);
 }
 
-/** ‹ and ›, which come right after Today in the top bar (section 2). */
-const stepButton = (page: Page, step: 'previous' | 'next') =>
-  todayButton(page).locator(`xpath=following::button[${step === 'previous' ? 1 : 2}]`);
-
-/** Week view on the week that starts on `sunday`, stepped to with › or ‹ from this week. */
+/** Week view on the week that starts on `sunday`, opened from the address (`?view=week&date=`). */
 export async function goToWeek(page: Page, sunday: string): Promise<void> {
-  await showView(page, 'Week');
-  await todayButton(page).click();
-  const thisWeek = sundayOf(today());
-  const weeks = Math.round((noon(sunday).getTime() - noon(thisWeek).getTime()) / (7 * 86_400_000));
-  for (let step = 1; step <= Math.abs(weeks); step += 1) {
-    await stepButton(page, weeks > 0 ? 'next' : 'previous').click();
-    const shown = addDays(thisWeek, 7 * step * Math.sign(weeks));
-    await expect(period(page, 'Week', shown)).toBeVisible();
-  }
+  await page.goto(`${calendarPath}?view=week&date=${sunday}`);
   await expect(period(page, 'Week', sunday)).toBeVisible();
+  await expect.poll(() => chosenView(page)).toBe('Week');
 }
 
 /**
@@ -186,50 +175,36 @@ async function boxOf(target: Locator): Promise<Box> {
   return box;
 }
 
-/** "10 AM", as the hour lines are labelled with the 12-hour default. */
-const hourLabel = (hour: number) => `${hour % 12 || 12} ${hour < 12 ? 'AM' : 'PM'}`;
-
-/** Where `hour`'s line is on screen and how many pixels a minute takes, from two hour labels. */
-async function hourScale(page: Page, hour: number): Promise<{ y: number; perMinute: number }> {
-  const label = (h: number) => page.getByText(new RegExp(`^${hourLabel(h)}$`)).first();
-  const first = await boxOf(label(Math.min(hour, 22)));
-  const next = await boxOf(label(Math.min(hour, 22) + 1));
-  const perMinute = (next.y - first.y) / 60;
-  const y = first.y + first.height / 2 + (hour - Math.min(hour, 22)) * 60 * perMinute;
-  return { y, perMinute };
+/**
+ * The hour `hour` of `date` in Day or Week (`calendar-slot-2026-11-17T10:00`), scrolled into view:
+ * the hours scroll inside the grid, which opens at 7:00 AM or an hour before now.
+ */
+async function hourCell(page: Page, date: string, hour: number): Promise<Box> {
+  const cell = page.getByTestId(`calendar-slot-${date}T${String(hour).padStart(2, '0')}:00`);
+  await cell.scrollIntoViewIfNeeded();
+  return boxOf(cell);
 }
 
 /**
- * The middle of `date`'s column, under its header ("Tue 17" in Week, "Tue" in Month). It looks for
- * the row where all seven day headers sit, so other text with a day name doesn't count.
+ * The middle of `date`'s column: its hour cells in Day and Week, its square in Month
+ * (`calendar-day-2026-11-17`).
  */
 export async function columnX(page: Page, date: string): Promise<number> {
-  const week = Array.from({ length: 7 }, (_, i) => addDays(sundayOf(date), i));
-  const headers = await Promise.all(
-    week.map(async (day) => {
-      const name = new RegExp(
-        `^(${named(day, { weekday: 'short' })}|${named(day, { weekday: 'long' })})\\b`,
-      );
-      const found = await page.getByText(name).all();
-      const boxes = await Promise.all(found.map((header) => header.boundingBox()));
-      return boxes.filter((box): box is Box => box !== null);
-    }),
-  );
-  for (const sunday of headers[0] ?? []) {
-    const row = headers.map((boxes) => boxes.find((box) => Math.abs(box.y - sunday.y) < 8));
-    const header = row[weekday(date)];
-    if (row.every(Boolean) && header) return header.x + header.width / 2;
-  }
-  throw new Error(`No row of day headers with ${named(date, { weekday: 'short' })} on screen`);
+  const cell = page
+    .getByTestId(`calendar-slot-${date}T00:00`)
+    .or(page.getByTestId(`calendar-day-${date}`))
+    .first();
+  const box = await boxOf(cell);
+  return box.x + box.width / 2;
 }
 
 /** The spot just below `time`'s line in `date`'s column, in Day or Week view. */
 export async function slotPoint(page: Page, date: string, time: string) {
-  const hour = Number(time.slice(0, 2));
-  const scale = await hourScale(page, hour);
-  // Labels sit on their line or just under it; 2 minutes down is inside the slot either way.
-  const y = scale.y + (Number(time.slice(3)) + 2) * scale.perMinute;
-  return { x: await columnX(page, date), y, perMinute: scale.perMinute };
+  const cell = await hourCell(page, date, Number(time.slice(0, 2)));
+  const perMinute = cell.height / 60;
+  // 2 minutes into the slot, so the click lands in it.
+  const y = cell.y + (Number(time.slice(3)) + 2) * perMinute;
+  return { x: cell.x + cell.width / 2, y, perMinute };
 }
 
 /** How far it is from `date`'s column to the next day's. */
@@ -237,9 +212,10 @@ export async function columnStep(page: Page, date: string): Promise<number> {
   return (await columnX(page, addDays(date, 1))) - (await columnX(page, date));
 }
 
-/** Pixels per minute in Day or Week view. */
+/** Pixels per minute in Day or Week view, from the height of an hour. */
 export async function pixelsPerMinute(page: Page): Promise<number> {
-  return (await hourScale(page, 10)).perMinute;
+  const cell = page.locator('[data-testid^="calendar-slot-"]').first();
+  return (await boxOf(cell)).height / 60;
 }
 
 /** Presses, moves in small steps and lets go, as a person drags with a mouse. */
