@@ -33,6 +33,11 @@ export interface SidebarSection {
   Component: ComponentType;
 }
 
+/** Shown under an expanded entry in the sidebar tree by page kind, such as a database's views. */
+export interface TreeItemChildren {
+  database?: ComponentType<{ page: SlotPage }>;
+}
+
 /** A section of Settings, at `/settings/<path>`. */
 export interface SettingsSection {
   id: string;
@@ -112,6 +117,7 @@ export interface EditorSlots {
 export interface Slots {
   sidebarItems: SidebarItem[];
   sidebarSections: SidebarSection[];
+  treeItemChildren: TreeItemChildren;
   settingsSections: SettingsSection[];
   commands: Command[];
   pageMenuItems: PageMenuItem[];
@@ -142,6 +148,7 @@ export function mergeSlots(parts: readonly FeatureSlots[]): MergedSlots {
   return {
     sidebarItems: sorted(join((part) => part.sidebarItems)),
     sidebarSections: sorted(join((part) => part.sidebarSections)),
+    treeItemChildren: Object.assign({}, ...parts.map((part) => part.treeItemChildren)),
     settingsSections: sorted(join((part) => part.settingsSections)),
     commands: join((part) => part.commands),
     pageMenuItems: sorted(join((part) => part.pageMenuItems)),
@@ -173,7 +180,7 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
 
   // feature: home
 
-  // feature: pages
+  () => import('./features/pages/slots'), // feature: pages
 
   // feature: settings
 

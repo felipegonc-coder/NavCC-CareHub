@@ -18,6 +18,7 @@ describe('mergeSlots', () => {
     expect(mergeSlots([])).toEqual({
       sidebarItems: [],
       sidebarSections: [],
+      treeItemChildren: {},
       settingsSections: [],
       commands: [],
       pageMenuItems: [],
