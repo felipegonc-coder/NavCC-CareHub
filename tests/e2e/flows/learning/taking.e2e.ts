@@ -2,7 +2,7 @@
 // section 7, Phase 1 "Finished when") and the Learning Phase 1 test checklist (sections 2, 5 and
 // 6). Learning has no "Done means" list yet, so the IDs are the Testing lane's (LN-xx).
 import type { Locator } from '@playwright/test';
-import { expect, needs, onlyIn, shownDate, signInAs, test } from '../_support/index.js';
+import { expect, needs, onlyIn, signInAs, test } from '../_support/index.js';
 import {
   TARA,
   content,
@@ -13,6 +13,7 @@ import {
   quiz,
   trueFalse,
 } from './course-data.js';
+import { shownDayIn } from './learner-page.js';
 import { PlayerPage } from './player-page.js';
 
 const greet = trueFalse('q1', 'You greet the caller first.', true);
@@ -54,6 +55,7 @@ test.describe('Learning: take a course', () => {
     browser,
     page,
   }) => {
+    needs('learningQuizzes');
     const course = await test.step('Tara publishes three lessons and a quiz', async () => {
       await signInAs(page, TARA);
       return liveCourse(page, [
@@ -94,6 +96,7 @@ test.describe('Learning: take a course', () => {
     browser,
     page,
   }) => {
+    needs('learningQuizzes');
     const course =
       await test.step('Tara publishes a quiz: pass 100, 3 tries, answers after passing', async () => {
         await signInAs(page, TARA);
@@ -126,6 +129,7 @@ test.describe('Learning: take a course', () => {
     browser,
     page,
   }) => {
+    needs('learningQuizzes');
     const version = (n: 'first' | 'second') => [
       content('l1', 'Fictional QA greeting'),
       content('l2', `Fictional QA holds, ${n} version`),
@@ -181,20 +185,24 @@ test.describe('Learning: take a course', () => {
       });
     });
     const eli = new PlayerPage(await pageFor(browser, 'editor'));
-    await test.step('Eli reads it and signs it off', async () => {
+    // The sign-off is on the course's start page once every lesson is read (course/SignOff.tsx).
+    const signOff = eli.main.getByRole('region', { name: 'Sign-off' });
+    await test.step('Eli reads it, goes back to the course and signs it off', async () => {
       await eli.start(course.id);
       await eli.nextButton.click();
-      await eli.main.getByRole('checkbox', { name: statement }).check();
-      await eli.main.getByRole('button', { name: /^(confirm|sign|submit|complete)/i }).click();
+      await eli.main.getByRole('button', { name: 'Back to the course' }).click();
+      await signOff.getByRole('checkbox', { name: statement }).check();
+      await signOff.getByRole('button', { name: 'Sign', exact: true }).click();
     });
-    await test.step('the course is complete, and the sign-off keeps its time', async () => {
+    await test.step('the course is complete, and the sign-off keeps its date', async () => {
       await expect.poll(() => eli.status(course.id), SOON).toBe('completed');
       const signedAt = new Date((await eli.progress(course.id)).acknowledgedAt ?? '');
       expect(Math.abs(Date.now() - signedAt.getTime())).toBeLessThan(5 * 60_000);
+      const shown = await shownDayIn(eli.page, signedAt);
+      await eli.page.reload();
+      await expect(signOff).toContainText(`Signed on ${shown}`);
       await eli.page.goto('/learning');
-      const zone = await eli.page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
-      const finished = `Completed on ${shownDate(signedAt, zone)}`;
-      await expect(eli.entry(course.title)).toContainText(finished);
+      await expect(eli.entry(course.title)).toContainText(`Completed on ${shown}`);
     });
   });
 
@@ -230,7 +238,7 @@ test.describe('Learning: take a course', () => {
 
 test.describe('Learning on a phone', () => {
   onlyIn('phone-light');
-  needs('signIn', 'appShell', 'learning');
+  needs('signIn', 'appShell', 'learning', 'learningQuizzes');
 
   test('LN-17 on a phone, Learning, a lesson and the quiz fit the screen and are easy to tap', async ({
     browser,

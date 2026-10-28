@@ -238,7 +238,7 @@ describe('values', () => {
     };
     const ctx = fixtureContext(CASE_PROPERTIES, { patterns });
     expect(run('test(prop("Phone"), "^5")', ctx)).toEqual({ kind: 'boolean', value: true });
-    expect(test.mock.calls[0]).toEqual(['555-0100', '^5']);
+    expect(test.mock.calls[0]?.slice(0, 2)).toEqual(['555-0100', '^5']);
     expect(run('match("QA-1 QA-2", "QA-\\\\d")', ctx)).toEqual({
       kind: 'list',
       value: [

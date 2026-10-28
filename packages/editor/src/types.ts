@@ -3,8 +3,18 @@ import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ComponentType, ReactNode } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 
+/**
+ * The React view of a node: a component, or `{ component, stopEvent }`. `stopEvent` returns true
+ * for an event inside the view that the editor should leave to the view, like a click, a key, a
+ * paste or a drop in a table. It replaces Tiptap's default, where the editor takes clicks that
+ * select the block, copy, cut, paste, drops and everything in the view's editable content.
+ */
+export type NodeViewEntry =
+  | ComponentType<ReactNodeViewProps>
+  | { component: ComponentType<ReactNodeViewProps>; stopEvent?(event: Event): boolean };
+
 /** React views for nodes, by node name, like `{ database: DatabaseView }`. */
-export type NodeViews = Record<string, ComponentType<ReactNodeViewProps>>;
+export type NodeViews = Record<string, NodeViewEntry>;
 
 /** The person editing, as other people see them next to their caret. */
 export interface EditorUser {
@@ -47,7 +57,10 @@ export interface LinkPicker {
   pick(): Promise<string | null>;
 }
 
-/** An extra button in the selection toolbar. */
+/**
+ * An extra button in the selection toolbar. The one with the id `comment` goes right after Link,
+ * where the spec puts Comment; the others go after the formatting buttons.
+ */
 export interface BubbleItem {
   id: string;
   /** Accessible name, also shown as the tooltip. */
@@ -55,5 +68,10 @@ export interface BubbleItem {
   icon?: ReactNode;
   /** Shows the button as pressed. */
   isActive?(editor: Editor): boolean;
+  /**
+   * Also shown in a read-only editor, like Comment for people who can comment. There, selecting
+   * text shows a toolbar with only these items, or no toolbar if there are none.
+   */
+  readOnly?: boolean;
   run(editor: Editor): void;
 }

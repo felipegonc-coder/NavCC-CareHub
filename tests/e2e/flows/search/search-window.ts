@@ -12,6 +12,12 @@ export function uniqueWord(): string {
   return `qa${[...letters].map((hex) => String.fromCharCode(97 + parseInt(hex, 16))).join('')}`;
 }
 
+/** A name that starts with this text. */
+const startingWith = (text: string) => new RegExp(`^${literally(text).source}`);
+
+/** The sort control, by what it says: "Sort", "Best match", or the order picked ("Edited, newest first"). */
+const SORTS = /^(sort\b|best match|(edited|created),? (newest|oldest))/i;
+
 /** The two shortcuts that open search from anywhere (Search, section 6). */
 export type SearchKeys = 'ControlOrMeta+K' | 'ControlOrMeta+P';
 
@@ -38,6 +44,62 @@ export class SearchWindow {
   /** The result row of a page, by its title. */
   result(title: string): Locator {
     return this.dialog.getByRole('option', { name: literally(title) });
+  }
+
+  /** Result rows whose name starts with this text: a title, as rows are heard "Refund steps, page in …". */
+  titled(start: string): Locator {
+    return this.dialog.getByRole('option', { name: startingWith(start) });
+  }
+
+  /** A filter chip under the box ("In", "Edited by", "Title only"), with or without its choice. */
+  chip(name: string): Locator {
+    return this.dialog.getByRole('button', {
+      name: new RegExp(`^${literally(name).source}(:|\\s|$)`, 'i'),
+    });
+  }
+
+  /**
+   * Picks a space, page or person in a chip's list ("In", "Created by", "Edited by"): types the
+   * name where the focus lands, picks it, and closes the list if it stays open.
+   */
+  async filterBy(chip: string, name: string) {
+    await this.chip(chip).click();
+    await this.page.keyboard.type(name);
+    const pick = this.page
+      .getByRole('option', { name: startingWith(name) })
+      .or(this.page.getByRole('menuitemcheckbox', { name: startingWith(name) }))
+      .first();
+    await pick.click();
+    if (await pick.isVisible()) await this.page.keyboard.press('Escape');
+    await expect(this.dialog).toBeVisible();
+  }
+
+  /** Sort (Best match by default): picks an order such as /edited, newest first/i. */
+  async sortBy(order: RegExp) {
+    await this.dialog
+      .getByRole('button', { name: SORTS })
+      .or(this.dialog.getByRole('combobox', { name: SORTS }))
+      .first()
+      .click();
+    await this.page
+      .getByRole('menuitemradio', { name: order })
+      .or(this.page.getByRole('option', { name: order }))
+      .or(this.page.getByRole('menuitem', { name: order }))
+      .first()
+      .click();
+  }
+
+  /** What the window says when nothing matches: "No results for ‘refnd’." (section 2). */
+  noResultsFor(text: string): Locator {
+    return this.dialog.getByText(`No results for ‘${text}’.`);
+  }
+
+  /** A button or link in the window, such as "Clear filters" or "Search in Trash". */
+  action(name: string | RegExp): Locator {
+    return this.dialog
+      .getByRole('button', { name })
+      .or(this.dialog.getByRole('link', { name }))
+      .first();
   }
 
   /** A list shown before typing: "Recent" (pages) or "Recent searches". */

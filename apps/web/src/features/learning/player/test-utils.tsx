@@ -109,28 +109,56 @@ const ERRORS: Record<number, { code: string; message: string }> = {
 /** The Learning API's error reply for 400, 403 or 404. */
 export const errorReply = (status: number) => jsonReply(status, { error: ERRORS[status] });
 
-type Call = { method: string; url: string; events: ProgressEvent[] };
+type Call = { method: string; url: string };
+
+/**
+ * The fictional learner the fake API signs in. Their profile is on Tokyo time: neither the test
+ * browser's zone nor the default, so times on the page show which zone they're in.
+ */
+export const LEARNER = {
+  id: 'learner-1',
+  email: 'lee.learner@example.test',
+  name: 'Lee Learner',
+  timeZone: 'Asia/Tokyo',
+};
+
+/** Core's GET /api/auth/me reply for the learner, with `user` changed as given. */
+export const signedInReply = (user: { id?: string; timeZone?: string | null } = {}) =>
+  jsonReply(200, { user: { ...LEARNER, ...user }, member: null, workspace: null });
+
+/** Where the learner's waiting events are kept in this browser (the shared event queue). */
+export const queueKey = (userId = LEARNER.id) => `carehub.learning.events.v1:${userId}`;
+
+type ServeOptions = {
+  course?: number;
+  offline?: boolean;
+  full?: boolean;
+  /** Who core's GET /api/auth/me says is signed in, or its error status (try 401). */
+  me?: string | number;
+};
 
 /**
  * A fake Learning API on `fetch` for one course: its learner view, the learner's state and the
- * events they send, applied as the server would. `server.course` is the status of the course call
- * (try 403, 404 or 400); `server.offline` makes sending events fail; `full` sends the whole
- * course, as a server that doesn't send the learner view yet.
+ * events they send, applied as the server would, plus core's GET /api/auth/me. `server.course` is
+ * the status of the course call (try 403, 404 or 400); `server.offline` makes sending events fail;
+ * `full` sends the whole course, as a server that doesn't send the learner view yet. `sent()` is
+ * the events the server has.
  */
-export function serveCourse(
-  course: Course,
-  state: LearnerCourseState,
-  options: { course?: number; offline?: boolean; full?: boolean } = {},
-) {
-  const server = { course: 200, offline: false, full: false, ...options };
+export function serveCourse(course: Course, state: LearnerCourseState, options: ServeOptions = {}) {
+  const server = { course: 200, offline: false, full: false, me: LEARNER.id, ...options };
   const api = `/api/learning/courses/${course.id}`;
   let current = state;
   const calls: Call[] = [];
+  const received: ProgressEvent[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
-    calls.push({ method, url, events: body.events ?? [] });
+    calls.push({ method, url });
+    if (method === 'GET' && url === '/api/auth/me') {
+      if (typeof server.me === 'number') return jsonReply(server.me, {});
+      return signedInReply({ id: server.me });
+    }
     if (method === 'GET' && url === api) {
       if (server.course !== 200) return errorReply(server.course);
       return jsonReply(200, { course: server.full ? course : learnerCourse(course), version: 3 });
@@ -138,17 +166,24 @@ export function serveCourse(
     if (method === 'GET' && url === `${api}/progress`) return jsonReply(200, current);
     if (method === 'POST' && url === `${api}/events`) {
       if (server.offline) throw new TypeError('Failed to fetch');
+      received.push(...body.events);
       current = withPending(course, current, body.events);
       return jsonReply(200, { state: current, rejected: [] });
     }
     return errorReply(404);
   });
-  const sent = () => calls.filter((call) => call.method === 'POST').flatMap((call) => call.events);
+  const sent = () => [...received];
   return { server, calls, sent };
 }
 
-/** Shows the screen for `path` from `routes` (by route) in a memory router, as in the app. */
-export function renderRoute(path: string, routes: Record<string, ReactElement>) {
+/**
+ * Shows the screen for `path` (with router state, if given) from `routes` (by route) in a memory
+ * router, as in the app.
+ */
+export function renderRoute(
+  path: string | { pathname: string; state: unknown },
+  routes: Record<string, ReactElement>,
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>

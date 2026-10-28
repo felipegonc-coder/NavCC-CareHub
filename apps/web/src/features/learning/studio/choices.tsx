@@ -30,7 +30,7 @@ export function RadioChoices<T extends string>(props: RadioChoicesProps<T>): JSX
             <label
               key={option.value}
               className={cn(
-                'grid cursor-pointer grid-cols-[auto_1fr] items-start gap-x-2 rounded border hover:bg-fill-hover',
+                'grid cursor-pointer grid-cols-control items-start gap-x-2 rounded border hover:bg-fill-hover',
                 props.compact ? 'px-3 py-1.5' : 'gap-y-0.5 p-3',
                 checked ? 'border-primary bg-fill' : 'border-border',
               )}

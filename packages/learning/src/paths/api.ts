@@ -78,3 +78,43 @@ export const SavePathRequestSchema = LearningPathSchema;
 
 /** GET, POST and PUT /studio/paths[/:id] answer with the saved path. */
 export const PathResponseSchema = LearningPathSchema;
+
+/** GET /reports/paths/:id query: `format=csv` answers with `pathReportCsv` instead. */
+export const PathReportQuerySchema = z.strictObject({ format: z.literal('csv').optional() });
+export type PathReportQuery = z.infer<typeof PathReportQuerySchema>;
+
+const count = z.number().int().min(0);
+const courseCount = count.max(LIMITS.pathCourses);
+
+/** One person's line in a path report (`PathReportRow`) as the server sends it. */
+export const PathReportRowSchema = z.strictObject({
+  learnerId: IdSchema,
+  learnerName: z.string().max(LIMITS.title),
+  groupIds: z.array(IdSchema),
+  status: z.enum(PATH_STATUSES),
+  completed: courseCount,
+  total: courseCount,
+  percent: z.number().int().min(0).max(100),
+  nextCourseId: IdSchema.nullable(),
+  nextCourseTitle: z.string().max(LIMITS.title).nullable(),
+  lastActivityAt: IsoDateTimeSchema.nullable(),
+  completedAt: IsoDateTimeSchema.nullable(),
+});
+
+/**
+ * GET /reports/paths/:id: the path, its courses in path order, the headline numbers and one row per
+ * learner (`pathReport`), by name.
+ */
+export const PathReportResponseSchema = z.strictObject({
+  path: z.strictObject({ id: IdSchema, title }),
+  courses: z
+    .array(z.strictObject({ id: IdSchema, title: z.string().max(LIMITS.title) }))
+    .max(LIMITS.pathCourses),
+  learners: count,
+  notStarted: count,
+  inProgress: count,
+  completed: count,
+  completionPercent: z.number().int().min(0).max(100),
+  rows: z.array(PathReportRowSchema),
+});
+export type PathReportResponse = z.infer<typeof PathReportResponseSchema>;
