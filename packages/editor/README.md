@@ -235,15 +235,23 @@ and search use it.
 
 ## Moving blocks
 
+- Next to the block under the pointer, `+` adds a line below it (Alt-click: above) and opens the
+  "/" menu there, and `⋮⋮` drags the block to where the blue line shows. Alt-drag copies it
+  instead (the copy gets new block IDs), and Escape cancels. Dragging a block that's selected with
+  others drags them all, and a click on `⋮⋮` selects the block. A read-only editor shows neither.
+- Dropped on the lower half of the first line of a list item, a to-do or a quote, an indent in
+  from where it starts (anywhere on it if blocks are nested in it already), blocks go inside it,
+  at the top. Below nested blocks, the further left the pointer, the further out they land.
 - Ctrl/Cmd + Shift + ↑ or ↓ moves the selected blocks, or the block the cursor is in, up or down
   past the block next to them. A block moves with everything nested in it, like a list item with
   its sub-items, and in a list it's the items that move. Blocks go into a list item or quote that
   has blocks nested in it, at the near end, and move out of one from its top or bottom. At the top
   or bottom of the page the keys do nothing.
-- Each move is one undo step, keeps block IDs, and keeps the cursor or selection where it was.
-- A list item that moves out of a list gets a list of its own kind, and anything else that moves
+- Each move or drop is one undo step and keeps block IDs. The keys keep the cursor or selection
+  where it was; a drop puts the cursor at the end of the first line that landed.
+- A list item that lands outside a list gets a list of its own kind, and anything else that lands
   between the items of a list splits it (a numbered list's second part counts from 1). Lists of
   the same kind that end up side by side join, and the one that was there keeps its numbering.
 - `src/block-drag.ts` has the logic, with no DOM: `blockAt(doc, pos)`, `selectedBlocks(state)`,
-  `moveTarget(doc, blocks, dir)` and `moveBlocks(tr, blocks, target, { copy })`. The keys are in
-  `src/block-keys.ts`.
+  `moveTarget(doc, blocks, dir)`, `moveBlocks(tr, blocks, target, { copy })` and
+  `insertLine(tr, pos)`. The keys are in `src/block-keys.ts`, the handle in `src/block-handle.ts`.

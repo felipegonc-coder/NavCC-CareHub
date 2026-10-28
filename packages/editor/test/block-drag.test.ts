@@ -3,7 +3,9 @@ import { EditorState, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { describe, expect, it } from 'vitest';
 import {
   blockAt,
+  blocksEndingWith,
   dropPos,
+  insertLine,
   moveBlocks,
   moveTarget,
   selectedBlocks,
@@ -115,6 +117,17 @@ describe('blockAt', () => {
     expect(outline(blockOf(page, 'Book transport').node)).toBe('todo(Book transport)');
     expect(outline(blockOf(page, 'Quote').node)).toBe('quote(Quote Second line)');
     expect(outline(blockOf(page, 'Second line').node)).toBe('Second line');
+  });
+});
+
+describe('blocksEndingWith', () => {
+  it('lists the blocks a block is the last thing in, innermost first', () => {
+    const page = doc(ul(li(p('Call back'), ul(li(p('Ward 4'))))), quote(p('Quote'), p('End')));
+    const levels = (text: string) =>
+      blocksEndingWith(page, blockOf(page, text)).map((block) => outline(block.node));
+    expect(levels('Ward 4')).toEqual(['li(Ward 4)', 'li(Call back ul(li(Ward 4)))']);
+    expect(levels('End')).toEqual(['End', 'quote(Quote End)']);
+    expect(levels('Quote')).toEqual(['quote(Quote End)']);
   });
 });
 
@@ -277,6 +290,16 @@ describe('moveTarget', () => {
     const quoted = doc(p('X'), quote(p('Q'), p('Q2')));
     expect(step(quoted, ['X'], 1)).toBe('quote(Q X Q2)');
     expect(step(quoted, ['Q2'], -1)).toBe('X Q2 quote(Q)');
+  });
+});
+
+describe('insertLine', () => {
+  it('adds an empty line between blocks, splitting a list', () => {
+    const page = doc(p('A'), ul(li(p('B')), li(p('C'))));
+    const tr = EditorState.create({ doc: page }).tr;
+    const pos = insertLine(tr, dropPos(blockOf(page, 'B'), 'after'));
+    expect(outline(tr.doc)).toBe('A ul(li(B)) _ ul(li(C))');
+    expect(pos === null ? null : tr.doc.nodeAt(pos)?.content.size).toBe(0);
   });
 });
 
