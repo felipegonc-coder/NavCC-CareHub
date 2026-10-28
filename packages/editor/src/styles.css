@@ -199,6 +199,12 @@
   border-radius: var(--ch-radius-sm);
 }
 
+/* A block opened from a link to it (revealBlock), for 2 seconds. */
+.ch-editor .ch-block-flash {
+  border-radius: var(--ch-radius-sm);
+  background: rgb(var(--ch-ring) / 15%);
+}
+
 /* A lane block whose view isn't loaded. */
 .ch-lane-block {
   border: 1px dashed rgb(var(--ch-border));
@@ -413,4 +419,28 @@ span.ch-lane-block {
   color: rgb(var(--ch-danger));
   font-size: var(--ch-text-label);
   line-height: var(--ch-leading-label);
+}
+
+/* RichTextField: a small rich text input that looks like a text field. */
+.ch-richtext {
+  box-sizing: border-box;
+  min-height: var(--ch-space-10);
+  padding: var(--ch-space-1_5) var(--ch-space-3);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+}
+
+.ch-richtext:focus-within {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: 1px;
+}
+
+.ch-richtext[data-readonly] {
+  background: rgb(var(--ch-fill));
+}
+
+.ch-richtext .ch-editor {
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
 }

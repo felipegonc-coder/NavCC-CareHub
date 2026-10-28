@@ -3,8 +3,18 @@ import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ComponentType, ReactNode } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 
+/**
+ * The React view of a node: a component, or `{ component, stopEvent }`. `stopEvent` returns true
+ * for an event inside the view that the editor should leave to the view, like a click, a key, a
+ * paste or a drop in a table. It replaces Tiptap's default, where the editor takes clicks that
+ * select the block, copy, cut, paste, drops and everything in the view's editable content.
+ */
+export type NodeViewEntry =
+  | ComponentType<ReactNodeViewProps>
+  | { component: ComponentType<ReactNodeViewProps>; stopEvent?(event: Event): boolean };
+
 /** React views for nodes, by node name, like `{ database: DatabaseView }`. */
-export type NodeViews = Record<string, ComponentType<ReactNodeViewProps>>;
+export type NodeViews = Record<string, NodeViewEntry>;
 
 /** The person editing, as other people see them next to their caret. */
 export interface EditorUser {

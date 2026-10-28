@@ -137,7 +137,7 @@ describe.skipIf(!hasDatabase)('the search index on Postgres', () => {
   });
 
   it('indexes titles, headings, text and row text, without case or accents', async () => {
-    const team = await addPage('Team list: Felipe GONÇALVES', {
+    const team = await addPage('Team list: Lúcia ASSUNÇÃO', {
       text: 'Lead of the refund desk.\nShifts',
       markdown: '## Shifts',
     });
@@ -146,12 +146,12 @@ describe.skipIf(!hasDatabase)('the search index on Postgres', () => {
     rowText.set(row, 'QA-17\nHigh');
     await reindexForSearch(test.db, [row]);
 
-    expect(await entry(team)).toMatchObject({ title_key: 'team list felipe goncalves' });
-    expect(await matching('goncalves')).toEqual(['Team list: Felipe GONÇALVES']);
-    expect(await matching('goncalves', '{a}')).toEqual(['Team list: Felipe GONÇALVES']);
-    expect(await matching('shifts', '{b}')).toEqual(['Team list: Felipe GONÇALVES']);
+    expect(await entry(team)).toMatchObject({ title_key: 'team list lucia assuncao' });
+    expect(await matching('assuncao')).toEqual(['Team list: Lúcia ASSUNÇÃO']);
+    expect(await matching('assuncao', '{a}')).toEqual(['Team list: Lúcia ASSUNÇÃO']);
+    expect(await matching('shifts', '{b}')).toEqual(['Team list: Lúcia ASSUNÇÃO']);
     expect(await matching('refund', '{a}')).toEqual([]);
-    expect(await matching('refund')).toEqual(['Team list: Felipe GONÇALVES']);
+    expect(await matching('refund')).toEqual(['Team list: Lúcia ASSUNÇÃO']);
     expect(await matching("'qa-17'")).toEqual(['Printer jam']);
     expect(await entry(row)).toMatchObject({ ancestors: [tickets], space_id: support });
   });
