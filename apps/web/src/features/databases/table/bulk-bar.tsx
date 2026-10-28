@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Trash2, X } from 'lucide-react';
+import { Copy, Trash2, X } from 'lucide-react';
 import {
   Button,
   DropdownMenu,
@@ -20,17 +20,20 @@ export interface BulkBarProps {
   ctx: CellContext;
   canCreateOptions: boolean;
   onSet(property: Property, value: unknown, details: CommitDetails): void;
+  /** Only for people who can add rows. */
+  onDuplicate?: () => void;
   onTrash(): void;
   onClear(): void;
 }
 
-/** What shows while rows are ticked: how many, set one property for all of them, Delete. */
+/** What shows while rows are ticked: how many, set one property for all of them, Duplicate, Delete. */
 export function BulkBar({
   count,
   properties,
   ctx,
   canCreateOptions,
   onSet,
+  onDuplicate,
   onTrash,
   onClear,
 }: BulkBarProps) {
@@ -98,6 +101,12 @@ export function BulkBar({
             />
           )}
         </div>
+      )}
+      {onDuplicate && (
+        <Button variant="ghost" size="sm" onClick={onDuplicate} className="max-md:min-h-11">
+          <Copy aria-hidden className="size-4" />
+          {TABLE_TEXT.duplicate}
+        </Button>
       )}
       <Button variant="ghost" size="sm" onClick={onTrash} className="max-md:min-h-11">
         <Trash2 aria-hidden className="size-4" />

@@ -1,5 +1,5 @@
 import { useRef, type PointerEvent } from 'react';
-import { ArrowDown, ArrowUp, GripVertical, Link, Maximize2, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, GripVertical, Link, Maximize2, Trash2 } from 'lucide-react';
 import {
   cn,
   DropdownMenu,
@@ -14,6 +14,8 @@ import type { DropMark } from './row-drop';
 /** What the row menu does. Absent moves can't happen (the first or last row); no moves: sorted. */
 export interface RowMenuItems {
   open(): void;
+  /** Only for people who can add rows. */
+  duplicate?: () => void;
   copyLink(): void;
   moves: { up?: () => void; down?: () => void } | null;
   remove(): void;
@@ -93,6 +95,12 @@ export function RowHandle({
               <Maximize2 aria-hidden className="size-4" />
               {TABLE_TEXT.open}
             </DropdownMenuItem>
+            {items.duplicate && (
+              <DropdownMenuItem onSelect={items.duplicate}>
+                <Copy aria-hidden className="size-4" />
+                {TABLE_TEXT.duplicate}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={items.copyLink}>
               <Link aria-hidden className="size-4" />
               {TABLE_TEXT.copyLink}
