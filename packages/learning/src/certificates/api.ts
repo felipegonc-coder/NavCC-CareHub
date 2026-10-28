@@ -37,7 +37,7 @@ export const CertificateSchema = z.strictObject({
   courseVersion: z.number().int().min(1),
   /** When the learner passed or completed the course; each finish gets at most one certificate. */
   completedAt: IsoDateTimeSchema,
-  /** The calendar day of `completedAt` in the workspace's time zone. */
+  /** The calendar day of `completedAt` in the learner's time zone. */
   issuedOn: IsoDateSchema,
   /** Null when the course sets no expiry. */
   expiresOn: IsoDateSchema.nullable(),
@@ -138,5 +138,31 @@ export const TeamViewQuerySchema = z.strictObject({
 });
 export type TeamViewQuery = z.infer<typeof TeamViewQuerySchema>;
 
-/** GET /reports/team: one entry per group the viewer may see, by group name. */
-export const TeamViewResponseSchema = z.array(TeamViewEntrySchema);
+/** A course the team view can narrow to. */
+export const TeamCourseSchema = z.strictObject({
+  id: IdSchema,
+  title: z.string().max(LIMITS.title),
+});
+
+/** One person's line in the team view (`teamMembers`). */
+export const TeamMemberSchema = z.strictObject({
+  id: IdSchema,
+  name: z.string().max(LIMITS.title),
+  groupIds: z.array(IdSchema).readonly(),
+  courses: count,
+  finished: count,
+  overdue: count,
+  lastActivityAt: IsoDateTimeSchema.nullable(),
+});
+
+/**
+ * GET /reports/team: every course the viewer's people are enrolled in (by title, for the course
+ * filter, whatever `courseId` says), one entry per group the viewer may see (by group name) and one
+ * line per person in those groups (by name). Groups and people cover `courseId` only, when given.
+ */
+export const TeamViewResponseSchema = z.strictObject({
+  courses: z.array(TeamCourseSchema),
+  groups: z.array(TeamViewEntrySchema),
+  people: z.array(TeamMemberSchema),
+});
+export type TeamViewResponse = z.infer<typeof TeamViewResponseSchema>;

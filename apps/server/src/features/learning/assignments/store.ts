@@ -38,6 +38,11 @@ export type AssignmentStore = {
   ): Promise<AssignmentRow[]>;
   /** The row removed, or null when the workspace has no such assignment. */
   remove(workspaceId: string, id: string): Promise<AssignmentRow | null>;
+  /**
+   * Gives an assignment a due date, any day, and clears its number of days (only the e2e test hooks
+   * use it). The row changed, or null when the workspace has no such assignment.
+   */
+  setDueDate(workspaceId: string, id: string, dueDate: string): Promise<AssignmentRow | null>;
   learners(assignmentIds: readonly string[]): Promise<LearnerRow[]>;
   /** Keeps the rows already there. */
   addLearners(rows: readonly LearnerRow[]): Promise<void>;
@@ -79,6 +84,14 @@ export function assignmentStore(db: Db | Tx): AssignmentStore {
         .where(and(eq(assignments.workspaceId, workspaceId), eq(assignments.id, id)))
         .returning();
       return removed ?? null;
+    },
+    async setDueDate(workspaceId, id, dueDate) {
+      const [changed] = await db
+        .update(assignments)
+        .set({ dueDate, dueInDays: null })
+        .where(and(eq(assignments.workspaceId, workspaceId), eq(assignments.id, id)))
+        .returning();
+      return changed ?? null;
     },
     async learners(assignmentIds) {
       if (assignmentIds.length === 0) return [];

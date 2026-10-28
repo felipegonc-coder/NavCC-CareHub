@@ -1,4 +1,4 @@
-import type { APIResponse, Browser, Locator, Page, Request } from '@playwright/test';
+import type { Browser, Locator, Page, Request } from '@playwright/test';
 import { apiFor, expect, signInAs, uniqueName, type PersonKey } from '../_support/index.js';
 import type { FilePayload } from './zip-files.js';
 
@@ -76,23 +76,6 @@ export async function openAs(browser: Browser, who: PersonKey) {
   const page = await context.newPage();
   await signInAs(page, who);
   return { page, close: () => context.close() };
-}
-
-/**
- * Sends a request the screens made again, as the person signed in on `page`: same address and
- * body, with that person's own CSRF token (the cookie gets a __Host- prefix over HTTPS, 0007 3.1).
- */
-export async function sendAgainAs(page: Page, request: Request): Promise<APIResponse> {
-  const cookies = await page.context().cookies();
-  const csrf = cookies.find((cookie) => cookie.name.endsWith('carehub_csrf'))?.value ?? '';
-  const headers: Record<string, string> = {
-    'X-CSRF-Token': csrf,
-    Origin: new URL(request.url()).origin,
-  };
-  const type = request.headers()['content-type'];
-  if (type) headers['Content-Type'] = type;
-  const data = request.postDataBuffer() ?? undefined;
-  return page.request.fetch(request.url(), { method: request.method(), headers, data });
 }
 
 /** A link in the page's content, by its text. */

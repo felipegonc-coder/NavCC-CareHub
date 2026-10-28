@@ -1,6 +1,7 @@
 import { ApiIssueSchema } from '@carehub/learning';
+import { CSRF_COOKIE, CSRF_HEADER } from '@carehub/shared';
 import { afterEach, describe, expect, it } from 'vitest';
-import { api, csrfTokenFrom, LearningApiError, noContent, withQuery } from './http';
+import { api, apiPath, csrfTokenFrom, LearningApiError, noContent, withQuery } from './http';
 
 type Call = { url: string; init: RequestInit };
 const realFetch = globalThis.fetch;
@@ -25,14 +26,14 @@ const json = (body: unknown, status = 200) =>
 function setCsrfCookie(value: string | null) {
   if (typeof document === 'undefined') {
     Object.defineProperty(globalThis, 'document', {
-      value: { cookie: value === null ? '' : `other=1; carehub_csrf=${value}` },
+      value: { cookie: value === null ? '' : `other=1; ${CSRF_COOKIE}=${value}` },
       configurable: true,
       writable: true,
     });
   } else if (value === null) {
-    document.cookie = 'carehub_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+    document.cookie = `${CSRF_COOKIE}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
   } else {
-    document.cookie = `carehub_csrf=${value}; path=/`;
+    document.cookie = `${CSRF_COOKIE}=${value}; path=/`;
   }
 }
 
@@ -74,7 +75,21 @@ describe('Learning API client', () => {
     expect(calls[0]?.init.headers).toEqual({
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      'X-CSRF-Token': 'token-123',
+      [CSRF_HEADER]: 'token-123',
+    });
+  });
+
+  it('adds the headers it is given, but keeps its own', async () => {
+    setCsrfCookie('token-123');
+    reply(() => json({ path: '', message: '' }, 201));
+    await api('POST', '/review/comments', { body: 'Hi' }, ApiIssueSchema, {
+      headers: { 'X-Review-Token': 'abc', Accept: 'text/html', [CSRF_HEADER]: 'other' },
+    });
+    expect(calls[0]?.init.headers).toEqual({
+      'X-Review-Token': 'abc',
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      [CSRF_HEADER]: 'token-123',
     });
   });
 
@@ -145,6 +160,38 @@ describe('Learning API client', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('refuses paths that could reach another endpoint, without calling the server', async () => {
+    setCsrfCookie('token-123');
+    reply(() => json({ path: '', message: '' }));
+    for (const path of [
+      '/courses/..',
+      '/courses/../studio/courses',
+      '/courses/%2e%2e/progress',
+      '/courses/%2E/progress',
+      '/courses/.%2e',
+      '/courses//progress',
+      '/courses/',
+      '/courses/c1%2Fprogress',
+      '/courses/c1%5Cprogress',
+      '/courses\\..\\me',
+      '/courses/c1#progress',
+      '/courses/%zz',
+    ]) {
+      expect(await failure(api('POST', path, {}, ApiIssueSchema))).toBeInstanceOf(TypeError);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it('takes encoded parts and leaves the query alone', async () => {
+    reply(() => json({ path: '', message: '' }));
+    await api('GET', `${apiPath('courses', 'c 1', 'progress')}?from=../x`, ApiIssueSchema);
+    await api('GET', withQuery('/catalog', { q: '../..' }), ApiIssueSchema);
+    expect(calls.map((call) => call.url)).toEqual([
+      '/api/learning/courses/c%201/progress?from=../x',
+      '/api/learning/catalog?q=..%2F..',
+    ]);
+  });
+
   it('builds query strings from the values that are set', () => {
     expect(
       withQuery('/catalog', { q: 'fire & safety', topic: undefined, page: 2, empty: '' }),
@@ -153,14 +200,31 @@ describe('Learning API client', () => {
   });
 });
 
+describe('apiPath', () => {
+  it('joins the parts and encodes each one', () => {
+    expect(apiPath('studio', 'courses', 'c1', 'publish')).toBe('/studio/courses/c1/publish');
+    expect(apiPath('courses', 'a b&c?d#e%', 'progress')).toBe(
+      '/courses/a%20b%26c%3Fd%23e%25/progress',
+    );
+    expect(apiPath('studio', 'courses', 'c1', 'versions', 3)).toBe('/studio/courses/c1/versions/3');
+  });
+
+  it('refuses empty parts, dots (also encoded) and slashes inside a part', () => {
+    for (const part of ['', '.', '..', '%2e', '%2E%2e', '.%2e', 'a/b', 'a\\b', '%2F', '%5c']) {
+      expect(() => apiPath('courses', part, 'progress')).toThrow(TypeError);
+    }
+    expect(() => apiPath()).toThrow(TypeError);
+  });
+});
+
 describe('csrfTokenFrom', () => {
   it("reads core's HTTPS cookie first, then the plain one", () => {
-    expect(csrfTokenFrom('a=1; __Host-carehub_csrf=t%2B1; carehub_csrf=old')).toBe('t+1');
-    expect(csrfTokenFrom('a=1; carehub_csrf=plain')).toBe('plain');
+    expect(csrfTokenFrom(`a=1; __Host-${CSRF_COOKIE}=t%2B1; ${CSRF_COOKIE}=old`)).toBe('t+1');
+    expect(csrfTokenFrom(`a=1; ${CSRF_COOKIE}=plain`)).toBe('plain');
   });
 
   it('finds nothing without either cookie', () => {
     expect(csrfTokenFrom('')).toBeUndefined();
-    expect(csrfTokenFrom('carehub_csrf_old=1; x=carehub_csrf')).toBeUndefined();
+    expect(csrfTokenFrom(`${CSRF_COOKIE}_old=1; x=${CSRF_COOKIE}`)).toBeUndefined();
   });
 });

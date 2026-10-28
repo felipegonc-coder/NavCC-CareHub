@@ -165,4 +165,16 @@ describe.skipIf(!hasDatabase)('assignmentStore', () => {
     expect(await store.remove(workspace, row.id)).toBe(null);
     expect(await store.learners([row.id])).toEqual([]);
   });
+
+  it('sets a due date in its own workspace only, clearing the number of days', async () => {
+    const store = assignmentStore(server.db);
+    const [row] = await store.insert([
+      { ...base, courseId: 'night-checks', dueDate: null, dueInDays: 7 },
+    ]);
+    if (!row) throw new Error('Not added');
+    expect(await store.setDueDate(otherWorkspace, row.id, '2026-10-01')).toBe(null);
+    const changed = { ...row, dueDate: '2026-10-01', dueInDays: null };
+    expect(await store.setDueDate(workspace, row.id, '2026-10-01')).toEqual(changed);
+    expect(await store.list(workspace, { courseId: 'night-checks' })).toEqual([changed]);
+  });
 });

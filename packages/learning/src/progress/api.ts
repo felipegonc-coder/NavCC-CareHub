@@ -36,7 +36,7 @@ export type ProgressEventsRequest = z.infer<typeof ProgressEventsRequestSchema>;
 export const QuizAttemptStartRequestSchema = z.strictObject({ at: IsoDateTimeSchema });
 export type QuizAttemptStartRequest = z.infer<typeof QuizAttemptStartRequestSchema>;
 
-/** POST /people/:personId/courses/:courseId/reset and .../complete (learning.analytics). */
+/** POST /people/:personId/courses/:courseId/reset and .../complete (learning.assign, 0312). */
 export const ProgressNoteRequestSchema = z.strictObject({
   /** Why, for the record (e.g. "Finished the classroom version"). */
   note: z.string().trim().max(LIMITS.shortText).optional(),
@@ -63,6 +63,8 @@ const REJECT_REASONS = [
   'not_required',
   'bad_statement',
   'server_only',
+  'future',
+  'restarted',
 ] as const satisfies readonly ProgressRejectReason[];
 
 /** Read straight from what was sent, cut to 100 characters, so not always a valid id or time. */
@@ -123,6 +125,7 @@ const QuizAttemptRecordSchema = z.strictObject({
     percent,
     passed: z.boolean(),
   }),
+  answers: z.record(IdSchema, QuestionResponseSchema).optional(),
 });
 
 const QuizProgressSchema = z.strictObject({

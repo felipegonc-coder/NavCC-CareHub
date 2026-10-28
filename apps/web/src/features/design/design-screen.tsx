@@ -18,12 +18,21 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  EmptyState,
+  ErrorState,
   Field,
   IconButton,
   Input,
   Kbd,
+  LoadingState,
   Logo,
+  NoAccessState,
+  NotFoundState,
+  OfflineBanner,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -180,6 +189,22 @@ export function DesignScreen() {
               <DropdownMenuItem variant="danger">Move to Trash</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary">Ticket actions</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem>Reply</DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Assign to</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {people.map((name) => (
+                    <DropdownMenuItem key={name}>{name}</DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="secondary">Open dialog</Button>
@@ -212,6 +237,17 @@ export function DesignScreen() {
             onClick={() => toast({ title: 'Page saved', variant: 'success' })}
           >
             Show toast
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              toast({
+                title: 'Ticket archived',
+                action: { label: 'Undo', onClick: () => toast({ title: 'Ticket restored' }) },
+              })
+            }
+          >
+            Archive ticket
           </Button>
         </div>
       </Section>
@@ -247,6 +283,35 @@ export function DesignScreen() {
           <Skeleton className="h-4 w-40" />
           <Skeleton className="h-4 w-24" />
         </div>
+      </Section>
+
+      <Section title="States">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded border border-border p-6">
+            <LoadingState delayMs={0} label="Loading the example" />
+          </div>
+          <EmptyState
+            className="rounded border border-border"
+            message="No pages here yet."
+            action={
+              <Button size="sm">
+                <Plus aria-hidden />
+                Add a page
+              </Button>
+            }
+          />
+          <ErrorState
+            className="rounded border border-border"
+            message="Couldn't load the pages."
+            onRetry={() => toast({ title: 'Trying again' })}
+          />
+          <NoAccessState className="rounded border border-border" />
+          <NotFoundState className="rounded border border-border" />
+        </div>
+        <OfflineBanner
+          offline
+          className="overflow-hidden rounded border-x border-t border-border"
+        />
       </Section>
     </main>
   );
