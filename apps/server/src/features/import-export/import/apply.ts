@@ -5,13 +5,17 @@ import {
   type ImportCounts,
   type ImportPlan,
   type ImportProblem,
+  type ImportSourceId,
   type PlanContent,
+  type PlanDates,
 } from '@carehub/extras/import-export/import/index';
 import { pageUrl } from '@carehub/shared';
 import type { Tx } from '../../../db';
 import { saveVersionNow } from '../../history';
+import { databaseCells, rowLinks } from './cells';
 import { prepareDoc, resolveMarkdown, type PlanTargets } from './content';
-import { importPorts, type ImportPorts } from './ports';
+import { importedDates, usableTimeZone } from './dates';
+import { importPorts, type ImportedDates, type ImportPorts } from './ports';
 import type { ItemKind } from './schema';
 
 /** Where an import goes: under a page, or at the top of a space (the person's Private space). */
@@ -24,6 +28,8 @@ export interface ImportTarget {
 export interface ApplyInput {
   userId: string;
   target: ImportTarget;
+  /** Where the plan came from, for the pages' Updates ("Imported from Evernote"). */
+  source: ImportSourceId;
   plan: ImportPlan;
   /** Each file's bytes, in the order of `plan.files`. */
   files: readonly Uint8Array[];
@@ -74,14 +80,22 @@ async function fill(
  * Writes a plan in the caller's transaction, so a rollback (Cancel, IE-11) leaves nothing behind:
  * a version of the page it goes under first (HT-02), then the files, the pages and databases
  * (every parent before what's under it) and last their content, once every link between them
- * can point at the new pages and files.
+ * can point at the new pages and files. Person cells are matched to members and relation cells
+ * linked once their rows are made (cells.ts); the source's dates go in Updates (dates.ts).
  */
 export async function applyPlan(tx: Tx, input: ApplyInput): Promise<ApplyResult> {
-  const { userId: by, target, plan, signal } = input;
+  const { userId: by, target, source, plan, signal } = input;
   const ports = importPorts();
   const order = checkPlan(plan);
   const problems = [...plan.problems];
   if (target.pageId) await saveVersionNow(tx, target.pageId, { reason: 'import', by });
+  const timeZone = usableTimeZone(await ports.timeZoneOf(tx, by));
+  const notes: ImportedDates[] = [];
+  /** The source's dates for the page, for its Updates. */
+  const note = (pageId: string, item: PlanDates) => {
+    const dates = importedDates(item, timeZone);
+    if (dates) notes.push({ pageId, source, ...dates, by });
+  };
 
   const targets = new Map<string, string>();
   let files = 0;
@@ -139,17 +153,22 @@ export async function applyPlan(tx: Tx, input: ApplyInput): Promise<ApplyResult>
       const { page } = item;
       const { id } = await ports.createPage(tx, { ...place, title: page.title });
       made(page.key, id);
+      note(id, page);
       items.push({ pageId: id, parentId, kind: 'page', title: page.title });
       toFill.push({ id, content: page.content, source: page.source, step: true });
       step();
       continue;
     }
     const { database } = item;
+    const cells = await databaseCells(tx, ports, target.workspaceId, database);
+    problems.push(...cells.problems);
     const { id, rowIds } = await ports.createDatabase(tx, {
       ...place,
       title: database.title,
       columns: database.columns,
-      rows: database.rows.map((row) => row.cells),
+      rows: cells.rows,
+      ...(database.view ? { view: database.view } : {}),
+      timeZone,
     });
     if (rowIds.length !== database.rows.length) throw new Error('Not every row was made.');
     made(database.key, id);
@@ -158,12 +177,26 @@ export async function applyPlan(tx: Tx, input: ApplyInput): Promise<ApplyResult>
       const rowId = rowIds[index] as string;
       made(row.key, rowId);
       items.push({ pageId: rowId, parentId: id, kind: 'row', title: row.cells[0] ?? '' });
+      note(rowId, row);
       if (row.content)
         toFill.push({ id: rowId, content: row.content, source: database.source, step: false });
+    }
+    const links = rowLinks(database, id, rowIds);
+    for (const column of links.columns) await ports.linkRows(tx, column);
+    if (links.missing > 0) {
+      problems.push({
+        file: database.source,
+        what: 'Left out',
+        why:
+          links.missing === 1
+            ? "A linked row isn't in the import."
+            : `${links.missing} linked rows aren't in the import.`,
+      });
     }
     rows += rowIds.length;
     step(2);
   }
+  if (notes.length > 0) await ports.noteImported(tx, notes);
 
   for (const page of toFill) {
     signal?.throwIfAborted();
