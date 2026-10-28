@@ -1,14 +1,20 @@
 import type { Locator, Page } from '@playwright/test';
-import { expect, shownDate } from '../_support/index.js';
+import { DEFAULT_TIME_ZONE, apiFor, expect, shownDate } from '../_support/index.js';
 
 /** What the screens say when a link is wrong or the person may not see something (api.md). */
 export const NOT_FOUND = 'This was deleted, or the link is wrong.';
 export const NO_ACCESS = /you don.t have access/i;
 
-/** A day the way Learning shows it: in the browser's time zone, for example "Oct 27, 2026". */
+/**
+ * A day the way Learning shows it to the person signed in on `page`, for example "Oct 27, 2026":
+ * in their profile's time zone, or Care Hub's when the profile has none (decision 0317). Never the
+ * browser's.
+ */
 export async function shownDayIn(page: Page, at: Date): Promise<string> {
-  const zone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
-  return shownDate(at, zone);
+  const { user } = await (
+    await apiFor(page)
+  ).get<{ user: { timeZone?: string | null } }>('/api/auth/me');
+  return shownDate(at, user.timeZone ?? DEFAULT_TIME_ZONE);
 }
 
 /**

@@ -26,6 +26,7 @@ const content = (notice: ValidNotice) => ({
   title: notice.title,
   body: notice.text,
   card: notice.card,
+  extraCards: notice.extraCards,
   buttons: notice.buttons,
 });
 
@@ -42,6 +43,7 @@ function toRecord(row: typeof notices.$inferSelect): NoticeRecord {
     title: row.title,
     text: row.body,
     card: row.card,
+    extraCards: row.extraCards,
     buttons: row.buttons,
     groupKey: row.groupKey,
     count: row.groupCount,
