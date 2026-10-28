@@ -76,7 +76,13 @@ function Badge({ children }: { children: string }) {
  * A result: icon, title with the matching words in bold, path, up to 2 lines of the best block
  * with the matching words highlighted, who edited it last, and badges (spec 2).
  */
-export function ResultContent({ result }: { result: SearchResult }) {
+export function ResultContent({
+  result,
+  compact = false,
+}: {
+  result: SearchResult;
+  compact?: boolean;
+}) {
   return (
     <>
       <ResultIcon icon={result.icon} kind={result.kind} />
@@ -93,14 +99,16 @@ export function ResultContent({ result }: { result: SearchResult }) {
         {result.path.length > 0 && (
           <span className="truncate text-label text-muted">{result.path.join(' › ')}</span>
         )}
-        {result.snippet && (
+        {!compact && result.snippet && (
           <span className="line-clamp-2 text-label text-muted">
             <Marked text={result.snippet.text} ranges={result.snippet.ranges} as="mark" />
           </span>
         )}
-        <span className="text-label text-muted">
-          {`Edited ${dayOf(result.editedAt)}${result.editedBy ? ` by ${result.editedBy.name}` : ''}`}
-        </span>
+        {!compact && (
+          <span className="text-label text-muted">
+            {`Edited ${dayOf(result.editedAt)}${result.editedBy ? ` by ${result.editedBy.name}` : ''}`}
+          </span>
+        )}
       </span>
     </>
   );

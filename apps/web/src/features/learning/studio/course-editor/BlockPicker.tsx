@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 
 // Blocks that need a picture, media or address ask for a web address until uploads and the media picker
-// (B10) land; file downloads wait for uploads.
+// land; file downloads wait for uploads.
 const ASK: Record<Exclude<BlockNeed, 'file'>, { label: string; seed(url: string): BlockSeed }> = {
   image: {
     label: 'Picture address',
@@ -192,17 +192,19 @@ export function BlockPicker({ onAdd, onClose }: { onAdd(block: Block): void; onC
                         role="menuitem"
                         tabIndex={index === active ? 0 : -1}
                         aria-disabled={file || undefined}
-                        aria-labelledby={`${id}-i${index}`}
                         aria-describedby={`${id}-i${index}-about`}
                         className={entryClasses}
                         onFocus={() => setActive(index)}
                         onKeyDown={moveFocus}
                         onClick={() => pick(entry)}
                       >
-                        <span id={`${id}-i${index}`} className="text-small font-medium text-fg">
-                          {entry.label}
-                        </span>
-                        <span id={`${id}-i${index}-about`} className="text-small text-muted">
+                        <span className="text-small font-medium text-fg">{entry.label}</span>
+                        {/* Read as the description, so the name is just the visible title. */}
+                        <span
+                          id={`${id}-i${index}-about`}
+                          aria-hidden="true"
+                          className="text-small text-muted"
+                        >
                           {file ? 'Available once file uploads are ready.' : entry.description}
                         </span>
                       </button>
