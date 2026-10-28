@@ -18,13 +18,8 @@ import {
 import { normalizeEmail } from './accounts';
 import { sessionOf } from './cookies';
 import { emitSessionsEnded } from './events';
-import {
-  SIGN_IN_LIMIT,
-  clearWrongPasswords,
-  recordWrongPassword,
-  signInPausedUntil,
-} from './limits';
-import { hashPassword, passwordMatches } from './passwords';
+import { SIGN_IN_LIMIT, clearPasswordTries, takePasswordTry } from './limits';
+import { hashPassword, makeThrowawayHash, passwordMatches } from './passwords';
 import { users } from './schema';
 import { createSession, currentUserColumns, deleteSession, deleteUserSessions } from './sessions';
 
@@ -53,21 +48,24 @@ async function meResponse(
 
 /** /api/auth: the current user, signing in and out, and changing the password (decision 0007, 3.1). */
 const authRoutes: FastifyPluginAsync = async (app) => {
+  // Made at start-up, so the first sign-in with an unknown name doesn't take longer than the others.
+  await makeThrowawayHash();
+
   app.get(
     '/me',
     { config: { allowTemporaryPassword: true } },
     async (request): Promise<MeResponse> => meResponse(app.db, signedIn(request), request.member),
   );
 
-  // Public, with the CSRF check every public change gets. Wrong passwords count per sign-in name
-  // (limits.ts); while one waits, even the right password gets the same 429.
+  // Public, with the CSRF check every public change gets. Tries count per sign-in name before the
+  // password is checked (limits.ts); while one waits, even the right password gets the same 429.
   app.post(
     '/sign-in',
     { config: { public: true } },
     async (request, reply): Promise<MeResponse> => {
       const body = signInBodySchema.parse(request.body);
       const email = normalizeEmail(body.email);
-      if (await signInPausedUntil(app.db, email)) throw httpError(429, 'rate_limited', PAUSED);
+      if (!(await takePasswordTry(app.db, email))) throw httpError(429, 'rate_limited', PAUSED);
       const [account] = await app.db
         .select({ id: users.id, passwordHash: users.passwordHash, lockedAt: users.lockedAt })
         .from(users)
@@ -75,10 +73,9 @@ const authRoutes: FastifyPluginAsync = async (app) => {
         .limit(1);
       // Unknown names take as long as known ones and get the same answer.
       if (!(await passwordMatches(account?.passwordHash ?? null, body.password)) || !account) {
-        await recordWrongPassword(app.db, email);
         throw httpError(401, 'signed_out', WRONG_DETAILS);
       }
-      await clearWrongPasswords(app.db, email);
+      await clearPasswordTries(app.db, email);
       if (account.lockedAt) throw httpError(403, 'forbidden', LOCKED);
 
       // Always a new session; the one this browser had (if any) ends.
@@ -124,15 +121,17 @@ const authRoutes: FastifyPluginAsync = async (app) => {
     async (request): Promise<MeResponse> => {
       const user = signedIn(request);
       const body = changePasswordBodySchema.parse(request.body);
-      if (await signInPausedUntil(app.db, user.email)) throw httpError(429, 'rate_limited', PAUSED);
+      if (!(await takePasswordTry(app.db, user.email))) {
+        throw httpError(429, 'rate_limited', PAUSED);
+      }
       const [account] = await app.db
         .select({ passwordHash: users.passwordHash })
         .from(users)
         .where(eq(users.id, user.id));
       if (!(await passwordMatches(account?.passwordHash ?? null, body.currentPassword))) {
-        await recordWrongPassword(app.db, user.email);
         throw fieldError('currentPassword', "That isn't your current password.");
       }
+      await clearPasswordTries(app.db, user.email);
       const problem =
         body.newPassword === body.currentPassword
           ? 'Choose a new password, not the one you have now.'
@@ -147,7 +146,6 @@ const authRoutes: FastifyPluginAsync = async (app) => {
           .where(eq(users.id, user.id));
         return deleteUserSessions(tx, user.id, { except: request.sessionId ?? undefined });
       });
-      await clearWrongPasswords(app.db, user.email);
       emitSessionsEnded(app, ended);
       return meResponse(app.db, { ...user, mustChangePassword: false }, request.member);
     },

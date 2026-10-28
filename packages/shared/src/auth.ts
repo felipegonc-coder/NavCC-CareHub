@@ -86,19 +86,32 @@ export type MeResponse = z.infer<typeof meResponseSchema>;
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 256;
 
+/**
+ * A password's length in characters (Unicode code points), as the rules count it. String length
+ * counts UTF-16 units instead, two for many emoji.
+ */
+const passwordLength = (password: string) => [...password].length;
+
+/** A password that's typed in, never longer than a new one may be. */
+const typedPassword = (empty: string, tooLong: string) =>
+  z
+    .string()
+    .min(1, empty)
+    .refine((password) => passwordLength(password) <= PASSWORD_MAX_LENGTH, tooLong);
+
 /** POST /api/auth/sign-in. Answers like GET /api/auth/me. */
 export const signInBodySchema = z.object({
   email: z.string().trim().min(1, 'Enter your email.').max(254, "That isn't an email."),
-  password: z
-    .string()
-    .min(1, 'Enter your password.')
-    .max(PASSWORD_MAX_LENGTH, "That password doesn't match."),
+  password: typedPassword('Enter your password.', "That password doesn't match."),
 });
 export type SignInBody = z.infer<typeof signInBodySchema>;
 
 /** POST /api/auth/password. `newPassword` must also pass `passwordProblem`. */
 export const changePasswordBodySchema = z.object({
-  currentPassword: z.string().min(1, 'Enter your current password.').max(PASSWORD_MAX_LENGTH),
+  currentPassword: typedPassword(
+    'Enter your current password.',
+    "That isn't your current password.",
+  ),
   newPassword: z.string(),
 });
 export type ChangePasswordBody = z.infer<typeof changePasswordBodySchema>;
@@ -186,7 +199,7 @@ function isSignInName(lower: string, signInName: string): boolean {
  * Account): at least 12 characters, not a common password and not the sign-in name.
  */
 export function passwordProblem(password: string, signInName: string): string | null {
-  const length = [...password].length;
+  const length = passwordLength(password);
   if (length < PASSWORD_MIN_LENGTH) return `Use at least ${PASSWORD_MIN_LENGTH} characters.`;
   if (length > PASSWORD_MAX_LENGTH) return `Use at most ${PASSWORD_MAX_LENGTH} characters.`;
   const lower = password.toLowerCase();

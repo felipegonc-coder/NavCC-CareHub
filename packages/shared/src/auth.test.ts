@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { meResponseSchema, passwordProblem, readCsrfToken, signInBodySchema } from './index';
+import {
+  PASSWORD_MAX_LENGTH,
+  changePasswordBodySchema,
+  meResponseSchema,
+  passwordProblem,
+  readCsrfToken,
+  signInBodySchema,
+} from './index';
 
 describe('readCsrfToken', () => {
   it('reads the __Host- cookie first, then the plain one', () => {
@@ -73,6 +80,28 @@ describe('signInBodySchema', () => {
     expect(signInBodySchema.safeParse({ email: 'ana@example.test', password: '' }).success).toBe(
       false,
     );
+  });
+});
+
+describe('password lengths', () => {
+  const email = 'ana@example.test';
+  // Different emoji, two UTF-16 units each: 256 characters, 512 units.
+  const longest = Array.from({ length: PASSWORD_MAX_LENGTH }, (_, i) =>
+    String.fromCodePoint(0x1f400 + i),
+  ).join('');
+  const tooLong = `${longest}x`;
+
+  it('counts characters, not UTF-16 units, wherever a password is checked', () => {
+    expect(longest).toHaveLength(2 * PASSWORD_MAX_LENGTH);
+    expect(passwordProblem(longest, email)).toBeNull();
+    expect(passwordProblem(tooLong, email)).toBe('Use at most 256 characters.');
+    const signIn = (password: string) => signInBodySchema.safeParse({ email, password }).success;
+    expect(signIn(longest)).toBe(true);
+    expect(signIn(tooLong)).toBe(false);
+    const change = (currentPassword: string) =>
+      changePasswordBodySchema.safeParse({ currentPassword, newPassword: longest }).success;
+    expect(change(longest)).toBe(true);
+    expect(change(tooLong)).toBe(false);
   });
 });
 

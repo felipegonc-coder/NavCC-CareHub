@@ -206,6 +206,28 @@ describe.skipIf(!hasDatabase)('sign-in, sign-out and passwords', () => {
       expect((await signIn(user.email, password)).statusCode).toBe(200);
     });
 
+    it('counts tries sent at the same time before it checks their passwords', async () => {
+      const password = newPassword();
+      const user = await createUser(test.db, { password });
+      const tries = 25;
+      const answers = await Promise.all(
+        Array.from({ length: tries }, () => signIn(user.email, newPassword())),
+      );
+      const codes = answers.map((response) => response.statusCode);
+      expect(codes.filter((code) => code === 401)).toHaveLength(SIGN_IN_LIMIT.failures);
+      expect(codes.filter((code) => code === 429)).toHaveLength(tries - SIGN_IN_LIMIT.failures);
+      expect((await signIn(user.email, password)).statusCode).toBe(429);
+    });
+
+    it('takes a password of 256 characters, even when they are emoji', async () => {
+      // Different emoji, two UTF-16 units each.
+      const password = Array.from({ length: 256 }, (_, i) =>
+        String.fromCodePoint(0x1f400 + i),
+      ).join('');
+      const user = await createUser(test.db, { password });
+      expect((await signIn(user.email, password)).statusCode).toBe(200);
+    });
+
     it('turns a locked account away only after the right password', async () => {
       const password = newPassword();
       const user = await createUser(test.db, { password, locked: true });
@@ -342,19 +364,41 @@ describe.skipIf(!hasDatabase)('sign-in, sign-out and passwords', () => {
       expect((await signIn(user.email, next)).statusCode).toBe(200);
     });
 
-    it('counts wrong current passwords like wrong sign-ins', async () => {
+    const changeFor = (browser: Browser) => (currentPassword: string, next: string) =>
+      send(app, browser, {
+        method: 'POST',
+        url: '/api/auth/password',
+        payload: { currentPassword, newPassword: next },
+      });
+
+    it('counts wrong current passwords like wrong sign-ins, and only wrong ones', async () => {
       const password = newPassword();
       const user = await createUser(test.db, { password });
-      const browser = await signedInAs(test, user.id);
+      const change = changeFor(await signedInAs(test, user.id));
+      // The right current password with a new one that can't be used doesn't count.
       for (let i = 0; i < SIGN_IN_LIMIT.failures; i++) {
-        const response = await send(app, browser, {
-          method: 'POST',
-          url: '/api/auth/password',
-          payload: { currentPassword: newPassword(), newPassword: newPassword() },
-        });
-        expect(response.statusCode).toBe(400);
+        expect((await change(password, password)).json().error.details).toMatchObject([
+          { path: ['newPassword'] },
+        ]);
+      }
+      for (let i = 0; i < SIGN_IN_LIMIT.failures; i++) {
+        expect((await change(newPassword(), newPassword())).json().error.details).toMatchObject([
+          { path: ['currentPassword'] },
+        ]);
       }
       expect((await signIn(user.email, password)).statusCode).toBe(429);
+    });
+
+    it('counts current passwords sent at the same time before it checks them', async () => {
+      const user = await createUser(test.db, { password: newPassword() });
+      const change = changeFor(await signedInAs(test, user.id));
+      const tries = 25;
+      const answers = await Promise.all(
+        Array.from({ length: tries }, () => change(newPassword(), newPassword())),
+      );
+      const codes = answers.map((response) => response.statusCode);
+      expect(codes.filter((code) => code === 400)).toHaveLength(SIGN_IN_LIMIT.failures);
+      expect(codes.filter((code) => code === 429)).toHaveLength(tries - SIGN_IN_LIMIT.failures);
     });
   });
 });

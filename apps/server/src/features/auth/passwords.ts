@@ -25,16 +25,28 @@ export async function verifyPassword(storedHash: string, password: string): Prom
 let throwawayHash: Promise<string> | undefined;
 
 /**
+ * The throwaway hash `passwordMatches` checks when there's no stored one. Made once: call it at
+ * start-up, so the first sign-in with an unknown email doesn't take longer than the others. If
+ * making it fails, the next call tries again.
+ */
+export function makeThrowawayHash(): Promise<string> {
+  throwawayHash ??= hashPassword(randomBytes(32).toString('base64url')).catch((error: unknown) => {
+    throwawayHash = undefined;
+    throw error;
+  });
+  return throwawayHash;
+}
+
+/**
  * For sign-in. Without a stored hash (an unknown email, or an account that has no password yet) it
- * still checks the password once, against a throwaway hash, so the answer takes as long either way
- * and doesn't show which emails have accounts.
+ * still checks the password once, against the throwaway hash, so the answer takes as long either
+ * way and doesn't show which emails have accounts.
  */
 export async function passwordMatches(
   storedHash: string | null,
   password: string,
 ): Promise<boolean> {
   if (storedHash !== null) return verifyPassword(storedHash, password);
-  throwawayHash ??= hashPassword(randomBytes(32).toString('base64url'));
-  await verifyPassword(await throwawayHash, password);
+  await verifyPassword(await makeThrowawayHash(), password);
   return false;
 }
