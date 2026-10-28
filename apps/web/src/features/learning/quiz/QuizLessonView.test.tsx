@@ -16,7 +16,8 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { progressKey } from '../player/data';
+import { progressKey, signedInKey } from '../player/data';
+import { LEARNER, signedInReply } from '../player/test-utils';
 import { QuizLessonView } from './QuizLessonView';
 
 const RIGHT = 'Hi, this is Sam from Brightside Support.';
@@ -114,6 +115,8 @@ function serve(course: Course, { offline, refuse }: Serve = {}) {
   const calls: { url: string; body: Record<string, unknown> }[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input);
+    // Core's GET /api/auth/me, read again when the view mounts.
+    if (url === '/api/auth/me') return signedInReply();
     const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}');
     calls.push({ url, body });
     const base = `/api/learning/courses/${course.id}`;
@@ -150,6 +153,8 @@ function serve(course: Course, { offline, refuse }: Serve = {}) {
 
 function show(course: PlayerCourse, state?: LearnerCourseState) {
   const client = new QueryClient();
+  // Core has said who is signed in, so the answers can wait behind that person's queued events.
+  client.setQueryData(signedInKey, { user: LEARNER });
   const lesson = course.lessons[0];
   if (lesson?.kind !== 'quiz') throw new Error('The course starts with a quiz.');
   render(

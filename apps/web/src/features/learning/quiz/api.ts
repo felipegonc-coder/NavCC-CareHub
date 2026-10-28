@@ -11,7 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { z } from 'zod';
 import { api, apiPath } from '../data';
-import { progressKey, progressQueue, stampEvent } from '../player/data';
+import { progressKey, progressQueue, stampEvent, useSignedInId } from '../player/data';
 
 // The quiz view's calls (docs/learning/api.md). A quiz needs a connection: nothing here is queued
 // (decisions 0302 and 0310).
@@ -29,6 +29,7 @@ export type Submitted = { state: LearnerCourseState; refused: RejectedEvent | nu
 /** Starts and sends the quiz attempts of one course. */
 export function useQuizAttempts(courseId: Id) {
   const client = useQueryClient();
+  const { userId } = useSignedInId();
   return useMemo(
     () => ({
       /** Starts an attempt on the server; an open attempt sends its paper again. */
@@ -40,21 +41,23 @@ export function useQuizAttempts(courseId: Id) {
           AttemptPaperSchema,
         ),
       /**
-       * Sends the answers at once, after the events still waiting in the player's queue, and puts
-       * the state the server sends back, with the attempt's result, where the player reads it.
+       * Sends the answers at once, after the signed-in person's events still waiting in the
+       * player's queue, and puts the state the server sends back, with the attempt's result, where
+       * the player reads it. Fails without sending until core has said who is signed in.
        */
       async submit(
         lessonId: Id,
         attemptId: Id,
         responses: Record<Id, QuestionResponse>,
       ): Promise<Submitted> {
+        if (userId === undefined) throw new Error('Not signed in yet.');
         const event = stampEvent({
           type: 'quiz_attempt_submitted',
           lessonId,
           attemptId,
           responses,
         });
-        await progressQueue(client).flush();
+        await progressQueue(client, userId).flush();
         try {
           const reply = await api(
             'POST',
@@ -73,6 +76,6 @@ export function useQuizAttempts(courseId: Id) {
         }
       },
     }),
-    [client, courseId],
+    [client, courseId, userId],
   );
 }
