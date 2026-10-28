@@ -30,7 +30,7 @@ export const TEMPLATE_MESSAGES = {
   noResults: 'No templates match your search.',
   hiddenForEveryone: 'Hidden for everyone',
   notCopied: (titles: readonly string[]) =>
-    `Couldn't copy ${titles.join(', ')} yet. The rest of the template is ready.`,
+    `Couldn't copy ${titles.join(', ')}. The rest of the template is ready.`,
   byLine: (by: string) => `by ${by}`,
   editing: (name: string) => `You're editing the template ${name}. Changes only affect new pages.`,
   madeFrom: (name: string) => `Made from ${name}`,

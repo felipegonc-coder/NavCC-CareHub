@@ -10,6 +10,9 @@ import type { AuthoredQuestion } from './studio-page.js';
 /** Tara Trainer from the Learning seed: role Trainer (Editor plus build, assign and analytics). */
 export const TARA = 'tara.trainer@example.test';
 
+/** Remy Reports from the Learning seed (#252): role Report viewer, with only analytics. */
+export const REMY = 'remy.reports@example.test';
+
 /** A new page in its own browser context, signed in as this person (a second person in a flow). */
 export async function pageFor(browser: Browser, who: Parameters<typeof signInAs>[1]) {
   const page = await (await browser.newContext()).newPage();

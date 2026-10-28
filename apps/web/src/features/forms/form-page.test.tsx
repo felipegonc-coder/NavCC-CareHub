@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE } from '../databases/api';
-import { mockFormsClient, renderFormPage } from './test-utils';
+import { fillForm, IDS, mockFormsClient, renderFormPage, stubResizeObserver } from './test-utils';
 
 const unauthorized = () => new ApiError(401, 'unauthorized', 'Sign in to continue.');
+const NOT_RECORDED = "Your name isn't recorded with this form.";
+
+beforeEach(() => {
+  window.localStorage.clear();
+  stubResizeObserver();
+});
 
 describe('FormPage', () => {
   it('opens the form behind the link for the person signed in', async () => {
@@ -18,6 +24,87 @@ describe('FormPage', () => {
     client.getForm.mockRejectedValue(unauthorized());
     renderFormPage('code-123', client);
     expect(await screen.findByText('Sign in screen')).toBeInTheDocument();
+  });
+
+  it('opens a form anyone can fill in without signing in, and sends it the public way', async () => {
+    const client = mockFormsClient();
+    client.getForm.mockRejectedValue(unauthorized());
+    client.getPublicForm.mockResolvedValue(fillForm({ audience: 'anyone' }, { respondent: null }));
+    renderFormPage('code-123', client);
+    expect(await screen.findByRole('form', { name: 'QA dispute request' })).toBeInTheDocument();
+    expect(client.getPublicForm).toHaveBeenCalledWith('code-123');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your name' }), {
+      target: { value: 'Avery Lin' },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Billing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send request' }));
+    await waitFor(() => expect(client.submitPublicResponse).toHaveBeenCalledTimes(1));
+    expect(client.submitResponse).not.toHaveBeenCalled();
+  });
+
+  it('reloads a form that stopped being anonymous, keeping the answers', async () => {
+    const client = mockFormsClient();
+    client.getForm
+      .mockResolvedValueOnce(fillForm({ anonymous: true }))
+      .mockResolvedValue(fillForm({ anonymous: false }));
+    client.submitResponse.mockRejectedValueOnce(
+      new ApiError(409, 'form_changed', 'This form changed. Check your answers and send again.'),
+    );
+    renderFormPage('code-123', client);
+    expect(await screen.findByText(NOT_RECORDED)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your name' }), {
+      target: { value: 'Avery Lin' },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Billing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send request' }));
+    const answers = { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing' };
+    expect(
+      await screen.findByText('This form changed. Check your answers and send again.'),
+    ).toBeInTheDocument();
+    expect(client.submitResponse).toHaveBeenCalledWith('code-123', { answers, anonymous: true });
+    await waitFor(() => expect(screen.queryByText(NOT_RECORDED)).toBeNull());
+    expect(client.getForm).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('textbox', { name: 'Your name' })).toHaveValue('Avery Lin');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks! Your response was sent.');
+    expect(client.submitResponse).toHaveBeenLastCalledWith('code-123', {
+      answers,
+      anonymous: false,
+    });
+  });
+
+  it('gets the form again, with a fresh fill token, for another response', async () => {
+    const client = mockFormsClient();
+    client.getForm.mockRejectedValue(unauthorized());
+    const open = (fill: string) =>
+      fillForm({ audience: 'anyone', allowMultiple: true }, { respondent: null, fill });
+    client.getPublicForm.mockResolvedValueOnce(open('fill-1')).mockResolvedValue(open('fill-2'));
+    renderFormPage('code-123', client);
+    const answers = { [IDS.name]: 'Avery Lin', [IDS.category]: 'opt-billing' };
+    async function answerAndSend() {
+      fireEvent.change(await screen.findByRole('textbox', { name: 'Your name' }), {
+        target: { value: 'Avery Lin' },
+      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Billing' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Send request' }));
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'Thanks! Your response was sent.',
+      );
+    }
+    await answerAndSend();
+    expect(client.submitPublicResponse).toHaveBeenLastCalledWith('code-123', {
+      answers,
+      anonymous: true,
+      fill: 'fill-1',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit another response' }));
+    await answerAndSend();
+    expect(client.getPublicForm).toHaveBeenCalledTimes(2);
+    expect(client.submitPublicResponse).toHaveBeenLastCalledWith('code-123', {
+      answers,
+      anonymous: true,
+      fill: 'fill-2',
+    });
   });
 
   it('says why the form could not open, with Retry', async () => {

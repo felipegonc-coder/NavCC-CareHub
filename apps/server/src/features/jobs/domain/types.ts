@@ -62,6 +62,8 @@ export interface ClaimInput {
   workerId: string;
   now: Date;
   lockedUntil: Date;
+  /** Only this job, and only while it's queued, even before its run time (the test hook). */
+  id?: string;
 }
 
 export interface RequeueInput {
@@ -89,7 +91,10 @@ export interface SqlRunner {
 export interface JobStore {
   /** Adds a job, unless an unfinished one of the same kind has the same key. */
   insert(job: NewJob): Promise<{ job: Job; created: boolean }>;
-  /** Locks due queued jobs, and running ones whose lock ran out (a crashed worker), oldest first. */
+  /**
+   * Locks due queued jobs, and running ones whose lock ran out (a crashed worker), oldest first.
+   * With `id`, only that job, if it's queued.
+   */
   claim(input: ClaimInput): Promise<Job[]>;
   setProgress(id: string, fence: Fence, progress: JobProgress, now: Date): Promise<boolean>;
   finish(id: string, fence: Fence, input: FinishInput): Promise<Job | null>;

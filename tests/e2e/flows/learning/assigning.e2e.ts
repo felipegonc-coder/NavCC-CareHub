@@ -12,11 +12,16 @@ import {
   linkToCourse,
   nextFriday,
   openCareHubChat,
+  runReminders,
+  setDueDate,
   shownDay,
   whoIs,
 } from './assign-data.js';
 import { TARA, content, liveCourse, pageFor } from './course-data.js';
 import { LearnerPage } from './learner-page.js';
+
+// The browser is in Tokyo: Learning shows days in the profile's time zone (decision 0317).
+test.use({ timezoneId: 'Asia/Tokyo' });
 
 const lesson = () => [content('l1', 'Fictional QA greeting')];
 /** A whole course card on My learning: its title, due date and status. */
@@ -126,5 +131,78 @@ test.describe('Learning: due dates on the calendar', () => {
         expect(eli.page.url()).toMatch(courseUrl(course.id));
       }).toPass({ timeout: 15_000 });
     });
+  });
+});
+
+// A past due date needs Learning's e2e test hook, see assign-data.ts.
+test.describe('Learning: overdue courses', () => {
+  onlyIn('desktop-light');
+  needs('signIn', 'learning', 'learningAssign', 'learningTestHooks');
+
+  test('LN-29 an overdue course shows first in My learning, as overdue', async ({
+    browser,
+    page,
+  }) => {
+    const eli = new LearnerPage(await pageFor(browser, 'editor'));
+    const { late, later } =
+      await test.step('Tara assigns Eli one course due Friday and one due yesterday', async () => {
+        await signInAs(page, TARA);
+        const people = [(await whoIs(eli.page)).id];
+        const [later, late] = [await liveCourse(page, lesson()), await liveCourse(page, lesson())];
+        await assign(page, later.id, { people, dueDate: nextFriday() });
+        const made = await assign(page, late.id, { people, dueDate: day() });
+        await setDueDate(page, made.id, day(-1));
+        return { late, later };
+      });
+    await test.step('My learning shows Overdue first, with the late course, marked overdue', async () => {
+      await eli.page.goto('/learning');
+      const section = (name: string) => eli.main.getByRole('region', { name, exact: true });
+      await expect(section('Overdue')).toContainText(late.title);
+      await expect(cardOf(eli, late.title)).toContainText(
+        `Overdue: it was due ${shownDay(day(-1))}`,
+      );
+      await expect(section('Assigned to you')).toContainText(later.title);
+      await expect(section('Overdue')).not.toContainText(later.title);
+      const headings = await eli.main.getByRole('heading', { level: 2 }).allInnerTexts();
+      expect(headings[0], 'the first section').toBe('Overdue');
+    });
+  });
+});
+
+// The reminders job runs through the jobs' e2e test hook, see assign-data.ts.
+test.describe('Learning: reminders', () => {
+  onlyIn('desktop-light');
+  needs('signIn', 'learning', 'learningAssign', 'jobsTestHooks', 'notices');
+
+  test('LN-20 a reminder goes out the day before the due date, and an overdue nudge the day after', async ({
+    browser,
+    page,
+  }) => {
+    const due = day(3);
+    const eli = new LearnerPage(await pageFor(browser, 'editor'));
+    const avery = await pageFor(browser, 'admin'); // a site admin, who may run the reminders job
+    const course = await test.step('Tara assigns Eli a course due in 3 days', async () => {
+      await signInAs(page, TARA);
+      const course = await liveCourse(page, lesson());
+      await assign(page, course.id, { people: [(await whoIs(eli.page)).id], dueDate: due });
+      return course;
+    });
+    const soon = `“${course.title}” is due tomorrow.`;
+    await test.step('the day before, his 🔔 chat gets "Course due tomorrow"', async () => {
+      await runReminders(avery, day(2));
+      await runReminders(avery, day(2)); // a second run that day sends nothing new
+      const chat = await openCareHubChat(eli.page);
+      await expect(chat.getByText(soon).last()).toBeVisible();
+      await expect(chat.getByText('Course due tomorrow').first()).toBeVisible();
+    });
+    await test.step('the day after, "Course overdue"; the reminder came once', async () => {
+      await runReminders(avery, day(4));
+      const chat = await openCareHubChat(eli.page);
+      await expect(chat.getByText(`“${course.title}” was due yesterday.`).last()).toBeVisible();
+      await expect(chat.getByText('Course overdue').first()).toBeVisible();
+      // The chat list previews only the newest notice, so these are the chat's own copies.
+      await expect(chat.getByText(soon), 'notices that it is due tomorrow').toHaveCount(1);
+    });
+    await avery.context().close();
   });
 });

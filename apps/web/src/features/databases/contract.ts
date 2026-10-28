@@ -1,111 +1,47 @@
 /**
  * The contract between the database shell and the layouts (table, board, list, gallery, calendar,
- * timeline, chart, feed, dashboard and form). The shell loads the database and the view's rows and
- * hands them to the layout as LayoutProps; a layout changes anything only through `actions`.
+ * timeline, chart, feed, dashboard and form), and between the toolbar and its panels. The shell
+ * loads the database and the view's rows and hands them to the layout as LayoutProps; a layout or
+ * panel changes anything only through `actions`.
  *
- * The query answer types mirror `@carehub/databases/engine` (engine/shapes.ts). Until the engine is
- * on main they live here; then this file re-exports the engine's types and nothing else changes.
+ * The query answer (rows, groups, lanes, counts and totals) is the engine's, from
+ * `@carehub/databases/engine`, with the names of the people in it. `cellContext` turns what a
+ * layout gets into the `ctx` that cells (`./cells`) need.
  */
-import type { ViewTotal } from '@carehub/databases/aggregate';
 import type {
-  ComputedValue,
   DatabaseMeta,
+  FileRef,
   Id,
-  Instant,
-  OptionColor,
   Row,
+  SelectOption,
   View,
   ViewOverride,
   Viewer,
 } from '@carehub/databases';
+import { can } from '@carehub/databases/access';
+import type { ViewQueryBlocked, ViewQueryData as EngineQueryData } from '@carehub/databases/engine';
+import { pageUrl } from '@carehub/shared';
+import type { ViewChange } from './api';
+import type { CellContext, PersonChoice } from './cells/types';
 
-// ---------------------------------------------------------------- the query answer (engine shapes)
+export type { QueryGroup, QueryLane, QueryRow, ViewQueryBlocked } from '@carehub/databases/engine';
 
-/** A row as the viewer may see it. */
-export interface QueryRow {
-  id: Id;
-  title: string;
-  icon: string | null;
-  /** The form (view id) it was sent with, if any. */
-  formId: Id | null;
-  /** Stored values of the properties the viewer can see; relations list only rows they can open. */
-  values: Partial<Record<Id, unknown>>;
-  /** Formula and rollup results the viewer can see. */
-  computed: Partial<Record<Id, ComputedValue>>;
-  /** Relation property id → links left out because the viewer can't open them. */
-  hiddenLinks: Partial<Record<Id, number>>;
-  /** null when every property that shows it is hidden from the viewer. */
-  createdAt: Instant | null;
-  createdBy: Id | null;
-  editedAt: Instant | null;
-  editedBy: Id | null;
-  uniqueNumber: number | null;
-  /** Sub-items only: where the line sits. */
-  depth?: number;
-  parentId?: Id | null;
-  childCount?: number;
-  /** Greyed out: it doesn't match, but a sub-item under it does. */
-  context?: boolean;
+/** Someone the rows name (Person, Created by, Edited by), as the server sends them. */
+export interface PersonName {
+  name: string;
+  avatarUrl: string | null;
 }
 
-/** A group (board column, table group) or a board sub-group. */
-export interface QueryGroup {
-  key: string;
-  label: string;
-  color?: OptionColor;
-  hidden: boolean;
-  collapsedKey: string;
-  /** Rows in the group that match, all of them (not just the ones loaded). */
-  count: number;
-  /** The view's calculations over those rows. */
-  totals: Partial<Record<Id, ViewTotal>>;
-  /** Board column headers: the header calculation, when the board sets one on a property. */
-  header?: ViewTotal;
-  /** This page of the group's rows (none for hidden groups until asked for). */
-  rows: QueryRow[];
-  /** For "Load more"; null when everything is loaded. */
-  nextCursor: string | null;
-  /** Boards with sub-groups: one per lane, in lane order. The rows are in these. */
-  subGroups?: QueryGroup[];
+/** The answer for a view: the engine's, with the names and photos of the people it names. */
+export interface ViewQueryData extends EngineQueryData {
+  /** By user id. "Load more" answers add theirs. Absent: no names yet (cells show none). */
+  people?: Record<Id, PersonName>;
 }
 
-/** A board lane (sub-group) across every column. */
-export interface QueryLane {
-  key: string;
-  label: string;
-  color?: OptionColor;
-  hidden: boolean;
-  collapsedKey: string;
-  count: number;
-}
-
-/** The answer for a view. */
-export interface ViewQueryData {
-  /** Rows that match the filter and search among the rows the viewer can open. */
-  count: number;
-  totals: Partial<Record<Id, ViewTotal>>;
-  /** Ungrouped views: this page of rows ([] when grouped). */
-  rows: QueryRow[];
-  nextCursor: string | null;
-  groups: QueryGroup[] | null;
-  lanes: QueryLane[] | null;
-  /** Titles of the rows these rows link to (only ones the viewer can open). */
-  rowTitles: Record<Id, string>;
-  /** The properties the viewer can see, in database order. */
-  propertyIds: Id[];
-  /** An answer to a cursor: only that group (and sub-group) is listed, or none if it's gone. */
-  continued: boolean;
-  /** The time budget ran out; some results say "⚠ Too slow". */
-  timedOut: boolean;
-}
-
-/** The whole answer for a view that uses a property the viewer can't see. */
-export interface ViewQueryBlocked {
-  blocked: string;
-}
-
+/** What POST /:id/query answers: the rows, or why the view can't show them. */
 export type ViewQueryResult = ViewQueryBlocked | ViewQueryData;
 
+/** The view uses a property the viewer can't see: the block shows `blocked` instead of rows. */
 export function isBlocked(result: ViewQueryResult): result is ViewQueryBlocked {
   return 'blocked' in result;
 }
@@ -163,8 +99,29 @@ export interface ViewActions {
   openRow(rowId: Id, mode?: OpenMode): void;
   /** Resolves to the row the server made. */
   createRow(input?: NewRow): Promise<Row>;
-  /** Changed properties only. A null value clears it; the Name property's value is the title. */
-  updateValues(rowId: Id, values: Partial<Record<Id, unknown>>): Promise<Row>;
+  /**
+   * Changed properties only. A null value clears it; the Name property's value is the title.
+   * `newOptions`: options typed into Select or Multi-select cells (CommitDetails.newOptions), by
+   * property id. They go into the property first (as addOptions), and both changes show at once.
+   */
+  updateValues(
+    rowId: Id,
+    values: Partial<Record<Id, unknown>>,
+    newOptions?: Partial<Record<Id, readonly SelectOption[]>>,
+  ): Promise<Row>;
+  /**
+   * Adds options to a Select or Multi-select property (Can edit, and Lock structure off).
+   * One whose name the property already has, ignoring case, isn't added again: the answer maps
+   * each option's id to the id to save (its own, or the one of that name).
+   */
+  addOptions(propertyId: Id, options: readonly SelectOption[]): Promise<Record<Id, Id>>;
+  /**
+   * People to pick in Person cells: the workspace's members and guests whose name or email
+   * matches ("" lists everyone). A read, so it rejects without a toast.
+   */
+  searchPeople(query: string): Promise<PersonChoice[]>;
+  /** Copies the rows (values and content, new ID numbers). Resolves to the copies, in order. */
+  duplicateRows(rowIds: readonly Id[]): Promise<Row[]>;
   /** Moves the rows to Trash; the shell offers Undo for 8 seconds. */
   trashRows(rowIds: readonly Id[]): Promise<void>;
   /**
@@ -174,14 +131,21 @@ export interface ViewActions {
    */
   moveRow(rowId: Id, place: RowPlace): Promise<void>;
   /**
-   * View settings. With edit_views they're saved for everyone; for anyone else the filter, sorts
-   * and grouping become "Changed for you only" (as setOverride) and the rest is left out.
+   * View settings (not its id, dashboard or row order). With edit_views they're saved for everyone;
+   * for anyone else the filter, sorts and grouping become "Changed for you only" (as setOverride)
+   * and the rest is left out.
    */
-  updateView(patch: Partial<View>): Promise<void>;
+  updateView(patch: ViewChange): Promise<void>;
   /** "Changed for you only": filter, sorts or grouping on top of the saved view. Never saved. */
   setOverride(override: ViewOverride | null): void;
   /** The next page of the view, of a group or of a board sub-group. */
   loadMore(groupKey?: string, subGroupKey?: string): Promise<void>;
+  /**
+   * Opens a toolbar panel as its button would (under the toolbar, or as a dialog), at `target`:
+   * a column's Filter is `openPanel('filter', { propertyId })`. When it closes, focus goes back to
+   * `opener` if it's still on the page.
+   */
+  openPanel(panel: PanelName, target?: PanelTarget, opener?: HTMLElement | null): void;
 }
 
 /** What the shell hands to a layout. */
@@ -198,4 +162,124 @@ export interface LayoutProps {
   actions: ViewActions;
   /** The viewer can't change rows here (Can view, Can comment, or offline). */
   readOnly: boolean;
+}
+
+/**
+ * Whether the viewer may change properties and views for everyone: Can edit, and Lock structure
+ * off. (Rows stay editable with Lock structure on.)
+ */
+export function canEditStructure(meta: Pick<DatabaseMeta, 'viewerAccess' | 'locked'>): boolean {
+  return can('edit_properties', meta.viewerAccess, { locked: meta.locked });
+}
+
+/** Where an uploaded file opens (GET /api/files/:id); web links open their own address. */
+export function fileUrl(file: Pick<FileRef, 'id'>): string {
+  return `/api/files/${encodeURIComponent(file.id)}`;
+}
+
+/**
+ * The `ctx` for CellView and CellEditor: the viewer, people's names and photos, related rows'
+ * titles, and where related rows and files open. Make it once per answer (useMemo).
+ */
+export function cellContext(
+  meta: Pick<DatabaseMeta, 'properties'>,
+  data: Pick<ViewQueryData, 'people' | 'rowTitles'>,
+  viewer: Viewer,
+): CellContext {
+  const { people, rowTitles } = data;
+  return {
+    viewer,
+    properties: meta.properties,
+    userName: (id) => people?.[id]?.name,
+    userAvatar: (id) => people?.[id]?.avatarUrl ?? undefined,
+    rowTitle: (id) => rowTitles[id],
+    rowHref: (id) => pageUrl(id),
+    fileHref: fileUrl,
+  };
+}
+
+// ---------------------------------------------------------------- what a toolbar panel gets
+
+/**
+ * What the toolbar opens: Filter, Sort, Group and Properties (its buttons) and Layout ("…" →
+ * Layout) open under the toolbar; Import CSV, Export CSV, Row access and Property access ("…")
+ * open as dialogs, with the title and Close drawn by the shell.
+ */
+export const PANEL_NAMES = [
+  'filter',
+  'sort',
+  'group',
+  'properties',
+  'layout',
+  'importCsv',
+  'exportCsv',
+  'rowAccess',
+  'propertyAccess',
+] as const;
+
+export type PanelName = (typeof PANEL_NAMES)[number];
+
+export const PANEL_LABELS: Record<PanelName, string> = {
+  filter: 'Filter',
+  sort: 'Sort',
+  group: 'Group',
+  properties: 'Properties',
+  layout: 'Layout',
+  importCsv: 'Import CSV',
+  exportCsv: 'Export CSV',
+  rowAccess: 'Row access',
+  propertyAccess: 'Property access',
+};
+
+/** The panels drawn as dialogs: the CSV dialogs of spec section 2, and access (section 3.12). */
+export const DIALOG_PANELS: ReadonlySet<PanelName> = new Set<PanelName>([
+  'importCsv',
+  'exportCsv',
+  'rowAccess',
+  'propertyAccess',
+]);
+
+/**
+ * Where a panel opens when something other than its button opens it (Filter, so far). The panel
+ * decides what that shows.
+ */
+export interface PanelTarget {
+  /** A column's Filter (actions.openPanel): the rule on this property, or a new one. */
+  propertyId?: Id;
+  /** A rule's chip in the filter bar: that rule. */
+  ruleId?: Id;
+  /** The "Advanced filter" chip: the filter's groups. */
+  advanced?: boolean;
+}
+
+/** What the shell hands to a panel. */
+export interface PanelProps {
+  /** Which panel this is (one component may draw several). */
+  panel: PanelName;
+  meta: DatabaseMeta;
+  /** The view as shown: the saved view with the viewer's "Changed for you only" override. */
+  view: View;
+  /** The view as saved for everyone. */
+  savedView: View;
+  viewer: Viewer;
+  /**
+   * `actions.updateView` saves for everyone when canEditViews; otherwise the filter, sorts and
+   * grouping in the change become "Changed for you only" and the rest is left out.
+   */
+  actions: ViewActions;
+  /** Can edit, Lock structure off and online: changes to the view are saved for everyone. */
+  canEditViews: boolean;
+  /**
+   * The view's answer as the layout gets it: rows, groups, lanes and counts. Absent until it
+   * loads, and while the view is blocked.
+   */
+  data?: ViewData;
+  /** From the view's answer: the properties the viewer can see, in database order. */
+  propertyIds?: readonly Id[];
+  /** From the view's answer: the titles of the rows its rows link to. */
+  rowTitles?: Readonly<Record<Id, string>>;
+  /** Where it was opened at (actions.openPanel, a filter chip). Absent: from its button. */
+  target?: PanelTarget;
+  /** Closes the panel and gives focus back to its button. Esc and presses outside close it too. */
+  close(): void;
 }

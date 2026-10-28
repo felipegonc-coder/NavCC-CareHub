@@ -28,7 +28,7 @@ export const learningRemindersSent = pgTable(
 
 const sent = learningRemindersSent;
 
-/** What the reminders job uses on the server: the database, B1's course access and notices. */
+/** What the reminders job uses on the server: the database, course access and notices. */
 export function postgresReminderSources(db: Db | Tx, base = postgresSources(db)): ReminderSources {
   return {
     ...base,

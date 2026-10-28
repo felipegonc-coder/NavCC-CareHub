@@ -1,6 +1,6 @@
 # Import and export
 
-_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-28. If they differ, Notion wins._
 
 > 📦 Phase 1 · Notion parity · Depends on: Pages and blocks, file storage, Roles and permissions (Create), Settings and members (export switches) · Phase 2 parts: database imports and exports (Databases, CSV sections 3.7 and 3.8) · Related: Data settings (upload rules, Export everything, Export my content), Page history and Trash (undo import)
 
@@ -33,7 +33,7 @@ Bringing work into Care Hub from files other tools make, and getting it out agai
 
 - Imports run on the server in the background, one at a time per person (more wait in line). Cancel stops it and removes what it added.
 - **Limits:** one file up to 2 GB; once unpacked, up to 5 GB, 10,000 pages and 50,000 files. Zips inside zips aren't opened.
-- **Safety:** every file inside follows the upload rules (Data settings, and the build contract 0007 section 4.3): 100 MB per file, programs refused, SVG only as a picture, and location data removed from photos. HTML is cleaned: scripts, forms, frames and styles that run code are removed. Paths that point outside the zip are ignored. Links keep only http, https, mailto and tel (Pages and blocks).
+- **Safety:** every file inside follows the upload rules (Data settings, and the build contract 0007 section 4.3): 100 MB per file, programs refused, SVG only as a picture, and location and camera details removed from photos. HTML is cleaned: scripts, forms, frames and styles that run code are removed. Paths that point outside the zip are ignored. Links keep only http, https, mailto and tel (Pages and blocks).
 - **Links between imported pages** are changed to point at the new pages (page mentions or block links when they pointed at a heading). Links to files in the import point at the uploaded files. Other links stay as they are.
 - **Pictures from the web** inside imported pages follow PB-D3: downloaded when public and up to 10 MB, otherwise kept as links.
 - **Mentions of people** are matched to members by email, then by exact name; unmatched ones become plain text ("@Sam Ortiz"). Imported mentions never send notices (Comments and mentions).
