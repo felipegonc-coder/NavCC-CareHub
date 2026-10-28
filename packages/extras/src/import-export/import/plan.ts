@@ -1,4 +1,4 @@
-import type { ImportSourceId } from './sources';
+import type { ImportOptions, ImportSourceId } from './sources';
 
 /**
  * What one import may bring in (Import and export spec 3.1; docs/extras/import-export.md#safety).
@@ -53,10 +53,20 @@ export interface PlanNode {
 export type PlanContent = { markdown: string } | { doc: PlanNode };
 
 /**
+ * When an item was first made and last changed, as the source says (Evernote's notes, Asana's
+ * tasks): an ISO 8601 date, or date and time. They're kept in the page's Updates ("First created
+ * Mar 3, 2021"); a time without a zone is read in the person's time zone (spec 3.1).
+ */
+export interface PlanDates {
+  created?: string;
+  updated?: string;
+}
+
+/**
  * A page the import makes. `parent` is the key of a page or of a database row, or null for right
  * under the destination. Links to other items of the plan are `carehub-import:<key>`.
  */
-export interface PlanPage {
+export interface PlanPage extends PlanDates {
   key: string;
   parent: string | null;
   title: string;
@@ -65,7 +75,12 @@ export interface PlanPage {
   source: string;
 }
 
-/** Property types an import can make (Databases 3.7's types for new properties). */
+/**
+ * Property types an import can make (Databases 3.7's types for new properties). Cells are text.
+ * - `person`: people by email or name, with ", " between them. Each is matched to a member by
+ *   email, then by exact name (spec 3.1); the ones not found are left out and listed.
+ * - `relation`: keys of rows of the same database, with ", " between them (Asana's Parent task).
+ */
 export const PLAN_COLUMN_TYPES = [
   'text',
   'number',
@@ -77,6 +92,8 @@ export const PLAN_COLUMN_TYPES = [
   'url',
   'email',
   'phone',
+  'person',
+  'relation',
 ] as const;
 export type PlanColumnType = (typeof PLAN_COLUMN_TYPES)[number];
 
@@ -86,12 +103,19 @@ export interface PlanColumn {
   type: PlanColumnType | null;
 }
 
-export interface PlanRow {
+export interface PlanRow extends PlanDates {
   key: string;
   /** One per column, as text. The first column is the row's title. */
   cells: string[];
   /** The row's page, when it has text. */
   content?: PlanContent;
+}
+
+/** A database's first view: a board grouped by one of its select or status columns. */
+export interface PlanView {
+  layout: 'board';
+  /** The column's name. */
+  groupBy: string;
 }
 
 /** A database the import makes, with its rows. */
@@ -102,6 +126,8 @@ export interface PlanDatabase {
   columns: PlanColumn[];
   rows: PlanRow[];
   source: string;
+  /** A table when left out. */
+  view?: PlanView;
 }
 
 /**
@@ -144,6 +170,8 @@ export interface ImportInput {
   text(): Promise<string>;
   /** Set when the file is a zip (a .docx is one). */
   zip: ImportZip | null;
+  /** What the person ticked, only from the source's own options (optionsFor). */
+  options: ImportOptions;
 }
 
 /**
@@ -243,6 +271,9 @@ export function checkPlan(plan: ImportPlan): PlanItem[] {
     if (database.rows.length > IMPORT_LIMITS.rows) {
       throw new ImportFileError('databases can have up to 20,000 rows');
     }
+    const { view } = database;
+    const grouped = view && database.columns.find((column) => column.name === view.groupBy);
+    if (view && grouped?.type !== 'select' && grouped?.type !== 'status') throw damaged();
     use(database.key);
     for (const row of database.rows) {
       use(row.key);
