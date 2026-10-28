@@ -118,7 +118,7 @@ export const PAGE_KINDS = ['page', 'database', 'row'] as const;
 export const pageKindSchema = z.enum(PAGE_KINDS);
 export type PageKind = z.infer<typeof pageKindSchema>;
 
-/** A cover from Care Hub's own gallery, or an uploaded picture. */
+/** A cover from Care Hub's own gallery, or an uploaded picture (once file uploads land). */
 export const pageCoverSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('preset'), name: z.string().min(1).max(64) }),
   z.strictObject({ type: z.literal('file'), fileId: z.uuid() }),
@@ -176,6 +176,7 @@ export type PageJson = {
   kind: PageKind;
   isInline: boolean;
   spaceId: string;
+  /** Null at the top, and when the person can't open the parent. */
   parentId: string | null;
   position: string;
   title: string;
@@ -190,7 +191,10 @@ export type PageJson = {
   inheritAccess: boolean;
   /** What the signed-in person may do here. */
   access: AccessLevel;
-  /** `personal` is someone's Private section. */
+  /**
+   * `personal` is someone's Private section. A Private space the person isn't in is sent as
+   * "Private space", with no icon.
+   */
   space: { id: string; name: string; icon: PageIcon | null; kind: SpaceKind | 'personal' };
   /** From the top of the space down to the parent. */
   ancestors: PageAncestor[];
@@ -206,7 +210,10 @@ export type PageJson = {
   deletedAt: string | null;
 };
 
-/** What a link, mention, notice or chart shows for a page (`spaceName` is null for Private). */
+/**
+ * What a link, mention, notice or chart shows for a page. `spaceName` is null in Private sections
+ * and in Private spaces the person isn't in.
+ */
 export type PageCard = {
   id: string;
   kind: PageKind;
@@ -219,49 +226,3 @@ export type PageCardEntry = PageCard | { id: string; deleted: true } | { id: str
 
 /** POST /api/pages/cards: one entry per requested ID, in the same order. */
 export type PageCardsJson = { cards: PageCardEntry[] };
-
-// The sidebar tree and moving pages (Sidebar spec 3.2 and 5).
-
-/** One entry of GET /api/spaces/:id/tree. Rows and inline databases are never in the tree. */
-export type TreeNodeJson = {
-  id: string;
-  /** Null at the top of the space, and for pages under a page the person can't open. */
-  parentId: string | null;
-  kind: 'page' | 'database';
-  title: string;
-  icon: PageIcon | null;
-  position: string;
-  /** Sub-pages the person can open. Always false for databases (their views come from the lane). */
-  hasChildren: boolean;
-  access: AccessLevel;
-  /** "In a page you can't open" (SB-06). That page's ID and title are never sent. */
-  pathHidden?: true;
-};
-
-/**
- * GET /api/spaces/:id/tree: every entry the person can open, flat, in sidebar order (depth first,
- * each level by `position`). Pages under a page they can't open come last, at the top level.
- */
-export type PageTreeJson = { nodes: TreeNodeJson[] };
-
-/**
- * POST /api/pages/:id/move (Full access on the page, Can edit where it goes): under `parentId`, or
- * at the top of `spaceId` with `parentId: null`. A page moved into a database becomes a row, and
- * a row moved out becomes a page.
- */
-export const movePageSchema = z
-  .strictObject({
-    parentId: z.uuid().nullable(),
-    spaceId: z.uuid().optional(),
-    /** Its place among its new neighbours (0 is first); last when left out. */
-    index: z.int().min(0).max(100_000).optional(),
-    /** Sent again after the person saw the access change (409 with `AccessChangeJson`). */
-    confirmAccessChange: z.boolean().optional(),
-  })
-  .refine((move) => move.parentId !== null || move.spaceId !== undefined, {
-    message: 'Choose a page or a space to move it to.',
-  });
-export type MovePageInput = z.infer<typeof movePageSchema>;
-
-/** The `details` of a 409 when a move changes who can open the page. */
-export type AccessChangeJson = { losing: number; gaining: number };
