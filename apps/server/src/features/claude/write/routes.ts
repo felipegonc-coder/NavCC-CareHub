@@ -14,7 +14,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { httpError } from '../../../core/errors';
 import type { Db } from '../../../db';
 import { getPageText } from '../../collab';
-import { memberOf, pageFor } from './access';
+import { pageFor, writerOf } from './access';
 import { askClaude, claudeErrorReason, claudeHttpError, isClaudeFeatureOn } from '../index';
 import type { ClaudeWriteAppliedEvent } from './events';
 import { cleanAnswer, writePromptFor } from './prompt';
@@ -25,12 +25,12 @@ const FEATURE = 'writing_help';
 async function editorOf(db: Db, request: FastifyRequest, pageId: string) {
   const userId = request.user?.id;
   if (!userId) throw httpError(401, 'signed_out');
-  const member = memberOf(request);
-  if (!member?.canUseClaude) throw claudeHttpError('no_permission');
+  const writer = await writerOf(db, userId);
+  if (!writer) throw claudeHttpError('no_permission');
   const page = await pageFor(db, userId, pageId);
-  if (!page || page.workspaceId !== member.workspaceId) throw httpError(404, 'not_found');
+  if (!page || page.workspaceId !== writer.workspaceId) throw httpError(404, 'not_found');
   if (!atLeast(page.level, 'edit')) throw claudeHttpError('no_permission');
-  return { userId, workspaceId: member.workspaceId, page };
+  return { userId, workspaceId: writer.workspaceId, page };
 }
 
 const writeRoutes: FastifyPluginAsync = async (app) => {
