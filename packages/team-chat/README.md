@@ -19,6 +19,7 @@ Message rules shared by the web app and the server for Messages: direct messages
 | `notify`       | `notificationSettingsSchema`, `notifyDecision` (tab, push or why not), `notificationContent` and its push payload schema                 |
 | `preview`      | `messagePreview`, `attachmentSummary`, `spokenMessage` (screen readers)                                                                  |
 | `attachments`  | `attachmentKind`, `storedFile` (HEIC to JPEG), `UploadRules`, `checkNewFiles`, `checkKeptAttachments`, `pictureGrid`, `formatFileSize`   |
+| `reactions`    | `normalizeReactionEmoji` (one Unicode emoji), `checkAddReaction`, `reactionToggle`, `reactionChips`, `reactedByText`                     |
 
 ## Conventions
 

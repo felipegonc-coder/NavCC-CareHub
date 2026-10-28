@@ -106,11 +106,11 @@ describe.skipIf(!hasDatabase)('askClaude', () => {
   const usageOf = (workspaceId: string) =>
     db.select().from(claudeUsage).where(eq(claudeUsage.workspaceId, workspaceId));
 
-  it('sends nothing unless the key, the OK, the switch and claude.use all hold', async () => {
+  it('sends nothing unless the key, the approval, the switch and claude.use all hold', async () => {
     const sam = await createUser(db, { name: 'Sam Rivera' });
     const cases: Array<[Setup, string]> = [
       [{ apiKey: undefined }, 'not_set_up'],
-      [{ off: ['claude.navApproved'] }, 'not_approved'],
+      [{ off: ['claude.workspaceApproved'] }, 'not_approved'],
       [{ off: ['claude.writing_help'] }, 'switched_off'],
       [{ canUse: false }, 'no_permission'],
     ];
