@@ -219,3 +219,49 @@ export type PageCardEntry = PageCard | { id: string; deleted: true } | { id: str
 
 /** POST /api/pages/cards: one entry per requested ID, in the same order. */
 export type PageCardsJson = { cards: PageCardEntry[] };
+
+// The sidebar tree and moving pages (Sidebar spec 3.2 and 5).
+
+/** One entry of GET /api/spaces/:id/tree. Rows and inline databases are never in the tree. */
+export type TreeNodeJson = {
+  id: string;
+  /** Null at the top of the space, and for pages under a page the person can't open. */
+  parentId: string | null;
+  kind: 'page' | 'database';
+  title: string;
+  icon: PageIcon | null;
+  position: string;
+  /** Sub-pages the person can open. Always false for databases (their views come from the lane). */
+  hasChildren: boolean;
+  access: AccessLevel;
+  /** "In a page you can't open" (SB-06). That page's ID and title are never sent. */
+  pathHidden?: true;
+};
+
+/**
+ * GET /api/spaces/:id/tree: every entry the person can open, flat, in sidebar order (depth first,
+ * each level by `position`). Pages under a page they can't open come last, at the top level.
+ */
+export type PageTreeJson = { nodes: TreeNodeJson[] };
+
+/**
+ * POST /api/pages/:id/move (Full access on the page, Can edit where it goes): under `parentId`, or
+ * at the top of `spaceId` with `parentId: null`. A page moved into a database becomes a row, and
+ * a row moved out becomes a page.
+ */
+export const movePageSchema = z
+  .strictObject({
+    parentId: z.uuid().nullable(),
+    spaceId: z.uuid().optional(),
+    /** Its place among its new neighbours (0 is first); last when left out. */
+    index: z.int().min(0).max(100_000).optional(),
+    /** Sent again after the person saw the access change (409 with `AccessChangeJson`). */
+    confirmAccessChange: z.boolean().optional(),
+  })
+  .refine((move) => move.parentId !== null || move.spaceId !== undefined, {
+    message: 'Choose a page or a space to move it to.',
+  });
+export type MovePageInput = z.infer<typeof movePageSchema>;
+
+/** The `details` of a 409 when a move changes who can open the page. */
+export type AccessChangeJson = { losing: number; gaining: number };
