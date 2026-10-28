@@ -1,5 +1,6 @@
 import type { Db, Tx } from '../../../db';
 import { readClaudeSettings, type ClaudeSettings } from './settings';
+import { getWorkspaceSetting } from './workspace-settings';
 
 /** All the client ever logs: Anthropic's status (0 when nothing came back) and an error type. */
 export interface ClaudeLogDetails {
@@ -10,15 +11,15 @@ export interface ClaudeLog {
   warn(details: ClaudeLogDetails, message: string): void;
 }
 
-/** What Claude needs from other lanes before anything is sent. */
+/** What Claude needs from workspace settings and roles before anything is sent. */
 export interface ClaudeAccess {
-  /** Whether a workspace setting is on: `claude.navApproved` or a switch such as `claude.writing_help`. */
+  /** Whether a workspace setting is on: `claude.workspaceApproved` or a switch such as `claude.writing_help`. */
   isSettingOn(db: Db | Tx, workspaceId: string, key: string): Promise<boolean>;
   /** Whether the person has `claude.use` in the workspace. Guests never do. */
   canUseClaude(db: Db | Tx, workspaceId: string, userId: string): Promise<boolean>;
 }
 
-/** What Claude needs from the page model (#49) before it sends anything from a page. */
+/** What Claude needs from the page model before it sends anything from a page. */
 export interface ClaudePages {
   /** Whether the person can open the page in that workspace. A page in Trash counts as closed. */
   canOpenPage(db: Db | Tx, workspaceId: string, userId: string, pageId: string): Promise<boolean>;
@@ -34,15 +35,16 @@ export interface ClaudeRuntime {
   now: () => Date;
 }
 
-// stand-in: workspace settings (S1's 1c) and roles (#55) aren't on main yet. Until the Settings →
-// Claude PR binds the real checks, every switch reads as off and nobody has claude.use, so nothing
-// is ever sent.
+// The switches and the approval are what Admins save in Settings → Claude
+// (server/workspace-settings.ts).
+// stand-in: roles. Until they're bound, nobody has claude.use, so nothing is ever sent.
 const standInAccess: ClaudeAccess = {
-  isSettingOn: async () => false,
+  isSettingOn: async (db, workspaceId, key) =>
+    (await getWorkspaceSetting(db, workspaceId, key)) === true,
   canUseClaude: async () => false,
 };
 
-// stand-in: the page model's getPageAccess (#49). Until it's bound, no page can be opened.
+// stand-in: the page model's getPageAccess. Until it's bound, no page can be opened.
 const standInPages: ClaudePages = { canOpenPage: async () => false };
 
 let settingsFromEnv: ClaudeSettings | undefined;
@@ -64,8 +66,8 @@ export function claudeRuntime(): ClaudeRuntime {
 }
 
 /**
- * Replaces parts of Claude's runtime: the app binds its log, the Settings → Claude PR binds the real
- * access checks, the page model binds `pages`, and tests bind fakes. The returned function puts back what was there before.
+ * Replaces parts of Claude's runtime: the app binds its log, roles bind canUseClaude, the page
+ * model binds `pages`, and tests bind fakes. The returned function puts back what was there before.
  */
 export function configureClaude(next: Partial<ClaudeRuntime>): () => void {
   const previous = current;

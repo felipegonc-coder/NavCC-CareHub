@@ -109,7 +109,7 @@ export const onMain = {
    * Jobs' e2e test hooks (#361), which run a periodic task once at a chosen time, with
    * CAREHUB_TEST_HOOKS=1 in the e2e server's env.
    */
-  jobsTestHooks: false,
+  jobsTestHooks: true,
 
   /** Analytics (Admins only). */
   analytics: false,
@@ -124,7 +124,7 @@ export const onMain = {
   dataSettings: false,
 
   /** Learning for learners: My learning, the Catalog, start pages and the player (#250, #245). */
-  learning: false,
+  learning: true,
 
   /** Learning Studio: the course editor, Preview and Publish (after #250). */
   learningStudio: false,
@@ -142,7 +142,7 @@ export const onMain = {
   learningReview: false,
 
   /** Learning's e2e test hooks (#247), with CAREHUB_TEST_HOOKS=1 in the e2e server's env. */
-  learningTestHooks: false,
+  learningTestHooks: true,
 
   /** Learning: certificates. */
   certificates: false,

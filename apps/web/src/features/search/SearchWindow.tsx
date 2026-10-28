@@ -1,4 +1,9 @@
-import { SEARCH_MAX_RESULTS, SEARCH_TEXT_MAX, type SearchResult } from '@carehub/extras/search';
+import {
+  SEARCH_MAX_RESULTS,
+  SEARCH_TEXT_MAX,
+  type RecentSearch,
+  type SearchResult,
+} from '@carehub/extras/search';
 import {
   Button,
   cn,
@@ -10,17 +15,20 @@ import {
   useOnline,
   VisuallyHidden,
 } from '@carehub/ui';
-import { Search, Zap } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { Clock, Search, X, Zap } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { slots, type Command } from '../../slots';
-import { useResults } from './data';
+import { useRecent, useResults, useSearchActions } from './data';
+import { FilterBar, type SearchOptions } from './FilterBar';
+import { hasFilters } from './filters';
 import { matchCommands, modifierLabel } from './keys';
 import { ResultContent, resultLabel } from './ResultRow';
 
 type Option =
   | { type: 'action'; key: string; command: Command }
-  | { type: 'result'; key: string; result: SearchResult };
+  | { type: 'result' | 'page'; key: string; result: SearchResult }
+  | { type: 'search'; key: string; search: RecentSearch };
 
 interface Section {
   id: string;
@@ -28,6 +36,7 @@ interface Section {
   label: string;
   heading: boolean;
   options: Option[];
+  action?: ReactNode;
 }
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -54,8 +63,8 @@ const optionClasses =
   'flex cursor-default select-none items-start gap-2 rounded px-2 py-1.5 text-small aria-selected:bg-fill-hover max-md:min-h-11';
 
 /**
- * The search window (spec 2): a search box, then Actions and results. (Recent pages and searches
- * before typing come with the recent lists.) A combobox: ↑ and ↓ move through every list, Enter opens, Esc closes and puts the
+ * The search window (spec 2): a search box, then the recent lists before typing, or Actions and
+ * results. A combobox: ↑ and ↓ move through every list, Enter opens, Esc closes and puts the
  * focus back where it was.
  */
 export default function SearchWindow({ onClose }: { onClose: () => void }) {
@@ -65,8 +74,12 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
   const [returnTo] = useState(() => document.activeElement as HTMLElement | null);
   const [text, setText] = useState('');
   const typed = useDebounced(text, 80);
-  const request = typed.trim() ? { text: typed } : null;
+  const [searchOptions, setSearchOptions] = useState<SearchOptions>({ filters: {}, sort: 'best' });
+  const { filters, sort } = searchOptions;
+  const request = typed.trim() ? { text: typed, filters, sort } : null;
   const results = useResults(request);
+  const recent = useRecent();
+  const actions = useSearchActions();
   const online = useOnline();
   const loadMore = () => {
     if (results.hasNextPage && !results.isFetchingNextPage) void results.fetchNextPage();
@@ -76,6 +89,44 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
   const total = results.data?.pages[0]?.total ?? 0;
   const offline = !online || (results.error as { code?: string } | null)?.code === 'offline';
   const searching = text.trim() !== '' && !offline;
+
+  // Each search counts once for Analytics (spec 3.4): when a result opens, on Enter (both also
+  // save it to Recent searches), or when the window closes.
+  const counted = useRef<string | null>(null);
+  function record(save: boolean, opened?: string) {
+    const search = JSON.stringify(request);
+    if (!request || !results.data || counted.current === search) return;
+    counted.current = search;
+    actions.record({
+      text: request.text,
+      ...(hasFilters(filters) ? { filters } : {}),
+      save,
+      found: total,
+      ...(opened ? { opened } : {}),
+    });
+  }
+
+  function dismiss() {
+    record(false);
+    onClose();
+  }
+
+  function clearFilters() {
+    setSearchOptions({ ...searchOptions, filters: {} });
+    input.current?.focus();
+  }
+
+  /** "Did you mean": searches for the suggestion instead. */
+  function retype(suggestion: string) {
+    setText(suggestion);
+    input.current?.focus();
+  }
+
+  /** Trash opens with the same search (docs/extras/search.md, With other features). */
+  function searchTrash() {
+    dismiss();
+    navigate(`/trash?q=${encodeURIComponent(typed.trim())}`);
+  }
 
   const sections: Section[] = searching
     ? [
@@ -96,12 +147,40 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
           options: shown.map((result) => ({ type: 'result', key: result.id, result })),
         },
       ]
-    : [];
+    : [
+        {
+          id: 'recent',
+          label: 'Recent',
+          heading: true,
+          options: (recent.data?.pages ?? []).map((result) => ({
+            type: 'page',
+            key: `page-${result.id}`,
+            result,
+          })),
+        },
+        {
+          id: 'searches',
+          label: 'Recent searches',
+          heading: true,
+          options: offline
+            ? []
+            : (recent.data?.searches ?? []).map((search) => ({
+                type: 'search',
+                key: `search-${search.id}`,
+                search,
+              })),
+          action: (
+            <Button variant="ghost" size="sm" onClick={actions.clear}>
+              Clear
+            </Button>
+          ),
+        },
+      ];
   const lists = sections.filter((section) => section.options.length > 0);
   const options = lists.flatMap((section) => section.options);
 
   // The first option is selected whenever the list changes (spec 2).
-  const listKey = `q:${typed}`;
+  const listKey = searching ? `q:${JSON.stringify(request)}` : 'recent';
   const [selected, setSelected] = useState({ listKey, index: 0 });
   const active = Math.min(selected.listKey === listKey ? selected.index : 0, options.length - 1);
   const activeOption = options[active];
@@ -136,11 +215,18 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
   }
 
   function choose(option: Option, newTab = false) {
+    if (option.type === 'search') {
+      setText(option.search.text);
+      setSearchOptions({ ...searchOptions, filters: option.search.filters });
+      input.current?.focus();
+      return;
+    }
     if (option.type === 'action') {
       onClose();
       void option.command.run({ navigate: (to) => navigate(to) });
       return;
     }
+    if (option.type === 'result') record(true, option.result.id);
     openPage(option.result, newTab);
   }
 
@@ -154,12 +240,31 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
     } else if (event.key === 'Enter') {
       event.preventDefault();
       if (activeOption) choose(activeOption, event.ctrlKey || event.metaKey);
+      else record(true);
+    } else if (event.key === 'Delete' && activeOption?.type === 'search' && !text) {
+      event.preventDefault();
+      actions.remove(activeOption.search.id);
     }
   }
 
   const waiting = useAfter(searching && results.isFetching && shown.length === 0, 150);
-  const empty = searching && results.isSuccess && !results.isPlaceholderData && total === 0;
+  const settled = searching && results.isSuccess && !results.isPlaceholderData;
+  const empty = settled && total === 0;
   const failed = searching && results.isError;
+  const suggestion = settled ? results.data?.pages[0]?.didYouMean : undefined;
+  const didYouMean = suggestion && (
+    <p className="px-2 text-center text-small text-muted">
+      Did you mean{' '}
+      <button
+        type="button"
+        className="rounded-sm font-medium text-fg underline underline-offset-2 hover:text-primary"
+        onClick={() => retype(suggestion)}
+      >
+        {suggestion}
+      </button>
+      ?
+    </p>
+  );
   // Read out by screen readers; the visible "No results for ‘…’." is its own line.
   const status = !searching
     ? ''
@@ -170,7 +275,7 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
         : '';
 
   return (
-    <Dialog open onOpenChange={(open: boolean) => !open && onClose()}>
+    <Dialog open onOpenChange={(open: boolean) => !open && dismiss()}>
       <DialogContent
         aria-describedby={undefined}
         className="flex max-w-page flex-col gap-0 overflow-hidden p-0 max-md:-m-4 max-md:h-dvh max-md:w-screen max-md:rounded-none max-md:border-0"
@@ -204,12 +309,11 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
             className="h-12 min-w-0 flex-1 bg-transparent text-body text-fg placeholder:text-faint focus:outline-none max-md:h-14"
           />
         </div>
+        <FilterBar options={searchOptions} onChange={setSearchOptions} onClear={clearFilters} />
         <VisuallyHidden role="status">{status}</VisuallyHidden>
         <div className="flex max-h-96 min-h-0 flex-col gap-3 overflow-y-auto p-2 max-md:max-h-none max-md:flex-1">
           {offline && (
-            <p className="px-2 py-6 text-center text-small text-muted">
-              You're offline. Search works again once you're back online.
-            </p>
+            <p className="px-2 pt-1 text-small text-muted">You're offline. Showing recent pages.</p>
           )}
           {lists.map((section) => (
             <div key={section.id} role="group" aria-labelledby={`${id}-${section.id}-label`}>
@@ -220,6 +324,7 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
                 )}
               >
                 <span id={`${id}-${section.id}-label`}>{section.label}</span>
+                {section.action}
               </div>
               <div
                 role="listbox"
@@ -242,7 +347,7 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
                       onClick={(event) => choose(option, event.ctrlKey || event.metaKey)}
                       onKeyDown={(event) => event.key === 'Enter' && choose(option)}
                     >
-                      <OptionContent option={option} />
+                      <OptionContent option={option} onRemove={actions.remove} />
                     </div>
                   );
                 })}
@@ -257,8 +362,23 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
                 <Skeleton className="h-5 flex-1" />
               </div>
             ))}
-          {empty && (
-            <p className="px-2 py-6 text-center text-small text-muted">{`No results for ‘${typed.trim()}’.`}</p>
+          {empty ? (
+            <div className="flex flex-col items-center gap-3 px-2 py-6 text-center text-small text-muted">
+              <p>{`No results for ‘${typed.trim()}’.`}</p>
+              {didYouMean}
+              <div className="flex flex-wrap justify-center gap-2">
+                {hasFilters(filters) && (
+                  <Button variant="secondary" size="sm" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                )}
+                <Button variant="secondary" size="sm" onClick={searchTrash}>
+                  Search in Trash
+                </Button>
+              </div>
+            </div>
+          ) : (
+            didYouMean
           )}
           {failed && !offline && (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-small">
@@ -268,7 +388,7 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
               </Button>
             </div>
           )}
-          {!searching && !offline && (
+          {!searching && !offline && options.length === 0 && recent.isFetched && (
             <p className="px-2 py-6 text-center text-small text-muted">
               Type to search pages, databases and rows.
             </p>
@@ -291,10 +411,12 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
 }
 
 function labelOf(option: Option): string {
-  return option.type === 'action' ? option.command.title : resultLabel(option.result);
+  if (option.type === 'action') return option.command.title;
+  if (option.type === 'search') return option.search.text;
+  return resultLabel(option.result);
 }
 
-function OptionContent({ option }: { option: Option }) {
+function OptionContent({ option, onRemove }: { option: Option; onRemove: (id: string) => void }) {
   if (option.type === 'action') {
     return (
       <>
@@ -305,5 +427,28 @@ function OptionContent({ option }: { option: Option }) {
       </>
     );
   }
-  return <ResultContent result={option.result} />;
+  if (option.type === 'search') {
+    const { search } = option;
+    return (
+      <>
+        <span aria-hidden className="flex size-5 shrink-0 items-center justify-center text-muted">
+          <Clock className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1 truncate">{search.text}</span>
+        {/* Not a button inside the option: the keyboard's Delete removes it too. */}
+        <span
+          aria-hidden
+          title="Remove"
+          className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-fill hover:text-fg"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove(search.id);
+          }}
+        >
+          <X className="size-3.5" />
+        </span>
+      </>
+    );
+  }
+  return <ResultContent result={option.result} compact={option.type === 'page'} />;
 }

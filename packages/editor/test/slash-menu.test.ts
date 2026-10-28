@@ -223,6 +223,29 @@ describe('"/" menu', () => {
     expect(editor.state.doc.textContent).toBe('Thanks Robin');
   });
 
+  it('gives an entry the page being edited when it runs', async () => {
+    const store = new SlashMenuStore();
+    const pages: (string | null)[] = [];
+    store.setItems([
+      {
+        ...item('carePlan', 'Database'),
+        title: 'Care plan',
+        run: (_editor, context) => {
+          pages.push(context.pageId);
+        },
+      },
+    ]);
+    expect(store.context()).toEqual({ pageId: null });
+    store.setPageId('page-1');
+    expect(store.context()).toEqual({ pageId: 'page-1' });
+    editor = await createTestEditor({ slashMenu: store });
+    typeText(editor, '/care');
+    await flush();
+    pressKey(editor, 'Enter');
+    await flush();
+    expect(pages).toEqual(['page-1']);
+  });
+
   it('lists added groups in order', async () => {
     const store = new SlashMenuStore();
     store.setItems([item('x', 'Actions'), item('y', 'Database'), item('z', 'Care')]);
