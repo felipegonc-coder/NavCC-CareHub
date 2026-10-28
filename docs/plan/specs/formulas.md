@@ -1,8 +1,8 @@
 # Formulas
 
-_Copied from the Notion spec (https://app.notion.com/p/79b23fda5f624034a964c8df4ca2ff86) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
-> 🧮 Phase 2 · Depends on: Databases · Used by: database formulas, rollups, buttons and automations · Felipe's answer DB-D1 (now)
+> 🧮 Phase 2 · Depends on: Databases · Used by: database formulas, rollups, buttons and automations · decision DB-D1 (now)
 
 ## 1. What it's for
 
@@ -150,7 +150,7 @@ From first to last:
 
 ## Done means
 
-Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests, results and Friday's list use the same IDs.
+Try these in the browser with fictional data. ⭐ marks what the team will notice first. Each check uses its acceptance-check ID from section 7, so tests and results use the same IDs.
 
 1. ⭐ **FX-02** Add the formula if(prop("Score") \>= 90, "Pass", "Review"), then have Sam change a Score from 85 to 95. → The row shows Review, then Pass within 2 seconds.
 2. ⭐ **FX-04** Type a formula with a missing bracket, then one that adds text to a number. → The error shows its line and message and Done stays off; the second suggests format().
@@ -172,6 +172,6 @@ Try these in the browser with fictional data. ⭐ marks what the team will notic
 - **FX-09** Formula results filter, sort and export by their result type, with number formats and bar or ring.
 - **FX-10** The editor works by keyboard, with a screen reader and on a phone; axe finds no serious problems.
 
-## Decisions for Felipe
+## Decisions
 
 None.
