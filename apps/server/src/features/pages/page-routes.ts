@@ -22,9 +22,17 @@ import { spacePlace } from './spaces';
 
 const locked = () => httpError(403, 'forbidden', 'This page is locked. Unlock it to change it.');
 
-/** Where a new page goes: a page that isn't locked, a space the person may add to, or Private. */
+/**
+ * Where a new page goes: a page the person can edit that isn't locked, a space they may add to,
+ * or Private. Nothing about a parent is told before the person is found to edit it.
+ */
 async function checkPlace(tx: Executor, viewer: Viewer, input: CreatePageInput) {
   if (input.parentId !== undefined) {
+    const parent = (await resolvePages(tx, viewer, [input.parentId])).get(input.parentId);
+    if (!parent || parent.deleted) throw notFound();
+    if (!atLeast(parent.level, parent.kind === 'database' ? 'edit_content' : 'edit')) {
+      throw forbidden();
+    }
     const { rows } = await tx.execute<{ locked: boolean }>(sql`
       SELECT locked_at IS NOT NULL AS locked FROM pages WHERE id = ${input.parentId}`);
     if (rows[0]?.locked) throw locked();

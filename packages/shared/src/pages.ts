@@ -118,7 +118,7 @@ export const PAGE_KINDS = ['page', 'database', 'row'] as const;
 export const pageKindSchema = z.enum(PAGE_KINDS);
 export type PageKind = z.infer<typeof pageKindSchema>;
 
-/** A cover from Care Hub's own gallery, or an uploaded picture. */
+/** A cover from Care Hub's own gallery, or an uploaded picture (once file uploads land). */
 export const pageCoverSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('preset'), name: z.string().min(1).max(64) }),
   z.strictObject({ type: z.literal('file'), fileId: z.uuid() }),
@@ -176,6 +176,7 @@ export type PageJson = {
   kind: PageKind;
   isInline: boolean;
   spaceId: string;
+  /** Null at the top, and when the person can't open the parent. */
   parentId: string | null;
   position: string;
   title: string;
@@ -190,7 +191,10 @@ export type PageJson = {
   inheritAccess: boolean;
   /** What the signed-in person may do here. */
   access: AccessLevel;
-  /** `personal` is someone's Private section. */
+  /**
+   * `personal` is someone's Private section. A Private space the person isn't in is sent as
+   * "Private space", with no icon.
+   */
   space: { id: string; name: string; icon: PageIcon | null; kind: SpaceKind | 'personal' };
   /** From the top of the space down to the parent. */
   ancestors: PageAncestor[];
@@ -206,7 +210,10 @@ export type PageJson = {
   deletedAt: string | null;
 };
 
-/** What a link, mention, notice or chart shows for a page (`spaceName` is null for Private). */
+/**
+ * What a link, mention, notice or chart shows for a page. `spaceName` is null in Private sections
+ * and in Private spaces the person isn't in.
+ */
 export type PageCard = {
   id: string;
   kind: PageKind;
