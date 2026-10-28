@@ -153,7 +153,10 @@ describe('TableLayout column tools', () => {
   it("leaves the columns alone for someone who can't edit the view", () => {
     const meta = { ...jobsDatabase(), viewerAccess: 'edit_content' as const };
     render(<TableLayout {...layoutProps({ meta })} />);
-    expect(screen.getAllByRole('columnheader')).toHaveLength(8);
+    const columns = screen
+      .getAllByRole('columnheader')
+      .filter((h) => h.hasAttribute('data-property-id'));
+    expect(columns).toHaveLength(8);
     expect(within(header('Status')).queryByRole('button')).toBeNull();
     expect(document.querySelector('[data-resize-handle]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Properties' })).toBeNull();

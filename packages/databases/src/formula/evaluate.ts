@@ -9,6 +9,7 @@
 import { decimalToNumber } from '../decimal';
 import { plainText } from '../richtext';
 import { readValue } from '../row';
+import { VERIFICATION_LABELS, verificationState } from '../verification';
 import { LIMITS } from '../types';
 import type {
   ChecklistItem,
@@ -21,7 +22,7 @@ import type {
   RichText,
   Row,
 } from '../types';
-import { LENGTH_MESSAGE, checkFormula, type Expr } from './check';
+import { LENGTH_MESSAGE, checkFormula, type CheckMode, type Expr } from './check';
 import { resultKindOf } from './kinds';
 import { parseFormula } from './parser';
 import {
@@ -54,11 +55,21 @@ export interface CompiledFormula {
   /** The result kind to save as the property's resultKind (null: always empty). */
   kind: ComputedKind | null;
   type: FormulaType;
-  /** The value for a row; a problem comes back as { kind: "error" } with its message. */
-  run(row: Row, ctx: FormulaContext): ComputedValue;
+  /**
+   * The value for a row; a problem comes back as { kind: "error" } with its message. `inputs` are
+   * the values of the schema's inputs by id (a button's Pressed by, variables); missing ones are empty.
+   */
+  run(row: Row, ctx: FormulaContext, inputs?: FormulaInputs): ComputedValue;
   /** The value and, for a problem, where in the formula it happened (the editor's preview). */
-  preview(row: Row, ctx: FormulaContext): { value: ComputedValue; error: FormulaError | null };
+  preview(
+    row: Row,
+    ctx: FormulaContext,
+    inputs?: FormulaInputs,
+  ): { value: ComputedValue; error: FormulaError | null };
 }
+
+/** The values of a formula's inputs (FormulaSchema.inputs) for one run, by id. */
+export type FormulaInputs = Readonly<Record<Id, ComputedValue>>;
 
 /** A compiled formula, or the first problem with its place. */
 export type CompileResult = CompiledFormula | { ok: false; error: FormulaError };
@@ -77,6 +88,7 @@ interface Frame {
   budget: FormulaBudget | null;
   /** Property values read so far, so reading one again builds nothing new. */
   reads: Map<Row, Map<Id, ComputedValue>>;
+  inputs: FormulaInputs | null;
 }
 
 type Run = (f: Frame) => ComputedValue;
@@ -238,6 +250,15 @@ class CallImpl implements Call {
   step(n: number): void {
     tick(this.frame, n);
   }
+
+  timeUp(): boolean {
+    const f = this.frame;
+    if (f.deadline === null) return false;
+    const now = timeOf(f.ctx);
+    if (now <= f.deadline) return false;
+    if (f.budget && now > f.budget.deadline) f.budget.spent = true;
+    return true;
+  }
 }
 
 const propertyCache = new WeakMap<readonly Property[], Map<Id, Property>>();
@@ -321,6 +342,9 @@ export function readProperty(row: Row, ctx: FormulaContext, prop: Property): Com
     }
     case 'button':
       return EMPTY;
+    case 'verification':
+      // "Verified", "Expired" or "Not verified", like the badge.
+      return txt(VERIFICATION_LABELS[verificationState(raw)]);
   }
 }
 
@@ -350,6 +374,14 @@ function build(e: Expr): Run {
     case 'var': {
       const slot = e.slot;
       return (f) => f.slots[slot] ?? EMPTY;
+    }
+    case 'input': {
+      const id = e.id;
+      return (f) => {
+        const v = f.inputs && Object.hasOwn(f.inputs, id) ? f.inputs[id] : undefined;
+        if (v?.kind === 'error') fail(v.message);
+        return v ?? EMPTY;
+      };
     }
     case 'let': {
       const value = compile(e.value);
@@ -420,15 +452,22 @@ function read(f: Frame, row: Row, ctx: FormulaContext, saved: Property): Compute
   return v;
 }
 
-/** Parses, checks and prepares a stored formula (property references by id). */
-export function compileFormula(expression: string, schema: FormulaSchema): CompileResult {
-  if (expression.length > LIMITS.formulaLength) {
+/**
+ * Parses, checks and prepares a stored formula (property references by id). The editor's preview
+ * uses mode "name" to run the formula as typed, so problems point into the text on screen.
+ */
+export function compileFormula(
+  expression: string,
+  schema: FormulaSchema,
+  mode: CheckMode = 'id',
+): CompileResult {
+  if (expression.length > LIMITS.formulaLength * (mode === 'id' ? 1 : 4)) {
     const error = { message: LENGTH_MESSAGE, start: LIMITS.formulaLength, end: expression.length };
     return { ok: false, error };
   }
   const parsed = parseFormula(expression);
   if (!parsed.ok) return parsed;
-  const checked = checkFormula(parsed.ast, schema, 'id');
+  const checked = checkFormula(parsed.ast, schema, mode);
   if (!checked.ok) return checked;
   const run: Run = checked.expr ? compile(checked.expr) : () => EMPTY;
   const slotCount = checked.slots;
@@ -436,7 +475,7 @@ export function compileFormula(expression: string, schema: FormulaSchema): Compi
     value: { kind: 'error', message: TOO_SLOW } as ComputedValue,
     error: { message: TOO_SLOW, start: 0, end: expression.length },
   };
-  const preview = (row: Row, ctx: FormulaContext) => {
+  const preview = (row: Row, ctx: FormulaContext, inputs?: FormulaInputs) => {
     const budget = ctx.budget ?? null;
     if (budget?.spent) return tooSlow;
     let deadline: number | null = null;
@@ -458,6 +497,7 @@ export function compileFormula(expression: string, schema: FormulaSchema): Compi
       nextClock: 64,
       budget,
       reads: new Map(),
+      inputs: inputs ?? null,
     };
     const meter = { text: ROW_TEXT_LIMIT, step: (n: number) => tick(frame, n) };
     try {
@@ -473,7 +513,7 @@ export function compileFormula(expression: string, schema: FormulaSchema): Compi
     ok: true,
     kind: resultKindOf(checked.type),
     type: checked.type,
-    run: (row, ctx) => preview(row, ctx).value,
+    run: (row, ctx, inputs) => preview(row, ctx, inputs).value,
     preview,
   };
 }

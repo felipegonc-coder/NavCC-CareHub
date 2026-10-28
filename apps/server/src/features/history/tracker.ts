@@ -2,14 +2,16 @@
 // open a stretch of edits per page, and a periodic task saves a version for each stretch that's
 // due. Pages deleted for good lose their versions (HT-11).
 import type { FastifyInstance } from 'fastify';
-import type { Db } from '../../db';
 import { registerPeriodicTask } from '../jobs';
+import { publishTopic } from '../live';
 import { hasPageModel } from './pages';
 import { forgetPages, recordEdit, recordSavedEdits, saveDueVersions } from './versions';
 
 export const VERSIONS_TASK = 'history.versions';
 export const VERSIONS_EVERY_MS = 15_000;
 const POLL_MS = 5_000;
+/** Live topic `history:<pageId>`: open Version history windows and the restore note. */
+export const TOPIC = 'history';
 
 type LooseEvents = { on(name: string, handler: (payload: unknown) => unknown): () => void };
 
@@ -30,8 +32,13 @@ function savedEdit(payload: unknown): { pageId: string; userIds: string[] } | nu
   return { pageId, userIds: ids };
 }
 
-/** The database of the app whose versions the periodic task saves (tests start many apps). */
-let activeDb: Db | null = null;
+/** The app whose versions the periodic task saves (tests start many apps). */
+let activeApp: FastifyInstance | null = null;
+
+/** Tells open Version history windows that the page's versions changed. */
+export function versionsChanged(pageId: string): void {
+  publishTopic(`${TOPIC}:${pageId}`, { type: 'history.versions', data: { pageId } });
+}
 
 export function startHistoryTracking(app: FastifyInstance): void {
   const db = app.db;
@@ -57,10 +64,11 @@ export function startHistoryTracking(app: FastifyInstance): void {
     ),
   ];
 
-  activeDb = db;
+  activeApp = app;
   registerPeriodicTask(VERSIONS_TASK, VERSIONS_EVERY_MS, async ({ signal }) => {
-    const current = activeDb;
-    if (current) await saveDueVersions(current, new Date(), { signal });
+    if (!activeApp) return;
+    const saved = await saveDueVersions(activeApp.db, new Date(), { signal });
+    for (const version of saved) versionsChanged(version.pageId);
   });
 
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -79,7 +87,7 @@ export function startHistoryTracking(app: FastifyInstance): void {
   app.addHook('onClose', async () => {
     clearInterval(timer);
     for (const off of unsubscribe) off();
-    if (activeDb === db) activeDb = null;
+    if (activeApp === app) activeApp = null;
     await running;
   });
 }
