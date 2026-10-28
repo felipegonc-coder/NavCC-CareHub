@@ -21,7 +21,7 @@ import {
   type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query';
-import type { Id, Row, SelectOption, ViewOverride } from '@carehub/databases';
+import type { Id, Row, SelectOption, View, ViewOverride } from '@carehub/databases';
 import {
   createDatabaseClient,
   isApiError,
@@ -551,6 +551,18 @@ export function useUpdateView(databaseId: Id) {
       ...meta,
       views: meta.views.map((v) => (v.id === viewId ? { ...v, ...change, id: v.id } : v)),
     }),
+  });
+}
+
+/** PUT /:id/views/order with every view's id: the tabs show in their new order at once. */
+export function useOrderViews(databaseId: Id) {
+  return useSettingsWrite<readonly Id[]>(databaseId, {
+    send: (client, viewIds) => client.orderViews(databaseId, viewIds),
+    show: (meta, viewIds) => {
+      const at = new Map(viewIds.map((id, i) => [id, i]));
+      const place = (view: View) => at.get(view.id) ?? viewIds.length;
+      return { ...meta, views: [...meta.views].sort((a, b) => place(a) - place(b)) };
+    },
   });
 }
 
