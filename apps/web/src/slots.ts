@@ -217,7 +217,7 @@ const featureSlots: (() => Promise<SlotsModule>)[] = [
 
   // feature: push
 
-  // feature: reminders
+  () => import('./features/reminders/slots'), // feature: reminders
 
   // feature: notices
 ];
