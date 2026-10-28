@@ -22,6 +22,7 @@ import {
   verifiedPercent,
   zonedInstant,
   type HealthCounts,
+  type KbHealth,
 } from '@carehub/extras/knowledge';
 import { and, arrayContains, count, eq, gt, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
@@ -268,13 +269,6 @@ export async function ownerLeft(
     }
   }
   return notices;
-}
-
-export interface KbHealth extends HealthCounts {
-  needsReview: number;
-  percent: number | null;
-  /** "86% verified · 4 expired · 2 open reports", or null when there are no pages. */
-  text: string | null;
 }
 
 /** The health line on the knowledge base's Home, for its editors (KB-12). */
