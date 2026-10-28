@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { LIMITS, type Action, type Json, type Trigger, type Variable } from './automation';
+import { dateArrivesProblems, dateArrivesTrigger } from './dates';
 import { scheduleProblems } from './schedule';
 
 /** Another feature's ID (a database, form, page, role or property). */
@@ -50,6 +51,7 @@ const trigger: z.ZodType<Trigger> = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('schedule'), schedule }),
   z.object({ kind: z.literal('rowAdded'), databaseId: ref, includeImports: z.boolean() }),
   z.object({ kind: z.literal('formResponse'), databaseId: ref, formId: ref }),
+  dateArrivesTrigger,
 ]);
 
 const recipient = z.discriminatedUnion('kind', [
@@ -160,6 +162,9 @@ export function automationProblems(automation: Checked, now: Date): Problem[] {
       const passed = message.includes('already passed') || message.startsWith('No runs are left');
       if (automation.enabled || !passed) add(['trigger', 'schedule', field], message);
     }
+  }
+  if (trigger.kind === 'dateArrives') {
+    for (const { field, message } of dateArrivesProblems(trigger)) add(['trigger', field], message);
   }
   if (automation.conditions !== null && !fromDatabase) {
     add(['conditions'], 'Conditions need a database trigger.');

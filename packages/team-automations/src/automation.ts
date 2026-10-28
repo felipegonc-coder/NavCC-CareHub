@@ -1,9 +1,10 @@
 /**
  * What an automation is made of (Automations spec, sections 3 and 4), shared by the server and
  * the web app. Triggers and actions are stored as JSON, so new kinds need no migration. This set
- * is the basic slice: a schedule, Row added and Form response, then Send a message and Add a row.
- * The rest of AU-D2 (Property changed, Date arrives, Edit the row…) adds to these unions later.
+ * is the basic slice: a schedule, Row added, Form response and Date arrives (dates.ts), then Send a
+ * message and Add a row. The rest of AU-D2 (Property changed, Edit the row…) adds to these unions.
  */
+import type { DateArrivesTrigger } from './dates';
 import type { Schedule } from './schedule';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -33,7 +34,8 @@ export type Trigger =
       /** Rows from a CSV import count only when this is on (off by default). */
       includeImports: boolean;
     }
-  | { kind: 'formResponse'; databaseId: string; formId: string };
+  | { kind: 'formResponse'; databaseId: string; formId: string }
+  | DateArrivesTrigger;
 
 export type TriggerKind = Trigger['kind'];
 
