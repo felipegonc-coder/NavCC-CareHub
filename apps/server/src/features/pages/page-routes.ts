@@ -28,23 +28,33 @@ import {
 import { cardsFor } from './cards';
 import { forbidden, invalid, notFound, spaceArchived } from './http';
 import { pageChanged, treeChanged } from './live';
-import { movePage, whoCanOpen, type MovedPage, type PageMove } from './move';
+import {
+  lockMoves,
+  movePage,
+  ownAccessPages,
+  whoCanOpen,
+  type MovedPage,
+  type PageMove,
+} from './move';
 import { grantCreator, insertPage, readPage, updatePage } from './pages';
 import { spacePlace } from './spaces';
 
 const locked = () => httpError(403, 'forbidden', 'This page is locked. Unlock it to change it.');
 
 /**
- * Where a new page goes: a page that isn't locked or archived, a space the person may add to, or
- * Private.
+ * Where a new page goes: a page the person can edit that isn't locked, a space they may add to,
+ * or Private. Nothing about a parent is told before the person is found to edit it.
  */
 async function checkPlace(tx: Executor, viewer: Viewer, input: CreatePageInput) {
   if (input.parentId !== undefined) {
-    const { rows } = await tx.execute<{ locked: boolean; archived: boolean }>(sql`
-      SELECT locked_at IS NOT NULL AS locked, archived_at IS NOT NULL AS archived
-      FROM pages WHERE id = ${input.parentId}`);
+    const parent = (await resolvePages(tx, viewer, [input.parentId])).get(input.parentId);
+    if (!parent || parent.deleted) throw notFound();
+    if (!atLeast(parent.level, parent.kind === 'database' ? 'edit_content' : 'edit')) {
+      throw forbidden();
+    }
+    const { rows } = await tx.execute<{ locked: boolean }>(sql`
+      SELECT locked_at IS NOT NULL AS locked FROM pages WHERE id = ${input.parentId}`);
     if (rows[0]?.locked) throw locked();
-    if (rows[0]?.archived) throw forbidden();
   } else if (input.spaceId !== undefined) {
     const space = await spacePlace(tx, viewer, input.spaceId);
     if (space.archived) throw spaceArchived();
@@ -60,11 +70,6 @@ export async function checkTarget(tx: Executor, viewer: Viewer, move: PageMove) 
     if (!atLeast(await resolveSpace(tx, viewer, move.spaceId), 'edit')) throw forbidden();
     return;
   }
-  const parent = (await resolvePages(tx, viewer, [move.parentId])).get(move.parentId);
-  if (!parent || parent.deleted) throw notFound();
-  if (!atLeast(parent.level, parent.kind === 'database' ? 'edit_content' : 'edit')) {
-    throw forbidden();
-  }
   await checkPlace(tx, viewer, { parentId: move.parentId });
 }
 
@@ -79,6 +84,35 @@ function accessChange({ losing, gaining }: AccessChangeJson) {
         ? `${people(gaining)} will gain access.`
         : `${people(losing)} will lose access and ${gaining} will gain it.`;
   return httpError(409, 'conflict', message, { losing, gaining });
+}
+
+/**
+ * A move with every rule, for the move route and Trash's "Move to" (Sidebar spec 5): Can edit
+ * where it goes, the service's checks, and the 409 question when it changes who can open the page
+ * or a page under it that keeps its own access. Full access on the page is the caller's check.
+ */
+export async function checkedMove(
+  tx: Executor,
+  viewer: Viewer,
+  pageId: string,
+  move: PageMove,
+  confirmed: boolean,
+) {
+  await lockMoves(tx, pageId);
+  await checkTarget(tx, viewer, move);
+  const pages = await ownAccessPages(tx, pageId);
+  const before = await whoCanOpen(tx, pages);
+  const moved = await movePage(tx, pageId, move, viewer.userId);
+  const after = await whoCanOpen(tx, pages);
+  // People with a page they could open before and not after (and the other way round).
+  const dropped = (from: Set<string>, to: Set<string>) =>
+    new Set([...from].filter((pair) => !to.has(pair)).map((pair) => pair.split(' ')[1]!));
+  const losing = [...dropped(before, after)];
+  const gaining = dropped(after, before).size;
+  if (!confirmed && losing.length + gaining > 0) {
+    throw accessChange({ losing: losing.length, gaining });
+  }
+  return { moved, losing };
 }
 
 /** After a move's commit: `page.updated`, `page.kindChanged` if it changed kind, and nudges. */
@@ -173,26 +207,9 @@ export function pageRoutes(app: FastifyInstance): void {
     const { confirmAccessChange = false, ...move } = movePageSchema.parse(request.body);
     const { pageId } = pageAccessOf(request);
     const viewer = await viewerFor(request);
-    const { moved, losing } = await db.transaction(async (tx) => {
-      await checkTarget(tx, viewer, move);
-      const before = await whoCanOpen(tx, pageId);
-      const result = await movePage(tx, pageId, move, viewer.userId);
-      const { from, to } = result;
-      if (from.spaceId !== to.spaceId) {
-        const { rows } = await tx.execute<{ allowed: boolean }>(sql`
-          SELECT allow_move_out AS allowed FROM spaces WHERE id = ${from.spaceId}`);
-        if (rows[0]?.allowed === false) {
-          throw httpError(403, 'forbidden', "This space's pages can't be moved to other spaces.");
-        }
-      }
-      const after = await whoCanOpen(tx, pageId);
-      const losing = [...before].filter((userId) => !after.has(userId));
-      const gaining = [...after].filter((userId) => !before.has(userId)).length;
-      if (!confirmAccessChange && losing.length + gaining > 0) {
-        throw accessChange({ losing: losing.length, gaining });
-      }
-      return { moved: result, losing };
-    });
+    const { moved, losing } = await db.transaction((tx) =>
+      checkedMove(tx, viewer, pageId, move, confirmAccessChange),
+    );
     announceMove(app, moved, viewer.userId);
     for (const userId of losing) void recheckSubscriptions(userId);
     const level = (await resolvePages(db, viewer, [pageId])).get(pageId)?.level ?? 'none';

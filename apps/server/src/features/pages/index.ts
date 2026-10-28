@@ -11,16 +11,14 @@ export {
 export type { GrantAccessInput, PageAnswer, Principal, RowAccessContext } from './access';
 export {
   GENERAL_SPACE,
+  getPersonalSpaceId,
   getPrivateSpaceId,
   joinDefaultSpaces,
   setUpWorkspaceSpaces,
 } from './spaces';
-export { archivePage, unarchivePage } from './archive';
-export type { ArchivedPages } from './archive';
 export { getPageCards } from './cards';
-export { nudgePage } from './live';
 export { changePageKind } from './move';
-export { createPage, getPageLook, setPageLook, setPageTitle } from './pages';
-export type { NewPage, PageLook, PageRow } from './pages';
+export { createPage, getPagePlace, setPageTitle } from './pages';
+export type { NewPage, PageRow } from './pages';
 export { listSubtree } from './tree';
 export type { SubtreePage } from './tree';
