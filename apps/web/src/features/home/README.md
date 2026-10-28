@@ -5,7 +5,8 @@ attention now.
 
 ## What's here
 
-- `routes.tsx`: `/`, loaded lazily. Spread into `appRoutes` by `apps/web/src/routes.tsx`.
+- `routes.tsx`: `/`, spread into `appRoutes` by `apps/web/src/routes.tsx`. Home isn't loaded
+  lazily: it's the first screen after signing in, so it ships with the app.
 - `HomeScreen.tsx`: one `<main>` with the greeting as its `h1` ("Good afternoon, Avery · Monday,
   October 26", from `formatGreeting` in `@carehub/team-time`), then the sections in the spec's
   order: one column on phones and tablets, two from 1024 px wide, read left to right.
@@ -27,10 +28,12 @@ attention now.
   section, it stays open between changes, and it's only for this person (HR-06). Home waits for
   the settings before drawing its sections, so a hidden one never flashes up. If the settings
   can't be loaded, every section shows and the menu stays off until they load.
-- `SidebarUpcoming.tsx` and `slots.ts`: the sidebar's Upcoming under the top items. It shows the
-  next 3 events of today and tomorrow, each opening in Calendar, with a Join icon when joinable
-  and "Nothing else today" when there are none. Its heading folds, and the fold is kept in the
-  person's settings. It uses the same request as Home's Upcoming.
+- `slots.ts`: Home as the first of the sidebar's top items (order 10, linking to `/`), and the
+  sidebar's Upcoming first under the top items.
+- `SidebarUpcoming.tsx`: the sidebar's Upcoming. It shows the next 3 events of today and
+  tomorrow, each opening in Calendar, with a Join icon when joinable and "Nothing else today"
+  when there are none. Its heading folds, and the fold is kept in the person's settings. It uses
+  the same request as Home's Upcoming.
 
 ## Stand-ins
 
