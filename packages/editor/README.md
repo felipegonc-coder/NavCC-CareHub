@@ -223,6 +223,21 @@ A tabs block is a row of tabs, each holding its own blocks (`src/blocks/tabs.ts`
 - In HTML, each tab starts with its name in bold (after its emoji, if its icon is one), so a paste
   into another app shows it; Care Hub skips that line when it reads the HTML back.
 
+On screen (`src/blocks/tabs.ui.tsx`, `tabs.css`), "/tabs" adds one, under Basic blocks.
+
+- The tab row is a tab list: each tab is a button with its state, its blocks are the tab panel,
+  and only the open tab's blocks show. Tabs that don't fit scroll sideways.
+- Anyone can open tabs, also in a read-only editor. `openTab(pos, index)` opens one for you only:
+  it never changes the page, and other people's changes never switch your tab. Each editor
+  keeps its own open tabs, by `tabId`, until it's reloaded.
+- When your own change or undo puts the cursor in a tab that isn't open, that tab opens, so a new
+  tab from "+" or `addTab` opens with the cursor in it.
+- Editors add a tab with "+" (until there are 20) and rename one with a double-click or F2: Enter
+  keeps the name, Esc cancels, and clicking away keeps it.
+- Keys on a tab: ← → (around the ends), Home and End open the tab before, after, first or last;
+  ↓ puts the cursor at the start of the open tab. ↑ on the top line of a tab's first line comes
+  back to its tab.
+
 ## Block IDs
 
 Every line and one-piece block has a `blockId`: a UUID, stored as an attribute of its Y.Doc
