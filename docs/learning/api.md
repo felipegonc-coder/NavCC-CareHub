@@ -37,6 +37,26 @@ analytics = `learning.analytics` (managers see their own teams).
 | B9 | GET `/reports/courses/:id/surveys/:lessonId` | analytics | → answer counts per question (no names) |
 | B10 | no Learning endpoint: files go through the core files API (0007 section 4.3): web `uploadFile(file, { scope: 'learning:<courseId>', onProgress })`, `POST /api/files?scope=learning:<id>`; server `registerFileScope('learning', { canRead, canWrite })` (canRead: the person can see the course; canWrite: learning.build). No Learning upload route (decision 0305): the stand-in (#70) closes once core's `POST /api/files` is on main; `uploadFile` also takes an AbortSignal (`signal`) for Cancel | | |
 
+## Learning help (Claude, decision 0315)
+
+Claude help for authors in Studio, behind the `learning_help` switch in Settings → Claude (off by default; Studio
+shows no help buttons while `GET /api/claude/status` says it's off). Every route is a POST that needs build, and
+only the shared client in `apps/server/src/features/claude` talks to Claude. The browser sends ids, the draft's
+`revision` and, for a selection, offsets; the server reads the saved draft after Learning's access check, cuts the
+selection itself and sends course text only. Nothing is saved: Studio changes the draft only when the author
+accepts an answer. Shapes live in `help/api.ts`.
+
+| Method and path | Who | In → out |
+|---|---|---|
+| POST `/help/write` | build | { courseId, revision, lessonId, blockId, action: improve, fix_grammar, change_tone (with tone: professional, friendly, direct or empathetic), shorter, simpler or continue; selection?: { start, end } } → { text } (plain text, no links) |
+
+Offsets are string indexes into `blockHelpText(block)`: the block's text parts, blank ones left out, joined by a
+blank line. Continue writing reads the block up to `selection.end` (or all of it) and answers with the new text
+only. Errors: 404 for a course, lesson or block that isn't there; 409 `conflict` when the saved draft is no longer
+at `revision` (reload); 400 for a selection outside the block or no text to work on. Refusals from the shared
+client keep its status, code and message (`CLAUDE_ERRORS` in `@carehub/extras/claude`) and add
+`details: { reason }`, for example 409 with `{ reason: 'switched_off' }`.
+
 Jobs (daily, once the main lane's scheduler or a simple interval exists): reminders for assignments (B4),
 certificate expiry heads-up (B3), review-due reminders for authors (B1). Every notice goes through Team tools'
 `sendNotice({ workspaceId, userId, kind: 'reminder' | 'alert', sender: 'Learning', icon?, title, text?, card?,

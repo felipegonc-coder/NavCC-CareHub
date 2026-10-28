@@ -4,6 +4,7 @@ import banksRoutes from './banks/routes';
 import certificatesRoutes from './certificates/routes';
 import coursesRoutes from './courses/routes';
 import { errorReply, httpError } from './errors';
+import helpRoutes from './help/routes';
 import pathsRoutes from './paths/routes';
 import progressRoutes from './progress/routes';
 import reportsRoutes from './reports/routes';
@@ -33,6 +34,7 @@ const learningRoutes: FastifyPluginAsync = async (app) => {
   await app.register(assignmentsRoutes);
   await app.register(reportsRoutes);
   await app.register(banksRoutes);
+  await app.register(helpRoutes, { prefix: '/help' });
   // TODO(#70): register B10's media routes here with { courses: { canSeeCourse, canEditCourse } } from ./courses/access.
 };
 
