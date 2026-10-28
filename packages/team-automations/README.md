@@ -1,8 +1,9 @@
 # @carehub/team-automations
 
 Automations for the Team tools lane: the parts both the server and the web app need. Spec:
-Automations (v2). There are four: schedules (`schedule`), what an automation is made of
-(`automation`), the checks on saving one (`validate`) and what the API answers (`api`).
+Automations (v2). There are five: schedules (`schedule`), the Date arrives trigger (`dates`), what
+an automation is made of (`automation`), the checks on saving one (`validate`) and what the API
+answers (`api`).
 
 Import by file, such as `@carehub/team-automations/schedule`. Everything is pure, built on
 `@carehub/team-time` and zod; the caller passes `now`.
@@ -37,13 +38,31 @@ A `Schedule` is `once` (on a `date`), `daily`, `weekdays` (Monday to Friday), `w
 - A run less than an hour late still runs and shows how late it was; anything later is logged as
   missed.
 
+## Date arrives: `dates`
+
+A `DateArrivesTrigger` fires when a row's date in `propertyId` arrives: at the date (`offset:
+null`) or an `offset` of `amount` `minutes`, `hours` or `days`, `before` or `after` it ("1 day
+before Review date at 9:00 AM"). Dates without a time use `time` (`DEFAULT_ARRIVAL_TIME`, 9:00 AM)
+in `timeZone`. Days move the wall clock, so "1 day before" keeps its time across clock changes;
+minutes and hours are exact.
+
+| Export                                        | What it's for                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `arrivalTime(trigger, date)`                  | When it fires for a row's date (`{ allDay, start }`: a day, or an ISO instant), or `null` when the date doesn't read |
+| `arrivalsBetween(trigger, rows, since, now)`  | The rows whose arrival is after `since` and up to `now`, soonest first, each with its time                           |
+| `datesToCheck(trigger, since, now)`           | The days of dates whose arrival can fall in that window, a day to spare each side: `{ from, to }`, `to` exclusive    |
+| `dateArrivesProblems(trigger)`                | Save errors naming their field: `'Pick a date property.'`, `'Pick 1 to 365 days.'`, `'Pick a time, like 9:00 AM.'`…  |
+| `describeDateArrives(trigger, name, prefs)`   | `'When Review date arrives'`, `'1 day before Review date at 9:00 AM'`, `'2 hours after Review date'`                 |
+| `dateArrivesTrigger`, `MAX_OFFSET`            | The zod schema (in `validate`'s trigger schema) and the largest offsets: 1,440 minutes, 720 hours, 365 days          |
+| `DateArrivesTrigger`, `DateOffset`, `RowDate` | The types                                                                                                            |
+
 ## Automations: `automation`
 
 Triggers and actions are stored as JSON, so new kinds need no migration.
 
 | Export                                         | What it's for                                                                                                                                  |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Trigger`                                      | `schedule` (a `Schedule`), `rowAdded` (`databaseId`, and `includeImports`, off by default) or `formResponse` (`databaseId`, `formId`)          |
+| `Trigger`                                      | `schedule` (`Schedule`), `rowAdded` (`databaseId`, `includeImports` off by default), `formResponse` (`databaseId`, `formId`) or `dateArrives`  |
 | `Action`                                       | `sendMessage` (`recipients`, `text` with fill-ins such as {first name}, up to 3 `pageIds`) or `addRow` (`databaseId`, `templateId`, `values`)  |
 | `Recipient`                                    | A `person`, a `role`, `everyone`, or the row's `personProperty`                                                                                |
 | `ValueSource`, `PropertyValue`                 | Where an Add a row value comes from: a `value`, `now`, `today`, `triggeredBy`, a `rowProperty` or a `formula`                                  |
