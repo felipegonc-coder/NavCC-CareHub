@@ -1,14 +1,14 @@
 # Notion parity checklist
 
-_Copied from the Notion spec (https://app.notion.com/p/cb343e6d8b204ee28047788d6cc9dd14) on 2026-10-27. If they differ, Notion wins._
+_Copied from the Notion spec on 2026-10-27. If they differ, Notion wins._
 
 > ✅ Notion parity checklist · Oct 27 · Each row maps a Notion feature to where Care Hub covers it. ✅ covered · 🟨 open decision, with the suggested default · ⏳ planned for a later phase · ➖ different on purpose, with the reason
 
 ## How to read this
 
-- Felipe's goal is Notion parity plus Care Hub's own extras (Messages, Learning, private transcription, knowledge-base reviews). This page is the check that nothing was missed; the specs themselves are the source of truth.
+- The goal is Notion parity plus Care Hub's own extras (Messages, Learning, private transcription, knowledge-base reviews). This page is the check that nothing was missed; the specs themselves are the source of truth.
 - Section numbers point into each spec. "🆕" in a spec marks what the parity pass added on Oct 27.
-- Everything stays inside the builder rules: no email, no outside services unless Felipe decides otherwise, everything on the ThinkCentre and the tailnet.
+- Everything stays inside the builder rules: no email, no outside services unless decided otherwise, everything on the team's own server and the tailnet.
 
 ## Pages and the editor
 
@@ -56,7 +56,7 @@ _Copied from the Notion spec (https://app.notion.com/p/cb343e6d8b204ee28047788d6
 | Text inside uploaded PDFs and Office files | Search 3.1 | 🟨 SR-D1: yes |
 | Search in a database view | Databases 3.2 | ✅ |
 | Search analytics | Analytics 2 🆕 | ✅ |
-| AI answers from the workspace | Claude features | ⏳ Phase 5 |
+| AI answers from the workspace | Claude features 3.3 | ✅ 🆕 off until an Admin turns it on |
 | Searching connected apps (Slack, Google Drive) | — | ➖ no outside connections |
 
 ## Comments, mentions and notifications
@@ -158,7 +158,7 @@ _Copied from the Notion spec (https://app.notion.com/p/cb343e6d8b204ee28047788d6
 | Scheduling links | Calendar (Google and iCloud) | 🟨 CA-D2: later |
 | Meeting notes with transcription | Meetings | ✅ (transcription stays in the browser) |
 | All meeting notes and notes templates | Meetings 2–3 🆕 | ✅ |
-| AI meeting summaries | Meetings | ⏳ Phase 5 (Claude) |
+| AI meeting summaries | Meetings and Claude features 3.5 | ✅ 🆕 off until an Admin turns it on |
 
 ## Admin, security and settings
 
@@ -180,13 +180,13 @@ _Copied from the Notion spec (https://app.notion.com/p/cb343e6d8b204ee28047788d6
 
 | Notion | Care Hub | Status |
 | --- | --- | --- |
-| Notion AI | Claude features with the Use Claude permission | ⏳ Phase 5 |
+| Notion AI | Claude features with the Use Claude permission | ✅ 🆕 off until an Admin turns it on |
 | Notion Mail | — | ➖ no email |
 | Integrations, connections and the public API | — | ➖ no outside connections |
 | Web clipper | — | ➖ not planned |
 | Desktop and phone apps | Care Hub in the browser, on computers and phones (add to Home Screen for push) | ➖ no app-store apps |
 | Learning (Care Hub extra) | Learning | ⏳ Phase 4 |
 
-## Decisions for Felipe
+## Decisions
 
 - 🟨 **PC-D1** Pages that open with no connection at all, as Notion's apps allow for pages marked "Available offline". Care Hub already keeps typing through short drops and sends the changes later (Pages and blocks 3.12). **Default:** later.

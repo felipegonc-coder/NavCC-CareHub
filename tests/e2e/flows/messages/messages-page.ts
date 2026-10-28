@@ -137,17 +137,17 @@ export async function attach(page: Page, files: TestFile[]): Promise<void> {
   await (await chooser).setFiles(files);
 }
 
-/** Picks people by first name in the open dialog's people box. */
-async function pickPeople(page: Page, who: PersonKey[]): Promise<void> {
+/** Picks people by name in the open dialog's people box. */
+async function pickPeople(page: Page, names: string[]): Promise<void> {
   const dialog = page.getByRole('dialog');
   const box = dialog
     .getByRole('combobox')
     .or(dialog.getByRole('textbox', { name: /people|^to\b|search|add/i }))
     .first();
-  for (const person of who) {
-    await box.fill(firstName[person]);
+  for (const name of names) {
+    await box.fill(name);
     await page
-      .getByRole('option', { name: word(firstName[person]) })
+      .getByRole('option', { name: word(name) })
       .first()
       .click();
   }
@@ -162,19 +162,32 @@ export async function startChat(
   who: [PersonKey, ...PersonKey[]],
   groupName?: string,
 ): Promise<void> {
+  const [first, ...others] = who;
+  await startChatWith(
+    page,
+    [firstName[first], ...others.map((person) => firstName[person])],
+    groupName,
+  );
+}
+
+/** `startChat` with people by name, for someone who isn't seeded (such as a newcomer). */
+export async function startChatWith(
+  page: Page,
+  names: [string, ...string[]],
+  groupName?: string,
+): Promise<void> {
   await page.getByRole('main').getByRole('button', { name: 'New message' }).click();
   const dialog = page.getByRole('dialog');
-  await pickPeople(page, who);
+  await pickPeople(page, names);
   if (groupName) await dialog.getByRole('textbox', { name: /group name|^name/i }).fill(groupName);
   // One person may open the direct chat straight away; a group needs the button.
   const start = dialog.getByRole('button', {
     name: /^(start chat|start group|create group|start|create|open chat)$/i,
   });
-  if (who.length > 1 || (await start.isVisible())) await start.click();
+  if (names.length > 1 || (await start.isVisible())) await start.click();
   await expect(dialog).toBeHidden();
-  const header = groupName ?? firstName[who[0]];
   await expect(
-    page.getByRole('main').getByRole('heading', { name: startsWith(header) }),
+    page.getByRole('main').getByRole('heading', { name: startsWith(groupName ?? names[0]) }),
   ).toBeVisible();
 }
 
@@ -198,7 +211,10 @@ export async function chooseInChatMenu(page: Page, item: string): Promise<void> 
 export async function addPeople(page: Page, who: PersonKey[]): Promise<void> {
   await chooseInChatMenu(page, 'Add people');
   const dialog = page.getByRole('dialog');
-  await pickPeople(page, who);
+  await pickPeople(
+    page,
+    who.map((person) => firstName[person]),
+  );
   await expect(dialog.getByText("They'll see earlier messages.")).toBeVisible();
   await dialog.getByRole('button', { name: /^(add|add people)$/i }).click();
   await expect(dialog).toBeHidden();

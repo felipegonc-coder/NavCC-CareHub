@@ -124,7 +124,7 @@ export function QuestionEditor({
             type="number"
             min={1}
             max={LIMITS.questionPoints}
-            value={question.points}
+            value={question.points ?? ''}
             onChange={(event) => onChange(setQuestionPoints(question, event.target.valueAsNumber))}
           />
         </Field>

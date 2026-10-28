@@ -1,5 +1,6 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import {
+  paperAnswerKey,
   progressIntake,
   quizAttemptStart,
   quizPaper,
@@ -109,7 +110,7 @@ async function storeEvents(tx: Db | Tx, row: ProgressRow, list: readonly Progres
 async function recordChange(
   tx: Db | Tx,
   row: ProgressRow,
-  change: { kind: ProgressChangeKind; run: number; by: string; note?: string | undefined },
+  change: { kind: ProgressChangeKind; run: number; by: string | null; note?: string | undefined },
   at: Date,
 ): Promise<void> {
   const { workspaceId, learnerId, courseId } = row;
@@ -147,6 +148,27 @@ export async function runVersion(
   return row?.version ?? null;
 }
 
+/**
+ * The learner's own state with the right answers on each submitted attempt, on that attempt's
+ * paper (`paperAnswerKey`), for the quizzes whose `revealAnswers` allows it now (decisions 0302
+ * and 0316). Only the learner's own replies get them: never resets, completions marked by hand or
+ * reports.
+ */
+function withAnswers(course: Course, state: LearnerCourseState): LearnerCourseState {
+  return {
+    ...state,
+    quizzes: state.quizzes.map((quiz) => {
+      const lesson = course.lessons.find((candidate) => candidate.id === quiz.lessonId);
+      if (!quiz.revealAnswers || lesson?.kind !== 'quiz') return quiz;
+      const attempts = quiz.attempts.map((attempt) => ({
+        ...attempt,
+        answers: paperAnswerKey(lesson, attempt.plan),
+      }));
+      return { ...quiz, attempts };
+    }),
+  };
+}
+
 /** GET /courses/:id/progress: the learner's state in their run's version (none: not started). */
 export async function getProgress(
   db: Db | Tx,
@@ -156,9 +178,8 @@ export async function getProgress(
   const live = await visibleCourse(db, actor, courseId);
   const row = await findProgress(db, learnerOf(actor, courseId));
   if (!row) return stateOf(live.course, undefined, []);
-  // TODO(0316): once B2's paperAnswerKey(quiz, plan) is on main, give each submitted attempt its
-  // `answers` while its quiz's revealAnswers is true: here and in recordEvents, never in reports.
-  return stateOf(await runCourse(db, row, live), row, await runEvents(db, row));
+  const course = await runCourse(db, row, live);
+  return withAnswers(course, stateOf(course, row, await runEvents(db, row)));
 }
 
 /**
@@ -166,7 +187,7 @@ export async function getProgress(
  * state and the batch's refusals (progressIntake), in their run's version. A first batch pins the
  * run to the live version. An event sent again is stored once; events dated ahead of the server's
  * clock, or before the run began, are refused. 422 when the run would go past
- * MAX_EVENTS_PER_LEARNER_COURSE.
+ * MAX_EVENTS_PER_LEARNER_COURSE. Submitted attempts carry their right answers as in getProgress.
  */
 export async function recordEvents(
   db: Db,
@@ -194,8 +215,7 @@ export async function recordEvents(
         .where(progressKey(learner));
       await issueCertificate(tx, { ...learner, course, version: row.version, finish: state });
     }
-    // TODO(0316): each submitted attempt's `answers`, as in getProgress.
-    return { ...intake.reply, state };
+    return { ...intake.reply, state: withAnswers(course, state) };
   });
 }
 
@@ -311,6 +331,31 @@ export async function completeProgress(
     }
     return state;
   });
+}
+
+/** The statuses that end a run: re-certification starts the next one. */
+const ENDED: ReadonlySet<CourseStatus> = new Set(['completed', 'passed', 'failed']);
+
+/**
+ * Re-certification (the certificates job, in its transaction): when the learner's current run has
+ * ended (completed, passed or failed), starts their next run on the course's live version, saved
+ * as a `retake` change by no one, with `note`. A run that hasn't ended is left alone, so nobody
+ * loses what they did since a retake or reset, and so is someone with no progress or a course
+ * with no live version. Returns the new run's number, or null when nothing changed.
+ */
+export async function startRecertificationRun(
+  tx: Db | Tx,
+  learner: Learner,
+  note: string,
+  now = new Date(),
+): Promise<number | null> {
+  const live = await courseVersions().live(tx, learner.workspaceId, learner.courseId);
+  const row = live ? await findProgress(tx, learner, true) : undefined;
+  if (!live || !row || !ENDED.has(row.status)) return null;
+  const next = newRunOf(row, live.version, now);
+  await tx.update(progress).set(next).where(progressKey(learner));
+  await recordChange(tx, row, { kind: 'retake', run: next.run, by: null, note }, now);
+  return next.run;
 }
 
 /** One learner's state in one course, as reports and assignments read it (`listCourseStates`). */
