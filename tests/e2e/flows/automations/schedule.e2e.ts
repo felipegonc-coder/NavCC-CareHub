@@ -1,13 +1,16 @@
-import { apiFor, expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
+import {
+  apiFor,
+  expect,
+  needs,
+  onlyIn,
+  sendAgainAs,
+  signInAs,
+  test,
+  uniqueName,
+} from '../_support/index.js';
 import { CareHubChat } from '../comments/care-hub-chat.js';
 import { containing, signedInPage } from '../databases/database-page.js';
-import {
-  FORBIDDEN,
-  nextWeekdayNine,
-  sendAgainAs,
-  TRIGGERED_MS,
-  weekdayNudge,
-} from './automation-data.js';
+import { FORBIDDEN, nextWeekdayNine, TRIGGERED_MS, weekdayNudge } from './automation-data.js';
 import { AutomationList } from './automation-list.js';
 
 // Scheduled automations (Automations spec: Schedule, Message and Try it now in section 3).

@@ -1,4 +1,4 @@
-import { useProfileTimeZone } from '../player/data';
+import { useProfileTimeZone } from '../data/timeZone';
 import { LoadFailed, ScreenLoading } from '../player/ScreenMessage';
 import { useMyLearning } from './data';
 import { MyLearning } from './MyLearning';
