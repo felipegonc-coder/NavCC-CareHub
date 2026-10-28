@@ -232,3 +232,18 @@ and search use it.
 - Ctrl/Cmd + K edits the link of the selected text (or of the link the cursor is in). Anywhere
   else it's left to the app's command menu, which should skip key events already
   `defaultPrevented`. Alt+F10 moves focus into the selection toolbar.
+
+## Moving blocks
+
+- Ctrl/Cmd + Shift + ↑ or ↓ moves the selected blocks, or the block the cursor is in, up or down
+  past the block next to them. A block moves with everything nested in it, like a list item with
+  its sub-items, and in a list it's the items that move. Blocks go into a list item or quote that
+  has blocks nested in it, at the near end, and move out of one from its top or bottom. At the top
+  or bottom of the page the keys do nothing.
+- Each move is one undo step, keeps block IDs, and keeps the cursor or selection where it was.
+- A list item that moves out of a list gets a list of its own kind, and anything else that moves
+  between the items of a list splits it (a numbered list's second part counts from 1). Lists of
+  the same kind that end up side by side join, and the one that was there keeps its numbering.
+- `src/block-drag.ts` has the logic, with no DOM: `blockAt(doc, pos)`, `selectedBlocks(state)`,
+  `moveTarget(doc, blocks, dir)` and `moveBlocks(tr, blocks, target, { copy })`. The keys are in
+  `src/block-keys.ts`.
