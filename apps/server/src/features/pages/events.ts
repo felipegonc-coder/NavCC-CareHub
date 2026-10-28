@@ -12,7 +12,10 @@ declare module '../../core/events' {
       kind: PageKind;
       by: string;
     };
-    /** `changes` names what changed: `title`, `icon`, `cover`, `locked` and so on. */
-    'page.updated': { pageId: string; workspaceId: string; by: string; changes: string[] };
+    /**
+     * `changes` names what changed: `title`, `icon`, `cover`, `locked` and so on. `by` is null
+     * when no person did it.
+     */
+    'page.updated': { pageId: string; workspaceId: string; by: string | null; changes: string[] };
   }
 }

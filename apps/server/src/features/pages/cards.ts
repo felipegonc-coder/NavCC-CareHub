@@ -4,6 +4,7 @@ import type { PageCard, PageCardEntry } from '@carehub/shared';
 import { sql } from 'drizzle-orm';
 import { loadViewer, resolvePages, type Executor, type Viewer } from './access';
 import { uuidArray } from './http';
+import { unseenSpace } from './pages';
 
 export async function cardsFor(db: Executor, viewer: Viewer, pageIds: readonly string[]) {
   const ids = [...new Set(pageIds)];
@@ -14,7 +15,8 @@ export async function cardsFor(db: Executor, viewer: Viewer, pageIds: readonly s
   });
   const { rows } = await db.execute<PageCard>(sql`
     SELECT p.id, p.kind, p.title, p.icon,
-      CASE WHEN s.kind = 'personal' THEN NULL ELSE s.name END AS "spaceName"
+      CASE WHEN s.kind = 'personal' OR ${unseenSpace(viewer)} THEN NULL ELSE s.name END
+        AS "spaceName"
     FROM pages p JOIN spaces s ON s.id = p.space_id WHERE p.id = ANY(${uuidArray(open)})`);
   const found = new Map(rows.map((card) => [card.id, card]));
   const cards = new Map<string, PageCardEntry>();
