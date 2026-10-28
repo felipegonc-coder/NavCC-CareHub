@@ -180,7 +180,8 @@ export interface ChartRequest {
 export interface CreateRowRequest {
   title?: string;
   values?: RowValues;
-  templateId?: Id;
+  /** The template to start from; null: an empty row; absent: the view's default template. */
+  templateId?: Id | null;
   viewId?: Id;
   groupKey?: string;
   afterRowId?: Id;
@@ -386,7 +387,12 @@ export function createDatabaseClient(request: RequestJson = fetchJson): Database
     query: (databaseId, body) => request('POST', db(databaseId, '/query'), compact(body)),
     chart: (databaseId, body) => request('POST', db(databaseId, '/chart'), compact(body)),
 
-    createRow: (databaseId, body) => request('POST', db(databaseId, '/rows'), compact(body)),
+    createRow: (databaseId, body) =>
+      request('POST', db(databaseId, '/rows'), {
+        ...compact(body),
+        // Sent as null for an empty row: left out, the server starts from the view's default.
+        ...(body.templateId === null ? { templateId: null } : {}),
+      }),
     getRow: (databaseId, rowId) => request('GET', db(databaseId, `/rows/${seg(rowId)}`)),
     updateRow: (databaseId, rowId, values) =>
       request('PATCH', db(databaseId, `/rows/${seg(rowId)}`), { values }),

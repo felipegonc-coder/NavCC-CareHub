@@ -16,6 +16,9 @@ import {
 import { shownDayIn } from './learner-page.js';
 import { PlayerPage } from './player-page.js';
 
+// The browser is in Tokyo: Learning shows days in the profile's time zone (decision 0317).
+test.use({ timezoneId: 'Asia/Tokyo' });
+
 const greet = trueFalse('q1', 'You greet the caller first.', true);
 /** Progress events reach the server in the background, so its answers can lag a moment. */
 const SOON = { timeout: 15_000 };

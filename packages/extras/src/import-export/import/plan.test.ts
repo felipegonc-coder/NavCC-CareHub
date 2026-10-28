@@ -9,6 +9,7 @@ import {
   resolvePlanLinks,
   stoppedMessage,
   type ImportPlan,
+  type PlanColumnType,
   type PlanDatabase,
   type PlanPage,
 } from './plan';
@@ -81,6 +82,22 @@ describe('checkPlan', () => {
     const wide = database('d', null, []);
     wide.columns = Array.from({ length: 201 }, (_, n) => ({ name: `C${n}`, type: null }));
     expect(() => checkPlan(plan({ databases: [wide] }))).toThrow('200 columns');
+  });
+
+  it('takes a board view only when it groups by a select or status column', () => {
+    const board = (type: PlanColumnType | null, groupBy = 'Status'): PlanDatabase => ({
+      ...database('d', null, ['r1']),
+      columns: [
+        { name: 'Name', type: 'text' },
+        { name: 'Status', type },
+      ],
+      view: { layout: 'board', groupBy },
+    });
+    expect(keysOf(checkPlan(plan({ databases: [board('status')] })))).toEqual(['d']);
+    expect(keysOf(checkPlan(plan({ databases: [board('select')] })))).toEqual(['d']);
+    expect(() => checkPlan(plan({ databases: [board('person')] }))).toThrow('damaged');
+    expect(() => checkPlan(plan({ databases: [board(null)] }))).toThrow('damaged');
+    expect(() => checkPlan(plan({ databases: [board('status', 'Lists')] }))).toThrow('damaged');
   });
 });
 

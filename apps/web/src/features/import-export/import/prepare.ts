@@ -5,12 +5,14 @@ import {
   ImportFileError,
   acceptsFileName,
   checkPlan,
+  type ImportOptions,
   type ImportPlan,
   type ImportProblem,
   type ImportSource,
   type ImportSourceId,
   type ImportZip,
   type Importer,
+  type PlanDates,
 } from '@carehub/extras/import-export/import/index';
 import { BROWSER_IMPORTERS } from './importers';
 import { inflateRaw, openZip, zipParts, type Inflate, type ZipItem } from './zip';
@@ -50,6 +52,8 @@ export interface Upload {
 export interface PrepareOptions {
   importers?: Partial<Record<ImportSourceId, Importer>>;
   inflate?: Inflate;
+  /** The source's options that the person ticked, for its importer. */
+  options?: ImportOptions;
 }
 
 /** Plan files can be this big; the server's zip reader refuses a zip with a bigger entry. */
@@ -64,6 +68,12 @@ function readBytes(file: Blob): Promise<Uint8Array> {
   });
 }
 
+/** A page's or row's dates from the source, when it has them. */
+const datesOf = ({ created, updated }: PlanDates): PlanDates => ({
+  ...(created !== undefined && { created }),
+  ...(updated !== undefined && { updated }),
+});
+
 /** plan.json: only what the upload's schema takes (planUploadSchema), field by field. */
 function planJson(plan: ImportPlan, files: { key: string; name: string; entry: string }[]) {
   const problems: ImportProblem[] = plan.problems.map(({ file, what, why }) => ({
@@ -72,22 +82,27 @@ function planJson(plan: ImportPlan, files: { key: string; name: string; entry: s
     why,
   }));
   return JSON.stringify({
-    pages: plan.pages.map(({ key, parent, title, content, source }) => ({
+    pages: plan.pages.map(({ key, parent, title, content, source, created, updated }) => ({
       key,
       parent,
       title,
       content,
       source,
+      ...datesOf({ created, updated }),
     })),
-    databases: plan.databases.map(({ key, parent, title, columns, rows, source }) => ({
+    databases: plan.databases.map(({ key, parent, title, columns, rows, source, view }) => ({
       key,
       parent,
       title,
       columns: columns.map(({ name, type }) => ({ name, type })),
-      rows: rows.map(({ key: row, cells, content }) =>
-        content ? { key: row, cells, content } : { key: row, cells },
-      ),
+      rows: rows.map((row) => ({
+        key: row.key,
+        cells: row.cells,
+        ...(row.content && { content: row.content }),
+        ...datesOf(row),
+      })),
       source,
+      ...(view && { view: { layout: view.layout, groupBy: view.groupBy } }),
     })),
     files,
     // The summary keeps the first 1,000 (IMPORT_LIMITS.problems).
@@ -138,7 +153,7 @@ async function planUpload(plan: ImportPlan, zip: ImportZip | null): Promise<Blob
 export async function prepareUpload(
   source: ImportSource,
   file: File,
-  { importers = BROWSER_IMPORTERS, inflate = inflateRaw }: PrepareOptions = {},
+  { importers = BROWSER_IMPORTERS, inflate = inflateRaw, options = {} }: PrepareOptions = {},
 ): Promise<Upload> {
   const importer = importers[source.id];
   if (!importer) return { planned: false, body: file };
@@ -149,6 +164,7 @@ export async function prepareUpload(
     bytes,
     text: async () => decodeCsvBytes(bytes),
     zip,
+    options,
   });
   checkPlan(plan);
   return { planned: true, body: await planUpload(plan, zip) };

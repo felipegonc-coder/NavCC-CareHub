@@ -112,12 +112,33 @@ describe('uptimeOverWindow', () => {
     expect(window.percent).toBe(100);
   });
 
-  it('has no percentage before the first whole minute', () => {
+  it('has no percentage before the first heartbeat', () => {
     expect(uptimeOverWindow([], { now, installedAt: null })).toMatchObject({
       totalMinutes: 0,
       percent: null,
     });
     expect(uptimeOverWindow([], { now, installedAt: now }).percent).toBeNull();
+  });
+
+  it('counts the first minute after installation once its heartbeat is in', () => {
+    const soon = new Date('2026-10-27T00:00:20Z');
+    expect(uptimeOverWindow([{ start: to, end: to + 1 }], { now: soon, installedAt: now })).toEqual(
+      {
+        from: now,
+        to: new Date('2026-10-27T00:01:00Z'),
+        upMinutes: 1,
+        totalMinutes: 1,
+        percent: 100,
+      },
+    );
+    // A minute later, the current minute is left out again.
+    const later = new Date('2026-10-27T00:01:20Z');
+    const spans = [{ start: to, end: to + 2 }];
+    expect(uptimeOverWindow(spans, { now: later, installedAt: now })).toMatchObject({
+      upMinutes: 1,
+      totalMinutes: 1,
+      percent: 100,
+    });
   });
 });
 

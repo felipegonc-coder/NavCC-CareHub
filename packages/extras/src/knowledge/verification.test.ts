@@ -43,6 +43,15 @@ describe('verify periods', () => {
     expect(isAllowedUntil('2036-10-27', '2026-10-27')).toBe(true);
     expect(isAllowedUntil('2036-10-28', '2026-10-27')).toBe(false);
   });
+
+  it('also allows today and past days for the test hook, still within ten years', () => {
+    const hook = { pastDates: true };
+    expect(isAllowedUntil('2026-10-27', '2026-10-27', hook)).toBe(true);
+    expect(isAllowedUntil('2026-10-26', '2026-10-27', hook)).toBe(true);
+    expect(isAllowedUntil('2020-01-01', '2026-10-27', hook)).toBe(true);
+    expect(isAllowedUntil('2036-10-28', '2026-10-27', hook)).toBe(false);
+    expect(isAllowedUntil('2026-10-26', '2026-10-27', { pastDates: false })).toBe(false);
+  });
 });
 
 describe('stored verification', () => {

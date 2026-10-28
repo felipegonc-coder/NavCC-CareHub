@@ -17,6 +17,21 @@ export const IMPORT_SOURCE_IDS = [
 
 export type ImportSourceId = (typeof IMPORT_SOURCE_IDS)[number];
 
+/** Choices some sources offer on the Import screen (section 3.2), each a checkbox that starts off. */
+export const IMPORT_OPTION_IDS = ['asDatabase', 'includeArchived'] as const;
+export type ImportOptionId = (typeof IMPORT_OPTION_IDS)[number];
+
+/** The options the person ticked, which the importer gets; any left out are off. */
+export type ImportOptions = { readonly [id in ImportOptionId]?: boolean };
+
+export interface ImportSourceOption {
+  id: ImportOptionId;
+  /** The checkbox's label. */
+  label: string;
+  /** What it changes, under the label. */
+  description: string;
+}
+
 export interface ImportSource {
   id: ImportSourceId;
   label: string;
@@ -26,6 +41,8 @@ export interface ImportSource {
   howTo: string;
   /** What "File not accepted" says. */
   notAccepted: string;
+  /** The source's options, when it has any. */
+  options?: readonly ImportSourceOption[];
 }
 
 export const IMPORT_SOURCES: readonly ImportSource[] = [
@@ -74,9 +91,16 @@ export const IMPORT_SOURCES: readonly ImportSource[] = [
   {
     id: 'evernote',
     label: 'Evernote',
-    accept: ['.enex'],
-    howTo: 'In Evernote, export one or more notebooks as an .enex file.',
-    notAccepted: 'Pick a .enex file from Evernote.',
+    accept: ['.enex', '.zip'],
+    howTo: 'In Evernote, export one or more notebooks as an .enex file. A .zip of them works too.',
+    notAccepted: 'Pick a .enex file from Evernote, or a .zip of them.',
+    options: [
+      {
+        id: 'asDatabase',
+        label: 'As a database',
+        description: 'One database with a row per note, with its tags and dates.',
+      },
+    ],
   },
   {
     id: 'confluence',
@@ -91,6 +115,13 @@ export const IMPORT_SOURCES: readonly ImportSource[] = [
     accept: ['.json'],
     howTo: 'In Trello, open the board menu, then Print, export and share, then Export as JSON.',
     notAccepted: 'Pick the .json export of a Trello board.',
+    options: [
+      {
+        id: 'includeArchived',
+        label: 'Include archived',
+        description: 'Archived cards come in too, ticked in an Archived column.',
+      },
+    ],
   },
   {
     id: 'asana',
@@ -109,4 +140,11 @@ export function importSource(id: string): ImportSource | undefined {
 export function acceptsFileName(source: ImportSource, fileName: string): boolean {
   const name = fileName.toLowerCase();
   return source.accept.some((ending) => name.endsWith(ending));
+}
+
+/** `options` with only the ones `source` has, ticked: an importer never sees another's. */
+export function optionsFor(source: ImportSource, options: ImportOptions = {}): ImportOptions {
+  const kept: { [id in ImportOptionId]?: boolean } = {};
+  for (const { id } of source.options ?? []) if (options[id] === true) kept[id] = true;
+  return kept;
 }

@@ -320,7 +320,7 @@ describe('DatabaseView actions', () => {
     await act(() => drawn().actions.createRow({ templateId: null }));
     expect(client.createRow).toHaveBeenLastCalledWith(
       JOBS_ID,
-      expect.objectContaining({ templateId: undefined }),
+      expect.objectContaining({ templateId: null }),
     );
   });
 

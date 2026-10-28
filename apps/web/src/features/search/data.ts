@@ -1,5 +1,7 @@
 import type {
   SearchHistoryInput,
+  SearchPeopleQuery,
+  SearchPerson,
   SearchRecentResponse,
   SearchRequest,
   SearchResponse,
@@ -11,11 +13,22 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 
 // The search API (docs/extras/search.md): results, the recent lists, and what the window reports.
 
 const RECENT = ['search', 'recent'] as const;
+
+/** The value once it has stopped changing for `ms`: searches start when typing pauses. */
+export function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
 
 /** The recent pages and searches, read again each time the window opens. */
 export function useRecent() {
@@ -45,6 +58,39 @@ export function useResults(request: SearchRequest | null) {
   });
 }
 
+/** Pages and databases by title, for the In chip; pickers search titles only (spec 3.1). */
+export function usePagePicks(text: string, enabled: boolean) {
+  const typed = useDebounced(text.trim(), 80);
+  const request: SearchRequest = {
+    text: typed,
+    filters: { titleOnly: true, types: ['page', 'database'] },
+    limit: 8,
+  };
+  return useQuery({
+    queryKey: ['search', 'picks', typed],
+    queryFn: ({ signal }) => api.post<SearchResponse>('/api/search/query', request, { signal }),
+    enabled: enabled && typed !== '',
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+/** Who created or last edited pages the person can open, for the Created by and Edited by chips. */
+export function usePeople(role: SearchPeopleQuery['role'], text: string, enabled: boolean) {
+  const typed = useDebounced(text.trim(), 80);
+  const query = new URLSearchParams({ role, q: typed });
+  return useQuery({
+    queryKey: ['search', 'people', role, typed],
+    queryFn: ({ signal }) =>
+      api.get<{ people: SearchPerson[] }>(`/api/search/people?${query}`, { signal }),
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
 function changeRecent(
   client: QueryClient,
   change: (old: SearchRecentResponse) => SearchRecentResponse,
@@ -66,7 +112,7 @@ export function useSearchActions() {
         ...old,
         searches: old.searches.filter((s) => s.id !== id),
       }));
-      api.delete(`/api/search/recent/${id}`).catch(reload);
+      api.delete(`/api/search/recent/${encodeURIComponent(id)}`).catch(reload);
     },
     clear: () => {
       changeRecent(client, (old) => ({ ...old, searches: [] }));

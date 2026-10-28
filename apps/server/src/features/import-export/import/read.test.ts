@@ -93,6 +93,33 @@ describe('readUpload', () => {
     ).rejects.toThrow("this kind of file can't be imported yet");
   });
 
+  // The zip reader's checks from issue 217, as an import meets them.
+  it('refuses a zip that another program could read differently', async () => {
+    // B's local header and bytes, which the last zip hides inside A.
+    const hidden = zipFile([{ name: 'B.md', data: '# B' }]).subarray(0, 30 + 4 + 3);
+    const zips = [
+      // The same name twice, ignoring case and which slash is used.
+      zip([
+        { name: 'Escalations/Steps.md', data: '# Steps' },
+        { name: 'escalations\\STEPS.md', data: '# Other steps' },
+      ]),
+      // A local header that names another file, or says it's packed another way.
+      zip([{ name: 'Steps.md', data: '# Steps', local: { name: 'Other.md' } }]),
+      zip([{ name: 'Steps.md', data: '# Steps', local: { method: 0 } }]),
+      // An entry whose bytes are inside another one's.
+      zipFile([
+        { name: 'A.md', data: hidden },
+        { name: 'B.md', data: '# B', offset: 30 + 4, centralOnly: true },
+      ]),
+    ];
+    for (const bytes of zips) {
+      await expect(readUpload(request(bytes))).rejects.toThrow('the zip is damaged');
+      await expect(readUpload(request(bytes, { planned: true }))).rejects.toThrow(
+        'the zip is damaged',
+      );
+    }
+  });
+
   it('refuses entries packed too tightly (zip bombs)', () => {
     const bomb = zip([{ name: 'a.md', data: new Uint8Array(2 * 1024 * 1024) }]);
     expect(() => openZip(bomb)).toThrow('the zip is packed too tightly to open safely');

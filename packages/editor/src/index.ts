@@ -18,6 +18,7 @@ export type {
   LinkPicker,
   NodeViewEntry,
   NodeViews,
+  SlashContext,
   SlashItem,
 } from './types';
 export type { AnyExtension, JSONContent } from '@tiptap/core';

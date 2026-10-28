@@ -124,7 +124,7 @@ export const onMain = {
   dataSettings: false,
 
   /** Learning for learners: My learning, the Catalog, start pages and the player (#250, #245). */
-  learning: false,
+  learning: true,
 
   /** Learning Studio: the course editor, Preview and Publish (after #250). */
   learningStudio: false,

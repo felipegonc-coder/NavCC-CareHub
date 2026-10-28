@@ -49,7 +49,7 @@ const doc = { doc: { type: 'doc', content: [{ type: 'paragraph' }] } };
 describe('getting a file ready to import', () => {
   it('says why a file is refused before anything is sent', () => {
     expect(fileProblem(source('evernote'), { name: 'Trip.txt', size: 10 })).toBe(
-      'Pick a .enex file from Evernote.',
+      'Pick a .enex file from Evernote, or a .zip of them.',
     );
     expect(fileProblem(html, { name: 'Trip.HTML', size: 100 * 1024 * 1024 + 1 })).toBe(TOO_BIG);
     expect(fileProblem(html, { name: 'Trip.html', size: 0 })).toBe('The file is empty.');
@@ -123,6 +123,67 @@ describe('getting a file ready to import', () => {
       ],
       problems: [{ file: 'Trip/index.html', what: '1 table kept as text', why: 'Because.' }],
     });
+  });
+
+  it("keeps the source's dates and a board view in the plan it sends", async () => {
+    const importers = importer(async () => ({
+      pages: [
+        {
+          key: 'p1',
+          parent: null,
+          title: 'Trip',
+          content: doc,
+          source: 'Trip.html',
+          created: '2021-03-03',
+        },
+      ],
+      databases: [
+        {
+          key: 'd1',
+          parent: 'p1',
+          title: 'Days',
+          columns: [
+            { name: 'Day', type: null },
+            { name: 'Status', type: 'status' },
+          ],
+          rows: [{ key: 'r1', cells: ['Mon', 'To do'], updated: '2021-03-04T10:15:00Z' }],
+          source: 'Trip.html',
+          view: { layout: 'board', groupBy: 'Status' },
+        },
+      ],
+      files: [],
+      problems: [],
+    }));
+    const file = new File(['<p>Trip</p>'], 'Trip.html');
+    const inside = await entries((await prepareUpload(html, file, { importers })).body);
+    const plan: unknown = JSON.parse(new TextDecoder().decode(inside.get('plan.json')));
+    expect(planUploadSchema.safeParse(plan).success).toBe(true);
+    expect(plan).toMatchObject({
+      pages: [{ key: 'p1', created: '2021-03-03' }],
+      databases: [
+        {
+          rows: [{ key: 'r1', cells: ['Mon', 'To do'], updated: '2021-03-04T10:15:00Z' }],
+          view: { layout: 'board', groupBy: 'Status' },
+        },
+      ],
+    });
+  });
+
+  it('gives the importer the options that were ticked', async () => {
+    const seen: unknown[] = [];
+    const importers = importer(async ({ options }) => {
+      seen.push(options);
+      return {
+        pages: [{ key: 'p1', parent: null, title: 'Trip', content: doc, source: 'Trip.html' }],
+        databases: [],
+        files: [],
+        problems: [],
+      };
+    });
+    const file = new File(['<p>Trip</p>'], 'Trip.html');
+    await prepareUpload(html, file, { importers });
+    await prepareUpload(html, file, { importers, options: { asDatabase: true } });
+    expect(seen).toEqual([{}, { asDatabase: true }]);
   });
 
   it('skips files over 50 MB and refuses plans the server would refuse', async () => {
