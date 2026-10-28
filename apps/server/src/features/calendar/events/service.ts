@@ -18,47 +18,31 @@ import { addDays, todayIn } from '@carehub/team-time';
 import { httpError } from '../../../core/errors';
 import type { Db, Tx } from '../../../db';
 import { publishToUsers } from '../../live';
-import {
-  eventCardKey,
-  sendNotice,
-  type EventCardRef,
-  type NoticeReader,
-  type SendNoticeInput,
-} from '../../notices';
 import { learningItems } from '../courses';
 import { listLayers } from '../layers/service';
 import { getSettings } from '../settings/service';
-import { cardOf } from './cards';
 import { planDelete, planDuplicate, planEdit, planReply } from './edit';
 import { eventItems, eventJson } from './items';
+import { checkAnswers, checkChanges } from './limits';
 import { civilOf, seriesOf, windowOf, type Schedule, type Window } from './model';
 import {
   MAX_EVENTS,
   cancelEvent,
-  eventsById,
   eventsInWindow,
   findEvent,
   insertEvent,
-  isUuid,
   membersAmong,
   profilesOf,
   saveReply,
   updateEvent,
   type EventRecord,
 } from './store';
-import { cancelNotices, editNotices, invites, replyNotice } from './notices';
 import { addDefaultReminder, remindersAfterDelete, remindersAfterEdit } from './reminders';
 import { upcomingOf } from './upcoming';
 import { YEARS_MESSAGE, scheduleInYears } from './years';
 
 /** The signed-in member, as Calendar needs them. */
-export type Viewer = {
-  id: string;
-  workspaceId: string;
-  name: string;
-  timeZone: string;
-  use24h: boolean;
-};
+export type Viewer = { id: string; workspaceId: string; timeZone: string; use24h: boolean };
 
 /** Most items one range answer has. */
 export const MAX_ITEMS = 2000;
@@ -78,17 +62,6 @@ const peopleIds = (event: EventRecord) => [event.organizerId, ...event.people.ma
 /** Tells everyone who sees the event to refetch. */
 const notify = (eventId: string, userIds: readonly string[]) =>
   publishToUsers([...new Set(userIds)], { type: CALENDAR_CHANGED, data: { eventId } });
-
-let logNoticeError: (error: unknown) => void = () => undefined;
-
-/** Where notices that couldn't be sent are logged: routes.ts passes the app's logger. */
-export function onNoticeError(log: (error: unknown) => void): void {
-  logNoticeError = log;
-}
-
-/** Sends notices after the commit. One that fails is logged and never fails the change. */
-const tell = (notices: readonly SendNoticeInput[]) =>
-  Promise.all(notices.map((notice) => sendNotice(notice).catch(logNoticeError)));
 
 /** The viewer's range: events they organize or are invited to, and course due dates. */
 export async function listItems(db: Db, viewer: Viewer, query: ItemsQuery): Promise<ItemsResponse> {
@@ -148,9 +121,13 @@ export async function getEvent(db: Db, viewer: Viewer, eventId: string): Promise
   return eventJson(event, viewer.id, await profilesOf(db, peopleIds(event)));
 }
 
-/** Times must be in Calendar's years, and a repeating schedule must make sense to team-repeat. */
+/**
+ * Times must be in Calendar's years, a series keeps only so many deleted and changed occurrences,
+ * and a repeating schedule must make sense to team-repeat.
+ */
 export function checkSchedule(schedule: Schedule): void {
   if (!scheduleInYears(schedule)) throw httpError(400, 'invalid', YEARS_MESSAGE);
+  checkChanges(schedule);
   const series = seriesOf(schedule);
   const problems = series ? checkSeries(series) : [];
   if (problems.length > 0) throw httpError(400, 'invalid', problems[0], problems);
@@ -206,7 +183,6 @@ export async function createEvent(
     return id;
   });
   notify(id, [viewer.id, ...people]);
-  await tell(invites(viewer, id, people));
   return getEvent(db, viewer, id);
 }
 
@@ -226,7 +202,7 @@ export async function editEvent(
   eventId: string,
   input: EditEvent,
 ): Promise<EditResponse> {
-  const { splitId, seen, notices } = await db.transaction(async (tx) => {
+  const { splitId, seen } = await db.transaction(async (tx) => {
     const event = await ownEvent(tx, viewer, eventId);
     const invited = idsOf(event.people);
     const people = input.people && (await checkPeople(tx, viewer, input.people, invited));
@@ -240,11 +216,9 @@ export async function editEvent(
       : null;
     await remindersAfterEdit(tx, event.people, plan, { eventId: event.id, splitId });
     const later = idsOf(plan.split?.people ?? []);
-    const notices = editNotices(viewer, event, plan, { eventId: event.id, splitId }, input);
-    return { splitId, seen: [...peopleIds(event), ...idsOf(plan.event.people), ...later], notices };
+    return { splitId, seen: [...peopleIds(event), ...idsOf(plan.event.people), ...later] };
   });
   notify(eventId, seen);
-  await tell(notices);
   const split = splitId ? await getEvent(db, viewer, splitId) : null;
   return { event: await getEvent(db, viewer, eventId), split };
 }
@@ -256,15 +230,15 @@ export async function deleteEvent(
   eventId: string,
   query: DeleteEventQuery,
 ): Promise<void> {
-  const { seen, notices } = await db.transaction(async (tx) => {
+  const seen = await db.transaction(async (tx) => {
     const event = await ownEvent(tx, viewer, eventId);
     const left = planDelete(event, query);
+    if (left) checkChanges(left);
     await (left ? updateEvent(tx, event.id, left) : cancelEvent(tx, event.id));
     await remindersAfterDelete(tx, event.id, left);
-    return { seen: peopleIds(event), notices: cancelNotices(viewer, event, left, query) };
+    return peopleIds(event);
   });
   notify(eventId, seen);
-  await tell(notices);
 }
 
 /** An invited person's answer, for the series or one occurrence (CA-17, CA-22). */
@@ -274,15 +248,16 @@ export async function replyToEvent(
   eventId: string,
   body: ReplyBody,
 ): Promise<void> {
-  const { seen, notice } = await db.transaction(async (tx) => {
+  const seen = await db.transaction(async (tx) => {
     const event = await visibleEvent(tx, viewer, eventId, true);
     const person = event.people.find((invited) => invited.userId === viewer.id);
     if (!person) throw httpError(403, 'forbidden');
-    await saveReply(tx, event.id, planReply(event, person, body));
-    return { seen: peopleIds(event), notice: replyNotice(viewer, event, body) };
+    const answered = planReply(event, person, body);
+    checkAnswers(answered);
+    await saveReply(tx, event.id, answered);
+    return peopleIds(event);
   });
   notify(eventId, seen);
-  await tell([notice]);
 }
 
 /** A copy for the viewer to organize, inviting the others again (CA-20). */
@@ -305,19 +280,5 @@ export async function duplicateEvent(
     return id;
   });
   notify(id, [viewer.id, ...idsOf(people)]);
-  await tell(invites(viewer, id, idsOf(people)));
   return getEvent(db, viewer, id);
-}
-
-/** Event cards under notices, for the person reading them (Calendar's ids only). */
-export async function eventCards(db: Db, reader: NoticeReader, cards: EventCardRef[]) {
-  const ours = cards.filter((card) => isUuid(card.eventId));
-  const found = await eventsById(
-    db,
-    ours.map((card) => card.eventId),
-  );
-  const byId = new Map(found.map((event) => [event.id, event]));
-  return new Map(
-    ours.map((card) => [eventCardKey(card), cardOf(byId.get(card.eventId), card, reader)]),
-  );
 }
