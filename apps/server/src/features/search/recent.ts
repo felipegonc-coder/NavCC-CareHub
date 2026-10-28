@@ -222,3 +222,16 @@ export async function listSearchTerms(
     ORDER BY searches DESC, term LIMIT 500`);
   return rows.map(({ no_results, ...row }) => ({ ...row, noResults: no_results }));
 }
+
+/**
+ * Data settings' clean-up (spec 3.4: terms are kept as long as Analytics activity): forgets a
+ * workspace's counted search terms from before `day`, which is kept.
+ */
+export async function forgetSearchTermsBefore(
+  db: Db | Tx,
+  workspaceId: string,
+  day: Date | string,
+): Promise<void> {
+  await db.execute(sql`
+    DELETE FROM search_terms WHERE workspace_id = ${workspaceId} AND day < ${termDayOf(day)}::date`);
+}

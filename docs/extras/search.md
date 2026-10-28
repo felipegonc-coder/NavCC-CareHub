@@ -40,7 +40,10 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 - **Opening it:** Ctrl+K or Ctrl+P (⌘ on a Mac) on any screen, through the shell's `overlays` slot, or **Search** at the top of the sidebar (`sidebarSections`). When the editor has already used Ctrl+K (a link, with text selected), the window stays shut. `openSearch()` in `open.ts` opens it too.
 - **Results:** `POST /api/search/query` 80 ms after typing stops, 20 at a time as you scroll or move down. The previous results stay while new ones load, and grey rows show after 150 ms if there were none. The first result is selected.
 - **Keys:** it's a combobox. ↑ and ↓ move through every list, Enter opens the page, Ctrl+Enter opens it in a new tab, and Esc closes the window and puts the focus back where it was. Commands from the `commands` slot that match the text come first, under "Actions".
-- **Not yet:** Recent and Recent searches before typing, the filter chips and sort, Did you mean and Search in Trash, and Shift+Enter for the side panel (once the page view has one).
+- **Before typing** (SR-02): "Recent", the last 8 pages the person opened (`GET /api/search/recent`), and "Recent searches", their last 5, each with ✕ (or Delete while it's selected) and **Clear**. Picking a recent search searches for it again. With neither: "Type to search pages, databases and rows." Offline: "You're offline. Showing recent pages." with the recent pages it last loaded.
+- **What's recorded:** opening a result or pressing Enter saves the search (`POST /api/search/history` with `save: true`); closing the window or going to Trash only counts it (`save: false`). The shell reports each `/p/<id>` that opens to `POST /api/search/visits` (a stand-in in `SearchOverlay.tsx` for core's `page.viewed`).
+- **No results** (SR-11): "No results for ‘refnd’.", then "Did you mean refund?" when the answer has `didYouMean` (its button searches for that instead; with 1 or 2 results it shows under them), and **Search in Trash**, which closes the window and opens `/trash?q=<text>` (see With other features).
+- **Missing:** the filter chips and sort (with Clear filters), and Shift+Enter for the side panel (the page view has none).
 
 ## For other features (`apps/server/src/features/search/index.ts`)
 
@@ -49,6 +52,7 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 - `registerSearchBoost(name, (db, { userId, workspaceId, pageIds }) => Promise<Map<pageId, { boost?, verified? }>>)`: ranking help. The Knowledge base marks ✓ Verified pages this way.
 - `runSearch(db, { userId, workspaceId }, request)`: the same search as `POST /query`, with the same access checks; `request` is checked with `searchRequestSchema`. The assistant panel (Claude spec 3.3) passes `{ text: searchWords(question).join(' '), match: 'any' }`: `searchWords` from `@carehub/extras/search` keeps up to 12 words of the question, without common words (`COMMON_WORDS`), repeats or punctuation, and with IDs like "QA-17" whole.
 - `listSearchTerms(db, workspaceId, { from, to })` (days as `'2026-10-01'` or dates, both included): `{ term, searches, people, noResults, opened }[]`, most searched first, for Analytics. A term is listed only once 2 different people searched it on the same day; `people` is the most on one day, because people are counted per day without saving who.
+- `forgetSearchTermsBefore(db, workspaceId, day)`: for Data settings' clean-up, as search terms are kept as long as Analytics activity (spec 3.4). Removes the workspace's counts from before `day` (`'2026-10-01'` or a date), which is kept.
 
 ## Before typing, the people chips and search terms
 

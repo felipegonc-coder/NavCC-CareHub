@@ -19,10 +19,10 @@ How search works and what's still a stand-in: [search.md](search.md).
 - **Search finds nothing without the page model (#49) and accounts 1b (#55):** its stand-ins deny by default, so `search` stays off in `tests/e2e/flows/_support/features.ts` without them.
 - **Endpoint:** `POST /api/search/query` with `{ text, filters?, sort?, match?, cursor?, limit? }` answers `{ results, total, nextCursor }`. Share-link visitors and people outside the workspace get 403 "You don't have access to this."
 - **The window:** Ctrl+K or Ctrl+P (`ControlOrMeta`) on any screen, or **Search** at the top of the sidebar, opens the dialog named "Search". Its box is the combobox named "Search" and has the focus.
-  - Before typing it says "Type to search pages, databases and rows." (The "Recent" and "Recent searches" groups come in a later part.)
+  - Before typing: the group "Recent" (the last 8 pages opened, newest first, options named like results) and the group "Recent searches" (the last 5, each option named by its text, with the button **Clear** in the group). With neither it says "Type to search pages, databases and rows." Opening `/p/<id>` counts as a visit straight away.
   - Each result is an option named "<title>, page in <space> › <parent>, edited <day>" (database and row for the other kinds). The first is selected (`aria-selected`). ↑ and ↓ move, Enter opens `/p/<id>`, Ctrl+Enter opens it in a new tab and Esc closes.
   - Other features' commands that match come first, under "Actions".
-  - When nothing matches: "No results for ‘<text>’." When the API fails: "Search isn't working right now." with **Try again**. Offline: "You're offline. Search works again once you're back online." A status region says "<n> results" or "No results".
+  - When nothing matches: "No results for ‘<text>’.", then "Did you mean <text>?" with a button named the suggested text when a title is close, and the button **Search in Trash**, which goes to `/trash?q=<text>`. When the API fails: "Search isn't working right now." with **Try again**. Offline: "You're offline. Showing recent pages." A status region says "<n> results" or "No results".
 - **Screens:** `extras-search` (the window before typing) and `extras-search-results` (after typing "Fictional refund steps").
 - **Timing:** a new, renamed, moved, trashed or archived page is searchable (or hidden) at once; text typed into a page is searchable within about 2 seconds. Wait for the result to show (`expect(…).toBeVisible()`), not for a fixed time.
 - **Archived pages** are left out unless the Archived filter (`includeArchived`) is on.
@@ -63,3 +63,24 @@ The tests never reach Claude. The server is pointed at a local stub:
 - **CL-02:** the fictional key never appears in the server output, any API answer, any page, an export or the web bundle.
 
 The two environment lines go in the browser-test workflow (`.github/`), on the e2e server step only, with the fictional key.
+
+### Writing help (Ask Claude)
+
+- **Turning it on:** an Admin ticks "Approved for this workspace" and switches on "Writing help in pages" in Settings → Claude (`/settings/claude`). Within 5 seconds the entry points appear for people with Use Claude who can edit the page; with the switch off there are none (CL-01, CL-04, CL-05).
+- **Entry points, in a page (`/p/<id>`):** the "Ask Claude" button in the selection toolbar, "Ask Claude" in the "/" menu (under Actions), and Ctrl+J (⌘J on a Mac).
+- **The menu:** a dialog named "Ask Claude" holding a menu named "Ask Claude".
+  - Menu items: "Improve writing", "Fix grammar", "Change tone", "Make shorter", "Simplify", "Continue writing", "Summarize", "Draft".
+  - "Change tone" opens a menu named "Change tone": "Professional", "Friendly", "Direct", "Empathetic".
+  - "Draft" shows the textbox "What should Claude write?" with the buttons "Write" and "Back". Enter sends.
+  - The rewriting actions on an empty line say "Select some text first."
+- **The result box**, in the same dialog:
+  - First "Claude is writing…" with the button "Stop".
+  - Then the region "Claude's answer" with the buttons "Replace", "Insert below", "Try again" and "Discard". Draft and Continue writing have no Replace.
+  - If the selected words change meanwhile, Replace is gone and "The text changed while Claude was writing." shows (CL-08).
+  - Screen readers hear it through the page's `status` region: "Claude is writing", then the answer.
+- **Nothing changes until Replace or Insert below (CL-06):** Stop, Discard and Esc leave the page as it was. After Replace or Insert below, one Ctrl+Z (⌘Z) undoes it.
+- **Errors (CL-16, CL-17):** a selection containing `STUB-429` or `STUB-500` shows "Claude isn't available right now." with "Try again". `STUB-SLOW` shows the same after 60 seconds at most. Over 10,000 selected characters: "Select less text. Claude can work on up to 10,000 characters at a time."
+- **Endpoints (under `/api/claude`, Use Claude and Can edit on the page, else 403 "You don't have access to this."):**
+  - `POST /write` with `{ pageId, action, tone?, selection, at?, prompt? }` answers `{ text }` (Markdown).
+  - `POST /write/applied` with `{ pageId, action, placement }` answers 204, for page history's "(with Claude)".
+- **Screens:** none in `tests/e2e/extras/screens.ts` yet. Writing help can only be on once the stub's environment lines are in the browser-test workflow.
