@@ -99,9 +99,11 @@ describe('tabs commands', () => {
     pressKey(editor, 'Enter');
     expect(editor.commands.insertTabs()).toBe(true);
     const { doc } = editor.state;
-    expect(doc.childCount).toBe(2);
+    // The editor keeps an empty line after a block that ends the page.
+    expect(doc.childCount).toBe(3);
     expect(doc.child(0).textContent).toBe('Shift notes');
     expect(doc.child(1).type.name).toBe('tabs');
+    expect(doc.child(2).textContent).toBe('');
     expect(names(editor)).toEqual(['Tab 1', 'Tab 2']);
     const [first, second] = ids(editor);
     expect(first).toMatch(UUID);
