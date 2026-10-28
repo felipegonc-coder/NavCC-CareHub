@@ -96,7 +96,7 @@ export async function answerViewQuery(db: Executor, query: ViewQuery): Promise<V
   const cache = await loadRowCache(db, { userId: user.id, schemas, rows, levels });
   const open = cache.homeRows.filter((r) => atLeast(levels.get(r.id), 'view'));
   const people = await loadPeople(db, record.workspaceId, [
-    ...personIdsIn(open, record.properties),
+    ...personIdsIn(open, schemas.home.shown),
     ...personIdsIn(
       [...cache.rows.values()].map((c) => c.row),
       [...schemas.byId.values()].flatMap((s) => s.shown),

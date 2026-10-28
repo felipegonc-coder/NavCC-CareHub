@@ -8,6 +8,7 @@ import { httpError } from '../../core/errors';
 import { pageAccessOf } from '../pages';
 import { invalidRequest, notFound } from './errors';
 import { answerViewQuery } from './query';
+import { perPersonLimit, QUERIES_AT_ONCE } from './query-limit';
 import { loadDatabase } from './store';
 
 declare module '../../core/events' {
@@ -44,33 +45,38 @@ function signedIn(request: FastifyRequest) {
 }
 
 export default async function queryRoutes(app: FastifyInstance) {
+  // A view query reads every row, so one person runs QUERIES_AT_ONCE of them at a time.
+  const queries = perPersonLimit(QUERIES_AT_ONCE);
+
   app.post('/:id/query', { preHandler: app.requirePageAccess('view') }, async (request) => {
     const user = signedIn(request);
     const parsed = parseRequest(viewQueryRequest, request.body);
     if (!parsed.ok) throw invalidRequest();
     const input = parsed.value;
-    const page = pageAccessOf(request);
-    if (page.kind !== 'database') throw notFound();
-    const record = await loadDatabase(app.db, page.pageId);
-    if (!record || record.inTrash) throw notFound();
-    const view = record.views.find((v) => v.id === input.viewId);
-    if (!view) throw notFound();
-    const answer = await answerViewQuery(app.db, {
-      record,
-      view,
-      user,
-      override: input.override ?? null,
-      search: input.search ?? null,
-      cursor: input.cursor ?? null,
-    });
-    if (!('blocked' in answer) && !input.cursor) {
-      app.events.emit('databases.database.viewed', {
-        workspaceId: record.workspaceId,
-        databaseId: record.id,
-        viewId: view.id,
-        userId: user.id,
+    return queries.run(user.id, async () => {
+      const page = pageAccessOf(request);
+      if (page.kind !== 'database') throw notFound();
+      const record = await loadDatabase(app.db, page.pageId);
+      if (!record || record.inTrash) throw notFound();
+      const view = record.views.find((v) => v.id === input.viewId);
+      if (!view) throw notFound();
+      const answer = await answerViewQuery(app.db, {
+        record,
+        view,
+        user,
+        override: input.override ?? null,
+        search: input.search ?? null,
+        cursor: input.cursor ?? null,
       });
-    }
-    return answer;
+      if (!('blocked' in answer) && !input.cursor) {
+        app.events.emit('databases.database.viewed', {
+          workspaceId: record.workspaceId,
+          databaseId: record.id,
+          viewId: view.id,
+          userId: user.id,
+        });
+      }
+      return answer;
+    });
   });
 }

@@ -114,7 +114,8 @@ export function makeComputer(input: ComputerInput): Computer {
     return { kind: 'error', message: QUERY_TOO_SLOW };
   };
 
-  // Formulas are compiled once per request against their database's whole schema.
+  // Formulas are compiled once per request against their database's whole schema, remembered by
+  // database and property.
   const formulaSchemas = new Map<Id, FormulaSchema | null>();
   const schemaOf = (databaseId: Id): FormulaSchema | null => {
     if (formulaSchemas.has(databaseId)) return formulaSchemas.get(databaseId) ?? null;
@@ -128,12 +129,13 @@ export function makeComputer(input: ComputerInput): Computer {
     formulaSchemas.set(databaseId, schema);
     return schema;
   };
-  const compiled = new Map<Id, CompileResult>();
+  const compiled = new Map<string, CompileResult>();
   const compiledFor = (prop: Property<ConfigOf<'formula'>>, databaseId: Id): CompileResult => {
-    let result = compiled.get(prop.id);
+    const key = `${databaseId}:${prop.id}`;
+    let result = compiled.get(key);
     if (!result) {
       result = compileFormula(prop.config.expression, schemaOf(databaseId) ?? basicSchema([]));
-      compiled.set(prop.id, result);
+      compiled.set(key, result);
     }
     return result;
   };

@@ -1,16 +1,17 @@
 // People a query shows (W2-3): names for formulas and group labels, emails for formulas, who was
-// removed from the workspace, and the `people` map of the answer ({ name, avatarUrl } for everyone
-// the rows show after property access).
+// removed from the workspace, and the `people` map of the answer ({ name, avatarUrl, removed? } for
+// everyone the rows show after property access).
 import type { ComputedValue, Id, Property, Row } from '@carehub/databases';
 import type { QueryGroup, QueryRow } from '@carehub/databases/engine';
 import { sql } from 'drizzle-orm';
 import { isUuid } from './record';
 import { uuidList, type Executor } from './store';
 
-/** How the answer names a person. */
+/** How the answer names a person; `removed` only for someone no longer in the workspace. */
 export interface PersonShown {
   name: string;
   avatarUrl: string | null;
+  removed?: true;
 }
 
 /** The people a query may name, by user id. */
@@ -70,7 +71,10 @@ export async function loadPeople(
     removed: (id) => found.get(id)?.removed === true,
     shown: (id) => {
       const r = found.get(id);
-      return r ? { name: r.name, avatarUrl: r.avatar_url } : undefined;
+      if (!r) return undefined;
+      const person: PersonShown = { name: r.name, avatarUrl: r.avatar_url };
+      if (r.removed) person.removed = true;
+      return person;
     },
   };
 }

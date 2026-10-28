@@ -21,7 +21,7 @@ export interface Schemas {
   home: DatabaseSchema;
   /** The query's database and the related ones that could be read. */
   byId: ReadonlyMap<Id, DatabaseSchema>;
-  /** A property of any of them, and the database it belongs to. */
+  /** A property of any of them, and the database it belongs to (none for an id found twice). */
   property(propertyId: Id): { property: Property; databaseId: Id } | undefined;
   /** The engine's canSeeProperty: the see list (a property that no longer exists hides nothing). */
   canSee(propertyId: Id): boolean;
@@ -49,11 +49,19 @@ export function schemasFor(
   databases: ReadonlyMap<Id, readonly Property[]>,
   viewer: PropertyViewer,
 ): Schemas {
+  // Property ids are made on the server, so each is in one database. An id found more than once
+  // (a copy or an import gone wrong) is hidden everywhere, since whose see list applies is unknown.
   const owners = new Map<Id, { property: Property; databaseId: Id }>();
+  const twice = new Set<Id>();
   for (const [databaseId, properties] of databases) {
-    for (const property of properties) owners.set(property.id, { property, databaseId });
+    for (const property of properties) {
+      if (owners.has(property.id)) twice.add(property.id);
+      else owners.set(property.id, { property, databaseId });
+    }
   }
+  for (const id of twice) owners.delete(id);
   const canSee = (id: Id): boolean => {
+    if (twice.has(id)) return false;
     const p = owners.get(id)?.property;
     return !p || canSeeProperty(p, viewer);
   };
