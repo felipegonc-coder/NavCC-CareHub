@@ -80,6 +80,21 @@ describe('TableLayout column menus', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it("opens the Filter panel at the column's property, from its header", async () => {
+    const props = layoutProps();
+    renderWithDatabase(<TableLayout {...props} />);
+    fireEvent.click(headerButton('Status'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Filter' }));
+    // Once the menu has closed and given focus back to the header (the panel takes it from there).
+    await waitFor(() => expect(props.actions.openPanel).toHaveBeenCalledTimes(1));
+    expect(props.actions.openPanel).toHaveBeenCalledWith(
+      'filter',
+      { propertyId: PROPS.status },
+      headerButton('Status'),
+    );
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('offers Sort for Name but not Group by', () => {
     renderWithDatabase(<TableLayout {...layoutProps()} />);
     fireEvent.click(headerButton('Name'));
@@ -87,7 +102,7 @@ describe('TableLayout column menus', () => {
     expect(screen.queryByRole('menuitemcheckbox', { name: 'Group by' })).toBeNull();
   });
 
-  it('people who can only view sort and group (for themselves), and change nothing else', () => {
+  it('people who can only view filter, sort and group (for themselves), and change nothing else', () => {
     const props = layoutProps({
       meta: { ...jobsDatabase(), viewerAccess: 'view' },
       view: tableView({ sorts: [] }),
@@ -102,6 +117,7 @@ describe('TableLayout column menus', () => {
     expect(screen.queryByRole('menuitem', { name: 'Hide in this view' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Calculate' })).toBeNull();
     expect(screen.getByRole('menuitemcheckbox', { name: 'Group by' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Filter' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('menuitem', { name: 'Sort ascending' }));
     expect(savedPatch(props).sorts).toEqual([{ propertyId: PROPS.status, direction: 'asc' }]);
   });

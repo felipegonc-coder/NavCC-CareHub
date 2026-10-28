@@ -7,7 +7,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { ArrowDown, ArrowUp, Settings2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ListFilter, Settings2 } from 'lucide-react';
 import {
   cn,
   DropdownMenu,
@@ -24,6 +24,7 @@ import {
   Input,
 } from '@carehub/ui';
 import { LIMITS, type Aggregate, type Id, type Property, type Sort } from '@carehub/databases';
+import { filterOpsFor } from '@carehub/databases/filter';
 import { canGroupBy } from '@carehub/databases/group';
 import { canSortBy } from '@carehub/databases/sort';
 import { clampWidth, type TableColumn } from './columns';
@@ -33,6 +34,8 @@ import { TABLE_TEXT } from './messages';
 
 /** What the table's own items in a column's menu change in the view. */
 export interface ColumnChanges {
+  /** Opens the toolbar's Filter panel at a rule on this property. */
+  filter(): void;
   width(width: number): void;
   wrap(wrap: boolean): void;
   freeze(frozen: boolean): void;
@@ -51,6 +54,8 @@ export interface HeaderCellProps {
   menu(button: ReactElement): ReactNode;
   /** A press on the name: opens the menu unless it was the end of a drag. */
   onPress(): void;
+  /** The header's button got focus (the menu gives it back when it closes). */
+  onFocus?(button: HTMLButtonElement): void;
   /** The column is being dragged to a new place. */
   moving: boolean;
   onMoveStart(event: PointerEvent<HTMLButtonElement>): void;
@@ -65,6 +70,7 @@ export function HeaderCell({
   editable,
   menu,
   onPress,
+  onFocus,
   moving,
   onMoveStart,
   onResizeStart,
@@ -87,6 +93,7 @@ export function HeaderCell({
           type="button"
           onPointerDown={editable ? onMoveStart : undefined}
           onClick={onPress}
+          onFocus={onFocus && ((event) => onFocus(event.currentTarget))}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left hover:bg-fill-hover',
             'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-inset focus-visible:outline-ring',
@@ -122,9 +129,10 @@ export interface ColumnItemsOptions {
 }
 
 /**
- * The table's own items in a column's menu (PropertyMenu's `viewItems`): Sort ascending and
- * descending and Group by for everyone (the shell keeps them "for you only" without edit_views),
- * then Calculate, Width, Wrap column and Freeze up to here. Hide in this view is PropertyMenu's.
+ * The table's own items in a column's menu (PropertyMenu's `viewItems`): Filter, Sort ascending
+ * and descending and Group by for everyone (the shell keeps them "for you only" without
+ * edit_views), then Calculate, Width, Wrap column and Freeze up to here. Hide in this view is
+ * PropertyMenu's. Filter is left out for properties with nothing to filter by (buttons).
  */
 export function columnItems({
   column,
@@ -135,6 +143,14 @@ export function columnItems({
   change,
 }: ColumnItemsOptions): ReactElement[] {
   const items: ReactElement[] = [];
+  if (filterOpsFor(column.property).length > 0) {
+    items.push(
+      <DropdownMenuItem key="filter" onSelect={() => change.filter()}>
+        <ListFilter aria-hidden />
+        {TABLE_TEXT.filter}
+      </DropdownMenuItem>,
+    );
+  }
   if (canSortBy(column.property)) {
     items.push(
       <DropdownMenuItem key="asc" onSelect={() => change.sort('asc')}>
