@@ -73,8 +73,11 @@ function rewriteLinks(path: string, text: string, target: LinkTarget): string {
     .join('\n');
 }
 
-/** A document's page: .txt as plain text; Markdown titled by its first heading, with its links. */
-function readMarkdown(path: string, text: string, target: LinkTarget) {
+/**
+ * A document's page: .txt as plain text; Markdown titled by its first heading, with its links.
+ * Other importers of Markdown documents (Notion's export) read them with it too.
+ */
+export function readMarkdown(path: string, text: string, target: LinkTarget) {
   const isText = /\.txt$/i.test(path);
   const heading = isText ? null : firstHeading(text);
   const body = isText ? textAsMarkdown(text) : (heading?.body ?? text);
