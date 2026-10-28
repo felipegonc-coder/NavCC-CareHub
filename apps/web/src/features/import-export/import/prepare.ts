@@ -5,6 +5,7 @@ import {
   ImportFileError,
   acceptsFileName,
   checkPlan,
+  type ImportOptions,
   type ImportPlan,
   type ImportProblem,
   type ImportSource,
@@ -50,6 +51,8 @@ export interface Upload {
 export interface PrepareOptions {
   importers?: Partial<Record<ImportSourceId, Importer>>;
   inflate?: Inflate;
+  /** The source's options that the person ticked, for its importer. */
+  options?: ImportOptions;
 }
 
 /** Plan files can be this big; the server's zip reader refuses a zip with a bigger entry. */
@@ -138,7 +141,7 @@ async function planUpload(plan: ImportPlan, zip: ImportZip | null): Promise<Blob
 export async function prepareUpload(
   source: ImportSource,
   file: File,
-  { importers = BROWSER_IMPORTERS, inflate = inflateRaw }: PrepareOptions = {},
+  { importers = BROWSER_IMPORTERS, inflate = inflateRaw, options = {} }: PrepareOptions = {},
 ): Promise<Upload> {
   const importer = importers[source.id];
   if (!importer) return { planned: false, body: file };
@@ -149,6 +152,7 @@ export async function prepareUpload(
     bytes,
     text: async () => decodeCsvBytes(bytes),
     zip,
+    options,
   });
   checkPlan(plan);
   return { planned: true, body: await planUpload(plan, zip) };
