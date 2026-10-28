@@ -36,7 +36,7 @@ describe('Markdown shortcuts', () => {
     ['i. ', { type: 'orderedList', attrs: { type: 'i' } }],
     ['" ', { type: 'blockquote' }],
     ['\u201c ', { type: 'blockquote' }],
-    ['> ', { type: 'blockquote' }],
+    ['> ', { type: 'toggle', content: [{ type: 'paragraph' }] }],
     ['[]', { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false } }] }],
     ['---', { type: 'horizontalRule' }],
     ['```', { type: 'codeBlock' }],
@@ -57,7 +57,7 @@ describe('Markdown shortcuts', () => {
     });
   });
 
-  it.each(['# ', '### ', '- ', '1. ', 'a. ', 'i. ', '" ', '[]', '---', '```', '**bold**'])(
+  it.each(['# ', '### ', '- ', '1. ', 'a. ', 'i. ', '> ', '" ', '[]', '---', '```', '**bold**'])(
     'Ctrl+Z right after %j turns it back into what was typed',
     async (input) => {
       editor = await createTestEditor();

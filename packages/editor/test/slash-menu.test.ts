@@ -75,7 +75,12 @@ describe('"/" menu', () => {
     expect(ids(store.getSnapshot()?.items)).toEqual(ids(blockSlashItems));
     typeText(editor, 'list');
     await flush();
-    expect(ids(store.getSnapshot()?.items)).toEqual(['bulletList', 'orderedList', 'taskList']);
+    expect(ids(store.getSnapshot()?.items)).toEqual([
+      'bulletList',
+      'orderedList',
+      'taskList',
+      'toggle',
+    ]);
   });
 
   it('lists Code under Media and shows the Markdown shortcuts as hints', () => {
@@ -83,6 +88,7 @@ describe('"/" menu', () => {
     expect(block('heading2')?.hint).toBe('##');
     expect(block('taskList')?.hint).toBe('[]');
     expect(block('divider')?.hint).toBe('---');
+    expect(block('toggle')?.hint).toBe('>');
   });
 
   it('keeps matching across spaces', async () => {
@@ -194,6 +200,7 @@ describe('"/" menu', () => {
     ['bulletList', 'bulletList'],
     ['orderedList', 'orderedList'],
     ['taskList', 'taskList'],
+    ['toggle', 'toggle'],
     ['quote', 'blockquote'],
     ['divider', 'horizontalRule'],
     ['codeBlock', 'codeBlock'],
