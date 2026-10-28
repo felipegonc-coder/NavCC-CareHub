@@ -7,17 +7,9 @@ import type { Automation, AutomationStore, Run } from './domain/types';
 import { createAutomationsService, type Caller } from './service';
 import { createPostgresAutomationStore } from './store';
 
-/** The caller's place in the current workspace: `request.member` (decision 0007, section 3.1). */
-export interface AutomationsMember {
-  workspaceId: string;
-  isAdmin: boolean;
-}
-
 export interface AutomationsRoutesOptions {
   /** Defaults to the Postgres store on `app.db`. */
   store?: AutomationStore;
-  /** Defaults to `request.member`; until the roles PR adds it, everyone gets 403. */
-  getMember?: (request: FastifyRequest) => AutomationsMember | null | undefined;
   now?: () => Date;
 }
 
@@ -61,19 +53,20 @@ export function toRunView(run: Run): RunView {
   };
 }
 
-/** Settings → Automations, for Admins only (AU-D1). Anyone else gets 403 (AU-09). */
+/**
+ * Settings → Automations, for Admins only (AU-D1): `app.requirePermission('workspace.admin')`
+ * answers 401 when signed out and 403 for anyone else, guests and outsiders included (AU-09).
+ */
 const automationsRoutes: FastifyPluginAsync<AutomationsRoutesOptions> = async (app, options) => {
   const store = options.store ?? createPostgresAutomationStore(sqlRunnerFor(app.db));
   const service = createAutomationsService({ store, now: options.now });
-  const getMember =
-    options.getMember ??
-    ((request: FastifyRequest) => (request as { member?: AutomationsMember | null }).member);
+  app.addHook('preHandler', app.requirePermission('workspace.admin'));
 
+  /** The Admin asking, in their workspace (`request.member`, decision 0007, section 3.1). */
   function admin(request: FastifyRequest): Caller {
-    if (!request.user) throw httpError(401, 'signed_out');
-    const member = getMember(request);
-    if (!member?.isAdmin) throw httpError(403, 'forbidden');
-    return { workspaceId: member.workspaceId, userId: request.user.id };
+    // The guard lets only signed-in Admins through; this only narrows the types.
+    if (!request.user || !request.member) throw httpError(403, 'forbidden');
+    return { workspaceId: request.member.workspaceId, userId: request.user.id };
   }
   const id = (request: FastifyRequest) => params.parse(request.params).id;
 

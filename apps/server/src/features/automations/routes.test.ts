@@ -1,9 +1,10 @@
-import type { CurrentUser } from '@carehub/shared';
+import { hasPermission, type CurrentUser, type PermissionKey } from '@carehub/shared';
 import type { AutomationView } from '@carehub/team-automations/api';
 import { MAX_AUTOMATIONS, type Action, type Trigger } from '@carehub/team-automations/automation';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
-import { errorHandler } from '../../core/errors';
+import { errorHandler, httpError } from '../../core/errors';
+import type { CurrentMember } from '../workspaces';
 import { createMemoryAutomationStore } from './domain/memoryStore';
 import type { AutomationStore } from './domain/types';
 import automationsRoutes from './routes';
@@ -13,12 +14,15 @@ const otherWorkspaceId = '8e2d4c6b-1a3f-4b5d-8c7e-9f0a1b2c3d4e';
 const ids = {
   avery: '7f0c2b9e-3d4a-4c1e-9b8f-1a2b3c4d5e6f',
   eli: '4d6f8a0c-2e4a-4c6e-8a0c-2e4a6c8e0a2c',
+  kai: '6b8d0f2a-4c6e-4a8b-9d1f-3e5a7c9b1d3f',
   riley: '5a7c9e1b-3d5f-4a7c-8e9a-1b3d5f7a9c1e',
   sam: '2c4e6a8b-0d1f-4e3a-9b5c-7d9e1f3a5b7c',
 };
 // Who is asking: the test hooks read these headers.
 const avery = { 'x-test-user': ids.avery, 'x-test-role': 'admin' };
 const eli = { 'x-test-user': ids.eli, 'x-test-role': 'editor' };
+const kai = { 'x-test-user': ids.kai, 'x-test-role': 'guest' };
+// Signed in, but not in the workspace.
 const riley = { 'x-test-user': ids.riley };
 const sam = {
   'x-test-user': ids.sam,
@@ -58,6 +62,32 @@ function testUser(id: string): CurrentUser {
   };
 }
 
+function testMember(role: string, workspace: string): CurrentMember {
+  if (role === 'guest') {
+    const permissions = new Set<PermissionKey>();
+    return {
+      kind: 'guest',
+      workspaceId: workspace,
+      roleId: null,
+      roleName: null,
+      permissions,
+      isAdmin: false,
+    };
+  }
+  const isAdmin = role === 'admin';
+  const permissions = new Set<PermissionKey>(
+    isAdmin ? ['pages.edit', 'workspace.admin'] : ['pages.edit'],
+  );
+  return {
+    kind: 'member',
+    workspaceId: workspace,
+    roleId: `role-${role}`,
+    roleName: role,
+    permissions,
+    isAdmin,
+  };
+}
+
 const header = (value: string | string[] | undefined) =>
   typeof value === 'string' ? value : undefined;
 
@@ -66,21 +96,21 @@ async function build(): Promise<FastifyInstance> {
   app = Fastify();
   app.setErrorHandler(errorHandler);
   app.decorateRequest('user', null);
+  app.decorateRequest('member', null);
+  // Stands in for the auth plugin's guard: 401 signed out, then 403 for people outside the
+  // workspace, guests and roles without the key.
+  app.decorate('requirePermission', (key: PermissionKey) => async (request: FastifyRequest) => {
+    if (!request.user) throw httpError(401, 'signed_out');
+    if (!hasPermission(request.member, key)) throw httpError(403, 'forbidden');
+  });
   app.addHook('onRequest', async (request) => {
     const id = header(request.headers['x-test-user']);
+    const role = header(request.headers['x-test-role']);
+    const workspace = header(request.headers['x-test-workspace']) ?? workspaceId;
     request.user = id ? testUser(id) : null;
+    request.member = id && role ? testMember(role, workspace) : null;
   });
-  await app.register(automationsRoutes, {
-    prefix: '/api/automations',
-    store,
-    now: () => now,
-    getMember: (request) => {
-      const role = header(request.headers['x-test-role']);
-      if (!role) return null;
-      const workspace = header(request.headers['x-test-workspace']) ?? workspaceId;
-      return { workspaceId: workspace, isAdmin: role === 'admin' };
-    },
-  });
+  await app.register(automationsRoutes, { prefix: '/api/automations', store, now: () => now });
   return app;
 }
 
@@ -250,7 +280,7 @@ describe('/api/automations errors', () => {
       const signedOut = await call(request);
       expect(signedOut.statusCode).toBe(401);
       expect(signedOut.json()).toMatchObject({ error: { code: 'signed_out' } });
-      for (const headers of [eli, riley]) {
+      for (const headers of [eli, kai, riley]) {
         const refused = await call({ ...request, headers });
         expect(refused.statusCode).toBe(403);
         expect(refused.json()).toEqual({

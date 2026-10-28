@@ -24,9 +24,9 @@ Tables: `automations_automations` and `automations_runs` (`migrations/2026102707
 
 ## Routes (`routes.ts`, mounted at `/api/automations`)
 
-Admins only (AU-D1): anyone else gets 403 (AU-09). It uses `app.db`, `request.user` and
-`request.member`; until the roles PR adds `request.member`, every request gets 403. Options for
-tests: `store`, `getMember(request)` and `now`. Bodies are checked with
+Admins only (AU-D1): `app.requirePermission('workspace.admin')` answers 401 when signed out and 403
+for anyone else, guests and people outside the workspace included (AU-09). It uses `app.db`, and
+`request.member` for the workspace. Options for tests: `store` and `now`. Bodies are checked with
 `@carehub/team-automations/validate`; answers use the views in `@carehub/team-automations/api`
 (times as ISO strings).
 
