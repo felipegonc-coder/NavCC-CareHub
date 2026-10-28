@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  Field,
   Spinner,
 } from '@carehub/ui';
 import { useState } from 'react';
@@ -85,13 +86,12 @@ export function UndoDialog({ view, onUndone }: UndoDialogProps) {
                 <li key={page.pageId}>{page.title}</li>
               ))}
             </ul>
-            <label className="flex items-center gap-2">
+            <Field label="Remove them too" layout="inline">
               <Checkbox
                 checked={removeChanged}
                 onCheckedChange={(checked) => setRemoveChanged(checked === true)}
               />
-              Remove them too
-            </label>
+            </Field>
           </div>
         )}
         {error && (
