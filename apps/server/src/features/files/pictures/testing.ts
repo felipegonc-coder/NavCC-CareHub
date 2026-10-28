@@ -1,6 +1,7 @@
 // Fictional sample pictures for the tests: the real structure of each format, with made-up details
 // that must go. The image data is filler: the cleaners never decode pixels.
 
+import { deflateSync } from 'node:zlib';
 import { orientationExif } from './exif';
 import { pngChunk } from './png';
 
@@ -48,7 +49,10 @@ export function sampleExif(orientation: number): Buffer {
 const segment = (marker: number, payload: Buffer) =>
   Buffer.concat([u16(0xff00 | marker), u16(payload.length + 2), payload]);
 
-/** A JPEG with Exif (orientation 6), XMP, IPTC and a comment, and a second picture after its end. */
+/**
+ * A JPEG with Exif (orientation 6), XMP, IPTC and a comment, then a second picture and a motion
+ * photo's video after its end.
+ */
 export function sampleJpeg() {
   const start = u16(0xffd8);
   const end = u16(0xffd9);
@@ -81,13 +85,27 @@ export function sampleJpeg() {
     start,
     exif(1),
     end,
+    u32(20),
+    text('ftypmp42'),
+    u32(0),
+    text(`isom${DETAIL}`),
   ]);
   const orientationOnly = segment(0xe1, Buffer.concat([text('Exif\0\0'), orientationExif(6)]));
   const cleaned = Buffer.concat([start, jfif, orientationOnly, colours, tables, frame, scan, end]);
   return { file, cleaned, width: 48, height: 64, orientation: 6 };
 }
 
-/** A PNG with text, Exif (orientation 6) and a time, and bytes after its end. */
+/** How ImageMagick keeps Exif, XMP or IPTC in a PNG: in hex, in a compressed text chunk. */
+function rawProfile(name: string, data: Buffer): Buffer {
+  const hex = data.toString('hex').replace(/.{1,72}/g, '$&\n');
+  const profile = text(`\n${name}\n${String(data.length).padStart(8)}\n${hex}`);
+  return pngChunk(
+    'zTXt',
+    Buffer.concat([text(`Raw profile type ${name}\0\0`), deflateSync(profile)]),
+  );
+}
+
+/** A PNG with text, a raw Exif profile, Exif (orientation 6) and a time, and bytes after its end. */
 export function samplePng() {
   const signature = Buffer.from('89504e470d0a1a0a', 'hex');
   const header = pngChunk('IHDR', Buffer.concat([u32(64), u32(48), Buffer.from([8, 2, 0, 0, 0])]));
@@ -98,6 +116,7 @@ export function samplePng() {
     signature,
     header,
     pngChunk('tEXt', text(`Location\0${DETAIL}`)),
+    rawProfile('exif', Buffer.concat([text('Exif\0\0'), sampleExif(6)])),
     pngChunk('eXIf', sampleExif(6)),
     colours,
     pngChunk('iTXt', text(`XML:com.adobe.xmp\0\0\0\0\0${DETAIL}`)),
@@ -187,8 +206,11 @@ const box = (type: string, ...contents: Buffer[]) => {
 const fullBox = (type: string, version: number, flags: number, ...contents: Buffer[]) =>
   box(type, Buffer.from([version, flags >> 16, (flags >> 8) & 0xff, flags & 0xff]), ...contents);
 
-/** A HEIC with Exif and XMP items, cropped ('clap') from 64 × 64 to 64 × 48 and turned a quarter. */
-export function sampleHeic() {
+/**
+ * A HEIC (an AVIF with `avif`) with Exif and XMP items, cropped ('clap') from 64 × 64 to 64 × 48 and
+ * turned a quarter.
+ */
+export function sampleHeic({ avif = false } = {}) {
   const image = Buffer.alloc(32, 0x55);
   const exif = Buffer.concat([u32(6), text('Exif\0\0'), sampleExif(1)]);
   const xmp = text(`<x:xmpmeta xmlns:x="adobe:ns:meta/">${DETAIL}</x:xmpmeta>`.padEnd(120, ' '));
@@ -215,7 +237,7 @@ export function sampleHeic() {
         0,
         0,
         u16(3),
-        infe(1, 'hvc1'),
+        infe(1, avif ? 'av01' : 'hvc1'),
         infe(2, 'Exif'),
         infe(3, 'mime', 'application/rdf+xml'),
       ),
@@ -244,7 +266,8 @@ export function sampleHeic() {
         fullBox('ipma', 0, 0, u32(1), u16(1), Buffer.from([3, 0x81, 0x82, 0x83])),
       ),
     );
-  const type = box('ftyp', text('heic'), u32(0), text('mif1heic'));
+  const brand = avif ? 'avif' : 'heic';
+  const type = box('ftyp', text(brand), u32(0), text(`mif1${brand}`));
   const dataAt = type.length + meta(0).length + 8;
   const head = Buffer.concat([type, meta(dataAt)]);
   const file = Buffer.concat([head, box('mdat', image, exif, xmp)]);

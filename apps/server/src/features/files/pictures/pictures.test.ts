@@ -23,6 +23,7 @@ const SAMPLES = [
   { mimeType: 'image/webp', ...sampleWebp() },
   { mimeType: 'image/gif', ...sampleGif() },
   { mimeType: 'image/heic', ...sampleHeic() },
+  { mimeType: 'image/avif', ...sampleHeic({ avif: true }) },
 ];
 
 describe('cleanPicture', () => {
