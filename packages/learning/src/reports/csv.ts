@@ -1,5 +1,6 @@
 import type { CourseStatus, IsoDate, IsoDateTime } from '../format/index';
 import { byText, dayOf } from '../delivery/internal';
+import type { CourseReport, OverdueEntry } from './course-report';
 import { daysOverdue, type EnrollmentRow, type ReportOptions } from './rows';
 
 /** A CSV cell. Numbers are written as they are; null and undefined are empty. */
@@ -69,4 +70,56 @@ export function courseReportCsv(
     (a, b) => byText(a.learnerName, b.learnerName) || byText(a.learnerId, b.learnerId),
   );
   return toCsv(columns, sorted, options.bom ? { bom: true } : {});
+}
+
+const minutes = (seconds: number | null) => (seconds === null ? null : Math.round(seconds / 60));
+
+/** One course's line in the reports overview. */
+type OverviewLine = { courseTitle: string; report: CourseReport };
+
+/**
+ * The reports overview as CSV, one line per course in the order given: Course, Learners, Not
+ * started, In progress, Completed, Passed, Failed, Overdue, Completion %, Average score and Average
+ * time spent (minutes, finished learners only). The two averages are empty when there is nothing
+ * to average.
+ */
+export function reportsOverviewCsv(
+  courses: readonly OverviewLine[],
+  options: { bom?: boolean } = {},
+): string {
+  const columns: CsvColumn<OverviewLine>[] = [
+    { header: 'Course', value: (line) => line.courseTitle },
+    { header: 'Learners', value: (line) => line.report.total },
+    { header: 'Not started', value: (line) => line.report.notStarted },
+    { header: 'In progress', value: (line) => line.report.inProgress },
+    { header: 'Completed', value: (line) => line.report.completed },
+    { header: 'Passed', value: (line) => line.report.passed },
+    { header: 'Failed', value: (line) => line.report.failed },
+    { header: 'Overdue', value: (line) => line.report.overdue },
+    { header: 'Completion %', value: (line) => line.report.completionPercent },
+    { header: 'Average score', value: (line) => line.report.averageScore },
+    {
+      header: 'Average time spent (minutes)',
+      value: (line) => minutes(line.report.averageActiveSeconds),
+    },
+  ];
+  return toCsv(columns, courses, options.bom ? { bom: true } : {});
+}
+
+/**
+ * The overdue list as CSV, one line per late learner and course in the order given (most late
+ * first from `overdueList`): Name, Course, Status, Due and Days overdue.
+ */
+export function overdueListCsv(
+  entries: readonly OverdueEntry[],
+  options: { bom?: boolean } = {},
+): string {
+  const columns: CsvColumn<OverdueEntry>[] = [
+    { header: 'Name', value: (entry) => entry.learnerName },
+    { header: 'Course', value: (entry) => entry.courseTitle },
+    { header: 'Status', value: (entry) => STATUS_LABELS[entry.status] },
+    { header: 'Due', value: (entry) => entry.dueDate },
+    { header: 'Days overdue', value: (entry) => entry.daysOverdue },
+  ];
+  return toCsv(columns, entries, options.bom ? { bom: true } : {});
 }
