@@ -3,6 +3,7 @@
 // member (403), pages and spaces are missing (404) and nothing can be made. Tests bind fakes;
 // when a feature lands, its line here calls it instead (see README.md).
 import type { AccessLevel } from '@carehub/shared';
+import type { StarterDatabase } from '@carehub/extras/templates/databases';
 import type { TemplateIcon } from '@carehub/extras/templates/gallery';
 import type { FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
@@ -45,6 +46,12 @@ export interface NewPage {
   createdBy: string;
 }
 
+/** A database to make from a starter: where it goes and what it's made of. */
+export interface NewDatabase extends NewPage {
+  /** With new ids, and the sample rows filled in for the person (or none). */
+  database: StarterDatabase;
+}
+
 export interface TemplatesCore {
   viewer(request: FastifyRequest): TemplatesViewer;
   /** The page and the person's level on it; null when it's missing or in Trash. */
@@ -78,6 +85,8 @@ export interface TemplatesCore {
     tx: Tx,
     input: { databaseId: string; parentId: string; includeRows: boolean; by: string },
   ): Promise<string | null>;
+  /** A new database from a starter, as its own page; null when databases can't be made yet. */
+  createDatabase(tx: Tx, input: NewDatabase): Promise<string | null>;
   rowCount(db: Db | Tx, databaseId: string): Promise<number>;
   /** After the commit: open editors reload these pages (collab's `page.updated`). */
   contentChanged(pageIds: string[], by: string): void;
@@ -130,6 +139,7 @@ const standIn: TemplatesCore = {
   },
   saveVersionNow, // History's (#317); it saves no version until pages land (#49)
   duplicateDatabase: async () => null, // stand-in: duplicateDatabase (Databases api.ts)
+  createDatabase: async () => null, // stand-in: createDatabase (Databases api.ts)
   rowCount: async () => 0, // stand-in: the Databases lane's row count
   contentChanged: () => {}, // stand-in: emit page.updated (collab #197)
 };
