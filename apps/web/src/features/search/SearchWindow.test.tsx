@@ -1,4 +1,4 @@
-import type { SearchRecentResponse, SearchResult } from '@carehub/extras/search';
+import type { SearchPerson, SearchRecentResponse, SearchResult } from '@carehub/extras/search';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -40,6 +40,7 @@ function serve(
     found?: SearchResult[];
     /** Did you mean, by the text searched for. */
     suggest?: Record<string, string>;
+    people?: SearchPerson[];
     status?: number;
   } = {},
 ) {
@@ -56,6 +57,13 @@ function serve(
         headers: { 'Content-Type': 'application/json' },
       });
     if (url === '/api/search/recent' && method === 'GET') return json(200, recent);
+    if (url.startsWith('/api/search/people?')) {
+      const q = new URLSearchParams(url.split('?')[1]).get('q') ?? '';
+      const people = (options.people ?? []).filter((person) =>
+        person.name.toLowerCase().startsWith(q.toLowerCase()),
+      );
+      return json(200, { people });
+    }
     if (url === '/api/search/query') {
       if (options.status)
         return json(options.status, { error: { code: 'unexpected', message: 'No.' } });
@@ -353,6 +361,69 @@ describe('the search window', () => {
       method: 'POST',
       url: '/api/search/history',
       body: { text: 'refund', filters: { titleOnly: true }, save: true, found: 1, opened: PAGE_A },
+    });
+  });
+
+  it('picks pages for In and people for Edited by, and saves them with the search (SR-06)', async () => {
+    const calls = serve({
+      found: [refund, policy],
+      people: [
+        { id: 'u1', name: 'Sam Ortiz' },
+        { id: 'u2', name: 'Riley Chen' },
+      ],
+    });
+    show();
+    const { dialog, box } = await openWindow();
+    fireEvent.change(box, { target: { value: 'ref' } });
+    await dialog.findByRole('option', { name: /^Refund steps/ });
+
+    fireEvent.click(dialog.getByRole('button', { name: 'In' }));
+    const findPage = await screen.findByRole('combobox', { name: 'Find a page' });
+    await waitFor(() => expect(findPage).toHaveFocus());
+    fireEvent.change(findPage, { target: { value: 'refund st' } });
+    fireEvent.click(await screen.findByRole('option', { name: 'Refund steps, Support' }));
+    expect(screen.getByRole('option', { name: 'Refund steps, Support' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    fireEvent.keyDown(findPage, { key: 'Escape' });
+    expect(await dialog.findByRole('button', { name: 'In: Refund steps' })).toBeInTheDocument();
+
+    fireEvent.click(dialog.getByRole('button', { name: 'Edited by' }));
+    const findPerson = await screen.findByRole('combobox', { name: 'Find a person' });
+    fireEvent.change(findPerson, { target: { value: 'sa' } });
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Sam Ortiz' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: 'Riley Chen' })).not.toBeInTheDocument();
+    });
+    fireEvent.keyDown(findPerson, { key: 'Enter' });
+    fireEvent.keyDown(findPerson, { key: 'Escape' });
+    expect(await dialog.findByRole('button', { name: 'Edited by: Sam Ortiz' })).toBeInTheDocument();
+
+    const filters = { in: [PAGE_A], editedBy: ['u1'] };
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        url: '/api/search/query',
+        body: { text: 'ref', filters, sort: 'best' },
+      }),
+    );
+    // Pickers search titles only, a few at a time.
+    expect(calls).toContainEqual({
+      method: 'POST',
+      url: '/api/search/query',
+      body: {
+        text: 'refund st',
+        filters: { titleOnly: true, types: ['page', 'database'] },
+        limit: 8,
+      },
+    });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(`/p/${PAGE_A}`));
+    expect(calls).toContainEqual({
+      method: 'POST',
+      url: '/api/search/history',
+      body: { text: 'ref', filters, save: true, found: 2, opened: PAGE_A },
     });
   });
 

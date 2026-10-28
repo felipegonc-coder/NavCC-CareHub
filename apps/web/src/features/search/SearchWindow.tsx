@@ -19,7 +19,7 @@ import { Clock, Search, X, Zap } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { slots, type Command } from '../../slots';
-import { useRecent, useResults, useSearchActions } from './data';
+import { useDebounced, useRecent, useResults, useSearchActions } from './data';
 import { FilterBar, type SearchOptions } from './FilterBar';
 import { hasFilters } from './filters';
 import { matchCommands, modifierLabel } from './keys';
@@ -37,15 +37,6 @@ interface Section {
   heading: boolean;
   options: Option[];
   action?: ReactNode;
-}
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return settled;
 }
 
 /** True once `on` has stayed true for `ms`. */
@@ -74,7 +65,11 @@ export default function SearchWindow({ onClose }: { onClose: () => void }) {
   const [returnTo] = useState(() => document.activeElement as HTMLElement | null);
   const [text, setText] = useState('');
   const typed = useDebounced(text, 80);
-  const [searchOptions, setSearchOptions] = useState<SearchOptions>({ filters: {}, sort: 'best' });
+  const [searchOptions, setSearchOptions] = useState<SearchOptions>({
+    filters: {},
+    sort: 'best',
+    names: {},
+  });
   const { filters, sort } = searchOptions;
   const request = typed.trim() ? { text: typed, filters, sort } : null;
   const results = useResults(request);
