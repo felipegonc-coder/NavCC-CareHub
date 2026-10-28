@@ -1,7 +1,6 @@
 // Use template (spec 3.1 and 5): a full copy at the chosen place, with links pointing to the copies
 // and variables filled in, and "Made from" in its Updates.
 import { fillPageTokens, fillVariables } from '@carehub/extras/templates/content';
-import { databaseForUse, STARTER_DATABASE_MESSAGES } from '@carehub/extras/templates/databases';
 import type {
   UseTarget,
   UseTemplateInput,
@@ -55,7 +54,7 @@ export async function useTemplate(
     const spaceId = target.spaceId ?? (await core().privateSpaceId(tx, by));
     // Databases are copied from their live databases, only for people who can see them.
     const sources = template.pages.flatMap((page) =>
-      page.kind !== 'page' && !page.database && page.sourcePageId ? [page.sourcePageId] : [],
+      page.kind !== 'page' && page.sourcePageId ? [page.sourcePageId] : [],
     );
     const levels = sources.length
       ? await core().levels(tx, by, sources)
@@ -69,35 +68,9 @@ export async function useTemplate(
         icon: page.icon,
         createdBy: by,
       });
-    // A starter's database, with new ids and the sample rows filled in for this person.
-    const makeDatabase = async (page: TemplatePage, parentId: string | null, title: string) => {
-      if (!page.database) return null;
-      const database = databaseForUse(page.database, {
-        userId: by,
-        timeZone: viewer.timeZone,
-        now,
-        includeRows: input.includeSampleRows,
-      });
-      return core().createDatabase(tx, {
-        workspaceId: viewer.workspaceId,
-        spaceId,
-        parentId,
-        title,
-        icon: page.icon,
-        createdBy: by,
-        database,
-      });
-    };
     for (const page of template.pages) {
       const title = page.title || (page.key === 0 ? template.card.name : '');
       titles.set(page.key, title);
-      if (page.key === 0 && page.kind === 'database') {
-        // A database starter: on "this page" it goes under the page, which is left as it is.
-        const made = await makeDatabase(page, target.applyTo?.id ?? target.parentId, title);
-        if (!made) throw httpError(409, 'conflict', STARTER_DATABASE_MESSAGES.notYet);
-        ids.set(0, made);
-        continue;
-      }
       if (page.key === 0) {
         const { applyTo } = target;
         if (!applyTo) {
@@ -116,21 +89,19 @@ export async function useTemplate(
         ids.set(page.key, await make(page, parentId, title));
         continue;
       }
-      const source = page.database ? null : page.sourcePageId;
+      const source = page.sourcePageId;
       if (source && !atLeast(levels.get(source) ?? 'none', 'view')) {
         notCopied.push(`${page.title || 'Untitled'} (No access)`);
         continue;
       }
-      const copy = page.database
-        ? await makeDatabase(page, parentId, title)
-        : source
-          ? await core().duplicateDatabase(tx, {
-              databaseId: source,
-              parentId,
-              includeRows: input.includeSampleRows,
-              by,
-            })
-          : null;
+      const copy = source
+        ? await core().duplicateDatabase(tx, {
+            databaseId: source,
+            parentId,
+            includeRows: input.includeSampleRows,
+            by,
+          })
+        : null;
       if (copy) ids.set(page.key, copy);
       else notCopied.push(page.title || 'Untitled');
     }

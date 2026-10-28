@@ -27,9 +27,6 @@ copy's links point to the new copies. Variable chips (`templateVariable`) are fi
 template is used. Databases are copied on use with the Databases lane's `duplicateDatabase`, only
 for people who can see them and with only the rows they can see; the rest are listed as not copied
 ("Tickets (No access)"). Templates aren't added to archived pages.
-A starter's databases (Projects, Agents, QA reviews and the rest) are written out in
-`@carehub/extras/templates` and made on use with `createDatabase`: new ids, Me and Today
-filled in for the sample rows, and the row templates kept as they are.
 Changing or deleting a template never changes pages made from it; `tpl_made_from` keeps
 "Made from Weekly huddle" for the page's Updates (`getMadeFrom`).
 
@@ -41,7 +38,7 @@ refuses until it's bound (403, or "missing" and 404), and is marked `// stand-in
 - the person and their permissions: core's `request.member` (accounts 1b);
 - pages, levels, sub-pages, spaces, `createPage`, `setPageTitle`, `getPrivateSpaceId`: pages #49;
 - `getPageMarkdown`, `setPageContentFromMarkdown`, `page.updated`: collab #197/#200;
-- `duplicateDatabase`, `createDatabase` and row counts: the Databases lane's `api.ts`.
+- `duplicateDatabase` and row counts: the Databases lane's `api.ts`.
 
 `saveVersionNow` is History's (it saves no version until pages land).
 
