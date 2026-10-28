@@ -6,10 +6,12 @@ import { ReactNodeViewRenderer } from '@tiptap/react';
 import type * as Y from 'yjs';
 import { blockNodeViews } from './blocks/ui';
 import { laneFeature } from './lanes';
+import { RevealBlock } from './reveal';
 import { PAGE_FIELD, pageExtensions } from './schema';
 import { SlashCommand, type SlashMenuStore } from './slash';
 import { ToolbarKeys } from './toolbar-keys';
-import type { CollabProvider, EditorUser, NodeViews } from './types';
+import type { CollabProvider, EditorUser, NodeViewEntry, NodeViews } from './types';
+import { UndoShortcut } from './undo-shortcut';
 
 export const DEFAULT_PLACEHOLDER = "Type '/' for commands";
 
@@ -56,11 +58,21 @@ function laneFallback(feature: string): NodeViewRenderer {
   };
 }
 
+/** A React view, with the entry's own `stopEvent` if it has one (else Tiptap's default). */
+function reactView(entry: NodeViewEntry): NodeViewRenderer {
+  if (!('component' in entry)) return ReactNodeViewRenderer(entry);
+  const { component, stopEvent } = entry;
+  return ReactNodeViewRenderer(
+    component,
+    stopEvent && { stopEvent: ({ event }) => stopEvent(event) },
+  );
+}
+
 function withView(extension: AnyExtension, nodeViews: NodeViews): AnyExtension {
   if (extension.type !== 'node') return extension;
   const node = extension as TiptapNode;
-  const View = nodeViews[node.name];
-  if (View) return node.extend({ addNodeView: () => ReactNodeViewRenderer(View) });
+  const entry = nodeViews[node.name];
+  if (entry) return node.extend({ addNodeView: () => reactView(entry) });
   const feature = laneFeature(node.name);
   return feature ? node.extend({ addNodeView: () => laneFallback(feature) }) : node;
 }
@@ -114,6 +126,8 @@ export function createBlockExtensions(options: BlockExtensionsOptions): Extensio
       },
     }),
     Collaboration.configure({ document: ydoc, field }),
+    UndoShortcut,
+    RevealBlock,
     ...(awareness && user
       ? [
           CollaborationCaret.configure({

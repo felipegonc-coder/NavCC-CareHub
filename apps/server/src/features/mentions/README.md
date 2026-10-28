@@ -16,6 +16,9 @@ come in later pull requests.
   `notify` is false ("Mention without notifying"). The editor asks first, and after Share with Can
   view it sends the mention again.
 - Mentioning yourself, or `notify: false`, saves a `quiet` mention with no notice.
+- Page text is the editor's word, so one person's mentions there notify at most 20 times a minute,
+  and the same person at most 30 times an hour (`PAGE_MENTION_LIMITS`, issue #224). Past that
+  `POST` still answers 201, with a `quiet` mention, so typing never fails.
 - Comments: every `<@userId>` in a new or edited comment (from `comment.created` and
   `comment.edited`) becomes a mention, except its author, at most 50 per comment. Each person gets
   one notice per comment, even when an edit mentions them again; people who can't open the page get
@@ -38,6 +41,11 @@ comment that mentions someone sends them only the mention (CM-08).
 
 Event: `mention.created { mentionId, workspaceId, pageId, userId, by, blockId, commentId, status }`,
 after the commit.
+
+Not yet (issue #224): the job doesn't check that the block is still on the page and still mentions
+the person, and the sentence comes from the editor. Both wait for the page text with block IDs
+(pull requests #200 and #279); then the job builds the sentence itself, and a mention that's gone
+from the page is `cancelled`.
 
 ## Stand-ins
 

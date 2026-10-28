@@ -1,11 +1,11 @@
 # Extras: notes for browser tests
 
-## Who writes what
+## Where things go
 
-- The Testing lead's builders write the acceptance tests in `tests/e2e/flows/<area>/` (`search`, `history-trash`, `templates`, `import-export`, `knowledge-base`, `claude`), with titles starting with the spec ID ("SR-01 …").
-- Extras builders add each screen to `tests/e2e/extras/screens.ts` (names start `extras-`).
-- Extras builders keep this file current: routes, endpoints, the names of key controls, and test hooks.
-- The Extras lead tells the Testing lead when each area lands on main, so its line in `tests/e2e/flows/_support/features.ts` can be turned on.
+- Acceptance tests are in `tests/e2e/flows/<area>/` (`search`, `history-trash`, `templates`, `import-export`, `knowledge-base`, `claude`), with titles starting with the spec ID ("SR-01 …").
+- Each screen is listed in `tests/e2e/extras/screens.ts` (names start `extras-`).
+- This file lists the routes, endpoints, names of key controls and test hooks.
+- `tests/e2e/flows/_support/features.ts` has one line per area; an area's tests run when its line is on.
 
 ## Selectors and data
 
@@ -14,7 +14,19 @@
 
 ## Search
 
-Routes, endpoints, controls: _filled in by the search PRs._
+How search works and what's still a stand-in: [search.md](search.md).
+
+- **Search finds nothing without the page model (#49) and accounts 1b (#55):** its stand-ins deny by default, so `search` stays off in `tests/e2e/flows/_support/features.ts` without them.
+- **Endpoint:** `POST /api/search/query` with `{ text, filters?, sort?, match?, cursor?, limit? }` answers `{ results, total, nextCursor }`. Share-link visitors and people outside the workspace get 403 "You don't have access to this."
+- **The window:** Ctrl+K or Ctrl+P (`ControlOrMeta`) on any screen, or **Search** at the top of the sidebar, opens the dialog named "Search". Its box is the combobox named "Search" and has the focus.
+  - Before typing: the group "Recent" (the last 8 pages opened, newest first, options named like results) and the group "Recent searches" (the last 5, each option named by its text, with the button **Clear** in the group). With neither it says "Type to search pages, databases and rows." Opening `/p/<id>` counts as a visit straight away.
+  - Each result is an option named "<title>, page in <space> › <parent>, edited <day>" (database and row for the other kinds). The first is selected (`aria-selected`). ↑ and ↓ move, Enter opens `/p/<id>`, Ctrl+Enter opens it in a new tab and Esc closes.
+  - Other features' commands that match come first, under "Actions".
+  - When nothing matches: "No results for ‘<text>’.", then "Did you mean <text>?" with a button named the suggested text when a title is close, and the button **Search in Trash**, which goes to `/trash?q=<text>`. When the API fails: "Search isn't working right now." with **Try again**. Offline: "You're offline. Showing recent pages." A status region says "<n> results" or "No results".
+- **Screens:** `extras-search` (the window before typing) and `extras-search-results` (after typing "Fictional refund steps").
+- **Timing:** a new, renamed, moved, trashed or archived page is searchable (or hidden) at once; text typed into a page is searchable within about 2 seconds. Wait for the result to show (`expect(…).toBeVisible()`), not for a fixed time.
+- **Archived pages** are left out unless the Archived filter (`includeArchived`) is on.
+- **Data:** search shows what the seed's pages hold; it has no seed data of its own.
 
 ## History (versions, Updates, Archive)
 
@@ -39,13 +51,15 @@ The tests never reach Claude. The server is pointed at a local stub:
 - **Server environment:**
   - `ANTHROPIC_API_KEY`: any fictional value, for example `test-key-not-real`.
   - `ANTHROPIC_BASE_URL=http://127.0.0.1:4599`. The server accepts only loopback addresses here.
-- **The stub:** `tests/e2e/extras/claude-stub.ts`, from the Claude PRs.
-  - Start it with `startClaudeStub({ port })`, which returns `{ url, requests(), clear(), close() }`, or as a process with `node tests/e2e/extras/claude-stub.ts` (port from `CLAUDE_STUB_PORT`, default 4599).
-  - `POST /v1/messages` answers with canned, predictable text.
-  - A selection containing `STUB-429`, `STUB-500` or `STUB-SLOW` makes it answer 429, 500, or after 35 s.
+- **The stub:** `tests/e2e/extras/claude-stub.ts`.
+  - Start it with `startClaudeStub({ port })`, which returns `{ url, requests(), clear(), answerNext(text), close() }` (`clear()` also drops queued answers), or as a process with `node tests/e2e/extras/claude-stub.ts` (port from `CLAUDE_STUB_PORT`, default 4599).
+  - `POST /v1/messages` answers with canned, predictable text: `STUB_TEXT`, or `STUB_JSON` (a meeting summary) when the request asks for one JSON value.
+  - To choose the next answer, call `answerNext(text)` or `POST /__answers` with `{ "text": "…" }`. Queued answers are used once, in order.
+  - A selection containing `STUB-429`, `STUB-500` or `STUB-SLOW` makes it answer 429, 500, or after 35 s. The server tries 429 and 500 twice more, so expect three recorded requests.
+  - Without an `x-api-key` header it answers 401, and without `anthropic-version` it answers 400.
   - `GET /__requests` returns every recorded request: time, path, body, and headers with the key replaced by `"<present>"`.
   - `DELETE /__requests` clears them.
 - **CL-01:** with the switches off, `GET /__requests` stays empty whatever the test does.
-- **CL-10 (leak test):** the fictional key must never appear in the server output, any API answer, any page or the web bundle.
+- **CL-02:** the fictional key never appears in the server output, any API answer, any page, an export or the web bundle.
 
-The two environment lines for the browser-test workflow are a `.github/` change, so the main lead adds them after the security reviewer's OK.
+The two environment lines go in the browser-test workflow (`.github/`), on the e2e server step only, with the fictional key.

@@ -81,6 +81,27 @@ describe('links', () => {
     expect(safeHref('https://example.com/a b')).toBeNull();
     expect(safeHref('https://example.com/"onmouseover="x')).toBeNull();
   });
+
+  it('ends a link at an invisible formatting character, so it goes where it reads', () => {
+    // U+202E flips the text after it: "…/\u202Efdp.exe" would read as "…/exe.pdf".
+    expect(urls('https://example.com/a\u202Efdp.exe and https://example.org/b\u200Bc')).toEqual([
+      'https://example.com/a',
+      'https://example.org/b',
+    ]);
+    expect(urls('\u2066https://example.net/x\u2069')).toEqual(['https://example.net/x']);
+    expect(safeHref('https://example.com/a\u202Efdp.exe')).toBeNull();
+    expect(safeHref('https://example.com/\u00ADx')).toBeNull();
+    expect(safeHref('https://example.com/\uFEFF')).toBeNull();
+  });
+
+  it('leaves invisible joiners in the message text itself (emoji need U+200D)', () => {
+    const family = '\u{1F469}\u200D\u{1F467}';
+    expect(parseMessageText(`${family} https://example.com/\u200Dx`)).toEqual([
+      { type: 'text', text: `${family} ` },
+      { type: 'link', url: 'https://example.com/' },
+      { type: 'text', text: '\u200Dx' },
+    ]);
+  });
 });
 
 describe('MS-04 Care Hub page links', () => {

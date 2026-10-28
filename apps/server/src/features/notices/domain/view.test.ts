@@ -4,6 +4,9 @@ import {
   collectCardRefs,
   eventCardKey,
   isNoticeOwner,
+  noticeLink,
+  NOTICES_CHAT_PATH,
+  toNoticeSummary,
   toNoticeView,
   viewButtons,
   viewCard,
@@ -29,10 +32,8 @@ const coachingPlanCard: PageCardInfo = {
 };
 const standUp: EventCardInfo = {
   title: 'Weekly stand-up',
-  start: '2026-11-02T14:00:00.000Z',
-  end: '2026-11-02T14:30:00.000Z',
-  allDay: false,
-  href: '/calendar?event=evt_42',
+  when: 'Mon, Nov 2 · 9:00–9:30 AM',
+  href: '/calendar?event=evt_42&occurrence=2026-11-02',
 };
 
 function lookups(
@@ -118,7 +119,7 @@ describe('viewCard', () => {
       type: 'event',
       state: 'locked',
     });
-    expect(viewCard(card, lookups([], [['evt_42', 'deleted']]))).toStrictEqual({
+    expect(viewCard(card, lookups([], [['evt_42|', 'deleted']]))).toStrictEqual({
       type: 'event',
       state: 'deleted',
     });
@@ -150,8 +151,8 @@ describe('collectCardRefs', () => {
   });
 
   it('keys events by ID and occurrence', () => {
-    expect(eventCardKey({ eventId: 'evt_42' })).toBe('evt_42');
-    expect(eventCardKey({ eventId: 'evt_42', occurrenceStart: null })).toBe('evt_42');
+    expect(eventCardKey({ eventId: 'evt_42' })).toBe('evt_42|');
+    expect(eventCardKey({ eventId: 'evt_42', occurrenceStart: null })).toBe('evt_42|');
     expect(eventCardKey({ eventId: 'evt_42', occurrenceStart: '2026-11-02' })).toBe(
       'evt_42|2026-11-02',
     );
@@ -233,5 +234,43 @@ describe('isNoticeOwner', () => {
 
   it('keeps each workspace chat apart', () => {
     expect(isNoticeOwner(notice, { workspaceId: otherWorkspaceId, userId: avery })).toBe(false);
+  });
+});
+
+describe('noticeLink', () => {
+  const card: NoticeCard = { type: 'page', pageId: coachingPlan };
+  const snooze = { label: 'Snooze', action: 'reminders.snooze', value: '1h' };
+
+  it('goes where the first link button goes', () => {
+    const buttons = [snooze, { label: 'Open', href: `/p/${qaForm}#comment-1` }];
+    expect(noticeLink({ buttons, card })).toBe(`/p/${qaForm}#comment-1`);
+  });
+
+  it("goes to the page card's page without a link button", () => {
+    expect(noticeLink({ buttons: [snooze], card })).toBe(`/p/${coachingPlan}`);
+  });
+
+  it('goes to the chat otherwise', () => {
+    expect(noticeLink({ buttons: [], card: null })).toBe(NOTICES_CHAT_PATH);
+    expect(noticeLink({ buttons: [], card: { type: 'event', eventId: 'evt_42' } })).toBe(
+      '/messages/care-hub',
+    );
+  });
+});
+
+describe('toNoticeSummary', () => {
+  it('has what a push notification shows, and nothing a card looks up', () => {
+    expect(toNoticeSummary(record())).toStrictEqual({
+      id: '3f1c2d4e-0000-4000-8000-00000000a001',
+      workspaceId,
+      userId: avery,
+      kind: 'comment',
+      title: 'Commented on a page',
+      text: 'Looks good to me.',
+      senderName: 'Sam Ortiz',
+      link: `/p/${coachingPlan}`,
+      createdAt: new Date('2026-10-27T09:00:00.000Z'),
+      latestAt: new Date('2026-10-27T09:03:00.000Z'),
+    });
   });
 });

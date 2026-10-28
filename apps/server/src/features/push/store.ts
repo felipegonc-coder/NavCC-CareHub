@@ -2,7 +2,7 @@
 // store in memory for unit tests; store.test.ts runs the same checks on both.
 import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { Db } from '../../db';
-import { DEFAULT_PREFERENCES } from './domain/preferences';
+import { DEFAULT_PREFERENCES, type NotificationPreferences } from './domain/preferences';
 import { pushPreferences, pushSubscriptions } from './schema';
 import { MAX_SUBSCRIPTIONS_PER_PERSON, type PushStore, type PushSubscriptionRecord } from './types';
 
@@ -11,6 +11,8 @@ type Row = typeof pushSubscriptions.$inferSelect;
 const preferenceColumns = {
   notifyAbout: pushPreferences.notifyAbout,
   showText: pushPreferences.showText,
+  pausedAt: pushPreferences.pausedAt,
+  pausedUntil: pushPreferences.pausedUntil,
 };
 
 export function createPostgresPushStore(db: Db): PushStore {
@@ -87,21 +89,33 @@ export function createPostgresPushStore(db: Db): PushStore {
         .select(preferenceColumns)
         .from(pushPreferences)
         .where(eq(pushPreferences.userId, userId));
-      return row ?? { ...DEFAULT_PREFERENCES };
+      return row ? toPreferences(row) : { ...DEFAULT_PREFERENCES };
     },
 
-    async updatePreferences(userId, changes, now) {
+    async updatePreferences(userId, { pause, ...changes }, now) {
+      const paused =
+        pause === undefined
+          ? {}
+          : { pausedAt: pause ? now : null, pausedUntil: pause?.until ?? null };
+      const set = { ...changes, ...paused, updatedAt: now };
+      const { notifyAbout, showText } = DEFAULT_PREFERENCES;
       const [row] = await db
         .insert(pushPreferences)
-        .values({ ...DEFAULT_PREFERENCES, ...changes, userId, updatedAt: now })
-        .onConflictDoUpdate({ target: pushPreferences.userId, set: { ...changes, updatedAt: now } })
+        .values({ notifyAbout, showText, ...set, userId })
+        .onConflictDoUpdate({ target: pushPreferences.userId, set })
         .returning(preferenceColumns);
       if (!row) throw new Error('The notification settings were not saved.');
-      return row;
+      return toPreferences(row);
     },
   };
 }
 
 function toRecord({ p256dh, auth, ...row }: Row): PushSubscriptionRecord {
   return { ...row, keys: { p256dh, auth } };
+}
+
+type PreferencesRow = Pick<typeof pushPreferences.$inferSelect, keyof typeof preferenceColumns>;
+
+function toPreferences({ pausedAt, pausedUntil, ...row }: PreferencesRow): NotificationPreferences {
+  return { ...row, pause: pausedAt ? { until: pausedUntil } : null };
 }
