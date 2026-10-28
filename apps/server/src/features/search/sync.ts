@@ -13,7 +13,7 @@ import {
   subtreeIds,
   uuidArray,
 } from './indexer';
-import { hasPageModel, searchPages } from './pages';
+import { searchPages } from './pages';
 import { recordViewed } from './recent';
 
 const POLL_MS = 2000;
@@ -120,8 +120,6 @@ export function startSearchSync(app: FastifyInstance): void {
   let running: Promise<unknown> | undefined;
   let cursor: ContentCursor | undefined;
   const tick = () => {
-    // stand-in: with no page model there's nothing to index, so other features' tests see no queries.
-    if (!hasPageModel()) return;
     running ??= safely('content sync', async () => {
       cursor ??= await contentCursorStart(db);
       cursor = await syncContent(db, cursor);

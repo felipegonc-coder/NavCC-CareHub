@@ -1,10 +1,11 @@
 // What search needs from the page model (decision 0007, sections 3.3 and 4.1) and from accounts
-// (section 3.1). Neither is on main yet (pull requests #49 and #55), so these are stand-ins that
-// deny by default: no pages to index, no access, no workspace, so search finds nothing and nothing
-// leaks. Tests bind fakes. When the page model lands, bind its functions here (docs/extras/README.md).
+// (section 3.1): pages from the page model's tables (model.ts), access from features/pages and the
+// membership from `request.member`. Tests bind fakes, and what they leave out denies.
 import type { AccessLevel } from '@carehub/shared';
 import type { FastifyRequest } from 'fastify';
 import type { Db, Tx } from '../../db';
+import { getAccessForPages } from '../pages';
+import { getPagesForIndex, listPageIds } from './model';
 
 export type SearchKind = 'page' | 'database' | 'row';
 
@@ -47,31 +48,33 @@ export interface SearchPages {
   ): Promise<Map<string, { name: string }>>;
 }
 
-// stand-in: features/pages/index.ts (getAccessForPages and the page model, #49)
 const nothing: SearchPages = {
   getPagesForIndex: async () => new Map(),
   listPageIds: async () => [],
   getAccessForPages: async () => new Map(),
   getSpaces: async () => new Map(),
 };
-let pages = nothing;
 
-/** Binds the page model; the returned function unbinds it. */
+const pageModel: SearchPages = {
+  getPagesForIndex,
+  listPageIds,
+  getAccessForPages,
+  // stand-in: the spaces API (#49), with the spaces a person can open and their names.
+  getSpaces: nothing.getSpaces,
+};
+let pages = pageModel;
+
+/** Binds fakes for tests (what they leave out denies); the returned function unbinds them. */
 export function bindSearchPages(next: Partial<SearchPages>): () => void {
   const bound = { ...nothing, ...next };
   pages = bound;
   return () => {
-    if (pages === bound) pages = nothing;
+    if (pages === bound) pages = pageModel;
   };
 }
 
 export function searchPages(): SearchPages {
   return pages;
-}
-
-/** Whether a page model is bound; until then there's nothing to index or poll. */
-export function hasPageModel(): boolean {
-  return pages !== nothing;
 }
 
 /** The person's membership in the current workspace. */
@@ -80,14 +83,9 @@ export interface SearchMember {
   isGuest: boolean;
 }
 
-// stand-in: request.member (accounts 1b, #55). Until it's on main nobody is a member.
 type MemberLookup = (request: FastifyRequest) => SearchMember | null;
-const fromRequest: MemberLookup = (request) => {
-  const member = (request as unknown as { member?: { workspaceId?: unknown; roleId?: unknown } })
-    .member;
-  if (!member || typeof member.workspaceId !== 'string') return null;
-  return { workspaceId: member.workspaceId, isGuest: member.roleId === null };
-};
+const fromRequest: MemberLookup = ({ member }) =>
+  member ? { workspaceId: member.workspaceId, isGuest: member.kind === 'guest' } : null;
 let memberLookup = fromRequest;
 
 /** Tests bind a fake membership; the returned function unbinds it. */

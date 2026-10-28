@@ -73,14 +73,11 @@ Body: `{ text, filters?, sort?, match?, cursor?, limit? }` (`searchRequestSchema
 
 ## Stand-ins (deny by default)
 
-`pages.ts` holds what search needs from features that aren't on main yet. Until they're bound, there are no pages to index, nobody has access and nobody is a member, so search finds nothing.
+`pages.ts` binds search to the page model and accounts: `model.ts` reads pages and their parent pages from the `pages` and `spaces` tables (archived or in Trash when the page, a parent page or its space is), access comes from `getAccessForPages` in `features/pages`, and membership from `request.member`. The rest are stand-ins:
 
 | Stand-in                                                               | Replaced by                                                                                |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `getPagesForIndex(db, pageIds)`, `listPageIds(db, { afterId, limit })` | The page model (#49): page rows with their parent pages, and pages PR 2's archived columns |
-| `getAccessForPages(db, userId, pageIds)`                               | `getAccessForPages` from `features/pages/index.ts` (#49)                                   |
-| `getSpaces(db, userId, spaceIds)`                                      | The spaces API (#49)                                                                       |
-| `memberOf(request)` reads `request.member`                             | Accounts 1b (#55)                                                                          |
+| `getSpaces(db, userId, spaceIds)`: names of spaces the person can open | The spaces API (#49). Without it, paths leave out space names and `in` spaces find nothing |
 | Polling `page_docs` and reading its `markdown`                         | S4's `page.contentSaved` event and `getPageContent` (#200)                                 |
 | `POST /api/search/visits` from the window                              | Core's `page.viewed` event, or the Sidebar's recent pages                                  |
 | Search term days in America/Denver                                     | The workspace's time zone from S1's settings                                               |
