@@ -1,6 +1,7 @@
 // Spaces and pages: the shapes the server checks and the web sends (decision 0007, section 4.1;
 // Sidebar, spaces and nested pages spec).
 import { z } from 'zod';
+import type { AccessLevel } from './access';
 
 /** A page or space icon: an emoji, or one of the design kit's icons in one of its colours. */
 export const pageIconSchema = z.discriminatedUnion('type', [
@@ -110,3 +111,111 @@ export type SpaceMemberJson = {
   role: SpaceRole;
   joinedAt: string;
 };
+
+// Pages, databases and rows (Pages and blocks 3.1; Sidebar spec 3.2).
+
+export const PAGE_KINDS = ['page', 'database', 'row'] as const;
+export const pageKindSchema = z.enum(PAGE_KINDS);
+export type PageKind = z.infer<typeof pageKindSchema>;
+
+/** A cover from Care Hub's own gallery, or an uploaded picture. */
+export const pageCoverSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('preset'), name: z.string().min(1).max(64) }),
+  z.strictObject({ type: z.literal('file'), fileId: z.uuid() }),
+]);
+export type PageCover = z.infer<typeof pageCoverSchema>;
+
+export const PAGE_FONTS = ['default', 'serif', 'mono'] as const;
+export type PageFont = (typeof PAGE_FONTS)[number];
+export type TextDirection = 'ltr' | 'rtl';
+
+/** One line of up to 2,000 characters; an empty title shows "Untitled". */
+const pageTitle = z
+  .string()
+  .max(2000)
+  .transform((title) => title.replace(/[\r\n]+/g, ' '));
+
+/** POST /api/pages: under `parentId`, at the top of `spaceId`, or else in the Private section. */
+export const createPageSchema = z.strictObject({
+  spaceId: z.uuid().optional(),
+  parentId: z.uuid().optional(),
+  title: pageTitle.optional(),
+  icon: pageIconSchema.nullable().optional(),
+  /** Its place among the pages next to it (0 is first); last when left out. */
+  index: z.int().min(0).max(100_000).optional(),
+});
+export type CreatePageInput = z.infer<typeof createPageSchema>;
+
+/** PATCH /api/pages/:id (Can edit). A locked page takes nothing else until it's unlocked. */
+export const updatePageSchema = z.strictObject({
+  title: pageTitle.optional(),
+  icon: pageIconSchema.nullable().optional(),
+  cover: pageCoverSchema.nullable().optional(),
+  /** How far down the picture the cover shows, 0 to 100 (Reposition). */
+  coverPosition: z.int().min(0).max(100).optional(),
+  fullWidth: z.boolean().optional(),
+  font: z.enum(PAGE_FONTS).optional(),
+  smallText: z.boolean().optional(),
+  textDirection: z.enum(['ltr', 'rtl']).optional(),
+  locked: z.boolean().optional(),
+});
+export type UpdatePageInput = z.infer<typeof updatePageSchema>;
+
+/** POST /api/pages/cards */
+export const pageCardsSchema = z.strictObject({ ids: z.array(z.uuid()).min(1).max(100) });
+
+/** Someone named on a page. Null in its place when their account is gone. */
+export type PersonRef = { id: string; name: string };
+
+/** A breadcrumb above the page. Pages the person can't open show as one `hidden` part. */
+export type PageAncestor = { id: string; title: string; icon: PageIcon | null } | { hidden: true };
+
+/** GET /api/pages/:id, and the answer to POST /api/pages and PATCH. */
+export type PageJson = {
+  id: string;
+  kind: PageKind;
+  isInline: boolean;
+  spaceId: string;
+  parentId: string | null;
+  position: string;
+  title: string;
+  icon: PageIcon | null;
+  cover: PageCover | null;
+  coverPosition: number;
+  fullWidth: boolean;
+  font: PageFont;
+  smallText: boolean;
+  textDirection: TextDirection;
+  /** False after "Stop inheriting". */
+  inheritAccess: boolean;
+  /** What the signed-in person may do here. */
+  access: AccessLevel;
+  /** `personal` is someone's Private section. */
+  space: { id: string; name: string; icon: PageIcon | null; kind: SpaceKind | 'personal' };
+  /** From the top of the space down to the parent. */
+  ancestors: PageAncestor[];
+  lockedBy: PersonRef | null;
+  lockedAt: string | null;
+  archivedBy: PersonRef | null;
+  archivedAt: string | null;
+  createdBy: PersonRef | null;
+  createdAt: string;
+  updatedBy: PersonRef | null;
+  updatedAt: string;
+  deletedBy: PersonRef | null;
+  deletedAt: string | null;
+};
+
+/** What a link, mention, notice or chart shows for a page (`spaceName` is null for Private). */
+export type PageCard = {
+  id: string;
+  kind: PageKind;
+  title: string;
+  icon: PageIcon | null;
+  spaceName: string | null;
+};
+/** `deleted`: in Trash or gone. `locked`: the person can't open it, so nothing else is sent. */
+export type PageCardEntry = PageCard | { id: string; deleted: true } | { id: string; locked: true };
+
+/** POST /api/pages/cards: one entry per requested ID, in the same order. */
+export type PageCardsJson = { cards: PageCardEntry[] };
