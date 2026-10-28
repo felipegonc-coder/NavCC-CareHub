@@ -46,7 +46,7 @@ export async function buttonRoutes(app: FastifyInstance) {
 
   app.post(
     '/:id/rows/:rowId/buttons/:pid',
-    { preHandler: app.requirePageAccess('view', rowIdOf) },
+    { preHandler: [app.requireMember, app.requirePageAccess('view', rowIdOf)] },
     async (request) => {
       const user = signedIn(request);
       const body = parseRequest(pressRequest, request.body ?? {});
@@ -72,7 +72,7 @@ export async function buttonRoutes(app: FastifyInstance) {
 
   app.post(
     '/:id/button-runs/:runId/undo',
-    { preHandler: app.requirePageAccess('view') },
+    { preHandler: [app.requireMember, app.requirePageAccess('view')] },
     async (request) => {
       const user = signedIn(request);
       const record = await database(request);
@@ -86,7 +86,7 @@ export async function buttonRoutes(app: FastifyInstance) {
 
   app.get(
     '/:id/buttons/:pid/runs',
-    { preHandler: app.requirePageAccess('edit') },
+    { preHandler: [app.requireMember, app.requirePageAccess('edit')] },
     async (request) => {
       const record = await database(request);
       const button = buttonOf(record, paramsOf(request).pid);

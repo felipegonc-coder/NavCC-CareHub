@@ -3,9 +3,10 @@
 // empty row page or Apply template in a row's page menu. The template's values fill only the row's
 // empty properties (an unticked checkbox and the default status count as empty) unless `replace`
 // ("Replace values") is on; Today, Now and Me become this person's, This page this row. It needs
-// Can edit content on the row; the properties they may not change are left as they are. The
-// values are one row update with source 'template'. Adding the template's content at the end, and
-// saving a version first, come with core pages.
+// Can edit content on the row (guests too, on rows shared with them; people outside the workspace
+// get 403); the properties they may not change are left as they are. The values are one row
+// update with source 'template'. Adding the template's content at the end, and saving a version
+// first, come once templates have content.
 import {
   titleProperty,
   type AccessLevel,
@@ -132,7 +133,11 @@ export async function applyTemplate(app: FastifyInstance, input: ApplyTemplateIn
 export async function templateRoutes(app: FastifyInstance) {
   app.post(
     '/:id/templates/:tid/apply',
-    { preHandler: app.requirePageAccess('view') },
+    // Guests may apply templates to rows shared with them: only values they could type themselves.
+    {
+      config: { allowGuests: true },
+      preHandler: [app.requireMember, app.requirePageAccess('view')],
+    },
     async (request) => {
       const user = signedIn(request);
       const body = parseRequest(applyTemplateRequest, request.body ?? {});

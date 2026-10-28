@@ -1,8 +1,9 @@
 // Applying a template to a row on a real database (Templates and buttons 3.2 and 5, TB-05 and
 // TB-06): the template's values fill only empty properties unless Replace values is on; Today + 3
 // days and Me become the person's own; properties they may not change stay as they are; it needs
-// Can edit content on the row (403 otherwise, before anything changes); the row must be one of the
-// database's, not in Trash. Fictional people only.
+// Can edit content on the row (403 otherwise, before anything changes), which guests can have but
+// people outside the workspace can't; the row must be one of the database's, not in Trash.
+// Fictional people only.
 import {
   ME,
   defaultConfig,
@@ -15,17 +16,13 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
+import { syncDefaultWorkspace } from '../workspaces';
 import { onDatabaseEvent, type DatabaseEvent } from './api';
 import type { DatabaseRecord, DatabaseSettings } from './record';
 import { changeDatabase, loadDatabase } from './store';
 import { applyTemplateRequest } from './templates-apply';
 
 type Role = 'admin' | 'editor' | 'viewer';
-const PERMISSIONS: Record<Role, string[]> = {
-  admin: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share', 'workspace.admin'],
-  editor: ['pages.edit', 'pages.create', 'pages.comment', 'pages.share'],
-  viewer: [],
-};
 const FORBIDDEN = { error: { code: 'forbidden', message: "You don't have access to this." } };
 const NOT_FOUND = {
   error: { code: 'not_found', message: 'This was deleted, or the link is wrong.' },
@@ -71,32 +68,9 @@ describe.skipIf(!hasDatabase)('applying a template to a row', () => {
     values: {},
   };
 
-  // Stand-ins for the roles pull request's tables (decision 0007 names) until it lands.
-  async function standInWorkspace() {
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspaces (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS roles (id uuid PRIMARY KEY DEFAULT
-      gen_random_uuid(), workspace_id uuid NOT NULL, name text NOT NULL,
-      permissions text[] NOT NULL)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS workspace_members (workspace_id uuid NOT NULL,
-      user_id uuid NOT NULL, role_id uuid, kind text NOT NULL DEFAULT 'member',
-      PRIMARY KEY (workspace_id, user_id))`);
-    const { rows } = await db.execute<{ id: string }>(
-      sql`INSERT INTO workspaces (name) VALUES ('Blue Pine Plumbing') RETURNING id`,
-    );
-    workspaceId = rows[0]!.id;
-  }
-
-  /** A member with a role of their own; in the Operations space unless `inSpace` is false. */
+  /** A member with a built-in role; in the Operations space unless `inSpace` is false. */
   async function person(role: Role, name: string, inSpace = true): Promise<TestUser> {
-    const { rows } = await db.execute<{ id: string }>(sql`
-      INSERT INTO roles (workspace_id, name, permissions)
-      VALUES (${workspaceId}, ${`${role} for ${name}`},
-        ${`{${PERMISSIONS[role].join(',')}}`}::text[])
-      RETURNING id`);
-    const user = await createUser(db, { name });
-    await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
-      VALUES (${workspaceId}, ${user.id}, ${rows[0]!.id})`);
+    const user = await createUser(db, { role, name });
     if (inSpace) {
       await db.execute(sql`INSERT INTO space_members (space_id, principal_type, principal_id)
         VALUES (${spaceId}, 'user', ${user.id})`);
@@ -140,6 +114,13 @@ describe.skipIf(!hasDatabase)('applying a template to a row', () => {
       payload,
     });
 
+  /** Shares Visits with this person directly. */
+  async function share(who: TestUser, level: 'view' | 'edit') {
+    await db.execute(sql`INSERT INTO access_grants
+      (workspace_id, page_id, principal_type, principal_id, level)
+      VALUES (${workspaceId}, ${visitsId}, 'user', ${who.id}, ${level})`);
+  }
+
   async function stored(rowId: string) {
     const { rows } = await db.execute<{ title: string; values: Record<string, unknown> }>(sql`
       SELECT p.title, r."values" FROM db_rows r JOIN pages p ON p.id = r.page_id
@@ -165,7 +146,7 @@ describe.skipIf(!hasDatabase)('applying a template to a row', () => {
     stopEvents = onDatabaseEvent(app, (event) => {
       events.push(event);
     });
-    await standInWorkspace();
+    workspaceId = (await syncDefaultWorkspace(db)).id;
     const space = await db.execute<{ id: string }>(sql`
       INSERT INTO spaces (workspace_id, kind, name)
       VALUES (${workspaceId}, 'open', 'Operations') RETURNING id`);
@@ -290,7 +271,32 @@ describe.skipIf(!hasDatabase)('applying a template to a row', () => {
     const outsider = await apply(people.casey, { rowId: valve });
     expect(outsider.statusCode).toBe(403);
     expect(outsider.json()).toEqual(FORBIDDEN);
+    // A guest who may only view, and someone outside the workspace even with an edit grant.
+    const looker = await createUser(db, { kind: 'guest' });
+    const stranger = await createUser(db, { role: null });
+    for (const [who, level] of [
+      [looker, 'view'],
+      [stranger, 'edit'],
+    ] as const) {
+      await share(who, level);
+      const res = await apply(who, { rowId: valve });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toEqual(FORBIDDEN);
+    }
     expect(await stored(valve)).toEqual(before);
+  });
+
+  it('lets a guest who can edit the rows apply a template', async () => {
+    const meter = await addRow('Water meter', {});
+    const guest = await createUser(db, { kind: 'guest' });
+    await share(guest, 'edit');
+    const res = await apply(guest, { rowId: meter });
+    expect(res.statusCode).toBe(200);
+    const row = await stored(meter);
+    expect(row.values[owner.id]).toEqual([guest.id]);
+    expect(row.values[notes.id]).toEqual([{ text: 'Bring the leak kit.' }]);
+    // Only Morgan may change Rate.
+    expect(row.values[rate.id]).toBeUndefined();
   });
 
   it('needs a template and a row of the database, not in Trash', async () => {

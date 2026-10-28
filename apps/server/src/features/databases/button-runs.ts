@@ -3,7 +3,8 @@
 // through the rows API (source 'button'), keeps the run log (the newest 50 per button) and undoes
 // a run within 8 seconds for the person who pressed. Messages go out as notices after the commit,
 // only to people who can open the row. Buttons are off on archived pages (TB-15), and only Admins
-// can press a step that sends to Everyone or to roles (TB-14, checked at the press for now).
+// can press a step that sends to Everyone or to roles (TB-14, checked at the press for now). Only
+// workspace members can press (not guests).
 import { randomUUID } from 'node:crypto';
 import {
   LIMITS,
@@ -55,7 +56,7 @@ import { getAccessForPages } from '../pages';
 import { createRow, runRowWrites, trashRows, updateRows } from './api';
 import { forbidden, invalid, notFound } from './errors';
 import { isUuid, type DatabaseRecord } from './record';
-import { loadDatabase, loadPropertyViewer, loadRows, type Executor } from './store';
+import { loadDatabase, loadPropertyViewer, loadRows, uuidList, type Executor } from './store';
 
 /** Our words for what the package has none for. */
 export const BUTTON_RUN_MESSAGES = {
@@ -178,7 +179,7 @@ async function loadPeople(tx: Executor, workspaceId: string): Promise<People> {
   }>(sql`
     SELECT m.user_id, m.role_id, m.kind, u.name
     FROM workspace_members m JOIN users u ON u.id = m.user_id
-    WHERE m.workspace_id = ${workspaceId}`);
+    WHERE m.workspace_id = ${workspaceId} AND m.removed_at IS NULL`);
   const { rows: roles } = await tx.execute<{ id: string; permissions: string[] | null }>(
     sql`SELECT id, permissions FROM roles WHERE workspace_id = ${workspaceId}`,
   );
@@ -366,8 +367,29 @@ function sameWrites(changes: readonly RowChange[], records: Map<string, Database
   return [...groups.values()];
 }
 
-/** Why a write was refused, as the run log says it; null when it isn't a refusal (a real error). */
-function refusal(error: unknown, step: PlannedStep, records: Map<string, DatabaseRecord>) {
+/** The title of the first of these rows that's in Trash ('Untitled' without one), or null. */
+async function trashedTitle(tx: Tx, rowIds: readonly string[]): Promise<string | null> {
+  if (!rowIds.some(isUuid)) return null;
+  const { rows } = await tx.execute<{ title: string }>(sql`
+    SELECT title FROM pages
+    WHERE id = ANY(${uuidList(rowIds)}) AND deleted_at IS NOT NULL
+    ORDER BY array_position(${uuidList(rowIds)}, id)
+    LIMIT 1`);
+  const found = rows[0];
+  return found ? found.title.trim() || 'Untitled' : null;
+}
+
+/**
+ * Why a write was refused, as the run log says it; null when it isn't a refusal (a real error).
+ * `rowIds` are the rows the step writes.
+ */
+async function refusal(
+  tx: Tx,
+  error: unknown,
+  step: PlannedStep,
+  rowIds: readonly string[],
+  records: Map<string, DatabaseRecord>,
+): Promise<string | null> {
   if (!(error instanceof HttpError) || error.statusCode >= 500) return null;
   const databaseId = 'changes' in step ? step.changes[0]?.databaseId : undefined;
   const title = (databaseId && records.get(databaseId)?.title) || '';
@@ -377,6 +399,11 @@ function refusal(error: unknown, step: PlannedStep, records: Map<string, Databas
     return BUTTON_MESSAGES.cantEditRow;
   }
   if (error.statusCode === 404 && step.kind === 'add_row') return BUTTON_MESSAGES.noDatabase;
+  if (error.statusCode === 404) {
+    // A row it writes went to Trash after the run was planned (someone else's change).
+    const trashed = await trashedTitle(tx, rowIds);
+    if (trashed !== null) return BUTTON_MESSAGES.inTrash(trashed);
+  }
   return error.message;
 }
 
@@ -440,7 +467,8 @@ async function carryOut(
         sends.push({ userIds: step.userIds, message: step.message });
       }
     } catch (error) {
-      const reason = refusal(error, step, loaded.records);
+      const rowIds = 'changes' in step ? step.changes.map((c) => idOf(c.rowId)) : [];
+      const reason = await refusal(tx, error, step, rowIds, loaded.records);
       if (reason === null) throw error;
       // Half a step lower, so failRun keeps what this step wrote before the refusal.
       const partial: PlannedStep[] = written.length
