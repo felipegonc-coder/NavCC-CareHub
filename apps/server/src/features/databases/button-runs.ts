@@ -2,7 +2,8 @@
 // presser's own access; this file loads what the plan reads, carries it out in one transaction
 // through the rows API (source 'button'), keeps the run log (the newest 50 per button) and undoes
 // a run within 8 seconds for the person who pressed. Messages go out as notices after the commit,
-// only to people who can open the row.
+// only to people who can open the row. Buttons are off on archived pages (TB-15), and only Admins
+// can press a step that sends to Everyone or to roles (TB-14, checked at the press for now).
 import { randomUUID } from 'node:crypto';
 import {
   LIMITS,
@@ -59,9 +60,13 @@ import { loadDatabase, loadPropertyViewer, loadRows, type Executor } from './sto
 /** Our words for what the package has none for. */
 export const BUTTON_RUN_MESSAGES = {
   cantUndo: "This run can't be undone anymore.",
+  archived: 'This page is archived.',
 } as const;
 
-/** A "Send a message" notice: generic words from the presser; the card shows the row. */
+/**
+ * A "Send a message" notice is titled with the button's label; these words stand in when the label
+ * is empty. The text is the message, and the card shows the row.
+ */
 export const BUTTON_NOTICES = {
   title: 'A button sent you a message',
 } as const;
@@ -147,6 +152,8 @@ interface People {
   members: string[];
   /** Role id → its members (not guests); every role of the workspace is here. */
   roles: Map<string, string[]>;
+  /** Members whose role has the workspace.admin permission. */
+  admins: Set<string>;
 }
 
 const relationTargets = (record: DatabaseRecord): string[] =>
@@ -172,18 +179,23 @@ async function loadPeople(tx: Executor, workspaceId: string): Promise<People> {
     SELECT m.user_id, m.role_id, m.kind, u.name
     FROM workspace_members m JOIN users u ON u.id = m.user_id
     WHERE m.workspace_id = ${workspaceId}`);
-  const { rows: roles } = await tx.execute<{ id: string }>(
-    sql`SELECT id FROM roles WHERE workspace_id = ${workspaceId}`,
+  const { rows: roles } = await tx.execute<{ id: string; permissions: string[] | null }>(
+    sql`SELECT id, permissions FROM roles WHERE workspace_id = ${workspaceId}`,
+  );
+  const adminRoles = new Set(
+    roles.filter((r) => (r.permissions ?? []).includes('workspace.admin')).map((r) => r.id),
   );
   const people: People = {
     names: new Map(members.map((m) => [m.user_id, m.name])),
     members: [],
     roles: new Map(roles.map((r) => [r.id, []])),
+    admins: new Set(),
   };
   for (const m of members) {
     if (m.kind === 'guest') continue;
     people.members.push(m.user_id);
     if (m.role_id) people.roles.get(m.role_id)?.push(m.user_id);
+    if (m.role_id && adminRoles.has(m.role_id)) people.admins.add(m.user_id);
   }
   return people;
 }
@@ -503,6 +515,8 @@ async function recordRun(tx: Tx, input: PressInput, run: ButtonRun): Promise<str
 
 async function deliver(app: FastifyInstance, input: PressInput, deliveries: Delivery[]) {
   const sender = input.presserName.trim().slice(0, NOTICE_LIMITS.sender) || 'Databases';
+  const title =
+    input.button.config.label.trim().slice(0, NOTICE_LIMITS.title) || BUTTON_NOTICES.title;
   for (const { userIds, message } of deliveries) {
     const text = message.trim() ? { text: message.slice(0, NOTICE_LIMITS.text) } : {};
     for (const userId of userIds) {
@@ -513,7 +527,7 @@ async function deliver(app: FastifyInstance, input: PressInput, deliveries: Deli
           kind: 'automation',
           sender,
           actorUserId: input.presser.userId,
-          title: BUTTON_NOTICES.title,
+          title,
           ...text,
           card: { type: 'page', pageId: input.row.id },
         });
@@ -524,22 +538,57 @@ async function deliver(app: FastifyInstance, input: PressInput, deliveries: Deli
   }
 }
 
+/** Whether the page, a page above it or its space is archived: read-only, so buttons are off. */
+async function isArchived(tx: Executor, pageId: string): Promise<boolean> {
+  const { rows } = await tx.execute<{ archived: boolean | null }>(sql`
+    WITH RECURSIVE up AS (
+      SELECT id, parent_id, space_id, archived_at, 0 AS depth FROM pages WHERE id = ${pageId}
+      UNION ALL
+      SELECT p.id, p.parent_id, p.space_id, p.archived_at, up.depth + 1
+      FROM pages p JOIN up ON p.id = up.parent_id WHERE up.depth < 1000
+    )
+    SELECT bool_or(up.archived_at IS NOT NULL OR s.archived_at IS NOT NULL) AS archived
+    FROM up JOIN spaces s ON s.id = up.space_id`);
+  return rows[0]?.archived === true;
+}
+
+/** The first step that sends to Everyone or to roles, when the presser isn't an Admin (TB-14). */
+function adminsOnlyStep(input: PressInput, people: People): number | null {
+  if (people.admins.has(input.presser.userId)) return null;
+  const i = input.button.config.actions.findIndex(
+    (a) => a.kind === 'send_message' && (a.to.everyone === true || (a.to.roleIds ?? []).length > 0),
+  );
+  return i < 0 ? null : i + 1;
+}
+
 /**
  * Presses a button: plans the run, then carries it out and logs it in one transaction. Refusals of
  * the presser's own access answer 403 and aren't logged; a button with no steps answers 400; a
- * step that can't run is logged as a failed run.
+ * step that can't run is logged as a failed run. Every failure of a step says which one
+ * ("Couldn't finish step 2: ...").
  */
 export async function pressButton(app: FastifyInstance, input: PressInput): Promise<PressAnswer> {
   const deliveries: Delivery[] = [];
   const answer = await runRowWrites(app, async (tx): Promise<PressAnswer> => {
+    if (await isArchived(tx, input.row.id)) throw forbidden(BUTTON_RUN_MESSAGES.archived);
     const loaded = await loadForPress(tx, input);
     const plan = planRun(input.button, input.row, runContext(input, loaded));
+    // The Admin rule comes before any failure of a later step, and before a confirmation.
+    const adminsOnly = adminsOnlyStep(input, loaded.people);
+    const earlier =
+      plan.status === 'refused' && (plan.step === null || plan.step < (adminsOnly ?? 0));
+    if (adminsOnly !== null && !earlier) {
+      throw forbidden(BUTTON_MESSAGES.stepFailed(adminsOnly, BUTTON_MESSAGES.adminsOnly));
+    }
     if (plan.status === 'confirm') {
       const { status, step, title, message, confirmLabel } = plan;
       return { status, step, title, message, confirmLabel };
     }
     if (plan.status === 'refused') {
-      if (plan.forbidden) throw forbidden(plan.message);
+      if (plan.forbidden) {
+        const { step, message } = plan;
+        throw forbidden(step === null ? message : BUTTON_MESSAGES.stepFailed(step, message));
+      }
       if (plan.step === null) throw invalid(plan.message);
       const runId = await recordRun(tx, input, plan.run);
       return { status: 'failed', runId, message: runToast(plan.run), undoUntil: null, open: [] };

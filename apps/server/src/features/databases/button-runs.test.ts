@@ -1,7 +1,8 @@
 // Button presses on a real database (decision 0200; Templates and buttons 3.4): a run carried out
 // with the presser's own access through the rows API, logged (the newest 50 per button) and undone
 // within 8 seconds by the person who pressed; steps into a database they can't change; messages
-// only to people who can open the row, at most 50; and the confirmation. Fictional people only.
+// only to people who can open the row, at most 50, and to Everyone or roles only from Admins; the
+// confirmation; and no presses in Trash or on archived pages. Fictional people only.
 import { randomUUID } from 'node:crypto';
 import {
   ME,
@@ -68,7 +69,8 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     | 'everyone'
     | 'close'
     | 'checkAll'
-    | 'empty',
+    | 'empty'
+    | 'quiet',
     Property<ButtonConfig>
   >;
 
@@ -181,7 +183,7 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
   }
 
   const buttonNotices = (who: TestUser) =>
-    notices.store.records.filter((n) => n.userId === who.id && n.title === BUTTON_NOTICES.title);
+    notices.store.records.filter((n) => n.userId === who.id && n.kind === 'automation');
 
   async function eventsSince(count: number): Promise<DatabaseEvent[]> {
     await app.events.settled();
@@ -285,6 +287,11 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
       },
     ]);
     buttons.empty = button('Empty', []);
+    buttons.quiet = newProperty<ButtonConfig>('Quiet', {
+      type: 'button',
+      label: ' ',
+      actions: [message(to({ userIds: [people.sam.id] }), 'Quiet please.')],
+    });
     await settings(visitsId, (current) => ({
       properties: [...current.properties, hours, notes, assignee, ...Object.values(buttons)],
     }));
@@ -401,12 +408,16 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     const before = await rowCount(invoicesId);
     const bill = await press(people.avery, ids.leak, buttons.bill);
     expect(bill.statusCode).toBe(403);
-    expect(bill.json()).toEqual(refused('forbidden', "You can't add rows to Invoices."));
+    expect(bill.json()).toEqual(
+      refused('forbidden', "Couldn't finish step 1: You can't add rows to Invoices."),
+    );
     expect(await rowCount(invoicesId)).toBe(before);
 
     const audit = await press(people.avery, ids.leak, buttons.audit);
     expect(audit.statusCode).toBe(403);
-    expect(audit.json()).toEqual(refused('forbidden', "You can't edit rows in Invoices."));
+    expect(audit.json()).toEqual(
+      refused('forbidden', "Couldn't finish step 1: You can't edit rows in Invoices."),
+    );
     expect((await stored(ids.invoice))?.values[memo.id] ?? null).toBeNull();
 
     const empty = await press(people.avery, ids.leak, buttons.empty);
@@ -427,7 +438,7 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
           kind: 'automation',
           sender: 'Avery Lin',
           actorUserId: people.avery.id,
-          title: BUTTON_NOTICES.title,
+          title: 'Notify',
           text: 'Please check this visit.',
           card: { type: 'page', pageId: ids.heater },
         }),
@@ -436,15 +447,33 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     // Casey isn't in the space, so she can't open the row.
     expect(buttonNotices(people.casey)).toEqual([]);
     expect(await runOf(res.json().runId)).toMatchObject({ outcome: 'done', messaged: 2 });
+
+    // Without a label, the notice has our words for a title.
+    expect((await press(people.avery, ids.heater, buttons.quiet)).statusCode).toBe(200);
+    expect(buttonNotices(people.sam).at(-1)).toMatchObject({
+      title: BUTTON_NOTICES.title,
+      text: 'Quiet please.',
+    });
   });
 
-  it('sends to a role and to everyone who can open the row', async () => {
-    const told = buttonNotices(people.jordan).length;
-    expect((await press(people.avery, ids.leak, buttons.role)).json().status).toBe('done');
-    expect(buttonNotices(people.jordan)).toHaveLength(told + 1);
-    expect(buttonNotices(people.sam)).toHaveLength(1);
+  it('sends to a role and to everyone who can open the row, when an Admin presses', async () => {
+    const sent = notices.store.records.length;
+    for (const pressed of [buttons.role, buttons.everyone]) {
+      const res = await press(people.avery, ids.leak, pressed);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toEqual(
+        refused('forbidden', BUTTON_MESSAGES.stepFailed(1, BUTTON_MESSAGES.adminsOnly)),
+      );
+    }
+    expect(notices.store.records).toHaveLength(sent);
 
-    const everyone = await press(people.avery, ids.leak, buttons.everyone);
+    const told = buttonNotices(people.jordan).length;
+    const samTold = buttonNotices(people.sam).length;
+    expect((await press(people.admin, ids.leak, buttons.role)).json().status).toBe('done');
+    expect(buttonNotices(people.jordan)).toHaveLength(told + 1);
+    expect(buttonNotices(people.sam)).toHaveLength(samTold);
+
+    const everyone = await press(people.admin, ids.leak, buttons.everyone);
     expect(await runOf(everyone.json().runId)).toMatchObject({ messaged: 4 });
     expect(buttonNotices(people.admin)).toHaveLength(1);
     expect(buttonNotices(people.avery)).toHaveLength(1);
@@ -454,12 +483,12 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
   it('logs a failed run for more than 50 people and for a missing role or group', async () => {
     const sent = notices.store.records.length;
     const cases = [
-      [buttons.crowd, BUTTON_MESSAGES.tooManyRecipients],
-      [buttons.noRole, BUTTON_MESSAGES.noRole],
-      [buttons.noGroup, BUTTON_MESSAGES.noGroup],
+      [people.avery, buttons.crowd, BUTTON_MESSAGES.tooManyRecipients],
+      [people.admin, buttons.noRole, BUTTON_MESSAGES.noRole],
+      [people.avery, buttons.noGroup, BUTTON_MESSAGES.noGroup],
     ] as const;
-    for (const [pressed, reason] of cases) {
-      const res = await press(people.avery, ids.leak, pressed);
+    for (const [who, pressed, reason] of cases) {
+      const res = await press(who, ids.leak, pressed);
       expect(res.statusCode).toBe(200);
       const message = BUTTON_MESSAGES.stepFailed(1, reason);
       expect(res.json()).toMatchObject({ status: 'failed', message, undoUntil: null, open: [] });
@@ -501,7 +530,7 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
         VALUES (${visitsId}, ${ids.leak}, ${buttons.role.id}, ${people.avery.id},
           now() - ${`${i} minutes`}::interval, 'done')`);
     }
-    const latest = (await press(people.avery, ids.leak, buttons.role)).json();
+    const latest = (await press(people.admin, ids.leak, buttons.role)).json();
     const res = await injectAs(app, people.avery, {
       method: 'GET',
       url: `/api/databases/${visitsId}/buttons/${buttons.role.id}/runs`,
@@ -511,7 +540,7 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     expect(runs).toHaveLength(50);
     expect(runs[0]).toEqual({
       id: latest.runId,
-      by: people.avery.id,
+      by: people.admin.id,
       at: expect.any(String),
       outcome: 'done',
       failedStep: null,
@@ -528,8 +557,47 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     expect(viewer.statusCode).toBe(403);
   });
 
+  it('refuses presses in Trash and on archived pages', async () => {
+    const before = (await stored(ids.leak))?.values[notes.id] ?? null;
+    const archive = (table: 'pages' | 'spaces', id: string, on: boolean) =>
+      table === 'pages'
+        ? db.execute(sql`UPDATE pages SET archived_at = ${on ? sql`now()` : null} WHERE id = ${id}`)
+        : db.execute(
+            sql`UPDATE spaces SET archived_at = ${on ? sql`now()` : null} WHERE id = ${id}`,
+          );
+    // The row, its database, the page the database is on, and the space.
+    const places = [
+      ['pages', ids.leak],
+      ['pages', visitsId],
+      ['pages', pageId],
+      ['spaces', spaceId],
+    ] as const;
+    for (const [table, id] of places) {
+      await archive(table, id, true);
+      const res = await press(people.avery, ids.leak, buttons.finish);
+      await archive(table, id, false);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toEqual(refused('forbidden', BUTTON_RUN_MESSAGES.archived));
+    }
+
+    const old = await addRow(people.avery, 'Old leak');
+    await db.execute(sql`UPDATE pages SET deleted_at = now() WHERE id = ${old}`);
+    expect((await press(people.avery, old, buttons.finish)).statusCode).toBe(404);
+    await db.execute(sql`UPDATE pages SET deleted_at = now() WHERE id = ${visitsId}`);
+    const inTrash = await press(people.avery, ids.leak, buttons.finish);
+    await db.execute(sql`UPDATE pages SET deleted_at = NULL WHERE id = ${visitsId}`);
+    expect(inTrash.statusCode).toBe(404);
+    expect((await stored(ids.leak))?.values[notes.id] ?? null).toEqual(before);
+  });
+
   it('uses fixed words', () => {
-    expect(BUTTON_RUN_MESSAGES).toEqual({ cantUndo: "This run can't be undone anymore." });
+    expect(BUTTON_RUN_MESSAGES).toEqual({
+      cantUndo: "This run can't be undone anymore.",
+      archived: 'This page is archived.',
+    });
     expect(BUTTON_NOTICES).toEqual({ title: 'A button sent you a message' });
+    expect(BUTTON_MESSAGES.stepFailed(1, BUTTON_MESSAGES.adminsOnly)).toBe(
+      "Couldn't finish step 1: Only Admins can send messages to Everyone or to roles.",
+    );
   });
 });
