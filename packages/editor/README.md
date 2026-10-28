@@ -195,8 +195,33 @@ const stopEvent = (event: Event) => !(event.target as Element).closest('[data-dr
 - Where a link opens comes from its href each time it is drawn, never from a stored or pasted
   `target` or `rel`: other sites open in a new tab with `rel="noopener noreferrer"`; Care Hub,
   `mailto` and `tel` links open in the same tab.
+- Tabs, in `tabs`: a `tabs` block (`labelSize`: `small`, `default` or `large`) holds one or
+  more `tab` nodes (`tabId`, `name`, `icon`), each with its own blocks. `icon` is stored like a
+  page icon: `{ type: 'emoji', emoji }` or `{ type: 'icon', name, color }`. See Tabs below.
 - Names are part of the stored data: never rename or remove a node, mark or attribute once it is
   on main; only add new ones.
+
+## Tabs
+
+A tabs block is a row of tabs, each holding its own blocks (`src/blocks/tabs.ts`).
+
+- `insertTabs()` makes one with "Tab 1" and "Tab 2", each with an empty line, in place of an
+  empty line, or else below the cursor's block, and puts the cursor in the first tab.
+- The other commands take the position of the tabs block and a tab's index. `addTab(pos, index?)`
+  adds "Tab <n>" (the next number no tab has) at the end, or at `index`, with the cursor in it.
+  `renameTab`, `setTabIcon` (null removes it), `duplicateTab` (a copy of the tab and its blocks,
+  "<name> (copy)", right after it), `moveTab(pos, from, to)` (the cursor moves with the tab),
+  `deleteTab` (deleting the only tab deletes the block) and `setTabLabelSize`. Each returns false
+  when it can't run, so `editor.can()` tells a menu what to offer.
+- At most 20 tabs (`MAX_TABS`): adding and duplicating stop there. A name is one line of at most
+  100 characters, trimmed, without control characters; an empty name changes nothing.
+- Every tab has a `tabId`, a UUID, for remembering each person's open tab. Like block IDs it's
+  never read from HTML, so pasted tabs get new ones, and so do copies and tabs that have none;
+  moving a tab keeps it.
+- A tab's lines never join the tab before or after it, and Backspace on the line after the block
+  selects the block instead of pulling the line into the last tab.
+- In HTML, each tab starts with its name in bold (after its emoji, if its icon is one), so a paste
+  into another app shows it; Care Hub skips that line when it reads the HTML back.
 
 ## Block IDs
 
