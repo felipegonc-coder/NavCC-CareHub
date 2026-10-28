@@ -1,17 +1,25 @@
 /**
  * The Button property (Templates and buttons 3.4): who can press a button, checks before one is
- * saved, the plan for one press, the run log and Undo. A press acts with the presser's own access,
- * and every right is checked for every step before anything runs. Pure: the server passes in the
- * rows, the presser's access, the time (presser.now) and a formula evaluator, then carries out the
- * plan.
+ * saved, the plan for one press, each message's text for the people it goes to, the run log and
+ * Undo. A press acts with the presser's own access, and every right is checked for every step
+ * before anything runs. Pure: the server passes in the rows, the presser's access, the time
+ * (presser.now) and a formula evaluator, then carries out the plan.
  */
 import { atLeast, can, databasePageAccess } from './access';
+import {
+  DEFAULT_TIME_ZONE,
+  MONTH_SHORT,
+  dayOfWeek,
+  instantToCalendarDate,
+  isValidTimeZone,
+  parseCalendarDate,
+} from './dates';
 import { addDecimal, fitsNumberLimits, isCanonicalDecimal } from './decimal';
 import { filterPredicate, validateFilter } from './filter';
 import { newId } from './ids';
 import { findOptionByName } from './options';
 import { isSafeWebLink } from './richtext';
-import { findProperty } from './row';
+import { findProperty, readValue } from './row';
 import { isStoredType } from './schema';
 import { TEMPLATE_MESSAGES, isDynamicDate, resolveDynamicDate } from './templates';
 import {
@@ -36,7 +44,14 @@ import {
   type ValueEdit,
   type Viewer,
 } from './types';
-import { VALUE_MESSAGES, validateValue, type ValueResult } from './values';
+import {
+  VALUE_MESSAGES,
+  formatComputed,
+  formatValue,
+  validateValue,
+  type FormatOptions,
+  type ValueResult,
+} from './values';
 
 /**
  * Messages. The first group is the spec's, word for word; the next three came with security issue
@@ -77,6 +92,9 @@ export const BUTTON_MESSAGES = {
   adminsOnly: 'Only Admins can send messages to Everyone or to roles.',
   noGroup: "That group doesn't exist.",
   noRole: "That role doesn't exist.",
+  tooManyCards: 'Add up to 3 page cards.',
+  unknownFillIn: (fillIn: string) =>
+    `${fillIn} isn't a property or variable, so it's sent as typed.`,
 } as const;
 const M = BUTTON_MESSAGES;
 
@@ -91,11 +109,22 @@ export const BUTTON_INPUTS = {
   thisRow: 'this_row',
 } as const;
 
+/**
+ * The fill-ins every message has besides the row's properties and the button's variables, by
+ * name: {first name} is the first name of the person reading it and {date} the day of the press.
+ */
+export const MESSAGE_FILL_INS = {
+  firstName: 'first name',
+  date: 'date',
+} as const;
+
 /** A Button property's settings. */
 export type ButtonConfig = ConfigOf<'button'>;
 
-/** Who a "Send a message" step goes to. */
-type MessageTo = Extract<ButtonAction, { kind: 'send_message' }>['to'];
+/** A "Send a message" step and who it goes to. */
+type MessageAction = Extract<ButtonAction, { kind: 'send_message' }>;
+type MessageTo = MessageAction['to'];
+type ButtonVariable = Extract<ButtonAction, { kind: 'define_variables' }>['variables'][number];
 type OpenIn = Extract<ButtonAction, { kind: 'open_page' }>['openIn'];
 type OpenAdded = NonNullable<Extract<ButtonAction, { kind: 'add_row' }>['open']>;
 
@@ -142,7 +171,63 @@ export type PlannedStep =
     }
   | { step: number; kind: 'open_page'; pageId: Id; openIn: OpenIn }
   | { step: number; kind: 'open_link'; url: string }
-  | { step: number; kind: 'send_message'; userIds: Id[]; message: string };
+  | {
+      step: number;
+      kind: 'send_message';
+      userIds: Id[];
+      /** As set up, fill-ins and all: fillMessage works out the text for each person. */
+      message: string;
+      /**
+       * The pages to show as cards, each once, with This page as the button's row. Each person
+       * sees only the ones they can open.
+       */
+      pageIds: Id[];
+      /** What its fill-ins read. */
+      fill: MessageFill;
+    };
+
+/** A "Send a message" step of a ready plan. */
+export type MessageStep = Extract<PlannedStep, { kind: 'send_message' }>;
+
+/** A variable as a message's fill-ins see it. */
+export interface MessageVariable {
+  id: Id;
+  name: string;
+  /** null when a later step defines it. */
+  value: ComputedValue | null;
+  /** The properties and inputs its formula reads, through variables and formula properties too. */
+  reads: Id[];
+}
+
+/**
+ * What a message's fill-ins read: the press, and the row as the steps before left it. It holds
+ * values some people can't see, so it stays on the server.
+ */
+export interface MessageFill {
+  /** The moment of the press. */
+  at: Instant;
+  /** Who pressed. */
+  by: Id;
+  /** The button's database's properties. */
+  properties: readonly Property[];
+  row: Row;
+  /** The button's variables, in order. */
+  variables: MessageVariable[];
+}
+
+/**
+ * One person a message goes to, for fillMessage: an EvalContext for them (their time zone and
+ * clock, people's names, the titles of the rows they can open and, if given, formula and rollup
+ * values worked out for them; without `computed` those come out empty).
+ */
+export interface MessageReader extends Omit<EvalContext, 'properties'> {
+  /** Their name ("Avery Lin"); {first name} is its first word. */
+  name: string;
+  /** Whether they can open the button's row. If not, every property and variable comes out empty. */
+  canOpenRow: boolean;
+  /** canSeeProperty from ./access, for them. */
+  canSeeProperty(prop: Property): boolean;
+}
 
 /** A press that goes ahead: carry out `steps` in order, then add `run` to the log (appendRun). */
 export interface ReadyRun {
@@ -270,11 +355,12 @@ export function whyCantPress(
  * exists, stores a value and gets one that fits (Today and Now only on dates, Me only in Person
  * lists, This page only in Relation lists); "Edit rows" filters fit their database; "Open a page"
  * with no page comes after an "Add a row"; links are http or https; a message names at most 50
- * people, uses Person, Created by or Edited by properties only, and goes to Everyone or to roles
- * only when an Admin sets it up (opts.admin); variable names are different and each variable is
- * defined before a formula uses it. `propertiesOf` gives another database's properties (null: no
- * such database); without it, steps there skip the property checks. Warns when anyone who can
- * view may press it but a step changes rows.
+ * people, uses Person, Created by or Edited by properties only, goes to Everyone or to roles only
+ * when an Admin sets it up (opts.admin) and has at most 3 page cards; variable names are different
+ * and each variable is defined before a formula or a message's fill-in uses it. `propertiesOf`
+ * gives another database's properties (null: no such database); without it, steps there skip the
+ * property checks. Warns when anyone who can view may press it but a step changes rows, and about
+ * each fill-in that matches nothing (it's sent as typed).
  */
 export function validateButton(
   config: ButtonConfig,
@@ -284,13 +370,14 @@ export function validateButton(
 ): ButtonCheck {
   const { actions } = config;
   const changesRows = actions.some((a) => CHANGES_ROWS.has(a.kind));
-  const warnings = config.whoCanPress === 'viewers' && changesRows ? [M.viewersChangeRows] : [];
+  const warnings: string[] =
+    config.whoCanPress === 'viewers' && changesRows ? [M.viewersChangeRows] : [];
   const fail = (step: number | null, message: string): ButtonCheck => ({
     error: { step, message },
     warnings,
   });
   if (actions.length > LIMITS.buttonActions) return fail(null, M.tooManyActions);
-  const variables = actions.flatMap((a) => (a.kind === 'define_variables' ? a.variables : []));
+  const variables = actions.flatMap(variablesOf);
   const names = variables.map((v) => v.name.trim().toLowerCase());
   if (new Set(names).size < names.length) return fail(null, M.variableNames);
   const defined = new Set<Id>(Object.values(BUTTON_INPUTS));
@@ -322,7 +409,9 @@ export function validateButton(
         if (!isSafeWebLink(a.url)) problem = M.unsafeLink;
         break;
       case 'send_message':
-        problem = messageProblem(a.to, properties, opts.admin === true);
+        problem =
+          messageProblem(a.to, properties, opts.admin === true) ??
+          fillInsProblem(a, properties, variables, defined, warnings);
         break;
       case 'define_variables':
         for (const v of a.variables) {
@@ -406,6 +495,27 @@ function messageProblem(
   return null;
 }
 
+/**
+ * Why a message's cards or fill-ins can't work as set up: more than 3 page cards, or a variable
+ * used before the step that defines it. A fill-in that matches nothing gets a warning instead.
+ */
+function fillInsProblem(
+  a: MessageAction,
+  properties: readonly Property[],
+  variables: readonly ButtonVariable[],
+  defined: ReadonlySet<Id>,
+  warnings: string[],
+): string | null {
+  if ((a.pageIds ?? []).length > LIMITS.buttonPageCards) return M.tooManyCards;
+  for (const [typed, name] of fillInsOf(a.message)) {
+    const found = findFillIn(name, variables, properties);
+    if (found?.kind === 'variable' && !defined.has(found.id)) return M.usedTooSoon(found.name);
+    const warning = M.unknownFillIn(typed);
+    if (!found && !warnings.includes(warning)) warnings.push(warning);
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- planning a press
 
 /** Why a press stops before anything runs; `forbidden` when the presser's access said no. */
@@ -422,12 +532,13 @@ class Stop extends Error {
 /**
  * Plans one press of a Button property on a row, as the presser. First, for every step, what the
  * presser's own access allows: pressing it, editing this row, adding or editing rows there, and
- * seeing and changing each property a step sets, filters on, messages through or a formula or
- * variable reads. If anything isn't allowed, nothing runs and the reason is given ("You can't add
- * rows to Tickets."). Then each step is worked out in order on the rows as the earlier steps leave
- * them: values resolved (Today and Now plus days in the presser's time zone, Me, This page,
- * formulas, items added or removed, exact sums), rows matched (up to 500 to change; rows the
- * presser can't edit are skipped and counted), links and recipients checked. If that fails,
+ * seeing and changing each property a step sets, filters on, messages through, fills in or a
+ * formula or variable reads. If anything isn't allowed, nothing runs and the reason is given ("You
+ * can't add rows to Tickets."). Then each step is worked out in order on the rows as the earlier
+ * steps leave them: values resolved (Today and Now plus days in the presser's time zone, Me, This
+ * page, formulas, items added or removed, exact sums), rows matched (up to 500 to change; rows the
+ * presser can't edit are skipped and counted), links, recipients and page cards checked, and what
+ * each message's fill-ins read kept for fillMessage. If that fails,
  * nothing runs either ("Couldn't finish step 2: Tickets is in Trash."). A confirmation not yet
  * continued past comes back first. The ready plan has the run log entry, with what Undo needs.
  */
@@ -461,6 +572,7 @@ function checkRights(button: Property<ButtonConfig>, row: Row, ctx: RunContext):
   if (!ctx.canSeeProperty(db.id, button)) throw new Stop(null, M.hiddenProperty, true);
   if (!canPress(level, button.config.whoCanPress)) throw new Stop(null, M.cantPress, true);
   if (!button.config.actions.length) throw new Stop(null, M.noActions);
+  const variables = button.config.actions.flatMap(variablesOf);
   for (const [i, a] of button.config.actions.entries()) {
     const step = i + 1;
     if (a.kind === 'set_values') {
@@ -487,6 +599,10 @@ function checkRights(button: Property<ButtonConfig>, row: Row, ctx: RunContext):
       checkEdits(step, target, a.edits, 'edit_content', ctx);
     } else if (a.kind === 'send_message') {
       for (const id of a.to.propertyIds) checkSee(step, db, id, ctx);
+      for (const [, name] of fillInsOf(a.message)) {
+        const found = findFillIn(name, variables, db.properties);
+        if (found?.kind === 'property') checkSee(step, db, found.prop.id, ctx);
+      }
     } else if (a.kind === 'define_variables') {
       for (const v of a.variables) checkReads(step, db, v.formula, ctx);
     }
@@ -547,6 +663,22 @@ function planSteps(
       value: { start: base.at, end: null, hasTime: true },
     },
     [BUTTON_INPUTS.thisRow]: { kind: 'page', value: row.id },
+  };
+  const variables = actions.flatMap(variablesOf);
+  /** Each variable's reads, through the variables and formula properties it reads. */
+  const reads = new Map<Id, Id[]>();
+  const readsOf = (formula: string, seen = new Set<Id>()): Id[] => {
+    const out = new Set<Id>();
+    for (const id of ctx.formulaReads?.(formula) ?? formulaIds(formula)) {
+      const through = reads.get(id);
+      for (const x of through ?? [id]) out.add(x);
+      const prop = through ? undefined : findProperty(db.properties, id);
+      if (prop?.config.type === 'formula' && !seen.has(id)) {
+        seen.add(id);
+        for (const x of readsOf(prop.config.expression, seen)) out.add(x);
+      }
+    }
+    return [...out];
   };
   const steps: PlannedStep[] = [];
   let lastAdded: Id | null = null;
@@ -643,8 +775,16 @@ function planSteps(
         steps.push({ step, kind: a.kind, url: a.url });
         break;
       case 'send_message': {
-        const userIds = recipients(step, a.to, current(row), ctx);
-        steps.push({ step, kind: a.kind, userIds, message: a.message });
+        const here = current(row);
+        const userIds = recipients(step, a.to, here, ctx);
+        const fill: MessageFill = {
+          ...{ at: base.at, by: base.by, properties: db.properties, row: here },
+          variables: variables.map(({ id, name }) => {
+            return { id, name, value: vars[id] ?? null, reads: reads.get(id) ?? [] };
+          }),
+        };
+        const pageIds = cardsOf(a, row.id);
+        steps.push({ step, kind: a.kind, userIds, message: a.message, pageIds, fill });
         break;
       }
       case 'confirm':
@@ -658,6 +798,7 @@ function planSteps(
           const value = ctx.evaluate(v.formula, current(row), vars);
           if (value.kind === 'error') throw new Stop(step, value.message);
           vars[v.id] = value;
+          reads.set(v.id, readsOf(v.formula));
         }
         break;
     }
@@ -703,6 +844,122 @@ function recipients(step: number, to: MessageTo, row: Row, ctx: RunContext): Id[
   }
   if (people.size > LIMITS.buttonMessagePeople) throw new Stop(step, M.tooManyRecipients);
   return [...people];
+}
+
+/** A message's cards: its pages, each once, with This page as the button's row (absent: the row). */
+const cardsOf = (a: MessageAction, rowId: Id): Id[] =>
+  [...new Set((a.pageIds ?? [THIS_PAGE]).map((id) => (id === THIS_PAGE ? rowId : id)))].slice(
+    0,
+    LIMITS.buttonPageCards,
+  );
+
+// ---------------------------------------------------------------- message text
+
+/**
+ * A message's text for one person it goes to: each fill-in worked out with their own access, then
+ * cut to 2,000 characters with "…". {first name} is the first word of their name and {date} the
+ * day of the press where they are ("Monday, Oct 26"). A property fills in the row's value as text,
+ * the way export writes it ("Open", "Yes", "Oct 30, 2026"); a variable its value. Both come out
+ * empty when they can't open the row or can't see the property, or a property the variable reads;
+ * a variable that reads other rows (a rollup, or a related row's property) fills in only for the
+ * presser. A fill-in that matches nothing stays as typed.
+ */
+export function fillMessage(step: MessageStep, reader: MessageReader): string {
+  const { fill } = step;
+  const ctx: EvalContext = { ...reader, properties: fill.properties };
+  const text = step.message.replace(FILL_IN, (typed: string, name: string) => {
+    const found = findFillIn(name, fill.variables, fill.properties);
+    if (!found) return typed;
+    if (found.kind === 'first_name') return reader.name.trim().split(/\s+/)[0] ?? '';
+    if (found.kind === 'date') return dayText(fill.at, reader.viewer.timeZone);
+    if (!reader.canOpenRow) return '';
+    if (found.kind === 'property') {
+      const { prop } = found;
+      if (!reader.canSeeProperty(prop)) return '';
+      return formatValue(prop, readValue(fill.row, prop, ctx), ctx, AS_TEXT);
+    }
+    const v = fill.variables.find((x) => x.id === found.id);
+    return v?.value && mayRead(v, fill, reader) ? formatComputed(v.value, null, ctx, AS_TEXT) : '';
+  });
+  return clip(text, LIMITS.buttonMessage);
+}
+
+/** Fill-ins: a name in braces, on one line, such as {Status} or {first name}. */
+const FILL_IN = /\{([^{}\r\n]{1,100})\}/g;
+
+/** Each fill-in in a message: as typed ("{Status}"), and the name in it. */
+const fillInsOf = (message: string): [string, string][] =>
+  [...message.matchAll(FILL_IN)].map((m) => [m[0], m[1] ?? '']);
+
+type FillIn =
+  | { kind: 'variable'; id: Id; name: string }
+  | { kind: 'property'; prop: Property }
+  | { kind: 'first_name' }
+  | { kind: 'date' };
+
+/**
+ * What a fill-in's name means: a variable, else a property of the row, else {first name} or
+ * {date}. The exact name wins; then names match ignoring case and spaces, as in formulas.
+ */
+function findFillIn(
+  name: string,
+  variables: readonly { id: Id; name: string }[],
+  properties: readonly Property[],
+): FillIn | null {
+  const loose = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+  const exact = (s: string) => s.trim() === name.trim();
+  for (const same of [exact, (s: string) => loose(s) === loose(name)]) {
+    const v = variables.find((x) => same(x.name));
+    if (v) return { kind: 'variable', id: v.id, name: v.name };
+    const prop = properties.find((p) => same(p.name));
+    if (prop) return { kind: 'property', prop };
+    if (same(MESSAGE_FILL_INS.firstName)) return { kind: 'first_name' };
+    if (same(MESSAGE_FILL_INS.date)) return { kind: 'date' };
+  }
+  return null;
+}
+
+/**
+ * Whether a variable fills in for this person: the presser always; anyone else only if it reads
+ * nothing but the press and properties of the row they can see (no rollups, no related rows).
+ */
+function mayRead(v: MessageVariable, fill: MessageFill, reader: MessageReader): boolean {
+  if (reader.viewer.userId === fill.by) return true;
+  const inputs: readonly Id[] = Object.values(BUTTON_INPUTS);
+  return v.reads.every((id) => {
+    if (inputs.includes(id)) return true;
+    const prop = findProperty(fill.properties, id);
+    return prop !== undefined && prop.config.type !== 'rollup' && reader.canSeeProperty(prop);
+  });
+}
+
+/** Values as text the way export writes them: "Yes" for a ticked box, full dates, every item. */
+const AS_TEXT: FormatOptions = { forExport: true };
+
+const WEEKDAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
+/** The day of a moment in a time zone: "Monday, Oct 26". */
+function dayText(at: Instant, timeZone: string): string {
+  const date = instantToCalendarDate(at, isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE);
+  const ymd = parseCalendarDate(date);
+  return ymd ? `${WEEKDAYS[dayOfWeek(date)]}, ${MONTH_SHORT[ymd.m - 1] ?? ''} ${ymd.d}` : '';
+}
+
+/** Text cut to `max` characters with "…" at the end when it's longer, never halfway into a character. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let end = max - 1;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return `${text.slice(0, end)}…`;
 }
 
 // ---------------------------------------------------------------- resolving values
@@ -890,6 +1147,9 @@ const undoUntil = (run: ButtonRun): Instant | null =>
   run.changes.length ? new Date(Date.parse(run.at) + LIMITS.undoToastMs).toISOString() : null;
 
 // ---------------------------------------------------------------- small helpers
+
+const variablesOf = (a: ButtonAction): ButtonVariable[] =>
+  a.kind === 'define_variables' ? a.variables : [];
 
 const asEdits = (values: Record<Id, unknown>): Record<Id, ValueEdit> =>
   Object.fromEntries(Object.entries(values).map(([id, set]) => [id, { set }]));

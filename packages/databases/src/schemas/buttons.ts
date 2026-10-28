@@ -43,7 +43,8 @@ const variablesSchema = z
 
 /**
  * One button action. Links must be safe web links; a message goes to up to 50 people plus the
- * people in up to 200 properties; "Define variables" has up to 20 variables.
+ * people in up to 200 properties, with up to 3 page cards; "Define variables" has up to 20
+ * variables.
  */
 export const buttonActionSchema = z.discriminatedUnion('kind', [
   z.strictObject({
@@ -79,7 +80,12 @@ export const buttonActionSchema = z.discriminatedUnion('kind', [
       roleIds: idListSchema(REQUEST_LIMITS.principals).exactOptional(),
       everyone: z.boolean().exactOptional(),
     }),
-    message: textSchema(REQUEST_LIMITS.message),
+    message: textSchema(LIMITS.buttonMessage),
+    pageIds: z
+      .array(idSchema)
+      .max(LIMITS.buttonPageCards, 'Add up to 3 page cards.')
+      .refine((ids) => isUniqueBy(ids, (id) => id), 'Each page once.')
+      .exactOptional(),
   }),
   z.strictObject({
     kind: z.literal('confirm'),

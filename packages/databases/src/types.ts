@@ -379,7 +379,18 @@ export type ButtonAction =
         /** Every member of the workspace (not guests). Absent: false. */
         everyone?: boolean;
       };
+      /**
+       * Up to LIMITS.buttonMessage characters. Fill-ins in braces are worked out for each person
+       * it goes to, with their own access (fillMessage in ./buttons): {first name}, {date}, a
+       * property of the row by name ({Status}) or a variable ({Total}).
+       */
       message: string;
+      /**
+       * Up to LIMITS.buttonPageCards pages shown as cards under the message: page ids, or
+       * THIS_PAGE for the button's row. Each person sees only the ones they can open. Absent: the
+       * button's row.
+       */
+      pageIds?: Id[];
     }
   | { kind: 'confirm'; title: string; message: string; confirmLabel: string }
   | { kind: 'define_variables'; variables: { id: Id; name: string; formula: string }[] };
@@ -1118,5 +1129,9 @@ export const LIMITS = {
   buttonActions: 10,
   buttonEditRows: 500,
   buttonMessagePeople: 50,
+  /** Characters in a button's message, as typed and with its fill-ins worked out. */
+  buttonMessage: 2_000,
+  /** Page cards under a button's message. */
+  buttonPageCards: 3,
   buttonRunLog: 50,
 } as const;

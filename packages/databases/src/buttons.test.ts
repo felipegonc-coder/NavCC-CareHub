@@ -5,6 +5,7 @@ import {
   appendRun,
   canPress,
   failRun,
+  fillMessage,
   planRun,
   planUndo,
   runToast,
@@ -13,6 +14,8 @@ import {
   type ButtonConfig,
   type ButtonDatabase,
   type ButtonRun,
+  type MessageReader,
+  type MessageStep,
   type ReadyRun,
   type RunContext,
   type RunPlan,
@@ -20,6 +23,7 @@ import {
 import { defaultConfig } from './schema';
 import { TEMPLATE_MESSAGES } from './templates';
 import {
+  LIMITS,
   ME,
   THIS_PAGE,
   type AccessLevel,
@@ -171,6 +175,10 @@ const FORMULAS: Record<string, Fake> = {
   }),
   'prop("p-secret")': () => ({ kind: 'text', value: 'hidden' }),
   'prop("q-budget")': () => ({ kind: 'number', value: 100 }),
+  'prop("q-state")': () => ({ kind: 'text', value: 'Active' }),
+  'prop("p-score")': () => ({ kind: 'number', value: 7 }),
+  'prop("p-total")': () => ({ kind: 'number', value: 3 }),
+  'prop("v-double") + prop("p-score")': () => ({ kind: 'number', value: 9.2 }),
   'oops(': () => ({ kind: 'error', message: 'Missing ")".' }),
 };
 const evaluate: RunContext['evaluate'] = (formula, row, vars) =>
@@ -457,6 +465,35 @@ describe('validateButton', () => {
       1,
       "'Total' is used before it's defined.",
     ],
+    [
+      'more than 3 page cards',
+      [
+        {
+          kind: 'send_message',
+          to: { userIds: ['u-jordan'], propertyIds: [] },
+          message: 'Hi',
+          pageIds: ['page-1', 'page-2', 'page-3', 'page-4'],
+        },
+      ],
+      1,
+      M.tooManyCards,
+    ],
+    [
+      'a fill-in before its variable is defined',
+      [
+        {
+          kind: 'send_message',
+          to: { userIds: ['u-jordan'], propertyIds: [] },
+          message: '{Label} soon.',
+        },
+        {
+          kind: 'define_variables',
+          variables: [{ id: 'v-label', name: 'Label', formula: '"Done"' }],
+        },
+      ],
+      1,
+      "'Label' is used before it's defined.",
+    ],
   ] satisfies [string, ButtonAction[], number | null, string][])(
     'refuses %s',
     (_name, actions, step, message) => {
@@ -473,6 +510,26 @@ describe('validateButton', () => {
     ]);
     expect(check(changes).warnings).toEqual([]);
     expect(check([link('https://bluepine.example')], 'viewers').warnings).toEqual([]);
+  });
+
+  it('takes fill-ins for variables, properties, the first name and the date, and warns about others', () => {
+    const say = (message: string): ButtonAction => ({
+      kind: 'send_message',
+      to: { userIds: ['u-jordan'], propertyIds: [] },
+      message,
+      pageIds: ['page-1', THIS_PAGE, 'page-2'],
+    });
+    const label: ButtonAction = {
+      kind: 'define_variables',
+      variables: [{ id: 'v-label', name: 'Label', formula: '"Done"' }],
+    };
+    expect(check([label, say('{first name}: {Name} is {status} ({ Label }) on {date}.')])).toEqual({
+      error: null,
+      warnings: [],
+    });
+    expect(check([say('{Stauts}, {Stauts} and {Owner}{}')]).warnings).toEqual([
+      "{Stauts} isn't a property or variable, so it's sent as typed.",
+    ]);
   });
 
   it('skips property checks on other databases without a lookup', () => {
@@ -675,6 +732,16 @@ describe('planRun: property access (security #46)', () => {
       'messages through a hidden property',
       [{ kind: 'send_message', to: { userIds: [], propertyIds: ['p-reviewers'] }, message: 'Hi' }],
     ],
+    [
+      'fills in a hidden property',
+      [
+        {
+          kind: 'send_message',
+          to: { userIds: ['u-jordan'], propertyIds: [] },
+          message: 'Notes: {Secret notes}',
+        },
+      ],
+    ],
   ] satisfies [string, ButtonAction[]][])('refuses a button that %s', (_name, actions) => {
     expect(press(actions)).toMatchObject({
       status: 'refused',
@@ -873,12 +940,13 @@ describe('planRun: messages, links, pages and confirmations', () => {
         },
       ]),
     );
-    expect(plan.steps).toEqual([
+    expect(plan.steps).toMatchObject([
       {
         step: 1,
         kind: 'send_message',
         userIds: ['u-avery', 'u-jordan', 'u-sam'],
         message: 'Ticket closed.',
+        pageIds: ['row-1'],
       },
     ]);
     expect(plan.run.messaged).toBe(3);
@@ -891,7 +959,9 @@ describe('planRun: messages, links, pages and confirmations', () => {
           { kind: 'send_message', to: { userIds: [], propertyIds: [], ...to }, message: 'Hi' },
         ]),
       ).steps[0];
-    expect(send({ userIds: ['u-sam'], groupIds: ['g-dispatch'], roleIds: ['r-agent'] })).toEqual({
+    expect(
+      send({ userIds: ['u-sam'], groupIds: ['g-dispatch'], roleIds: ['r-agent'] }),
+    ).toMatchObject({
       step: 1,
       kind: 'send_message',
       userIds: ['u-sam', 'u-jordan', 'u-riley'],
@@ -951,6 +1021,68 @@ describe('planRun: messages, links, pages and confirmations', () => {
     });
   });
 
+  it('keeps the page cards, each once, with This page as the row (the row when none are set)', () => {
+    const send = (pageIds?: string[]) =>
+      ready(
+        press([
+          {
+            kind: 'send_message',
+            to: { userIds: ['u-jordan'], propertyIds: [] },
+            message: 'Hi',
+            ...(pageIds ? { pageIds } : {}),
+          },
+        ]),
+      ).steps[0];
+    expect(send()).toMatchObject({ pageIds: ['row-1'] });
+    expect(send([])).toMatchObject({ pageIds: [] });
+    expect(send(['page-7', THIS_PAGE, 'page-7'])).toMatchObject({ pageIds: ['page-7', 'row-1'] });
+  });
+
+  it('keeps what fill-ins read: the press, the row after the steps before, each variable', () => {
+    const score = prop('p-score', 'Score', {
+      type: 'formula',
+      expression: 'prop("p-hours") + prop("p-salary")',
+      resultKind: 'number',
+      number: null,
+    });
+    const database = {
+      ...tickets,
+      properties: ticketProps.map((p) => (p.id === score.id ? score : p)),
+    };
+    const actions: ButtonAction[] = [
+      { kind: 'set_values', values: { 'p-status': 's-done' } },
+      {
+        kind: 'define_variables',
+        variables: [
+          { id: 'v-double', name: 'Double', formula: 'prop("p-hours") * 2' },
+          { id: 'v-sum', name: 'Sum', formula: 'prop("v-double") + prop("p-score")' },
+        ],
+      },
+      { kind: 'send_message', to: { userIds: ['u-jordan'], propertyIds: [] }, message: 'Hi' },
+      {
+        kind: 'define_variables',
+        variables: [{ id: 'v-later', name: 'Later', formula: '"Done"' }],
+      },
+    ];
+    expect(ready(press(actions, { database })).steps[1]).toMatchObject({
+      kind: 'send_message',
+      fill: {
+        at: '2026-10-26T15:00:00.000Z',
+        by: 'u-avery',
+        row: { id: 'row-1', values: { 'p-status': 's-done', 'p-hours': '1.1' } },
+        variables: [
+          { id: 'v-double', value: { kind: 'number', value: 2.2 }, reads: ['p-hours'] },
+          {
+            id: 'v-sum',
+            value: { kind: 'number', value: 9.2 },
+            reads: ['p-hours', 'p-score', 'p-salary'],
+          },
+          { id: 'v-later', name: 'Later', value: null, reads: [] },
+        ],
+      },
+    });
+  });
+
   it('checks links again when pressed, and needs an added row to open', () => {
     expect(press([link('javascript:alert(1)')])).toMatchObject({
       message: "Couldn't finish step 1: Only http and https links.",
@@ -995,6 +1127,158 @@ describe('planRun: messages, links, pages and confirmations', () => {
       status: 'refused',
       message: "You can't change 'Salary'.",
     });
+  });
+});
+
+describe('fillMessage', () => {
+  const to = { userIds: ['u-jordan'], propertyIds: [] };
+  /** The message step of a press at 03:00 UTC on Oct 27 (Oct 26 in Denver), after `before`. */
+  const say = (
+    message: string,
+    before: ButtonAction[] = [],
+    over: Partial<RunContext> = {},
+    row = row1,
+  ): MessageStep => {
+    const lateNight = { ...avery, now: new Date('2026-10-27T03:00:00.000Z') };
+    const actions: ButtonAction[] = [...before, { kind: 'send_message', to, message }];
+    const plan = ready(press(actions, { presser: lateNight, ...over }, row));
+    const step = plan.steps.find((s): s is MessageStep => s.kind === 'send_message');
+    if (!step) throw new Error('No message step');
+    return step;
+  };
+  /** The rows Jordan can open. */
+  const TITLES: Record<string, string> = {
+    'proj-1': 'Blue Pine refit',
+    'row-2': 'Invoice question',
+  };
+  /** Jordan Park in London, who can't see Salary and can open Blue Pine refit and Invoice question. */
+  const jordan = (over: Partial<MessageReader> = {}): MessageReader => ({
+    viewer: { ...avery, userId: 'u-jordan', timeZone: 'Europe/London' },
+    name: 'Jordan Park',
+    canOpenRow: true,
+    canSeeProperty: (p) => p.id !== 'p-salary',
+    userName: (id) => NAMES[id],
+    rowTitle: (id) => TITLES[id],
+    ...over,
+  });
+  /** The presser, Avery Lin in Denver. */
+  const presser = jordan({ viewer: avery, name: 'Avery Lin', canSeeProperty: () => true });
+
+  it("fills in each person's first name and day, and the row's values as text", () => {
+    const step = say(
+      'Hi {first name}, {Name} is {Status} ({Tags}) as of {date}. Hours: {Hours}. ' +
+        'Watching: {Watchers}. Project: {Project}.',
+    );
+    const rest = '. Hours: 1.1. Watching: Jordan Park, Sam Ortiz. Project: Blue Pine refit.';
+    expect(fillMessage(step, jordan())).toBe(
+      `Hi Jordan, Leak at Blue Pine Plumbing is Open (Billing) as of Tuesday, Oct 27${rest}`,
+    );
+    expect(fillMessage(step, presser)).toBe(
+      `Hi Avery, Leak at Blue Pine Plumbing is Open (Billing) as of Monday, Oct 26${rest}`,
+    );
+  });
+
+  it("leaves what they can't see empty: a hidden property, or the row's values if they can't open it", () => {
+    const row = makeRow('row-1', row1.title, {
+      ...row1.values,
+      'p-salary': '90000',
+      'p-related': ['row-2', 'row-4'],
+    });
+    const step = say(
+      '{first name}: {Name}, {Status}, salary {Salary}. See {Related tickets}.',
+      [],
+      {},
+      row,
+    );
+    expect(fillMessage(step, jordan())).toBe(
+      "Jordan: Leak at Blue Pine Plumbing, Open, salary . See Invoice question, 1 row you can't open.",
+    );
+    expect(fillMessage(step, jordan({ canSeeProperty: () => true }))).toBe(
+      "Jordan: Leak at Blue Pine Plumbing, Open, salary 90000. See Invoice question, 1 row you can't open.",
+    );
+    expect(fillMessage(step, jordan({ canOpenRow: false }))).toBe('Jordan: , , salary . See .');
+  });
+
+  it('fills in a variable only for people who can see what it reads; other rows only for the presser', () => {
+    const before: ButtonAction[] = [
+      {
+        kind: 'define_variables',
+        variables: [
+          { id: 'v-double', name: 'Double', formula: 'prop("p-hours") * 2' },
+          { id: 'v-state', name: 'Project state', formula: 'prop("q-state")' },
+        ],
+      },
+    ];
+    const step = say('{Double} / {Project state}', before);
+    expect(fillMessage(step, presser)).toBe('2.2 / Active');
+    expect(fillMessage(step, jordan())).toBe('2.2 / ');
+    expect(fillMessage(step, jordan({ canSeeProperty: (p) => p.id !== 'p-hours' }))).toBe(' / ');
+    expect(fillMessage(step, jordan({ canOpenRow: false }))).toBe(' / ');
+  });
+
+  it('follows a variable through the formulas it reads, and keeps rollups for the presser', () => {
+    const score = prop('p-score', 'Score', {
+      type: 'formula',
+      expression: 'prop("p-salary")',
+      resultKind: 'number',
+      number: null,
+    });
+    const total = prop('p-total', 'Total', {
+      type: 'rollup',
+      relationPropertyId: 'p-project',
+      targetPropertyId: 'q-state',
+      aggregate: 'count_all',
+      number: null,
+    });
+    const properties = [...ticketProps.map((p) => (p.id === score.id ? score : p)), total];
+    const before: ButtonAction[] = [
+      {
+        kind: 'define_variables',
+        variables: [
+          { id: 'v-points', name: 'Points', formula: 'prop("p-score")' },
+          { id: 'v-total', name: 'Linked', formula: 'prop("p-total")' },
+        ],
+      },
+    ];
+    const step = say('{Points} and {Linked}', before, { database: { ...tickets, properties } });
+    expect(fillMessage(step, jordan())).toBe(' and ');
+    expect(fillMessage(step, jordan({ canSeeProperty: () => true }))).toBe('7 and ');
+    expect(fillMessage(step, presser)).toBe('7 and 3');
+  });
+
+  it('matches names ignoring case and spaces, prefers exact names and variables, and keeps the rest', () => {
+    const date = prop('p-date', 'Date', defaultConfig('date'));
+    const database = { ...tickets, properties: [...ticketProps, date] };
+    const row = makeRow('row-1', row1.title, {
+      ...row1.values,
+      'p-date': { start: '2026-10-30', end: null, hasTime: false },
+    });
+    const before: ButtonAction[] = [
+      {
+        kind: 'define_variables',
+        variables: [{ id: 'v-label', name: 'Tags', formula: '"Done"' }],
+      },
+    ];
+    const step = say(
+      '{date}|{Date}|{status}|{FIRST NAME}|{Tags}|{Stauts}|{}',
+      before,
+      { database },
+      row,
+    );
+    expect(fillMessage(step, jordan())).toBe(
+      'Tuesday, Oct 27|Oct 30, 2026|Open|Jordan|Done|{Stauts}|{}',
+    );
+  });
+
+  it('cuts the text at 2,000 characters with "…", never halfway into a character', () => {
+    const long = fillMessage(say(`${'x'.repeat(1_990)} {Name}`), jordan());
+    expect(long).toHaveLength(LIMITS.buttonMessage);
+    expect(long).toBe(`${'x'.repeat(1_990)} Leak at …`);
+    const emoji = makeRow('row-1', 'abcde😀z');
+    expect(fillMessage(say(`${'x'.repeat(1_993)}{Name}`, [], {}, emoji), jordan())).toBe(
+      `${'x'.repeat(1_993)}abcde…`,
+    );
+    expect(fillMessage(say('Closed: {Name}'), jordan())).toBe('Closed: Leak at Blue Pine Plumbing');
   });
 });
 

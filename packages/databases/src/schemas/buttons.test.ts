@@ -155,9 +155,25 @@ describe('buttonActionSchema', () => {
 
   it('takes messages up to 2,000 characters', () => {
     const m = (n: number) => ({ ...message, message: 'x'.repeat(n) });
-    expect(ok(buttonActionSchema, m(REQUEST_LIMITS.message))).toBe(true);
-    expect(ok(buttonActionSchema, m(REQUEST_LIMITS.message + 1))).toBe(false);
+    expect(ok(buttonActionSchema, m(LIMITS.buttonMessage))).toBe(true);
+    expect(ok(buttonActionSchema, m(LIMITS.buttonMessage + 1))).toBe(false);
     expect(ok(buttonActionSchema, { ...message, message: 'a\u0000b' })).toBe(false);
+    expect(
+      ok(buttonActionSchema, { ...message, message: 'Hi {first name}, {Status} on {date}.' }),
+    ).toBe(true);
+  });
+
+  it('takes up to 3 page cards, each once', () => {
+    const cards = (pageIds: unknown) => ({ ...message, pageIds });
+    expect(ok(buttonActionSchema, cards(['page-1', 'page-2', 'this_page']))).toBe(true);
+    expect(ok(buttonActionSchema, cards([]))).toBe(true);
+    expect(ok(buttonActionSchema, cards(ids(LIMITS.buttonPageCards + 1)))).toBe(false);
+    expect(ok(buttonActionSchema, cards(['page-1', 'page-1']))).toBe(false);
+    expect(ok(buttonActionSchema, cards(['']))).toBe(false);
+    expect(ok(buttonActionSchema, cards('page-1'))).toBe(false);
+    expect(ok(buttonActionSchema, cards(undefined))).toBe(false);
+    const tooMany = buttonActionSchema.safeParse(cards(ids(4)));
+    expect(tooMany.error?.issues[0]?.message).toBe('Add up to 3 page cards.');
   });
 
   it('checks confirm labels', () => {
