@@ -1,9 +1,10 @@
 // @carehub/extras/claude: names every Claude feature shares, on the server, in the web app and in
-// other lanes (Learning help, the Meetings summary). Rules: docs/extras/claude.md.
+// other features (Learning help, the Meetings summary). Rules: docs/extras/claude.md.
 
 /**
  * Each feature has its own workspace switch, off by default. Nothing is sent to Claude unless the
- * server has a key, an Admin has ticked "Nav has given the OK", and that feature's switch is on.
+ * server has a key, an Admin has ticked "Approved for this workspace", and that feature's switch is
+ * on.
  */
 export const CLAUDE_FEATURES = [
   'writing_help',
@@ -29,8 +30,8 @@ export function claudeSwitchKey<F extends ClaudeFeature>(feature: F): `claude.${
   return `claude.${feature}`;
 }
 
-/** The workspace setting an Admin ticks once Nav has given the OK. No switch works without it. */
-export const CLAUDE_APPROVAL_KEY = 'claude.navApproved';
+/** "Approved for this workspace", ticked by an Admin. No switch works without it. */
+export const CLAUDE_APPROVAL_KEY = 'claude.workspaceApproved';
 
 export function isClaudeFeature(value: string): value is ClaudeFeature {
   return (CLAUDE_FEATURES as readonly string[]).includes(value);
@@ -68,8 +69,7 @@ export const CLAUDE_ERRORS: Readonly<Record<ClaudeErrorReason, ClaudeErrorInfo>>
   not_approved: {
     status: 409,
     code: 'conflict',
-    message:
-      'Claude is off until an Admin confirms in Settings → Claude that Nav has given the OK.',
+    message: 'Claude is off until an Admin approves it for this workspace in Settings → Claude.',
   },
   switched_off: {
     status: 409,

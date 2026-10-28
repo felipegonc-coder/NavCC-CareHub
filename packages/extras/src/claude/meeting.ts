@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-// The meeting summary Meetings asks for (Team tools lane) and the server checks Claude's answer
-// against (summarizeMeeting, docs/extras/claude.md). Everything in it is plain text: show it as text,
-// never as HTML.
+// The meeting summary Meetings asks for and the server checks Claude's answer against
+// (summarizeMeeting, docs/extras/claude.md). Everything in it is plain text: show it as text, never
+// as HTML.
 
 export const MEETING_SUMMARY_LIMITS = {
   summary: 2000,

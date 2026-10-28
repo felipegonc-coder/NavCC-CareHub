@@ -37,8 +37,8 @@ export const claudeSettingsViewSchema = z.object({
   keySet: z.boolean(),
   /** ANTHROPIC_MODEL (CL-D1). */
   model: z.string(),
-  /** "Nav has given the OK". No switch works without it. */
-  navApproved: z.boolean(),
+  /** "Approved for this workspace". No switch works without it. */
+  workspaceApproved: z.boolean(),
   switches: z.object(switches),
   chatRetentionDays: chatRetentionSchema,
   usage: z.object({
@@ -55,7 +55,7 @@ export type ClaudeSettingsView = z.infer<typeof claudeSettingsViewSchema>;
 /** PUT /api/claude/settings: only what changes. */
 export const claudeSettingsUpdateSchema = z
   .object({
-    navApproved: z.boolean().optional(),
+    workspaceApproved: z.boolean().optional(),
     switches: z.object(switches).partial().strict().optional(),
     chatRetentionDays: chatRetentionSchema.optional(),
   })
@@ -63,8 +63,8 @@ export const claudeSettingsUpdateSchema = z
 export type ClaudeSettingsUpdate = z.infer<typeof claudeSettingsUpdateSchema>;
 
 /**
- * GET /api/claude/status: which features the signed-in person can use now (the key, the OK, the
- * switch and claude.use). The web app asks every few seconds and hides what's off.
+ * GET /api/claude/status: which features the signed-in person can use now (the key, the approval,
+ * the switch and claude.use). The web app asks every few seconds and hides what's off.
  */
 export const claudeStatusSchema = z.object({ on: z.object(switches) });
 export type ClaudeStatus = z.infer<typeof claudeStatusSchema>;
