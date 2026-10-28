@@ -28,3 +28,8 @@ CREATE TABLE cal_layers (
 ALTER TABLE cal_events
   ADD CONSTRAINT cal_events_workspace_id_fkey
   FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE;
+
+-- The video link gets a length check like the title, location and description (the API takes
+-- up to 2,000 characters).
+ALTER TABLE cal_events
+  ADD CONSTRAINT cal_events_video_url_length CHECK (char_length(video_url) <= 2000);
