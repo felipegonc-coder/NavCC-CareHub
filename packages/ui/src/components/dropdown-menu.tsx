@@ -2,6 +2,7 @@ import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronRight } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn';
+import { useFocusReturn } from '../lib/focus-return';
 import { bottomSheetClasses, menuItemClasses, surfaceClasses } from './classes';
 
 export const DropdownMenu = MenuPrimitive.Root;
@@ -11,12 +12,16 @@ export const DropdownMenuRadioGroup = MenuPrimitive.RadioGroup;
 /** A second menu inside a menu: `DropdownMenuSubTrigger` and `DropdownMenuSubContent`. */
 export const DropdownMenuSub = MenuPrimitive.Sub;
 
-/** Opens next to its button; on a phone, as a bottom sheet. */
+/**
+ * Opens next to its button; on a phone, as a bottom sheet. Arrow keys, Home, End and typing an
+ * item's first letters move through it; Escape closes it and gives focus back.
+ */
 export function DropdownMenuContent({
   className,
   sideOffset = 4,
   ...props
 }: ComponentProps<typeof MenuPrimitive.Content>) {
+  const focusReturn = useFocusReturn(props, { keepFocusAfterOutsideClick: true });
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Content
@@ -24,6 +29,7 @@ export function DropdownMenuContent({
         data-sheet=""
         className={cn(surfaceClasses, 'min-w-44', bottomSheetClasses, className)}
         {...props}
+        {...focusReturn}
       />
     </MenuPrimitive.Portal>
   );

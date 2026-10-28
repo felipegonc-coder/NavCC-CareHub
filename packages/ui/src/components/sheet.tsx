@@ -2,6 +2,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn';
+import { useFocusReturn } from '../lib/focus-return';
 import { IconButton } from './icon-button';
 
 export interface SheetContentProps extends Omit<
@@ -25,6 +26,7 @@ export function SheetContent({
   children,
   ...props
 }: SheetContentProps) {
+  const focusReturn = useFocusReturn(props);
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-40 animate-fade-in bg-overlay/50" />
@@ -35,6 +37,7 @@ export function SheetContent({
           className,
         )}
         {...props}
+        {...focusReturn}
       >
         <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
         {children}

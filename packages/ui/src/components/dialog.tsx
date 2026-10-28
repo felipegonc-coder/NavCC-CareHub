@@ -2,6 +2,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn';
+import { useFocusReturn } from '../lib/focus-return';
 import { bottomSheetClasses } from './classes';
 import { IconButton } from './icon-button';
 
@@ -11,13 +12,14 @@ export const DialogClose = DialogPrimitive.Close;
 
 /**
  * Centred dialog with a dimmed backdrop; on a phone, a bottom sheet. Focus stays inside; Escape
- * closes it.
+ * closes it, and focus goes back to what opened it, also when that wasn't a `DialogTrigger`.
  */
 export function DialogContent({
   className,
   children,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Content>) {
+  const focusReturn = useFocusReturn(props);
   return (
     <DialogPrimitive.Portal>
       {/* The backdrop holds the dialog, so a dialog taller than the window scrolls with it. */}
@@ -30,6 +32,7 @@ export function DialogContent({
             className,
           )}
           {...props}
+          {...focusReturn}
         >
           {children}
           <DialogPrimitive.Close asChild>

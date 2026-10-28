@@ -81,8 +81,12 @@ import { Button, ThemeProvider, ToastProvider } from '@carehub/ui';
 - **Overlays:** `DropdownMenu` (with `DropdownMenuSub`, `DropdownMenuSubTrigger` and
   `DropdownMenuSubContent` for a second menu, which a phone shows as a sheet over the first),
   `Dialog`, `Popover`, `Tooltip` (hints only, never the only label)
-  and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape and give
-  focus back. A toast can carry one button, `action: { label: 'Undo', onClick }`; it then stays
+  and `useToast()` inside `ToastProvider`. Menus, dialogs and popovers close on Escape (only the
+  top one) and give focus back to what opened them, also when that was a menu item, a shortcut or
+  code rather than their trigger; after a click outside a menu or popover, focus stays where the
+  click put it. Dialogs and sheets keep focus inside while open. Menus move with the arrow keys,
+  Home, End and by typing an item's first letters.
+  A toast can carry one button, `action: { label: 'Undo', onClick }`; it then stays
   8 seconds instead of 5. Its timer stops while the pointer or keyboard focus is on it, so people
   have time to reach Undo, and a press can come after the server's Undo window. The server then
   answers 409 `conflict`; show a short "Too late to undo" toast.
