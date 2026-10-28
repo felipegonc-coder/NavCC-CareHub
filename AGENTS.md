@@ -1,10 +1,10 @@
 # AGENTS.md: rules for every builder
 
-Care Hub is a private workspace app for a Customer Care team. This repository is a **clean-room rebuild**, written from scratch from the plan in [`docs/plan/`](docs/plan/README.md). Owner: Felipe Gonçalves. All rights reserved (see `LICENSE`).
+Care Hub is a private workspace app for a Customer Care team. This repository is a **clean-room rebuild**, written from scratch from the plan in [`docs/plan/`](docs/plan/README.md). All rights reserved (see `LICENSE`).
 
 ## 1. Clean room (most important)
 
-1. Build only from `docs/plan/`, the specs the lead gives you, and Felipe's answers (relayed by the lead).
+1. Build only from `docs/plan/`, the specs the lead gives you, and the answers the lead relays.
 2. Never open, search for, copy or paste code from AppFlowy, CareHub, CareHub-Web, CareHub-Cloud or any GPL or AGPL project: not on GitHub, not on the web, not from memory. If you remember code from them, write your own anyway.
 3. Never read earlier agent sessions or their files. Don't search for them or open them.
 4. Every pull request description contains this exact line:
@@ -90,7 +90,7 @@ Lane leads review and squash-merge their own lane's pull requests. Anything outs
 - **Done means:** matches the spec, the quick checks are green, pull requests that change screens have one green browser-test run, works with the keyboard and screen readers, works on phones, permissions are checked on the server, no secrets, nothing copied.
 - **Security:** check permissions on the server for every request (hiding a button is not security). Sessions in Secure, HttpOnly, SameSite cookies. CSRF protection on every state-changing request. Rate limits on sign-in. Validate all input with zod. Never log passwords, tokens or cookies.
 - **Basic first:** a working basic version of every feature first; polish comes later.
-- **Look:** follow [`docs/plan/look-and-feel.md`](docs/plan/look-and-feel.md). Every colour, font, size, spacing and corner radius comes from `@carehub/ui` (the Tailwind preset's classes, or the `--ch-*` CSS variables in plain CSS), never one-off values: Felipe restyles Care Hub from the design kit later. 8 px corners, system font, text contrast of at least 4.5:1, a visible focus outline, and respect for reduced motion.
+- **Look:** follow [`docs/plan/look-and-feel.md`](docs/plan/look-and-feel.md). Every colour, font, size, spacing and corner radius comes from `@carehub/ui` (the Tailwind preset's classes, or the `--ch-*` CSS variables in plain CSS), never one-off values, so Care Hub can be restyled from the design kit later. 8 px corners, system font, text contrast of at least 4.5:1, a visible focus outline, and respect for reduced motion.
 - **Scope:** build what the plan and your task say, nothing more. Put open questions in the pull request description instead of guessing on anything hard to undo.
 
 ## 7. CI (frugal enough for GitHub's free 2,000 minutes a month)
