@@ -1,4 +1,5 @@
 import { markdownImporter } from './markdown';
+import { notionImporter } from './notion';
 import type { Importer } from './plan';
 import type { ImportSourceId } from './sources';
 
@@ -8,6 +9,7 @@ import type { ImportSourceId } from './sources';
  */
 export const SERVER_IMPORTERS: Partial<Record<ImportSourceId, Importer>> = {
   markdown: markdownImporter,
+  notion: notionImporter,
 };
 
 /** Sources whose files are HTML or XML documents, read with the browser's DOMParser. */
