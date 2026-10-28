@@ -43,6 +43,23 @@ describe('startOf', () => {
     });
   });
 
+  it('takes an occurrence moved to a whole day as all-day, and one moved back as timed', () => {
+    const allDay = { '2026-11-03T10:00': { start: '2026-11-03', end: '2026-11-04' } };
+    expect(startOf({ ...weekly, overrides: allDay }, '2026-11-03T10:00')).toEqual({
+      allDay: '2026-11-03',
+    });
+    const days: Schedule = {
+      ...weekly,
+      allDay: true,
+      start: '2026-10-20',
+      end: '2026-10-21',
+      exceptions: [],
+      overrides: { '2026-11-03': { start: '2026-11-03T14:00', end: '2026-11-03T15:00' } },
+    };
+    expect(startOf(days, '2026-11-03')).toEqual({ start: new Date('2026-11-03T21:00:00.000Z') });
+    expect(startOf(days, '2026-11-10')).toEqual({ allDay: '2026-11-10' });
+  });
+
   it('is null for a removed occurrence, a key that does not fit, or no key on a series', () => {
     expect(startOf(weekly, '2026-10-27T10:00')).toBeNull();
     expect(startOf(weekly, '2026-10-21T10:00')).toBeNull();
