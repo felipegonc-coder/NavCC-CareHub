@@ -1,12 +1,13 @@
 // Button presses on a real database (decision 0200; Templates and buttons 3.4): a run carried out
 // with the presser's own access through the rows API, logged (the newest 50 per button) and undone
 // within 8 seconds by the person who pressed; steps into a database they can't change; messages
-// only to people who can open the row, at most 50, and to Everyone or roles only from Admins; the
-// confirmation; a row that goes to Trash during a run; no presses by guests or people outside the
+// only to people who can open the row, at most 50, and to Everyone or roles only from Admins, each
+// filled in for its reader with only the page cards they can open; the confirmation; a row that goes to Trash during a run; no presses by guests or people outside the
 // workspace, in Trash or on archived pages. Fictional people only.
 import { randomUUID } from 'node:crypto';
 import {
   ME,
+  THIS_PAGE,
   defaultConfig,
   newProperty,
   type ButtonAction,
@@ -507,6 +508,68 @@ describe.skipIf(!hasDatabase)('database buttons', () => {
     expect(buttonNotices(people.admin)).toHaveLength(1);
     expect(buttonNotices(people.avery)).toHaveLength(1);
     expect(buttonNotices(people.casey)).toEqual([]);
+  });
+
+  it('fills in each message for its reader, with only the cards they can open', async () => {
+    // Rate shows only to Avery, and only Avery can open Invoices.
+    const rate: Property = {
+      ...newProperty('Rate', defaultConfig('text')),
+      access: { see: [{ type: 'user', id: people.avery.id }], change: null },
+    };
+    const invoice = newProperty('Invoice', {
+      type: 'relation',
+      targetDatabaseId: invoicesId,
+      single: false,
+      twoWayPropertyId: null,
+    });
+    const to = { userIds: [people.avery.id, people.sam.id, people.casey.id], propertyIds: [] };
+    const brief = button('Brief', [
+      {
+        kind: 'send_message',
+        to,
+        message: 'Hi {first name}: {Name} is {notes}, at {Rate} for {Invoice}.',
+        pageIds: [THIS_PAGE, ids.invoice],
+      },
+    ]);
+    const long = button('Long', [
+      { kind: 'send_message', to, message: `${'x'.repeat(1990)} {Notes}`, pageIds: [] },
+    ]);
+    await settings(visitsId, (current) => ({
+      properties: [...current.properties, rate, invoice, brief, long],
+    }));
+    const rowId = await addRow(people.avery, 'Boiler', visitsId, {
+      [notes.id]: 'Noisy and leaking',
+      [rate.id]: '$90 an hour',
+    });
+    await db.execute(sql`
+      UPDATE db_rows
+      SET "values" = "values"
+        || jsonb_build_object(${invoice.id}::text, jsonb_build_array(${ids.invoice}::text))
+      WHERE page_id = ${rowId}`);
+
+    const res = await press(people.avery, rowId, brief);
+    expect(res.statusCode).toBe(200);
+    expect(await runOf(res.json().runId)).toMatchObject({ outcome: 'done', messaged: 2 });
+    expect(buttonNotices(people.avery).at(-1)).toMatchObject({
+      text: 'Hi Avery: Boiler is Noisy and leaking, at $90 an hour for Invoice 1001.',
+      card: { type: 'page', pageId: rowId },
+      extraCards: [{ type: 'page', pageId: ids.invoice }],
+    });
+    // Sam can't see Rate or open the invoice: neither its value, its title nor its card reach him.
+    expect(buttonNotices(people.sam).at(-1)).toMatchObject({
+      text: "Hi Sam: Boiler is Noisy and leaking, at  for 1 row you can't open.",
+      card: { type: 'page', pageId: rowId },
+      extraCards: [],
+    });
+    expect(buttonNotices(people.casey)).toEqual([]);
+
+    // The cap applies after the fill-ins, with "…". No cards were picked, so none go out.
+    expect((await press(people.avery, rowId, long)).statusCode).toBe(200);
+    expect(buttonNotices(people.sam).at(-1)).toMatchObject({
+      text: `${'x'.repeat(1990)} Noisy an…`,
+      card: null,
+      extraCards: [],
+    });
   });
 
   it('logs a failed run for more than 50 people and for a missing role or group', async () => {
