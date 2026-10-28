@@ -1,8 +1,11 @@
 // The gallery's calls to /api/templates (apps/server/src/features/templates/README.md). Screens
 // get the client from context, so tests can pass a fake one (test-utils.tsx).
+import type { TemplateCard } from '@carehub/extras/templates/gallery';
 import type {
   GalleryResponse,
+  SaveTemplateInput,
   TemplatePreviewResponse,
+  UpdateTemplateInput,
   UseTarget,
   UseTemplateResponse,
 } from '@carehub/extras/templates/schemas';
@@ -28,6 +31,12 @@ export const templatesClient = {
   /** Hide for everyone (Admins), or show it again. */
   setHidden: (id: string, hidden: boolean) =>
     hidden ? api.put<void>(`${path(id)}/hidden`) : api.delete<void>(`${path(id)}/hidden`),
+  /** Save as template, from the page menu. */
+  save: (input: SaveTemplateInput) => api.post<TemplateCard>(BASE, input),
+  /** Rename, Change category, Who can use it. */
+  update: (id: string, input: UpdateTemplateInput) => api.patch<TemplateCard>(path(id), input),
+  /** Delete a workspace template; pages made from it stay. */
+  remove: (id: string) => api.delete<void>(path(id)),
 };
 
 export type TemplatesClient = typeof templatesClient;
@@ -48,6 +57,8 @@ export function useGallery() {
   return useQuery({
     queryKey: templateKeys.gallery,
     queryFn: ({ signal }) => client.gallery(signal),
+    // The page menu reads `canSave` from here too, so one fetch serves both for a minute.
+    staleTime: 60_000,
   });
 }
 
@@ -70,3 +81,34 @@ export function useTemplateCopy() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: templateKeys.gallery }),
   });
 }
+
+/** A mutation that refreshes the gallery (and its previews) when it's done. */
+function useGalleryChange<Input, Output>(
+  run: (client: TemplatesClient, input: Input) => Promise<Output>,
+) {
+  const client = useTemplatesClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Input) => run(client, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: templateKeys.all }),
+  });
+}
+
+/** Save as template. */
+export const useSaveTemplate = () =>
+  useGalleryChange((client, input: SaveTemplateInput) => client.save(input));
+
+/** Rename, Change category, Who can use it. */
+export const useUpdateTemplate = () =>
+  useGalleryChange((client, { id, input }: { id: string; input: UpdateTemplateInput }) =>
+    client.update(id, input),
+  );
+
+/** Delete a workspace template. */
+export const useDeleteTemplate = () => useGalleryChange((client, id: string) => client.remove(id));
+
+/** Hide a starter for everyone, or show it again (Admins). */
+export const useSetHidden = () =>
+  useGalleryChange((client, { id, hidden }: { id: string; hidden: boolean }) =>
+    client.setHidden(id, hidden),
+  );
