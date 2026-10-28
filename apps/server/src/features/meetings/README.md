@@ -40,6 +40,19 @@ meeting notes come next.
 Tables: `meetings_notes`, `meetings_grants` and `meetings_places`
 (`migrations/202610271940_meetings_notes.sql`).
 
+## Transcription (`transcripts/`)
+
+Private, in-browser transcription (MT-06): the browser turns the audio into lines with speech
+model files the server keeps.
+
+- `GET /transcription`: `{ available, bytes }`, plus `message` when it's off. Available when
+  `MODELS_DIR` points at a folder with model files; `bytes` is what the browser downloads once.
+- `GET /models/<file>`: a file from that folder, read only. Only regular files directly in it with
+  plain names (letters, digits, `.`, `-`, `_`; no `..`, hidden files, subfolders or links);
+  anything else is 404. Kept by the browser for a year (`immutable`, with an ETag), so a new model
+  comes with new file names.
+- Members only: guests get 403. Model files never go in the repository.
+
 ## For Calendar (`index.ts`)
 
 - `registerMeetingEventLookup((db, { workspaceId, eventId, occurrence? }) => MeetingEvent | null)`
