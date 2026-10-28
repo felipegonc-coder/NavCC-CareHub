@@ -149,14 +149,20 @@ function cacheFor(schemas: Schemas, skipped: string[] = []): RowCache {
 
 function query(
   userId: string,
-  opts: { skipped?: string[]; clock?: () => number; extra?: Property[]; homeRows?: Row[] } = {},
+  opts: {
+    skipped?: string[];
+    clock?: () => number;
+    extra?: Property[];
+    clientExtra?: Property[];
+    homeRows?: Row[];
+  } = {},
 ) {
   const homeProps = [...jobProps, ...(opts.extra ?? [])];
   const schemas = schemasFor(
     JOBS,
     new Map([
       [JOBS, homeProps],
-      [CLIENTS, clientProps],
+      [CLIENTS, [...clientProps, ...(opts.clientExtra ?? [])]],
     ]),
     { userId, groupIds: [] },
   );
@@ -216,6 +222,22 @@ describe('formulas and rollups on the server', () => {
     expect(schemas.dependsOn(clientCalls.id)).toEqual([client.id, calls.id]);
     expect(schemas.canSee('gone')).toBe(true);
     expect([...schemas.followed]).toEqual([client.id]);
+  });
+
+  it('hides a property whose id is in two databases, in both, and what reads it', () => {
+    // Clients gets a property with Hours' id (say, a bad copy), and a formula that reads it.
+    const copy: Property = { ...newProperty('Hours', defaultConfig('number')), id: hours.id };
+    const readsCopy = formula('Hours plus one', `prop("${hours.id}") + 1`);
+    const { data, schemas } = query(AVERY, { clientExtra: [copy, readsCopy] });
+    expect(schemas.canSee(hours.id)).toBe(false);
+    expect(schemas.property(hours.id)).toBeUndefined();
+    expect(data.propertyIds).not.toContain(hours.id);
+    expect(data.propertyIds).not.toContain(total.id);
+    expect(data.propertyIds).toContain(rate.id);
+    expect(byId(data, 'j1').values).not.toHaveProperty(hours.id);
+    expect(byId(data, 'j1').computed).not.toHaveProperty(total.id);
+    expect(schemas.byId.get(CLIENTS)?.visible.has(readsCopy.id)).toBe(false);
+    expect(schemas.byId.get(CLIENTS)?.visible.has(calls.id)).toBe(true);
   });
 
   it('says "⚠ Too slow" once the request’s time is used up', () => {

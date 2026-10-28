@@ -15,6 +15,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../db';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from '../../testing';
+import { BUSY_MESSAGE } from './query-limit';
 import { changeDatabase, loadDatabase } from './store';
 
 type Role = 'admin' | 'editor' | 'viewer';
@@ -168,10 +169,11 @@ describe.skipIf(!hasDatabase)('view queries', () => {
     props.gate = seeOnly(newProperty('Gate code', defaultConfig('text')), people.avery);
     props.calls = newProperty('Calls', defaultConfig('number'));
     const clientProps = [clients.name, props.region, props.gate, props.calls];
-    await setSchema(clients.id, clientProps.slice(1), [defaultView('table', clientProps)]);
+    views.clients = defaultView('table', clientProps);
+    await setSchema(clients.id, clientProps.slice(1), [views.clients]);
 
     // Jobs: numbers and a formula, a relation with a rollup, a formula reading the hidden Gate
-    // code, Stage, Urgent, Crew, Notes and an Access code only Avery sees.
+    // code, Stage, Urgent, Crew, Notes, and an Access code and a Lead only Avery sees.
     const jobs = await newDatabase('Jobs');
     ids.jobs = jobs.id;
     props.jobName = jobs.name;
@@ -204,6 +206,7 @@ describe.skipIf(!hasDatabase)('view queries', () => {
     props.crew = newProperty('Crew', defaultConfig('person'));
     props.notes = newProperty('Notes', defaultConfig('text'));
     props.code = seeOnly(newProperty('Access code', defaultConfig('text')), people.avery);
+    props.lead = seeOnly(newProperty('Lead', defaultConfig('person')), people.avery);
     const jobProps = [
       jobs.name,
       props.hours,
@@ -217,6 +220,7 @@ describe.skipIf(!hasDatabase)('view queries', () => {
       props.crew,
       props.notes,
       props.code,
+      props.lead,
     ];
     const byName = [{ propertyId: jobs.name.id, direction: 'asc' as const }];
     const grouping = (propertyId: string) => ({
@@ -270,6 +274,7 @@ describe.skipIf(!hasDatabase)('view queries', () => {
         { text: 'Owner notes', mention: { kind: 'page', id: privatePageId } },
       ],
       [props.code.id]: text('1234'),
+      [props.lead.id]: [people.admin.id],
     });
     ids.j2 = await addRow(jobs.id, 'Leak fix', {
       [props.hours.id]: '1.5',
@@ -329,6 +334,41 @@ describe.skipIf(!hasDatabase)('view queries', () => {
       kind: 'text',
       value: '4411',
     });
+  });
+
+  it("finds nothing by values the viewer can't see", async () => {
+    // Gate code (Clients) and Access code (Jobs) are Avery's only.
+    const idsOf = async (who: TestUser, body: object, databaseId?: string) =>
+      rowsOf((await query(who, body, databaseId)).json()).map((r: QueryRow) => r.id);
+    const gate = { viewId: views.clients!.id, search: '4411' };
+    expect(await idsOf(people.avery, gate, ids.clients)).toEqual([ids.c1]);
+    expect(await idsOf(people.jordan, gate, ids.clients)).toEqual([]);
+    const code = { viewId: views.all!.id, search: '1234' };
+    expect(await idsOf(people.avery, code)).toEqual([ids.j1]);
+    expect(await idsOf(people.jordan, code)).toEqual([]);
+  });
+
+  it("names only the people the viewer's properties show, and marks removed ones", async () => {
+    // Morgan Reyes is named only in Lead, which only Avery sees.
+    const jordan = (await query(people.jordan, { viewId: views.all!.id })).json();
+    expect(jordan.people).not.toHaveProperty(people.admin.id);
+    const avery = (await query(people.avery, { viewId: views.all!.id })).json();
+    expect(avery.people[people.admin.id]).toEqual({ name: 'Morgan Reyes', avatarUrl: null });
+    const removed = await db.execute<{ role_id: string }>(sql`
+      DELETE FROM workspace_members WHERE workspace_id = ${workspaceId}
+        AND user_id = ${people.admin.id} RETURNING role_id`);
+    try {
+      const later = (await query(people.avery, { viewId: views.all!.id })).json();
+      expect(later.people[people.admin.id]).toEqual({
+        name: 'Morgan Reyes',
+        avatarUrl: null,
+        removed: true,
+      });
+      expect(later.people[people.avery.id]).toEqual({ name: 'Avery Lin', avatarUrl: null });
+    } finally {
+      await db.execute(sql`INSERT INTO workspace_members (workspace_id, user_id, role_id)
+        VALUES (${workspaceId}, ${people.admin.id}, ${removed.rows[0]!.role_id})`);
+    }
   });
 
   it('answers only { blocked } for a view or override that uses a hidden property', async () => {
@@ -456,5 +496,31 @@ describe.skipIf(!hasDatabase)('view queries', () => {
     const notDatabase = await query(people.jordan, { viewId: views.all!.id }, pageId);
     expect(notDatabase.statusCode).toBe(404);
     expect(notDatabase.json()).toEqual(NOT_FOUND);
+  });
+
+  it('runs two of one person’s view queries at once, and refuses a third with 429', async () => {
+    const body = { viewId: views.all!.id };
+    /** Queries of this test's database waiting for a lock. */
+    const waiting = async () => {
+      const { rows } = await db.execute<{ n: number }>(sql`
+        SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'`);
+      return rows[0]!.n;
+    };
+    let held: ReturnType<typeof query>[] = [];
+    // The rows are locked, so Avery's first two queries wait inside the limit until the commit.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`LOCK TABLE db_rows IN ACCESS EXCLUSIVE MODE`);
+      held = [query(people.avery, body), query(people.avery, body)];
+      for (const end = Date.now() + 4000; (await waiting()) < 2;) {
+        if (Date.now() > end) throw new Error('the two queries never waited for the rows');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const third = await query(people.avery, body);
+      expect(third.statusCode).toBe(429);
+      expect(third.json()).toEqual({ error: { code: 'rate_limited', message: BUSY_MESSAGE } });
+    });
+    expect((await Promise.all(held)).map((r) => r.statusCode)).toEqual([200, 200]);
+    expect((await query(people.avery, body)).statusCode).toBe(200);
   });
 });
