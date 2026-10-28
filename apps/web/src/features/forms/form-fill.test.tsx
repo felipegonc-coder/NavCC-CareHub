@@ -323,7 +323,7 @@ describe('FormFill', () => {
     window.sessionStorage.setItem(key, JSON.stringify({ answers: { [IDS.photos]: [before] } }));
     const data = fillForm(
       { audience: 'anyone', questions: [question(IDS.photos, 'Photos')] },
-      { respondent: null, fill: 'fill-2' },
+      { respondent: null, fill: 'fill-after-reload' },
     );
     renderWithForms(<FormFill data={data} code="code-123" signedOut />);
     expect(screen.queryByText('old.heic')).toBeNull();
@@ -335,6 +335,26 @@ describe('FormFill', () => {
     fireEvent.change(screen.getByLabelText('Photos'), { target: { files: [file] } });
     expect(await screen.findByText('sink.heic')).toBeInTheDocument();
     expect(screen.queryByText(REFILE_NOTE)).toBeNull();
+  });
+
+  it('keeps files when the form opens again in the same page with the same token', async () => {
+    const data = (fill: string) =>
+      fillForm(
+        { audience: 'anyone', questions: [question(IDS.photos, 'Photos')] },
+        { respondent: null, fill },
+      );
+    const first = renderWithForms(<FormFill data={data('fill-same')} code="code-123" signedOut />);
+    const file = new File(['leak'], 'sink.heic', { type: 'image/heic' });
+    fireEvent.change(screen.getByLabelText('Photos'), { target: { files: [file] } });
+    expect(await screen.findByText('sink.heic')).toBeInTheDocument();
+    first.unmount();
+    const again = renderWithForms(<FormFill data={data('fill-same')} code="code-123" signedOut />);
+    expect(screen.getByText('sink.heic')).toBeInTheDocument();
+    expect(screen.queryByText(REFILE_NOTE)).toBeNull();
+    again.unmount();
+    renderWithForms(<FormFill data={data('fill-newer')} code="code-123" signedOut />);
+    expect(screen.queryByText('sink.heic')).toBeNull();
+    expect(screen.getByText(REFILE_NOTE)).toBeInTheDocument();
   });
 
   it('keeps files from before a page reload when the form has no fill token', () => {

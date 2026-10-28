@@ -94,18 +94,24 @@ function submitProblem(error: unknown): Notice {
 }
 
 /**
- * Unsent answers kept from before the page loaded. Their files went up with an earlier fill token,
- * which this fill's response can't take (decision 0010), and tokens are never kept in the browser.
- * So when the form comes with a token, those files are left out and their questions ask for them
- * again.
+ * The fill token each draft's files went up with. It's kept only in this page's memory, like the
+ * loaded form, never in the browser's storage, so a full page reload empties it.
+ */
+const draftTokens = new Map<string, string>();
+
+/**
+ * Unsent answers kept from before the screen opened. A fill's response takes only files that went
+ * up with its own token (decision 0010), so when the form comes with a token and the files went up
+ * with another one (before a page reload), they're left out and their questions ask for them again.
  */
 function restoredAnswers(
   saved: Answers,
   asked: readonly AskedQuestion[],
   fill: string | undefined,
+  uploadedWith: string | undefined,
 ): { answers: Answers; refile: ReadonlySet<Id> } {
   const refile = new Set<Id>();
-  if (!fill) return { answers: saved, refile };
+  if (!fill || fill === uploadedWith) return { answers: saved, refile };
   const answers = { ...saved };
   for (const q of asked) {
     if (q.kind !== 'files' || filesOf(answers[q.prop.id]).length === 0) continue;
@@ -169,7 +175,9 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   const place: DraftPlace = signedOut ? 'session' : 'local';
   const asked = useMemo(() => askedQuestions(def, properties), [def, properties]);
 
-  const [restored] = useState(() => restoredAnswers(loadDraft(key, place) ?? {}, asked, data.fill));
+  const [restored] = useState(() =>
+    restoredAnswers(loadDraft(key, place) ?? {}, asked, data.fill, draftTokens.get(key)),
+  );
   const [answers, setAnswers] = useState<Answers>(restored.answers);
   const [refile, setRefile] = useState<ReadonlySet<Id>>(restored.refile);
   const [errors, setErrors] = useState<Partial<Record<Id, string>>>({});
@@ -183,7 +191,7 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   const [brokenCover, setBrokenCover] = useState<string | null>(null);
   // The fill token (decision 0010). Uploads made so far are tied to it, and the time of the fill
   // counts from it, so a reload of the form after a change doesn't swap it; another response gets
-  // a fresh one. It's only ever kept here, never in the browser's storage.
+  // a fresh one. It's kept in memory only, never in the browser's storage.
   const [fill, setFill] = useState(data.fill);
   const [starting, setStarting] = useState(false);
   const [startProblem, setStartProblem] = useState<string | null>(null);
@@ -205,6 +213,12 @@ export function FormFill({ data, code, signedOut = false, onReload }: FormFillPr
   useEffect(() => {
     if (!sent) saveDraft(key, answers, place);
   }, [key, answers, sent, place]);
+
+  // Every file in the answers went up with this token, so the draft's files can come back with it.
+  useEffect(() => {
+    if (fill) draftTokens.set(key, fill);
+    else draftTokens.delete(key);
+  }, [key, fill]);
 
   // Questions that start to show are read out, without moving the focus.
   useEffect(() => {
