@@ -23,8 +23,11 @@ are ids only, never secrets or file contents.
 cancel and shutdown. Progress is saved at most twice a second.
 
 Periodic tasks get a `PeriodicTaskContext`: the same, plus `now`, the time the run counts as
-(when it started, or the time the test hook gave). Use `ctx.now` instead of the clock, so
-end-to-end tests can pick the time.
+(when it started, or the time the test hook gave). Use `ctx.now` to decide what's due, so
+end-to-end tests can pick the time, but save times from the real clock. A task may return counts,
+such as `{ sent: 2 }`, for the test hook to report. `isTestHookRun()` is true inside a test-hook
+run and the work it starts: anything that sends outside the server (email, push, webhooks) checks
+it and skips the send.
 
 Owners get `{ type: 'job-updated', data: { jobId } }` over live updates when their job starts,
 makes progress and ends.
@@ -55,11 +58,21 @@ cancelRequested, progress, result, error, createdAt, startedAt, finishedAt }`.
 - Errors use the shared shape `{ error: { code, message } }`: 401 `signed_out`, 404 `not_found`
   (no such job) and 403 `forbidden` (someone else's job).
 - Test hook, only when `CAREHUB_TEST_HOOKS=1` (end-to-end test servers, never production):
-  `POST /api/jobs/test/periodic/:name` with `{ now? }` (ISO date and time; default the current
-  time) runs that periodic task once, at once and off its grid, with `ctx.now` set to `now`, and
-  returns `{ task, now }`. Site admins only: 401 `signed_out`, 403 `forbidden`, 400 `invalid` (a
-  bad time) and 404 `not_found` (no such task). Options for tests: `testHooks` and
-  `isSiteAdmin(request)`.
+  `POST /api/jobs/test/periodic/:name` with `{ now? }` (an ISO date and time within a year of the
+  current time; default the current time) runs that periodic task once, at once and off its
+  grid, with `ctx.now` set to `now`, and returns `{ task, ok, counts?, ms }`.
+  - `now` applies to that one call only. It's never stored: the queue keeps the real clock, and
+    the task's next scheduled run stays on its slot.
+  - Only the tasks on the allow-list in `testHookTasks.ts` run, each with its reason (none yet).
+    Any other name is 404 `not_found`. Deletions, purges, retention and anything that sends
+    outside the server stay off it.
+  - It takes the scheduler's lock without waiting. While a run is going, here or in another
+    process, it's 409 `busy`: "This task is running now. Try again in a moment."
+  - Site admins only: 401 `signed_out`, 403 `forbidden`. 400 `invalid` for any other body field
+    or a bad or far-off time.
+  - Each call logs one line: the user id, task, `now` and result.
+  - Options for tests: `testHooks`, `testHookTasks` and `isSiteAdmin(request)`. The logic is in
+    `testHook.ts`.
 
 ## Data
 

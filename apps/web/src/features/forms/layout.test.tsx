@@ -6,6 +6,7 @@ import {
   defaultView,
   type FormDefinition,
   type Property,
+  type RichText,
   type Viewer,
 } from '@carehub/databases';
 import { ApiError, type DatabaseWithVersion } from '../databases/api';
@@ -23,6 +24,7 @@ import {
 } from '../databases/test-utils';
 import { FormsClientProvider } from './api';
 import FormLayout from './layout';
+import { writeSelection } from './rich-dom';
 import { mockFormsClient, question, stubResizeObserver } from './test-utils';
 
 const FORM_VIEW = 'view-form';
@@ -313,6 +315,38 @@ describe('Form view builder', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it("formats a question's description and saves it as rich text", () => {
+    const { saved } = renderFormView();
+    const description = within(card('Name')).getByRole('textbox', { name: 'Description' });
+    act(() => {
+      description.focus();
+      description.textContent = 'Your full name';
+      writeSelection(description, { start: 5, end: 9 });
+    });
+    fireEvent.input(description);
+    fireEvent.click(within(card('Name')).getByRole('button', { name: 'Bold' }));
+    act(() => description.blur());
+    expect(saved().questions[0]?.description).toEqual([
+      { text: 'Your ' },
+      { text: 'full', marks: ['bold'] },
+      { text: ' name' },
+    ]);
+  });
+
+  it('FM-07: a description looks the same in the builder and in Preview', () => {
+    const description: RichText = [
+      { text: 'Call ' },
+      { text: 'Blue Pine', marks: ['bold', 'underline'], color: 'blue' },
+      { text: ' or see ' },
+      { text: 'the guide', link: 'https://bluepine.example/guide' },
+    ];
+    renderFormView(formDatabase({ description }));
+    const editing = screen.getByRole('textbox', { name: 'Form description' }).innerHTML;
+    expect(editing).toContain('<strong class="font-semibold">Blue Pine</strong>');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.getByText('Call or see').innerHTML).toBe(editing);
+  });
+
   it('Preview shows the form as people fill it in', () => {
     renderFormView(formDatabase({ questions: threeQuestions }));
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
@@ -433,7 +467,7 @@ describe('Share form', () => {
     fireEvent.change(within(share).getByLabelText('Who can respond'), {
       target: { value: 'anyone' },
     });
-    expect(saved()).toMatchObject({ audience: 'anyone', allowMultiple: true });
+    expect(saved()).toMatchObject({ audience: 'anyone', anonymous: true, allowMultiple: true });
     expect(
       within(share).getByText(
         'No sign-in. Always anonymous, with no Person or Relation questions.',
@@ -446,6 +480,18 @@ describe('Share form', () => {
     expect(
       within(settings).getByRole('switch', { name: 'Allow more than one response' }),
     ).toBeDisabled();
+  });
+
+  it('keeps anonymous on when the form goes back to members', () => {
+    const { saved } = renderFormView(formDatabase());
+    const share = openShare();
+    fireEvent.change(within(share).getByLabelText('Who can respond'), {
+      target: { value: 'anyone' },
+    });
+    fireEvent.change(within(share).getByLabelText('Who can respond'), {
+      target: { value: 'members' },
+    });
+    expect(saved()).toMatchObject({ audience: 'members', anonymous: true });
   });
 
   it('keeps a form that asks for people to members', () => {

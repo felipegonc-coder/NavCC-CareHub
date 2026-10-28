@@ -19,17 +19,19 @@ import {
   type Property,
   type ReadValue,
   type Row,
+  type SelectOption,
   type View,
   type ViewPropertySetting,
 } from '@carehub/databases';
 import { can, canChangeProperty } from '@carehub/databases/access';
-import { readCell, type ImportContext } from '@carehub/databases/csv';
+import { pageUrl } from '@carehub/shared';
 import {
   loadMoreKey,
   type LayoutProps,
   type NewRow,
   type QueryGroup,
   type QueryRow,
+  type RowPlace,
   type ViewData,
 } from '../contract';
 import {
@@ -39,6 +41,7 @@ import {
   rowCell,
   type CellContext,
   type CommitDetails,
+  type PersonChoice,
 } from './cell-adapter';
 import { BulkBar } from './bulk-bar';
 import {
@@ -47,6 +50,7 @@ import {
   fromTsv,
   inBox,
   pastedValues,
+  personFinder,
   titleFinder,
   toTsv,
   type CellBox,
@@ -60,14 +64,25 @@ import {
   tableOptions,
   type TableColumn,
 } from './columns';
-import { DRAG_START, followDrag } from './drag';
-import { sameStored, withoutNewOptions } from './edits';
+import { DRAG_START, followDrag, followPointer } from './drag';
+import { missingOptions, sameStored, withSavedOptions } from './edits';
 import { TotalsRow } from './footer';
 import { HeaderCell, PropertiesMenu, type ColumnChanges } from './header';
-import { EditHistory, type AddedRow, type Step, type ValueChange } from './history';
+import { EditHistory, type AddedRow, type Step, type ValueChange, type Write } from './history';
 import { TABLE_TEXT } from './messages';
 import { Notice } from './notice';
+import { readPaste, withSavedIds, type PasteResult } from './paste';
 import { WRITES_AT_ONCE, writeQueue } from './queue';
+import {
+  rowDropAt,
+  samePlace,
+  stepPlace,
+  type MeasuredRow,
+  type MeasuredSection,
+  type RowDrop,
+  type RowTarget,
+} from './row-drop';
+import { RowHandle, type RowMenuItems } from './row-menu';
 import {
   allTicked,
   extendTo,
@@ -140,31 +155,6 @@ const BULK_TYPES = new Set([
   'phone',
 ]);
 
-/** Types a pasted value can go into (read as CSV import reads them). */
-const PASTE_TYPES = new Set([
-  'title',
-  'text',
-  'number',
-  'select',
-  'multi_select',
-  'status',
-  'date',
-  'checkbox',
-  'url',
-  'email',
-  'phone',
-  'person',
-  'relation',
-  'checklist',
-]);
-
-/** One value to write: the history keeps what it replaces. */
-interface Write {
-  row: QueryRow;
-  property: Property;
-  value: unknown;
-}
-
 function asQueryRow(row: Row): QueryRow {
   return {
     id: row.id,
@@ -208,9 +198,6 @@ function inAnswer(data: ViewData, rowId: Id): boolean {
   if (data.groups) return data.groups.some((g) => g.rows.some((r) => r.id === rowId));
   return data.rows.some((r) => r.id === rowId);
 }
-
-/** Most rows one paste changes, updated and added together (as for POST /rows/bulk). */
-const PASTE_ROWS = 500;
 
 /** The Table layout: rows and columns, grouped or not, with editing in the cells. */
 export default function TableLayout({ meta, view, data, viewer, actions, readOnly }: LayoutProps) {
@@ -256,9 +243,27 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const [history] = useState(() => new EditHistory());
   // Row writes go out a few at a time and in order (a paste can change 500 rows).
   const [queue] = useState(() => writeQueue(WRITES_AT_ONCE));
+  // The workspace's people: Person editors list them, and pasted names are found among them.
+  const [people, setPeople] = useState<readonly PersonChoice[]>();
+  const loadPeople = () =>
+    actions.searchPeople('').then(
+      (list) => {
+        setPeople(list);
+        return list;
+      },
+      () => people ?? [],
+    );
   const notices = useRef(0);
   // A header being dragged to a new place: where the pointer is, px from the table's left edge.
   const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
+  // The row menu that's open (by line), and a row being dragged to another place.
+  const [rowMenu, setRowMenu] = useState<string | null>(null);
+  const [rowDrag, setRowDrag] = useState<{ line: string; drop: RowDrop | null } | null>(null);
+  const rowDragged = useRef(false);
+  // The cell that gets focus when the row menu closes.
+  const afterMenu = useRef<CellAt | null>(null);
+  const rowEls = useRef(new Map<string, HTMLDivElement>());
+  const sectionEls = useRef(new Map<string, HTMLDivElement>());
   const cells = useRef(new Map<string, HTMLDivElement>());
   const grid = useRef<HTMLDivElement>(null);
   const dragStop = useRef<(() => void) | null>(null);
@@ -328,6 +333,10 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
 
   const lines = useMemo(() => sections.flatMap((s) => (s.collapsed ? [] : s.lines)), [sections]);
   const lineAt = useMemo(() => new Map(lines.map((line, index) => [line.key, index])), [lines]);
+  // A row menu closes when its row goes (to Trash, or out of the view), so it can't come back open.
+  useEffect(() => {
+    if (rowMenu !== null && !lineAt.has(rowMenu)) setRowMenu(null);
+  }, [rowMenu, lineAt]);
   // Every row in the answer by id (collapsed groups too): ticked rows that left drop out.
   const lineOf = useMemo(() => {
     const map = new Map<Id, Line>();
@@ -352,6 +361,9 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   // New options typed into a Select change the property (Can edit or Full access, not locked).
   const canEditStructure =
     !readOnly && can('edit_properties', meta.viewerAccess, { locked: meta.locked });
+  // With no sort, rows keep a manual order; with one, dragging a row only changes its group.
+  const manual = view.sorts.length === 0;
+  const canMoveRows = canSelect && (manual || data.groups !== null);
 
   // The one cell Tab stops on (roving tabindex): the active cell, or the first one.
   const first = lines[0];
@@ -416,14 +428,22 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   };
 
   /**
-   * One updateValues per row, through the queue. Rows made here show the values until the answer
-   * has them.
+   * One updateValues per row, through the queue, with the typed options the properties don't have
+   * yet. Rows made here show the values until the answer has them.
    */
   const writeValues = (values: readonly ValueChange[], side: 'before' | 'after') => {
     const byRow = new Map<Id, Partial<Record<Id, unknown>>>();
+    const typed = new Map<Id, Partial<Record<Id, readonly SelectOption[]>>>();
     for (const change of values) {
       const rowId = history.idOf(change.rowId);
       byRow.set(rowId, { ...byRow.get(rowId), [change.propertyId]: change[side] });
+      if (side === 'after' && change.options) {
+        const property = meta.properties.find((p) => p.id === change.propertyId);
+        const missing = missingOptions(property, change.options);
+        if (missing.length > 0) {
+          typed.set(rowId, { ...typed.get(rowId), [change.propertyId]: missing });
+        }
+      }
     }
     for (const [rowId, patch] of byRow) {
       setCreated((list) =>
@@ -433,25 +453,31 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             )
           : list,
       );
-      queue(() => actions.updateValues(rowId, patch)).catch(() => undefined);
+      const newOptions = typed.get(rowId);
+      queue(() =>
+        newOptions
+          ? actions.updateValues(rowId, patch, newOptions)
+          : actions.updateValues(rowId, patch),
+      ).catch(() => undefined);
     }
   };
 
   /** Every change to values goes through here: one call is one step for Ctrl+Z. */
   const change = (writes: readonly Write[], added: readonly AddedRow[] = []) => {
     const values: ValueChange[] = [];
-    for (const { row, property, value } of writes) {
+    for (const { row, property, value, options } of writes) {
       const before = rowCell(row, property).value;
       if (!sameCell(property, before, value)) {
-        values.push({ rowId: row.id, propertyId: property.id, before, after: value });
+        const typed = options && options.length > 0 ? { options } : {};
+        values.push({ rowId: row.id, propertyId: property.id, before, after: value, ...typed });
       }
     }
     history.record({ values, added });
     writeValues(values, 'after');
   };
 
-  const save = (line: Line, property: Property, value: unknown) =>
-    change([{ row: line.row, property, value }]);
+  const save = (line: Line, property: Property, value: unknown, options?: SelectOption[]) =>
+    change([{ row: line.row, property, value, options }]);
 
   /** Makes rows a step added, one after another so they keep their order. */
   const makeRows = async (added: readonly AddedRow[]) => {
@@ -520,6 +546,13 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     save(line, property, rowCell(line.row, property).value !== true);
   };
 
+  /** Opens a cell's editor; a Person editor lists the workspace's people. */
+  const openEditor = (line: Line, property: Property, initialText?: string) => {
+    if (property.config.type === 'person') void loadPeople();
+    setActive({ line: line.key, propertyId: property.id });
+    setEditing({ line: line.key, propertyId: property.id, initialText });
+  };
+
   const startEditing = (line: Line, property: Property, initialText?: string) => {
     setRange(null);
     if (property.config.type === 'checkbox') {
@@ -527,8 +560,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       return;
     }
     if (canEdit(property)) {
-      setActive({ line: line.key, propertyId: property.id });
-      setEditing({ line: line.key, propertyId: property.id, initialText });
+      openEditor(line, property, initialText);
     } else if (property.config.type === 'title' && initialText === undefined) {
       actions.openRow(line.row.id);
     }
@@ -586,8 +618,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       focusCell(line.key, property.id);
       toggle(line, property);
     } else if (canEdit(property)) {
-      setActive({ line: line.key, propertyId: property.id });
-      setEditing({ line: line.key, propertyId: property.id });
+      openEditor(line, property);
     } else {
       focusCell(line.key, property.id);
     }
@@ -645,63 +676,58 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
 
   /**
    * Ctrl+V: a block from a spreadsheet, from the active cell (or the block of cells' top left; a
-   * single value fills the block). Values are read as CSV import reads them, rows are added after
-   * the last one, and values that don't fit are skipped and counted, as are those past the first
-   * PASTE_ROWS rows. One step for Ctrl+Z.
+   * single value fills the block), read as CSV import reads it (see readPaste). Rows are added
+   * after the last one and options a Select needs are added first. One step for Ctrl+Z.
    */
   const paste = (text: string, line: Line, columnIndex: number) => {
     const clip = fromTsv(text);
     if (clip.length === 0) return;
     const top = box ? box.top : (lineAt.get(line.key) ?? 0);
-    const left = box ? box.left : Math.max(0, columnIndex);
-    const importCtx: ImportContext = {
-      viewer,
-      findUser: () => undefined,
-      findRows: titleFinder({
-        databaseId: meta.id,
-        properties: meta.properties,
-        rows: [...lineOf.values()].map((l) => l.row),
-        rowTitles: data.rowTitles,
-      }),
-    };
-    const writes: Write[] = [];
-    const newRows = new Map<number, NewRow>();
-    let skipped = 0;
-    for (const { row, column, text: value } of pastedValues(clip, top, left, box)) {
-      const property = columns[column]?.property;
-      const target = lines[row];
-      if (
-        row - top >= PASTE_ROWS ||
-        !property ||
-        !canEdit(property) ||
-        !PASTE_TYPES.has(property.config.type) ||
-        (!target && !canAdd)
-      ) {
-        if (value.trim() !== '') skipped += 1;
-        continue;
-      }
-      const read = readCell(property, value, importCtx);
-      // Until the view can add options to a property, values that need new ones are skipped.
-      if (!read.ok || (read.newOptions?.length ?? 0) > 0) {
-        skipped += 1;
-        continue;
-      }
-      if (target) {
-        writes.push({ row: target.row, property, value: read.value });
-      } else if (read.value !== null) {
-        const input = newRows.get(row) ?? {};
-        newRows.set(
-          row,
-          property.config.type === 'title'
-            ? { ...input, title: String(read.value) }
-            : { ...input, values: { ...input.values, [property.id]: read.value } },
-        );
-      }
+    const values = pastedValues(clip, top, box ? box.left : Math.max(0, columnIndex), box);
+    const read = (list: readonly PersonChoice[]) =>
+      readPaste(values, {
+        lines,
+        properties: columns.map((c) => c.property),
+        top,
+        canEdit,
+        canAdd,
+        canAddOptions: canEditStructure,
+        ctx: {
+          viewer,
+          // The workspace's people, and the names the answer has.
+          findUser: personFinder([
+            ...list,
+            ...Object.entries(data.people ?? {}).map(([id, p]) => ({ id, name: p.name })),
+          ]),
+          findRows: titleFinder({
+            databaseId: meta.id,
+            properties: meta.properties,
+            rows: [...lineOf.values()].map((l) => l.row),
+            rowTitles: data.rowTitles,
+          }),
+        },
+      });
+    const forPeople = values.some((v) => columns[v.column]?.property.config.type === 'person');
+    if (forPeople && people === undefined) void loadPeople().then((list) => fill(read(list)));
+    else fill(read(people ?? []));
+  };
+
+  /** Writes what a paste read, once the options it needs are added. */
+  const fill = (pasted: PasteResult) => {
+    if (pasted.newOptions.size > 0) {
+      const adding = [...pasted.newOptions].map(([propertyId, options]) =>
+        queue(() => actions.addOptions(propertyId, options)).then(
+          (saved) => [propertyId, saved] as const,
+          () => [propertyId, null] as const,
+        ),
+      );
+      void Promise.all(adding).then((saved) => fill(withSavedIds(pasted, new Map(saved))));
+      return;
     }
     // New rows go to the last group shown, unless a pasted value says which group.
     const last = sections.filter((s) => !s.collapsed && s.lines.length > 0).at(-1);
     const grouping = view.grouping?.propertyId;
-    const added = [...newRows.values()].map((input): AddedRow => ({
+    const added = pasted.newRows.map((input): AddedRow => ({
       input: {
         ...input,
         // Pasted rows are plain rows, as imported ones are.
@@ -714,12 +740,9 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       rowId: null,
       undone: false,
     }));
-    change(writes, added);
+    change(pasted.writes, added);
     if (added.length > 0) void makeRows(added);
-    if (skipped > 0) {
-      notices.current += 1;
-      setNotice({ id: notices.current, text: TABLE_TEXT.skipped(skipped) });
-    }
+    if (pasted.skipped > 0) say(TABLE_TEXT.skipped(pasted.skipped));
   };
 
   const copyCells = (event: ClipboardEvent<HTMLDivElement>, line: Line, columnIndex: number) => {
@@ -756,6 +779,11 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       } else {
         redo();
       }
+      event.preventDefault();
+      return;
+    }
+    if (canSelect && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) {
+      openRowMenu(line, { line: line.key, propertyId: id });
       event.preventDefault();
       return;
     }
@@ -886,19 +914,18 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   );
 
   const setForSelected = (property: Property, value: unknown, details: CommitDetails) => {
-    // Until the view can add options, a new one isn't set (a Select keeps each row's value).
-    const next = withoutNewOptions(value, undefined, details.newOptions);
-    if (
-      next === undefined ||
-      (!isEmptyValue(value as ReadValue) && isEmptyValue(next as ReadValue))
-    )
+    const rows = [...selected].flatMap((id) => lineOf.get(id)?.row ?? []);
+    const set = (next: unknown) => change(rows.map((row) => ({ row, property, value: next })));
+    const typed = details.newOptions ?? [];
+    if (typed.length === 0) {
+      set(value);
       return;
-    const writes: Write[] = [];
-    for (const id of selected) {
-      const line = lineOf.get(id);
-      if (line) writes.push({ row: line.row, property, value: next });
     }
-    change(writes);
+    // Options typed here are added once, then every row gets the value.
+    void queue(() => actions.addOptions(property.id, typed)).then(
+      (saved) => set(withSavedOptions(value, saved)),
+      () => undefined,
+    );
   };
 
   const trashSelected = () => {
@@ -910,6 +937,161 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     history.forget(selected);
     if (stays) focusCell(stays.key, SELECT_KEY);
     actions.trashRows(ids).catch(() => undefined);
+  };
+
+  /** A toast from the table (it needs the kit's ToastProvider, which the app has). */
+  const say = (text: string) => {
+    notices.current += 1;
+    setNotice({ id: notices.current, text });
+  };
+
+  const gridTop = () => grid.current?.getBoundingClientRect().top ?? 0;
+
+  /** The sections and their rows as drawn now, px from the table's top edge. */
+  const measureSections = (): MeasuredSection[] => {
+    const top = gridTop();
+    const measured: MeasuredSection[] = [];
+    for (const section of sections) {
+      const box = sectionEls.current.get(section.key)?.getBoundingClientRect();
+      if (!box) continue;
+      const rows: MeasuredRow[] = [];
+      for (const line of section.collapsed ? [] : section.lines) {
+        const r = rowEls.current.get(line.key)?.getBoundingClientRect();
+        if (r) rows.push({ rowId: line.row.id, top: r.top - top, bottom: r.bottom - top });
+      }
+      measured.push({
+        key: section.key,
+        top: box.top - top,
+        bottom: box.bottom - top,
+        rows,
+        more: section.nextCursor !== null,
+      });
+    }
+    return measured;
+  };
+
+  /** Moves a row to another place in manual order, or into another group. */
+  const moveLine = (line: Line, from: Section, target: RowTarget) => {
+    const ids = from.lines.map((l) => l.row.id);
+    if (samePlace(target, from.key, ids, line.row.id, manual)) return;
+    const place: RowPlace = data.groups
+      ? { beforeRowId: target.beforeRowId, fromGroupKey: from.key, toGroupKey: target.sectionKey }
+      : { beforeRowId: target.beforeRowId };
+    // In another group it's another line, and the active cell goes with it.
+    const key = lineKey(target.sectionKey, line.row.id);
+    const activeHere = active?.line === line.key && key !== line.key ? active.propertyId : null;
+    if (activeHere !== null) setActive({ line: key, propertyId: activeHere });
+    actions.moveRow(line.row.id, place).then(
+      () => {
+        if (activeHere !== null && document.activeElement === document.body) {
+          setFocusRequest({ key: cellKey(key, activeHere) });
+        }
+      },
+      () => undefined,
+    );
+  };
+
+  // Dragging a row's handle moves the row; a press without a drag opens its menu (on click).
+  const startRowDrag = (event: PointerEvent<HTMLButtonElement>, line: Line, section: Section) => {
+    rowDragged.current = false;
+    if (!canMoveRows || event.button !== 0 || event.pointerType === 'touch') return;
+    dragStop.current?.();
+    const measured = measureSections();
+    const start = { x: event.clientX, y: event.clientY };
+    const dropAt = (y: number) => rowDropAt(measured, y - gridTop(), manual);
+    let moved = false;
+    let shown: RowDrop | null = null;
+    dragStop.current = followPointer(start, {
+      move: (point) => {
+        if (!moved && Math.hypot(point.x - start.x, point.y - start.y) < DRAG_START) return;
+        moved = true;
+        const drop = dropAt(point.y);
+        if (
+          shown &&
+          drop &&
+          shown.sectionKey === drop.sectionKey &&
+          shown.beforeRowId === drop.beforeRowId
+        )
+          return;
+        shown = drop;
+        setRowDrag({ line: line.key, drop });
+      },
+      end: (point, cancelled) => {
+        dragStop.current = null;
+        setRowDrag(null);
+        if (!moved) return;
+        // The click after a drag isn't a press.
+        rowDragged.current = true;
+        window.setTimeout(() => {
+          rowDragged.current = false;
+        }, 0);
+        const drop = dropAt(point.y);
+        if (!cancelled && drop) moveLine(line, section, drop);
+      },
+    });
+  };
+
+  const openRowMenu = (line: Line, focusAfter: CellAt) => {
+    afterMenu.current = focusAfter;
+    setRowMenu(line.key);
+  };
+
+  const pressHandle = (line: Line) => {
+    if (rowDragged.current) {
+      rowDragged.current = false;
+      return;
+    }
+    openRowMenu(line, { line: line.key, propertyId: SELECT_KEY });
+  };
+
+  const closedRowMenu = () => {
+    const at = afterMenu.current;
+    afterMenu.current = null;
+    if (at) focusCell(at.line, at.propertyId);
+  };
+
+  const copyLink = (rowId: Id) => {
+    const link = new URL(pageUrl(rowId), window.location.origin).href;
+    if (!navigator.clipboard) {
+      say(TABLE_TEXT.linkNotCopied);
+      return;
+    }
+    navigator.clipboard.writeText(link).then(
+      () => say(TABLE_TEXT.linkCopied),
+      () => say(TABLE_TEXT.linkNotCopied),
+    );
+  };
+
+  const trashLine = (line: Line) => {
+    const id = line.row.id;
+    const at = lineAt.get(line.key) ?? 0;
+    const stays = (l: Line) => l.row.id !== id;
+    const next = lines.slice(at + 1).find(stays) ?? lines.slice(0, at).reverse().find(stays);
+    afterMenu.current = next ? { line: next.key, propertyId: SELECT_KEY } : null;
+    setCreated((list) => list.filter((c) => c.row.id !== id));
+    history.forget(new Set([id]));
+    actions.trashRows([id]).catch(() => undefined);
+  };
+
+  /** The row menu's actions (made only while it's open). */
+  const rowItems = (line: Line, section: Section): RowMenuItems => {
+    const ids = section.lines.map((l) => l.row.id);
+    const more = section.nextCursor !== null;
+    const step = (direction: 1 | -1) => {
+      const beforeRowId = stepPlace(ids, line.row.id, direction, more);
+      if (beforeRowId === undefined) return undefined;
+      return () => moveLine(line, section, { sectionKey: section.key, beforeRowId });
+    };
+    return {
+      open: () => {
+        // The page that opens takes the focus.
+        afterMenu.current = null;
+        actions.openRow(line.row.id);
+      },
+      copyLink: () => copyLink(line.row.id),
+      moves: manual ? { up: step(-1), down: step(1) } : null,
+      remove: () => trashLine(line),
+    };
   };
 
   const gridX = (clientX: number) => clientX - (grid.current?.getBoundingClientRect().left ?? 0);
@@ -991,19 +1173,29 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     );
 
   // The selection column stays at the left edge, over the cells scrolling under it.
-  const selectClass = 'sticky left-0 z-10 flex w-11 shrink-0 items-center justify-center bg-bg';
+  const selectClass =
+    'sticky left-0 z-10 flex w-11 shrink-0 items-center justify-center gap-0.5 bg-bg';
   const selectedClass = 'bg-fill-hover max-md:bg-fill-hover';
   const cellRef = (key: string) => (element: HTMLDivElement | null) => {
     if (element) cells.current.set(key, element);
     else cells.current.delete(key);
   };
+  const keep =
+    (map: Map<string, HTMLDivElement>, key: string) => (element: HTMLDivElement | null) => {
+      if (element) map.set(key, element);
+      else map.delete(key);
+    };
 
   const pressSelect = (event: MouseEvent<HTMLDivElement>, line: Line) => {
+    // Clicks in the row menu (a portal) bubble here too; they aren't presses on the cell.
+    const target = event.target;
+    if (!(target instanceof Node) || !event.currentTarget.contains(target)) return;
+    if (rowDragged.current) return;
     tickLine(line, event.shiftKey);
     focusCell(line.key, SELECT_KEY);
   };
 
-  const renderSelect = (line: Line) => {
+  const renderSelect = (line: Line, section: Section) => {
     const key = cellKey(line.key, SELECT_KEY);
     const ticked = selected.has(line.row.id);
     return (
@@ -1029,6 +1221,19 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           ticked && selectedClass,
         )}
       >
+        <RowHandle
+          title={line.row.title || CELL_TEXT.untitled}
+          open={rowMenu === line.key}
+          onOpenChange={(open) => {
+            if (open) openRowMenu(line, { line: line.key, propertyId: SELECT_KEY });
+            else setRowMenu(null);
+          }}
+          draggable={canMoveRows}
+          onPressStart={(event) => startRowDrag(event, line, section)}
+          onPress={() => pressHandle(line)}
+          items={rowMenu === line.key ? rowItems(line, section) : null}
+          onClosed={closedRowMenu}
+        />
         <Checkbox
           checked={ticked}
           tabIndex={-1}
@@ -1117,10 +1322,11 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             ctx={ctx}
             initialText={editing?.initialText}
             canCreateOptions={canEditStructure}
+            people={people}
             onCommit={(value, details) => {
-              // Until the view can add options to the property, new ones are left out.
-              const next = withoutNewOptions(value, cell.value, details.newOptions);
-              if (details.changed && !sameStored(next, cell.value)) save(line, property, next);
+              if (details.changed && !sameStored(value, cell.value)) {
+                save(line, property, value, details.newOptions);
+              }
               finishEditing(line, property, details.move);
             }}
             onCancel={(details) => finishEditing(line, property, details?.move)}
@@ -1152,15 +1358,17 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         {section.lines.map((line) => (
           <div
             key={line.key}
+            ref={keep(rowEls.current, line.key)}
             role="row"
             data-row-id={line.row.id}
             aria-selected={canSelect ? selected.has(line.row.id) : undefined}
             className={cn(
               'group/row flex border-b border-border',
               line.row.context && 'text-muted',
+              rowDrag?.line === line.key && 'opacity-50',
             )}
           >
-            {canSelect && renderSelect(line)}
+            {canSelect && renderSelect(line, section)}
             {columns.map((column, index) => renderCell(line, column, index))}
           </div>
         ))}
@@ -1206,14 +1414,19 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     );
     if (!group)
       return (
-        <div role="rowgroup" key="all">
+        <div role="rowgroup" key="all" ref={keep(sectionEls.current, section.key)}>
           {body}
         </div>
       );
     const Chevron = section.collapsed ? ChevronRight : ChevronDown;
     const color = group.color ? colorClasses[group.color] : null;
     return (
-      <div role="rowgroup" key={group.key} aria-label={group.label}>
+      <div
+        role="rowgroup"
+        key={group.key}
+        ref={keep(sectionEls.current, section.key)}
+        aria-label={group.label}
+      >
         <div role="row" className="flex">
           <div role="gridcell" aria-colspan={colCount} className="sticky left-0 px-1 pt-4 pb-1">
             <button
@@ -1261,6 +1474,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             <div role="row" className="flex border-b border-border">
               {canSelect && (
                 <div role="columnheader" className={cn(selectClass, 'min-h-9 max-md:min-h-11')}>
+                  {/* Room for the rows' handles, so the boxes line up. */}
+                  <span aria-hidden className="w-4 shrink-0 max-md:hidden" />
                   <Checkbox
                     checked={allState}
                     aria-label={TABLE_TEXT.selectAll}
@@ -1326,6 +1541,25 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
               className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-primary"
             />
           )}
+          {rowDrag?.drop &&
+            (rowDrag.drop.mark.kind === 'line' ? (
+              <div
+                aria-hidden
+                data-row-drop=""
+                style={{ top: rowDrag.drop.mark.y }}
+                className="pointer-events-none absolute inset-x-0 z-30 h-0.5 -translate-y-px bg-primary"
+              />
+            ) : (
+              <div
+                aria-hidden
+                data-row-drop=""
+                style={{
+                  top: rowDrag.drop.mark.top,
+                  height: rowDrag.drop.mark.bottom - rowDrag.drop.mark.top,
+                }}
+                className="pointer-events-none absolute inset-x-0 z-30 rounded-sm ring-2 ring-inset ring-primary"
+              />
+            ))}
         </div>
       </div>
       {selected.size > 0 && (

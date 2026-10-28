@@ -10,7 +10,7 @@ type SubItems = NonNullable<View['subItems']>;
 export const LAYOUT_TEXT = {
   readOnly: 'Only people who can edit this view change its layout.',
   noSettings: 'This layout has no settings here.',
-  openPagesIn: 'Open pages in',
+  openPagesIn: 'Open rows in',
   loadLimit: 'Load limit',
   rows: (count: number) => `${count} rows`,
   cards: (count: number) => `${count} cards per group`,
@@ -35,10 +35,10 @@ export const LAYOUT_TEXT = {
   deletedProperty: 'This property was deleted.',
 } as const;
 
-/** "Open pages in" (spec 3.2), in menu order. */
+/** "Open rows in" (spec 2): side panel (default), centered window or full page, in menu order. */
 export const OPEN_MODE_LABELS: Readonly<Record<OpenMode, string>> = {
-  side_peek: 'Side peek',
-  center_peek: 'Center peek',
+  side_peek: 'Side panel',
+  center_peek: 'Centered window',
   full_page: 'Full page',
 };
 

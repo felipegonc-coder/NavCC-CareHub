@@ -142,3 +142,30 @@ export function titleFinder({
   }
   return (targetDatabaseId, title) => byDatabase.get(targetDatabaseId)?.get(title) ?? [];
 }
+
+/** Someone a pasted Person value can name. */
+export interface PersonEntry {
+  id: Id;
+  name: string;
+  email?: string;
+}
+
+/**
+ * People by exact name or email, both ignoring case, for pasting into Person cells (as
+ * ImportContext.findUser). A name two people share finds no one.
+ */
+export function personFinder(people: readonly PersonEntry[]): (text: string) => Id | undefined {
+  const byName = new Map<string, Id | null>();
+  const byEmail = new Map<string, Id>();
+  for (const person of people) {
+    const name = person.name.trim().toLowerCase();
+    const known = byName.get(name);
+    if (name) byName.set(name, known === undefined || known === person.id ? person.id : null);
+    const email = person.email?.trim().toLowerCase();
+    if (email) byEmail.set(email, person.id);
+  }
+  return (text) => {
+    const key = text.trim().toLowerCase();
+    return byName.get(key) ?? byEmail.get(key);
+  };
+}

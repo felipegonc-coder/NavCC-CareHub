@@ -106,7 +106,8 @@ describe('TableLayout pasting, undo and redo', () => {
       'Clear drain\tIn progress\tHigh',
       'Fit new tap\tNot started\tMedium',
       'Bleed radiators\t\tLow',
-      'Service pump\tDone\tUrgent',
+      // A Status the property doesn't have isn't added.
+      'Service pump\tFinished\tLow',
     ].join('\r\n');
     paste(cellOf('row-boiler', PROPS.name), clip);
 
@@ -131,7 +132,7 @@ describe('TableLayout pasting, undo and redo', () => {
         },
       ],
       [{ title: 'Bleed radiators', values: { [PROPS.priority]: PRIORITY.low }, templateId: null }],
-      [{ title: 'Service pump', values: { [PROPS.status]: STATUS.done }, templateId: null }],
+      [{ title: 'Service pump', values: { [PROPS.priority]: PRIORITY.low }, templateId: null }],
     ]);
     expect(await screen.findByText("1 value didn't fit and was skipped.")).toBeInTheDocument();
     await waitFor(() => expect(rowOf('row-new-3')).toBeInTheDocument());

@@ -10,7 +10,7 @@ import {
 import type { Job } from './domain/types';
 import { sqlRunnerFor, type SqlExecutor } from './sql';
 
-export { JobError } from './domain/runner';
+export { isTestHookRun, JobError } from './domain/runner';
 export type {
   JobContext,
   JobFailure,

@@ -52,6 +52,7 @@ import {
   updateSettings,
   verifyPage,
 } from './service';
+import { testHooksOn } from './test-hooks';
 
 const TOPIC = 'knowledge';
 const pageParams = z.object({ pageId: z.uuid() });
@@ -67,6 +68,13 @@ function userOf(request: FastifyRequest): CurrentUser {
 }
 
 const knowledgeRoutes: FastifyPluginAsync = async (app) => {
+  // The e2e test hook (test-hooks.ts): "Verify until a date" also takes today and earlier days.
+  const pastDates = testHooksOn({ log: app.log });
+  if (pastDates) {
+    app.log.warn(
+      'Knowledge base: the e2e test hook is on (CAREHUB_TEST_HOOKS=1), so verify dates may be in the past. Never in production.',
+    );
+  }
   // Drafts (KB-03): only owners and editors see them, everywhere rows show up.
   registerRowAccessLimiter('wiki', wikiRowLimiter);
   registerTopic(TOPIC, async ({ userId, topic }) => {
@@ -114,7 +122,10 @@ const knowledgeRoutes: FastifyPluginAsync = async (app) => {
   app.post('/pages/:pageId/verification', async (request) => {
     const { pageId } = pageParams.parse(request.params);
     const input = verifyInputSchema.parse(request.body);
-    const info = await verifyPage(app.db, userOf(request), pageId, input);
+    if (pastDates && input.period === 'date') {
+      request.log.info({ pageId, until: input.until }, 'Knowledge base test hook: verify until');
+    }
+    const info = await verifyPage(app.db, userOf(request), pageId, input, { pastDates });
     changed(pageId);
     return info;
   });

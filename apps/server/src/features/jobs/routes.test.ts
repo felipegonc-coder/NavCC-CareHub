@@ -143,9 +143,10 @@ describe('runner lifecycle', () => {
 
 describe('POST /api/jobs/test/periodic/:name', () => {
   const MINUTE = 60_000;
+  const testHookTasks = { 'reminders.sweep': 'Test task: it only records the time.' };
 
-  async function buildWithTask() {
-    const api = await build({ testHooks: true });
+  async function buildWithTask(options: Partial<JobsRoutesOptions> = { testHooks: true }) {
+    const api = await build({ testHookTasks, ...options });
     const times: string[] = [];
     runner.registerPeriodicTask('reminders.sweep', MINUTE, async (ctx) => {
       times.push(ctx.now.toISOString());
@@ -155,12 +156,13 @@ describe('POST /api/jobs/test/periodic/:name', () => {
     return { times, post };
   }
 
-  it('runs the task once at the given time for a site admin', async () => {
+  it('runs a listed task once at the given time for a site admin', async () => {
     const { times, post } = await buildWithTask();
-    const now = '2026-10-26T15:00:00.000Z';
+    const now = new Date(Date.now() + 30 * 24 * 60 * MINUTE).toISOString();
     const response = await post('reminders.sweep', asSiteAdmin('user-avery'), { now });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ task: 'reminders.sweep', now });
+    expect(response.json()).toMatchObject({ task: 'reminders.sweep', ok: true });
+    expect(Object.keys(response.json()).sort()).toEqual(['ms', 'ok', 'task']);
     expect(times).toEqual([now]);
   });
 
@@ -173,33 +175,38 @@ describe('POST /api/jobs/test/periodic/:name', () => {
     expect(ran >= before && ran <= Date.now()).toBe(true);
   });
 
-  it('answers 401 signed out, 403 for others, 400 for a bad time and 404 for no such task', async () => {
+  it('answers 401, 403, 400 for another field or a far-off time, and 404 off the list', async () => {
     const { times, post } = await buildWithTask();
+    const admin = asSiteAdmin('user-avery');
     expect((await post('reminders.sweep', {})).statusCode).toBe(401);
     expect((await post('reminders.sweep', as('user-sam'))).statusCode).toBe(403);
-    const bad = await post('reminders.sweep', asSiteAdmin('user-avery'), { now: 'Monday' });
+    const bad = await post('reminders.sweep', admin, { now: 'Monday' });
     expect(bad.statusCode).toBe(400);
     expect(bad.json()).toMatchObject({ error: { code: 'invalid' } });
-    const unknown = await post('reminders.nothing', asSiteAdmin('user-avery'));
-    expect(unknown.statusCode).toBe(404);
-    expect(unknown.json()).toMatchObject({ error: { code: 'not_found' } });
+    const now = new Date().toISOString();
+    expect((await post('reminders.sweep', admin, { now, task: 'x' })).statusCode).toBe(400);
+    const farOff = new Date(Date.now() + 400 * 24 * 60 * MINUTE).toISOString();
+    expect((await post('reminders.sweep', admin, { now: farOff })).statusCode).toBe(400);
+    for (const name of ['reminders.nothing', 'jobs.cleanup']) {
+      const unknown = await post(name, admin);
+      expect(unknown.statusCode).toBe(404);
+      expect(unknown.json()).toMatchObject({ error: { code: 'not_found' } });
+    }
     expect(times).toEqual([]);
   });
 
   it('is there only with CAREHUB_TEST_HOOKS=1', async () => {
     const previous = process.env.CAREHUB_TEST_HOOKS;
-    const post = (api: FastifyInstance) =>
-      api.inject({
-        method: 'POST',
-        url: '/api/jobs/test/periodic/jobs.cleanup',
-        headers: asSiteAdmin('user-avery'),
-      });
+    const run = async () => {
+      const { post } = await buildWithTask({});
+      return (await post('reminders.sweep', asSiteAdmin('user-avery'))).statusCode;
+    };
     try {
       delete process.env.CAREHUB_TEST_HOOKS;
-      expect((await post(await build())).statusCode).toBe(404);
+      expect(await run()).toBe(404);
       await app?.close();
       process.env.CAREHUB_TEST_HOOKS = '1';
-      expect((await post(await build())).statusCode).toBe(200);
+      expect(await run()).toBe(200);
     } finally {
       if (previous === undefined) delete process.env.CAREHUB_TEST_HOOKS;
       else process.env.CAREHUB_TEST_HOOKS = previous;

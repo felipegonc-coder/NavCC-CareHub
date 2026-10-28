@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { EvalContext, Property } from '@carehub/databases';
 import { jobsProperties, PROPS, testViewer } from '../fixtures';
-import { boxOf, copyText, fromTsv, inBox, pastedValues, titleFinder, toTsv } from './clipboard';
+import {
+  boxOf,
+  copyText,
+  fromTsv,
+  inBox,
+  pastedValues,
+  personFinder,
+  titleFinder,
+  toTsv,
+} from './clipboard';
 
 const properties = jobsProperties();
 const prop = (id: string): Property => {
@@ -125,5 +134,28 @@ describe('titleFinder', () => {
     expect(find('db-customers', 'Harbor Cafe')).toEqual(['c-1']);
     expect(find('db-customers', 'Fix kitchen sink leak')).toEqual([]);
     expect(find('db-other', 'Harbor Cafe')).toEqual([]);
+  });
+});
+
+describe('personFinder', () => {
+  const find = personFinder([
+    { id: 'user-avery', name: 'Avery Lin', email: 'avery.lin@bluepine.example' },
+    { id: 'user-jordan', name: 'Jordan Park' },
+    { id: 'user-sam-1', name: 'Sam Reyes' },
+    { id: 'user-sam-2', name: 'Sam Reyes' },
+    // The answer names Avery too.
+    { id: 'user-avery', name: 'Avery Lin' },
+  ]);
+
+  it('finds people by exact name or email, ignoring case', () => {
+    expect(find('Avery Lin')).toBe('user-avery');
+    expect(find(' jordan park ')).toBe('user-jordan');
+    expect(find('AVERY.LIN@bluepine.example')).toBe('user-avery');
+  });
+
+  it('finds no one for part of a name, or a name two people share', () => {
+    expect(find('Avery')).toBeUndefined();
+    expect(find('Sam Reyes')).toBeUndefined();
+    expect(find('')).toBeUndefined();
   });
 });

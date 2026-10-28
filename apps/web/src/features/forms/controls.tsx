@@ -1,9 +1,9 @@
 import { useState, type ComponentProps, type ReactNode } from 'react';
-import { Input, Switch, Textarea, cn } from '@carehub/ui';
+import { Input, Switch, cn } from '@carehub/ui';
 
 /**
- * Text the builder saves when the person leaves the box (or presses Enter in a one-line box), not
- * on every key. What they typed stays shown until the saved value changes.
+ * Text the builder saves when the person leaves the box or presses Enter, not on every key.
+ * What they typed stays shown until the saved value changes.
  */
 function useCommit(value: string, onCommit: (next: string) => void) {
   const [edit, setEdit] = useState<{ base: string; text: string } | null>(null);
@@ -17,21 +17,12 @@ function useCommit(value: string, onCommit: (next: string) => void) {
   };
 }
 
-type CommitProps<T extends 'input' | 'textarea'> = Omit<
-  ComponentProps<T>,
-  'value' | 'defaultValue' | 'onChange'
-> & {
+type CommitInputProps = Omit<ComponentProps<'input'>, 'value' | 'defaultValue' | 'onChange'> & {
   value: string;
   onCommit(next: string): void;
 };
 
-export function CommitInput({
-  value,
-  onCommit,
-  onBlur,
-  onKeyDown,
-  ...props
-}: CommitProps<'input'>) {
+export function CommitInput({ value, onCommit, onBlur, onKeyDown, ...props }: CommitInputProps) {
   const text = useCommit(value, onCommit);
   return (
     <Input
@@ -45,21 +36,6 @@ export function CommitInput({
       onKeyDown={(event) => {
         if (event.key === 'Enter' && !event.altKey) text.commit();
         onKeyDown?.(event);
-      }}
-    />
-  );
-}
-
-export function CommitTextarea({ value, onCommit, onBlur, ...props }: CommitProps<'textarea'>) {
-  const text = useCommit(value, onCommit);
-  return (
-    <Textarea
-      {...props}
-      value={text.shown}
-      onChange={(event) => text.setText(event.target.value)}
-      onBlur={(event) => {
-        text.commit();
-        onBlur?.(event);
       }}
     />
   );
