@@ -72,8 +72,8 @@ agreed shape from PLAN.md, empty apart from its export; its owner then fills it.
 ## 0310 · Learner events carry no typed text
 - Events that can wait in the offline queue carry ids, choices and numbers only: `knowledge_check_answered` is
   `{ lessonId, blockId, correct }` (practice; only "answered" counts for continue blocks).
-- `quiz_attempt_submitted` is never queued: the quiz view posts it at once with `sendNow` (a quiz needs a
-  connection, 0302).
+- `quiz_attempt_submitted` is never queued: it is posted at once, after the events already waiting (a quiz needs
+  a connection, 0302).
 - The queue is cleared on sign-out, other people's queued events are dropped on start, and the person always
   comes from the signed-in session.
 - API paths are built with `apiPath(...)`, which encodes each segment and refuses `.`, `..` (also as `%2e`) and
@@ -122,18 +122,23 @@ course) calls Extras' shared Claude client on the server: `askClaude`, `askClaud
 Its feature key is `learning_help` (workspace setting `claude.learning_help`). The whole Care Hub has one key, one
 monthly cap, one usage log split by feature, and one admin page (Settings → Claude).
 - Off by default. While it's off, Learning shows no Claude buttons.
-- Authors only (`learning.author`), in Studio. The shared client also needs `claude.use`.
+- Authors only (`learning.build`), in Studio. The shared client also needs `claude.use`.
 - The server loads the course text itself, by course, lesson and block id, after Learning's own access check, and
   passes it as `documents`. It never sends text the browser says came from a course, so Studio saves the draft first.
 - Only course content is sent: titles, lesson and block text. Never learner names, emails, answers, scores or
   progress.
 - Summaries, key points, quiz questions and course drafts use `askClaudeJson` with Learning's own zod schemas, then
-  the normal course checks. The reply is untrusted text: no raw HTML, links go through `safeHref`, and nothing is
-  saved until the author accepts it.
+  the normal course checks. The reply is untrusted text: no raw HTML, a link in it keeps only its text, and nothing
+  is saved until the author accepts it.
 - A `ClaudeError` is answered with the shared client's `claudeHttpError(reason)`: its status, code and plain
   words, plus `details: { reason }`.
 - Writing help on part of a block passes it as `selection`, cut on the server from the saved block text: the
   browser sends the block id and where the selection starts and ends in its plain text, never the text itself.
+- Every help request carries the draft's `revision`, and the server answers 409 when the saved draft has changed
+  since, so the selection always matches the saved text.
+- A first draft of a course starts from the author's own short description (with a length cap), sent as their
+  instruction, never as a document. Drafting from a knowledge-base page waits until Pages has a page loader with
+  its access checks on main.
 
 ## 0316 · Right answers go out only after an attempt, in the paper's ids
 Adds to 0302 and 0314.
@@ -155,3 +160,6 @@ Adds to 0302 and 0314.
   server and in the browser, so everyone sees the same status on the same day.
 - Web: `useProfileTimeZone()` and `LEARNING_DAY_ZONE` in `apps/web/src/features/learning/data/timeZone.ts` (query key
   `['auth', 'me']`, through core's api client). Learning screens format times through it.
+- Package and server: `LEARNING_DAY_ZONE`, `learningToday(now)` and `profileZone(timeZone)` in `@carehub/learning`
+  (`util/days.ts`). The server imports the first two from `features/learning/day.ts`. Jobs use the jobs runner's
+  `now`, so its test hook can run them at any time.

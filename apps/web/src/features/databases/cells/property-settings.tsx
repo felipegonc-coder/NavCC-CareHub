@@ -1,19 +1,54 @@
-import { TYPE_LABELS, type DatabaseMeta, type Property } from '@carehub/databases';
-import { PopoverContent } from '@carehub/ui';
-import { useId, useRef, useState, type RefObject } from 'react';
+import {
+  newId,
+  TYPE_LABELS,
+  type ConfigOf,
+  type DatabaseMeta,
+  type Id,
+  type Property,
+  type PropertyConfig,
+} from '@carehub/databases';
+import { formatUniqueId } from '@carehub/databases/unique-id';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  PopoverContent,
+} from '@carehub/ui';
+import { useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { PropertyChange } from '../api';
 import { DiscardDrafts, useDraft } from './draft';
 import { PROPERTY_TEXT, SETTINGS_TEXT } from './messages';
+import { NumberDisplaySettings } from './number-settings';
 import type { PropertyActions } from './property-actions';
 import { canChangeProperties, checkPropertyName } from './property-logic';
-import { ChoiceSetting, DraftField } from './setting-fields';
-import { DESCRIPTION_LIMIT, ROW_PAGE_CHOICES } from './settings-logic';
+import { ChoiceSetting, DraftField, SwitchSetting } from './setting-fields';
+import {
+  dateFormatChoices,
+  DESCRIPTION_LIMIT,
+  readIdPrefix,
+  ROW_PAGE_CHOICES,
+  timeFormatChoices,
+} from './settings-logic';
 import { PropertyTypeIcon } from './type-icon';
+
+/** A database a relation can point to. */
+export interface DatabaseChoice {
+  id: Id;
+  title: string;
+}
 
 export interface PropertySettingsProps {
   meta: Pick<DatabaseMeta, 'viewerAccess' | 'locked' | 'properties'>;
   property: Property;
   actions: PropertyActions;
+  /** Databases the viewer can open: a relation shows the one it's related to. */
+  databases?: readonly DatabaseChoice[];
+  /** A two-way relation's other side, named before it's turned off. */
+  twoWay?: { propertyName: string; databaseTitle: string };
   /** A change the server refused (the panel shows the saved settings again). */
   onError?: (error: unknown) => void;
   /** The id of the panel's title, which names the panel. */
@@ -21,14 +56,17 @@ export interface PropertySettingsProps {
 }
 
 /**
- * Edit property (spec 3.4): name, description and how it shows on row pages. The settings of each
- * type come next, in this panel. Pickers save at once; typed settings save on Enter or when the
- * field is left.
+ * Edit property (spec 3.4): name, description, how it shows on row pages, and the settings of its
+ * type: number display; date and time format; one person only and notify; related database, one
+ * row only and two-way; ID prefix.
+ * Pickers and switches save at once; typed settings save on Enter or when the field is left.
  */
 export function PropertySettings({
   meta,
   property,
   actions,
+  databases,
+  twoWay,
   onError,
   titleId,
 }: PropertySettingsProps) {
@@ -38,18 +76,24 @@ export function PropertySettings({
   const shown: Property =
     pending?.base === property ? { ...property, ...pending.change } : property;
   const disabled = !canChangeProperties(meta);
-  const type = shown.config.type;
+  const config = shown.config;
 
-  const save = (change: PropertyChange) => {
+  /** Resolves to whether the server took the change. */
+  const save = (change: PropertyChange): Promise<boolean> => {
     setPending((p) => ({
       base: property,
       change: { ...(p?.base === property ? p.change : null), ...change },
     }));
-    actions.update(property.id, change).catch((error: unknown) => {
-      setPending(null);
-      onError?.(error);
-    });
+    return actions.update(property.id, change).then(
+      () => true,
+      (error: unknown) => {
+        setPending(null);
+        onError?.(error);
+        return false;
+      },
+    );
   };
+  const saveConfig = (next: PropertyConfig) => save({ config: next });
 
   const name = useDraft(shown.name, (text) => {
     const typed = text.trim();
@@ -63,6 +107,73 @@ export function PropertySettings({
     if (typed !== shown.description) save({ description: typed });
     return null;
   });
+
+  let section: ReactNode = null;
+  switch (config.type) {
+    case 'number':
+      section = (
+        <NumberDisplaySettings
+          display={config}
+          disabled={disabled}
+          onChange={(display) => saveConfig({ ...config, ...display })}
+        />
+      );
+      break;
+    case 'date':
+    case 'created_time':
+    case 'edited_time':
+      section = (
+        <>
+          <ChoiceSetting
+            label={SETTINGS_TEXT.dateFormat}
+            value={config.format}
+            choices={dateFormatChoices()}
+            disabled={disabled}
+            onChange={(format) => saveConfig({ ...config, format })}
+          />
+          <ChoiceSetting
+            label={SETTINGS_TEXT.timeFormat}
+            value={config.timeFormat}
+            choices={timeFormatChoices()}
+            disabled={disabled}
+            onChange={(timeFormat) => saveConfig({ ...config, timeFormat })}
+          />
+        </>
+      );
+      break;
+    case 'person':
+      section = (
+        <>
+          <SwitchSetting
+            label={SETTINGS_TEXT.onePerson}
+            checked={config.single}
+            disabled={disabled}
+            onChange={(single) => saveConfig({ ...config, single })}
+          />
+          <SwitchSetting
+            label={SETTINGS_TEXT.notify}
+            checked={config.notify}
+            disabled={disabled}
+            onChange={(notify) => saveConfig({ ...config, notify })}
+          />
+        </>
+      );
+      break;
+    case 'relation':
+      section = (
+        <RelationSettings
+          config={config}
+          databases={databases}
+          twoWay={twoWay}
+          disabled={disabled}
+          save={saveConfig}
+        />
+      );
+      break;
+    case 'unique_id':
+      section = <IdPrefixSetting config={config} disabled={disabled} onChange={saveConfig} />;
+      break;
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -79,10 +190,11 @@ export function PropertySettings({
       />
       <p className="flex items-center gap-2 text-small text-fg">
         <span className="text-muted">{SETTINGS_TEXT.type}</span>
-        <PropertyTypeIcon type={type} className="text-fg" />
-        {TYPE_LABELS[type]}
+        <PropertyTypeIcon type={config.type} className="text-fg" />
+        {TYPE_LABELS[config.type]}
       </p>
-      {type !== 'title' && (
+      {section}
+      {config.type !== 'title' && (
         <ChoiceSetting
           label={SETTINGS_TEXT.rowPage}
           value={shown.rowPage}
@@ -129,5 +241,109 @@ export function PropertySettingsPopover({ returnFocus, ...props }: PropertySetti
         <PropertySettings {...props} titleId={titleId} />
       </DiscardDrafts>
     </PopoverContent>
+  );
+}
+
+function RelationSettings({
+  config,
+  databases,
+  twoWay,
+  disabled,
+  save,
+}: {
+  config: ConfigOf<'relation'>;
+  databases: readonly DatabaseChoice[] | undefined;
+  twoWay: PropertySettingsProps['twoWay'];
+  disabled: boolean;
+  save: (config: ConfigOf<'relation'>) => Promise<boolean>;
+}) {
+  const [stopping, setStopping] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const target = databases?.find((d) => d.id === config.targetDatabaseId);
+  const stop = async () => {
+    setBusy(true);
+    // A refused change is reported by the panel; the confirm stays open to try again.
+    if (await save({ ...config, twoWayPropertyId: null })) setStopping(false);
+    setBusy(false);
+  };
+  return (
+    <>
+      {databases && (
+        <p className="flex flex-wrap gap-x-2 text-small text-fg">
+          <span className="text-muted">{SETTINGS_TEXT.relatedTo}</span>
+          {target?.title ?? SETTINGS_TEXT.unknownDatabase}
+        </p>
+      )}
+      <SwitchSetting
+        label={SETTINGS_TEXT.oneRow}
+        checked={config.single}
+        disabled={disabled}
+        onChange={(single) => save({ ...config, single })}
+      />
+      <SwitchSetting
+        label={SETTINGS_TEXT.twoWay}
+        hint={SETTINGS_TEXT.twoWayHint}
+        checked={config.twoWayPropertyId !== null}
+        disabled={disabled}
+        onChange={(on) => {
+          if (on) save({ ...config, twoWayPropertyId: newId() });
+          else setStopping(true);
+        }}
+      />
+      <Dialog
+        open={stopping}
+        onOpenChange={(next) => {
+          if (!next && !busy) setStopping(false);
+        }}
+      >
+        {stopping && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{SETTINGS_TEXT.stopTwoWayTitle}</DialogTitle>
+              <DialogDescription>
+                {twoWay
+                  ? SETTINGS_TEXT.stopTwoWay(twoWay.propertyName, twoWay.databaseTitle)
+                  : SETTINGS_TEXT.stopTwoWayUnnamed}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setStopping(false)}>
+                {PROPERTY_TEXT.cancel}
+              </Button>
+              <Button variant="danger" loading={busy} onClick={() => void stop()}>
+                {SETTINGS_TEXT.stopShowing}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+    </>
+  );
+}
+
+function IdPrefixSetting({
+  config,
+  disabled,
+  onChange,
+}: {
+  config: ConfigOf<'unique_id'>;
+  disabled: boolean;
+  onChange: (config: ConfigOf<'unique_id'>) => void;
+}) {
+  const prefix = useDraft(config.prefix ?? '', (text) => {
+    const read = readIdPrefix(text);
+    if ('error' in read) return read.error;
+    if (read.prefix !== config.prefix) onChange({ ...config, prefix: read.prefix });
+    return null;
+  });
+  const typed = readIdPrefix(prefix.value);
+  const example = formatUniqueId('error' in typed ? config.prefix : typed.prefix, 17);
+  return (
+    <DraftField
+      label={SETTINGS_TEXT.prefix}
+      draft={prefix}
+      hint={SETTINGS_TEXT.prefixExample(example)}
+      disabled={disabled}
+    />
   );
 }

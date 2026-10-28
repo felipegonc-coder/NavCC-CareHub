@@ -1,0 +1,231 @@
+// Database routes at /api/databases (decision 0200): create a database, read it as the person may
+// see it, and change its settings. Settings writes send `version`, lock the database's row, and
+// answer like GET /:id with the new version.
+import {
+  LIMITS,
+  newDatabaseSchema,
+  newProperty,
+  relationConfig,
+  uniqueViewName,
+  type DatabaseGrant,
+  type Id,
+  type Property,
+  type View,
+} from '@carehub/databases';
+import { atLeast, can, databasePageAccess, type DbAction } from '@carehub/databases/access';
+import { parseRequest, type RequestResult } from '@carehub/databases/schemas';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { httpError } from '../../core/errors';
+import { getAccessForPages, pageAccessOf } from '../pages';
+import { DATABASE_MESSAGES, forbidden, invalid, invalidRequest, notFound } from './errors';
+import { databaseMeta, mentionedPageIds, type DatabaseAnswer } from './meta';
+import { createDatabasePage, loadPagePlace } from './pages';
+import type { DatabaseRecord, DatabaseSettings } from './record';
+import {
+  databaseSettingsRequest,
+  newDatabaseRequest,
+  type DatabaseSettingsRequest,
+} from './requests';
+import {
+  changeDatabase,
+  insertDatabase,
+  loadDatabase,
+  loadPropertyViewer,
+  loadRelatedProperties,
+} from './store';
+
+/** The checked body, or 400 with the fixed message. */
+function accept<T>(result: RequestResult<T>): T {
+  if (!result.ok) throw invalidRequest();
+  return result.value;
+}
+
+function signedIn(request: FastifyRequest): { id: string } {
+  if (!request.user) throw httpError(401, 'signed_out');
+  return request.user;
+}
+
+/** A two-way relation pair inside one database, named as given (or "Name 2" when taken). */
+function relationPair(
+  databaseId: Id,
+  existing: readonly Property[],
+  names: readonly [string, string],
+  firstIsSingle: boolean,
+): [Property, Property] {
+  const taken = existing.map((p) => p.name);
+  const firstName = uniqueViewName(names[0], taken);
+  const first = newProperty(firstName, relationConfig(databaseId));
+  const second = newProperty(
+    uniqueViewName(names[1], [...taken, firstName]),
+    relationConfig(databaseId),
+  );
+  first.config = { ...first.config, single: firstIsSingle, twoWayPropertyId: second.id };
+  second.config = { ...second.config, twoWayPropertyId: first.id };
+  return [first, second];
+}
+
+/** New properties join every view as hidden columns. */
+const withHiddenColumns = (views: readonly View[], added: readonly Property[]): View[] =>
+  views.map((view) => ({
+    ...view,
+    properties: [
+      ...view.properties,
+      ...added
+        .filter((p) => !view.properties.some((s) => s.propertyId === p.id))
+        .map((p) => ({ propertyId: p.id, visible: false })),
+    ],
+  }));
+
+/** What a PATCH /:id changes, after checking the person may change each part. */
+function settingsChanges(
+  current: DatabaseRecord,
+  input: DatabaseSettingsRequest,
+  access: DatabaseGrant,
+): Partial<DatabaseSettings> {
+  const allow = (action: DbAction) => {
+    if (can(action, access, { locked: current.locked })) return;
+    const lockedOut = current.locked && can(action, access, { locked: false });
+    throw lockedOut ? forbidden(DATABASE_MESSAGES.locked) : forbidden();
+  };
+  const changes: Partial<DatabaseSettings> = {};
+  let properties = current.properties;
+
+  if (input.locked !== undefined && input.locked !== current.locked) {
+    allow('lock');
+    changes.locked = input.locked;
+  }
+  if (input.description !== undefined) {
+    if (!atLeast(databasePageAccess(access), 'edit')) throw forbidden();
+    changes.description = input.description;
+  }
+  if (
+    input.defaultTemplateId !== undefined &&
+    input.defaultTemplateId !== current.defaultTemplateId
+  ) {
+    allow('manage_templates');
+    const id = input.defaultTemplateId;
+    if (id !== null && !current.templates.some((t) => t.id === id)) throw invalidRequest();
+    changes.defaultTemplateId = id;
+  }
+  if (input.rowPageLayout !== undefined) {
+    allow('edit_properties');
+    const layout = input.rowPageLayout;
+    const known = new Set(properties.map((p) => p.id));
+    if (layout && !layout.pinned.every((id) => known.has(id))) throw invalidRequest();
+    changes.rowPageLayout = layout;
+  }
+  if (input.subItems !== undefined && input.subItems !== (current.subItems !== null)) {
+    allow('edit_properties');
+    if (input.subItems) {
+      const [parent, children] = relationPair(
+        current.id,
+        properties,
+        ['Parent item', 'Sub-items'],
+        true,
+      );
+      properties = [...properties, parent, children];
+      changes.subItems = { parentPropertyId: parent.id, childrenPropertyId: children.id };
+    } else {
+      changes.subItems = null;
+    }
+  }
+  const dependencies = input.dependencies;
+  if (dependencies === null && current.dependencies !== null) {
+    allow('edit_properties');
+    changes.dependencies = null;
+  } else if (dependencies && current.dependencies) {
+    if (dependencies.shift !== current.dependencies.shift) {
+      allow('edit_properties');
+      changes.dependencies = { ...current.dependencies, shift: dependencies.shift };
+    }
+  } else if (dependencies) {
+    allow('edit_properties');
+    const [blockedBy, blocking] = relationPair(
+      current.id,
+      properties,
+      ['Blocked by', 'Blocking'],
+      false,
+    );
+    properties = [...properties, blockedBy, blocking];
+    changes.dependencies = {
+      blockedByPropertyId: blockedBy.id,
+      blockingPropertyId: blocking.id,
+      shift: dependencies.shift,
+    };
+  }
+  if (properties !== current.properties) {
+    if (properties.length > LIMITS.properties) throw invalid(DATABASE_MESSAGES.tooManyProperties);
+    const added = properties.slice(current.properties.length);
+    changes.properties = properties;
+    changes.views = withHiddenColumns(current.views, added);
+  }
+  return changes;
+}
+
+export default async function databaseRoutes(app: FastifyInstance) {
+  /** The database as this person may see it, with its version (GET /:id and every settings write). */
+  async function answer(
+    request: FastifyRequest,
+    record: DatabaseRecord,
+    access: DatabaseGrant,
+  ): Promise<DatabaseAnswer> {
+    const user = signedIn(request);
+    const [viewer, related] = await Promise.all([
+      loadPropertyViewer(app.db, user.id, record.workspaceId),
+      loadRelatedProperties(app.db, record.properties),
+    ]);
+    const mentioned = mentionedPageIds(record);
+    const levels =
+      mentioned.length > 0 ? await getAccessForPages(app.db, user.id, mentioned) : null;
+    const openablePages = new Set(mentioned.filter((id) => atLeast(levels?.get(id), 'view')));
+    return databaseMeta({ record, access, viewer, related, openablePages });
+  }
+
+  // A new database under a page the person can edit: its page, a Name property and a Table view.
+  app.post('/', async (request, reply) => {
+    const user = signedIn(request);
+    const input = accept(parseRequest(newDatabaseRequest, request.body));
+    await app.requirePageAccess('edit', () => input.parentId)(request);
+    if (pageAccessOf(request).kind === 'database') throw invalidRequest();
+    const parent = await loadPagePlace(app.db, input.parentId);
+    if (!parent || parent.inTrash) throw notFound();
+    const { properties, views } = newDatabaseSchema();
+    const id = await app.db.transaction(async (tx) => {
+      const pageId = await createDatabasePage(tx, {
+        workspaceId: parent.workspaceId,
+        spaceId: parent.spaceId,
+        parentId: parent.id,
+        title: input.title ?? '',
+        inline: input.inline,
+        createdBy: user.id,
+      });
+      await insertDatabase(tx, { id: pageId, workspaceId: parent.workspaceId, properties, views });
+      return pageId;
+    });
+    const record = await loadDatabase(app.db, id);
+    if (!record) throw notFound();
+    const level = (await getAccessForPages(app.db, user.id, [id])).get(id) ?? 'none';
+    const body = await answer(request, record, level);
+    return reply.code(201).send(body);
+  });
+
+  app.get('/:id', { preHandler: app.requirePageAccess('view') }, async (request) => {
+    const page = pageAccessOf(request);
+    if (page.kind !== 'database') throw notFound();
+    const record = await loadDatabase(app.db, page.pageId);
+    if (!record) throw notFound();
+    // Only an "Only rows they're in" share opens it: Can view, shown as rows_only.
+    return answer(request, record, page.rowsOnly ? 'rows_only' : page.level);
+  });
+
+  // Lock, default template, row page layout, sub-items, dependencies and description.
+  app.patch('/:id', { preHandler: app.requirePageAccess('edit') }, async (request) => {
+    const page = pageAccessOf(request);
+    if (page.kind !== 'database') throw notFound();
+    const input = accept(parseRequest(databaseSettingsRequest, request.body));
+    const record = await changeDatabase(app.db, page.pageId, input.version, (current) =>
+      settingsChanges(current, input, page.level),
+    );
+    return answer(request, record, page.level);
+  });
+}
