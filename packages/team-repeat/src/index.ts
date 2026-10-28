@@ -14,5 +14,17 @@ export type {
 export { RepeatError } from './types';
 export { WEEKDAYS } from './civil';
 export { MAX_INTERVAL, checkRule, checkSeries, isRepeatRule, normalizeRule } from './rule';
+export { MAX_OCCURRENCES, MAX_STEPS, expand, occurrenceAt } from './expand';
+export type { ExpandWindow, Expansion } from './expand';
+export { deleteFollowing, deleteOne, editAll, editFollowing, editOne, splitSeries } from './edit';
+export type {
+  FollowingEdit,
+  KeyMove,
+  OccurrenceChange,
+  SeriesChange,
+  SeriesEdit,
+  Split,
+} from './edit';
 export { isUnsupported, parseRRule, serializeRRule } from './rrule';
 export type { ParseOptions, SerializeOptions } from './rrule';
+export { describeRepeat } from './describe';

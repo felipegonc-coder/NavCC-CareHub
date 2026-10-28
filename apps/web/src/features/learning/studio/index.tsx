@@ -1,5 +1,8 @@
+import { useParams } from 'react-router';
 import { StudioRoot } from './context';
+import { CourseEditor } from './course-editor/CourseEditor';
 import { CourseList } from './courses/CourseList';
+import { CoursePreview } from './preview/CoursePreview';
 
 /** `/learning/studio`: the courses people build. */
 export function StudioScreen() {
@@ -10,24 +13,30 @@ export function StudioScreen() {
   );
 }
 
-// The editor and the preview are still the base PR's stubs; the next Studio PRs replace them.
+function EditorRoute() {
+  const { courseId = '' } = useParams();
+  return <CourseEditor key={courseId} courseId={courseId} />;
+}
 
 /** `/learning/studio/courses/:courseId`: the course editor. */
 export function CourseEditorScreen() {
   return (
-    <main className="mx-auto max-w-page px-6 py-16">
-      <title>Care Hub · Edit course</title>
-      <h1 className="text-title text-fg">Edit course</h1>
-    </main>
+    <StudioRoot>
+      <EditorRoute />
+    </StudioRoot>
   );
 }
 
-/** `/learning/studio/courses/:courseId/preview`: a draft as learners will see it. */
+function PreviewRoute() {
+  const { courseId = '' } = useParams();
+  return <CoursePreview key={courseId} courseId={courseId} />;
+}
+
+/** `/learning/studio/courses/:courseId/preview`: the saved draft as learners will see it. */
 export function CoursePreviewScreen() {
   return (
-    <main className="mx-auto max-w-page px-6 py-16">
-      <title>Care Hub · Preview course</title>
-      <h1 className="text-title text-fg">Preview course</h1>
-    </main>
+    <StudioRoot>
+      <PreviewRoute />
+    </StudioRoot>
   );
 }

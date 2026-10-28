@@ -54,5 +54,9 @@ until they land, our own interval guarded by `pg_try_advisory_lock`. Never email
 `apps/server/src/features/learning/seed.ts` (fictional, idempotent; B1 stubs one seed function per area);
 browser tests sign in as Tara Trainer (`signInAs(page, 'tara.trainer@example.test')`, role Trainer from the seed) plus one
 no-access check with `'editor'`, and list screens in `tests/e2e/learning/screens.ts`.
+Test hooks, for browser tests only: on when `CAREHUB_TEST_HOOKS=1` (moving to core's `testHooksEnabled()`, which is
+always off in production). `POST /test/assignments/:id { dueDate }` moves an assignment's due date; it needs
+`learning.assign` and works in the caller's own workspace. The assignment reminders job runs through the jobs
+runner's hook, `POST /api/jobs/test/periodic/learning.reminders { now? }` (site admins), as of `now`.
 Outside-folder one-liners (feature lines, the seed line, `@carehub/learning` and dnd-kit in the apps' package.json)
 all go in B1's PR 3, which the main lead merges; every other Learning PR stays inside our folders.

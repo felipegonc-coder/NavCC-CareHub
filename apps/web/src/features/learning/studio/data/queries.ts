@@ -33,6 +33,32 @@ export function useStudioExamples() {
   });
 }
 
+/**
+ * A draft and its revision, loaded fresh each time the editor opens. The editor keeps its own copy from then
+ * on, so the draft isn't fetched again while it is open.
+ */
+export function useStudioDraft(courseId: Id) {
+  const client = useStudioClient();
+  return useQuery({
+    queryKey: studioKeys.draft(courseId),
+    queryFn: () => client.getCourse(courseId),
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+/** The saved draft for the preview: its own query, so it never shows the copy an editor opened with. */
+export function usePreviewDraft(courseId: Id) {
+  const client = useStudioClient();
+  return useQuery({
+    queryKey: studioKeys.preview(courseId),
+    queryFn: () => client.getCourse(courseId),
+    gcTime: 0,
+    retry: false,
+  });
+}
+
 /** What New course sends: a course type, or an example to copy. */
 export type NewCourseInput = { type: CourseType; title?: string; exampleId?: Id };
 

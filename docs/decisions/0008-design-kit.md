@@ -26,6 +26,15 @@
     values as CSS variables (`--ch-radius`, `--ch-space-<n>`, `--ch-text-<style>` ...) for plain
     CSS such as the editor. Code uses these or the token classes, never one-off values, so the
     look can be changed in one place.
+  - **Checked by lint (2026-10-27):** the ESLint rule `carehub/no-one-off-styles`
+    (`packages/ui/lint/`) reads strings, class lists and `style` objects in `apps/web` and
+    `packages`. It flags arbitrary Tailwind values, Tailwind defaults the kit doesn't define (font
+    sizes, thin, light and extra-bold weights, palette colours, black and white, larger corners,
+    shadows, named max widths), hex and numeric `rgb()` colours, px, rem, em and pt sizes, and px
+    numbers and colour names in `style`. State variants, Radix's measured sizes, kit variables and
+    transition lists are allowed. It is an error in core folders and a warning in lane folders
+    until 2026-10-29, then an error there too (`scripts/lint.mjs` lets the lane warnings pass until
+    then). CSS files aren't linted.
   - **Theme:** light, dark or system (the default), saved on the device in `localStorage` under
     `carehub:theme`. The `dark` class on `<html>` switches every variable. `ThemeProvider` follows
     the device and other tabs live; `ThemeSwitch` is three native radio buttons.
@@ -37,6 +46,6 @@
     the tokens. Icons are Lucide; `lucide-react` (ISC) is pinned to `~0.577.0`, the last 0.x line.
     Moving to 1.x is a separate change.
 - **Consequences:** A new colour goes into `tokens.ts` for both themes and must pass the contrast
-  test. Changing the storage key means changing `theme-init.js` too; the test catches a mismatch.
+  test; any other missing value goes into `scale.ts`, never inline. Changing the storage key means changing `theme-init.js` too; the test catches a mismatch.
   The theme file costs one small cached request before first paint. Menus, dialogs, toasts,
   tooltips and popovers follow in a separate pull request.

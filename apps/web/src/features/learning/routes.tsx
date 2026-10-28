@@ -74,7 +74,7 @@ export const screens: readonly LearningScreen[] = [
     load: async () => (await import('./reports/paths/index')).PathReportScreen,
   },
   {
-    path: 'learning/review/:token',
+    path: 'learning/review',
     load: async () => (await import('./review/index')).ReviewScreen,
   },
 ];

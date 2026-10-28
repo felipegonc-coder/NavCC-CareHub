@@ -7,7 +7,9 @@ import type {
   QuizSettings,
   RichText,
 } from '../format/index';
+import { QuestionResponseSchema } from '../format/index';
 import {
+  paperAnswerKey,
   paperResponses,
   planAttempt,
   quizPaper,
@@ -559,5 +561,117 @@ describe('paperResponses', () => {
       plan.questionIds.map((id) => [id, id === 'q-single' ? ['family'] : ['owner']]),
     );
     expect(result).toMatchObject({ earned: 0, max: 0, passed: false });
+  });
+});
+
+describe('paperAnswerKey', () => {
+  it("gives each right answer in the paper's ids", () => {
+    expect(paperAnswerKey(quiz(), handPlan)).toEqual({
+      'q-single': { type: 'single_choice', optionId: 'flex' },
+      'q-multi': { type: 'multiple_choice', optionIds: ['pin', 'email'] },
+      'q-tf': { type: 'true_false', value: true },
+      'q-match': {
+        type: 'matching',
+        matches: { 'p-apr': 'match-2', 'p-dd': 'match-3', 'p-credit': 'match-1' },
+      },
+      'q-drag': { type: 'drag_matching', matches: { 'p-late': 'match-2', 'p-move': 'match-1' } },
+      'q-fill': { type: 'fill_blank', blanks: { opens: '8 am' } },
+      'q-order': { type: 'ordering', order: ['item-2', 'item-4', 'item-1', 'item-3'] },
+      'q-spot': { type: 'hotspot', pick: { kind: 'spot', spotId: 'total' } },
+    });
+  });
+
+  it('scores full marks on every plan, with answers that pass QuestionResponseSchema', () => {
+    for (const seed of SEEDS) {
+      const lesson = quiz();
+      const plan = planAttempt(lesson, seed, `att-${seed}`);
+      const key = paperAnswerKey(lesson, plan);
+      expect(Object.keys(key)).toEqual(plan.questionIds);
+      for (const answer of Object.values(key)) {
+        expect(QuestionResponseSchema.parse(JSON.parse(JSON.stringify(answer)))).toEqual(answer);
+      }
+      const result = scoreAttempt(lesson, plan, paperResponses(lesson, plan, key));
+      expect(result).toMatchObject({ earned: 9, max: 9, percent: 100, passed: true });
+    }
+  });
+
+  it('keeps each planned question once, in plan order, skipping ids the quiz lacks', () => {
+    const banked: Question = { ...trueFalse, id: 'bank-tf' };
+    const lesson = {
+      ...quiz([single, trueFalse]),
+      bankDraws: [{ bankId: 'bank-1', count: 1, questions: [banked] }],
+    };
+    const plan: AttemptPlan = {
+      ...handPlan,
+      questionIds: ['q-tf', 'ghost', 'bank-tf', 'q-single', 'q-tf'],
+    };
+    const key = paperAnswerKey(lesson, plan);
+    expect(Object.keys(key)).toEqual(['q-tf', 'bank-tf', 'q-single']);
+    expect(Object.getPrototypeOf(key)).toBe(Object.prototype);
+  });
+
+  it('skips blank accepted answers and leaves out questions nothing can answer right', () => {
+    const draft = { prompt: rt('A draft question.'), points: 1 };
+    const saver = { id: 'saver', text: 'Saver', correct: false };
+    const lesson = quiz([
+      {
+        id: 'q-blank-first',
+        type: 'fill_blank',
+        ...draft,
+        parts: [{ kind: 'blank', id: 'plan', answers: [' ', 'Flex'] }],
+      },
+      {
+        id: 'q-no-answer',
+        type: 'fill_blank',
+        ...draft,
+        parts: [
+          { kind: 'blank', id: 'plan', answers: ['Flex'] },
+          { kind: 'blank', id: 'term', answers: ['  '] },
+        ],
+      },
+      { id: 'q-no-option', type: 'single_choice', ...draft, options: [saver] },
+      { id: 'q-none-right', type: 'multiple_choice', ...draft, options: [saver] },
+      {
+        id: 'q-no-spot',
+        type: 'hotspot',
+        ...draft,
+        image,
+        spots: [
+          {
+            id: 'date',
+            shape: 'rect',
+            x: 10,
+            y: 8,
+            width: 20,
+            height: 6,
+            correct: false,
+            label: 'Date',
+          },
+        ],
+      },
+    ]);
+    const plan = planAttempt(lesson, 5, 'att');
+    const key = paperAnswerKey(lesson, plan);
+    expect(key).toEqual({
+      'q-blank-first': { type: 'fill_blank', blanks: { plan: 'Flex' } },
+      'q-none-right': { type: 'multiple_choice', optionIds: [] },
+    });
+    const results = scoreAttempt(lesson, plan, paperResponses(lesson, plan, key)).results;
+    expect(
+      results
+        .filter((r) => r.correct)
+        .map((r) => r.questionId)
+        .sort(),
+    ).toEqual(['q-blank-first', 'q-none-right']);
+  });
+
+  it("is empty for a survey, and doesn't change the quiz or the plan", () => {
+    const survey = quiz(everyType, { mode: 'survey' });
+    expect(paperAnswerKey(survey, planAttempt(survey, 2, 'att'))).toEqual({});
+    const lesson = quiz();
+    const plan = planAttempt(lesson, 9, 'att');
+    const before = JSON.stringify([lesson, plan]);
+    paperAnswerKey(lesson, plan);
+    expect(JSON.stringify([lesson, plan])).toBe(before);
   });
 });

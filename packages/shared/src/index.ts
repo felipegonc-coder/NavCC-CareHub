@@ -6,6 +6,6 @@ export * from './health';
 export * from './mentions';
 export * from './urls';
 
-// feature: permissions
+export * from './permissions';
 
 // feature: pages
