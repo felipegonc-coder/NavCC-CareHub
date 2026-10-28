@@ -9,7 +9,8 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /** Anything with zod's `parse`: the reply's schema, or `noContent` for replies without a body. */
 export type ReplySchema<T> = { parse(data: unknown): T };
 
-export type ApiOptions = { signal?: AbortSignal };
+/** `headers` go out with the call, such as a review's `X-Review-Token`; the client's own headers win. */
+export type ApiOptions = { signal?: AbortSignal; headers?: Readonly<Record<string, string>> };
 
 export const LEARNING_API = '/api/learning';
 // Core's CSRF cookie and header names come from @carehub/shared; over HTTPS the cookie gets the `__Host-` prefix
@@ -79,7 +80,7 @@ export async function api<T>(
   const options = (hasBody ? lastOptions : schemaOrOptions) as ApiOptions | undefined;
   checkPath(path);
 
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { ...options?.headers, Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const csrf =
     method === 'GET' || typeof document === 'undefined'

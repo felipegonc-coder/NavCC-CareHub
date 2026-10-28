@@ -22,6 +22,11 @@ export interface BlockEditorProps {
   ydoc: Y.Doc;
   /** XML fragment in `ydoc` that holds the blocks (default `PAGE_FIELD`, "default"). */
   field?: string;
+  /**
+   * The ID of the page shown. "/" menu entries get it when they run (`context.pageId`), for things
+   * they make on the page, like an inline database. Can change at any time.
+   */
+  pageId?: string | null;
   /** The collab provider of `ydoc`. With `user`, carets and selections show for everyone. */
   provider?: CollabProvider | null;
   /** You, as others see you next to your caret. */
@@ -64,6 +69,7 @@ export interface BlockEditorProps {
 export function BlockEditor({
   ydoc,
   field = PAGE_FIELD,
+  pageId = null,
   provider,
   user,
   editable = true,
@@ -121,6 +127,10 @@ export function BlockEditor({
   useEffect(() => {
     slashMenu.setItems(slashItems);
   }, [slashMenu, slashItems]);
+
+  useEffect(() => {
+    slashMenu.setPageId(pageId);
+  }, [slashMenu, pageId]);
 
   useEffect(() => {
     if (editor) latest.current.onReady?.(editor);

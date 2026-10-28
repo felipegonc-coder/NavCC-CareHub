@@ -24,6 +24,7 @@ import {
   typeName,
   unify,
   type FormulaError,
+  type FormulaInput,
   type FormulaSchema,
   type FormulaType,
   type FunctionDef,
@@ -44,6 +45,7 @@ export type Expr =
   | (At & { op: 'list'; items: Expr[]; type: FormulaType })
   | (At & { op: 'var'; slot: number; type: FormulaType })
   | (At & { op: 'prop'; property: Property; page: Expr | null; type: FormulaType })
+  | (At & { op: 'input'; id: Id; type: FormulaType })
   | (At & {
       op: 'call';
       def: FunctionDef;
@@ -62,9 +64,12 @@ export type Expr =
       type: FormulaType;
     });
 
-/** A prop("…") the formula reads: the quoted part's place (quotes included) and the property. */
+/** A prop("…") the formula reads: the quoted part's place (quotes included) and what it reads. */
 export interface PropertyRef extends At {
-  property: Property;
+  /** The id stored for it: the property's, or the input's. */
+  id: Id;
+  /** The property; null for an input (a button's Pressed by, a variable). */
+  property: Property | null;
   /** The relation property the row came through; null for the formula's own row. */
   via: Id | null;
 }
@@ -84,6 +89,28 @@ export const TEXT_AND_NUMBER =
 export const RELATION_DEPTH = `Formulas can read related rows at most ${LIMITS.formulaRelationDepth} relations away.`;
 /** The message for a formula longer than LIMITS.formulaLength. */
 export const LENGTH_MESSAGE = `Formulas can be up to ${LIMITS.formulaLength.toLocaleString('en-US')} characters.`;
+
+const loose = (name: string) => name.replace(/\s+/g, '').toLowerCase();
+
+/**
+ * What prop("<name>") reads: exact names before loose ones (spaces and case ignored) and, on the
+ * formula's own row (`own`), an input before a property with the same name.
+ */
+export function findByName(
+  schema: FormulaSchema,
+  name: string,
+  own: boolean,
+): Property | FormulaInput | undefined {
+  const inputs = own ? (schema.inputs ?? []) : [];
+  const props = schema.properties;
+  const key = loose(name);
+  return (
+    inputs.find((i) => i.name === name) ??
+    props.find((p) => p.name === name) ??
+    inputs.find((i) => loose(i.name) === key) ??
+    findPropertyByName(props, name)
+  );
+}
 
 class CheckFailure extends Error {
   readonly error: FormulaError;
@@ -242,8 +269,8 @@ class Checker {
     if (name === 'current' || name === 'index') {
       reject(`${name} only works inside a list function such as map() or filter().`, at);
     }
-    const prop = findPropertyByName(this.schema.properties, name);
-    if (prop) reject(`Use prop("${prop.name}") to read a property.`, at);
+    const known = findByName(this.schema, name, true);
+    if (known) reject(`Use prop("${known.name}") to read a property.`, at);
     reject(`Unknown name "${name}".`, at);
   }
 
@@ -277,7 +304,11 @@ class Checker {
     let problem: { message: string; at: At } | null = null;
     for (const { sig, params } of options) {
       const r = this.match(def, sig, params, exprs, at);
-      if ('type' in r) return { op: 'call', def, args: exprs, slots, type: r.type, ...at };
+      if ('type' in r) {
+        const bad = def.checkConstants?.(exprs.map((e) => (e.op === 'value' ? e.value : null)));
+        if (bad) reject(bad.message, span(exprs[bad.input] ?? at));
+        return { op: 'call', def, args: exprs, slots, type: r.type, ...at };
+      }
       problem ??= r;
     }
     reject(problem?.message ?? countMessage(def, args.length), problem?.at ?? at);
@@ -339,17 +370,28 @@ class Checker {
     if (key?.type !== 'text') {
       reject('prop() needs a property name in quotes, like prop("Score").', key ?? at);
     }
-    const property = this.lookup(schema, key.value, key);
-    this.refs.push({ start: key.start, end: key.end, property, via });
+    const found = this.lookup(schema, key.value, key, !receiver);
+    if (!('config' in found)) {
+      this.refs.push({ start: key.start, end: key.end, id: found.id, property: null, via: null });
+      return { op: 'input', id: found.id, type: found.type, ...at };
+    }
+    const property = found;
+    this.refs.push({ start: key.start, end: key.end, id: property.id, property, via });
     const type = propertyType(property, schema, depth, (id) => this.related(schema, id));
     if (typeof type === 'string') reject(type, key);
     return { op: 'prop', property, page, type, ...at };
   }
 
-  private lookup(schema: FormulaSchema, key: string, at: At): Property {
-    const props = schema.properties;
-    const byId = () => props.find((p) => p.id === key);
-    const byName = () => props.find((p) => p.name === key) ?? findPropertyByName(props, key);
+  private lookup(
+    schema: FormulaSchema,
+    key: string,
+    at: At,
+    own: boolean,
+  ): Property | FormulaInput {
+    const inputs = own ? (schema.inputs ?? []) : [];
+    const byId = () =>
+      schema.properties.find((p) => p.id === key) ?? inputs.find((i) => i.id === key);
+    const byName = () => findByName(schema, key, own);
     const found = this.mode === 'id' ? (byId() ?? byName()) : (byName() ?? byId());
     if (found) return found;
     const gone = schema.deleted?.find((d) => d.id === key || d.name === key);

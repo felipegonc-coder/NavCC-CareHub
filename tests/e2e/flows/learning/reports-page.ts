@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
 import { apiFor, expect } from '../_support/index.js';
 
-/** GET /api/learning/reports/courses/:id (B4): { course, report, quizzes, dropOff, people }. */
+/** GET /api/learning/reports/courses/:id: { course, report, quizzes, dropOff, people }. */
 export async function courseReport(page: Page, courseId: string) {
   const path = `/api/learning/reports/courses/${courseId}`;
   return (await apiFor(page)).get<Record<string, unknown>>(path);

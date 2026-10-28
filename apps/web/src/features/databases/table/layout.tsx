@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
@@ -13,6 +14,7 @@ import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { Button, Checkbox, cn, colorClasses } from '@carehub/ui';
 import {
   isEmptyValue,
+  type EvalContext,
   type Id,
   type Property,
   type ReadValue,
@@ -21,6 +23,7 @@ import {
   type ViewPropertySetting,
 } from '@carehub/databases';
 import { can, canChangeProperty } from '@carehub/databases/access';
+import { readCell, type ImportContext } from '@carehub/databases/csv';
 import {
   loadMoreKey,
   type LayoutProps,
@@ -38,6 +41,16 @@ import {
   type CommitDetails,
 } from './cell-adapter';
 import { BulkBar } from './bulk-bar';
+import {
+  boxOf,
+  copyText,
+  fromTsv,
+  inBox,
+  pastedValues,
+  titleFinder,
+  toTsv,
+  type CellBox,
+} from './clipboard';
 import { collapsedStorageKey, useCollapsedGroups } from './collapsed';
 import {
   clampWidth,
@@ -51,7 +64,10 @@ import { DRAG_START, followDrag } from './drag';
 import { sameStored, withoutNewOptions } from './edits';
 import { TotalsRow } from './footer';
 import { HeaderCell, PropertiesMenu, type ColumnChanges } from './header';
+import { EditHistory, type AddedRow, type Step, type ValueChange } from './history';
 import { TABLE_TEXT } from './messages';
+import { Notice } from './notice';
+import { WRITES_AT_ONCE, writeQueue } from './queue';
 import {
   allTicked,
   extendTo,
@@ -124,6 +140,31 @@ const BULK_TYPES = new Set([
   'phone',
 ]);
 
+/** Types a pasted value can go into (read as CSV import reads them). */
+const PASTE_TYPES = new Set([
+  'title',
+  'text',
+  'number',
+  'select',
+  'multi_select',
+  'status',
+  'date',
+  'checkbox',
+  'url',
+  'email',
+  'phone',
+  'person',
+  'relation',
+  'checklist',
+]);
+
+/** One value to write: the history keeps what it replaces. */
+interface Write {
+  row: QueryRow;
+  property: Property;
+  value: unknown;
+}
+
 function asQueryRow(row: Row): QueryRow {
   return {
     id: row.id,
@@ -133,6 +174,7 @@ function asQueryRow(row: Row): QueryRow {
     values: row.values,
     computed: {},
     hiddenLinks: {},
+    color: { row: null, cells: {} },
     createdAt: row.createdAt,
     createdBy: row.createdBy,
     editedAt: row.editedAt,
@@ -141,17 +183,34 @@ function asQueryRow(row: Row): QueryRow {
   };
 }
 
-function withValue(row: QueryRow, property: Property, value: unknown): QueryRow {
-  if (property.config.type === 'title') {
-    return { ...row, title: typeof value === 'string' ? value : '' };
+function withValues(
+  row: QueryRow,
+  properties: readonly Property[],
+  values: Partial<Record<Id, unknown>>,
+): QueryRow {
+  let next = row;
+  for (const [id, value] of Object.entries(values)) {
+    next =
+      properties.find((p) => p.id === id)?.config.type === 'title'
+        ? { ...next, title: typeof value === 'string' ? value : '' }
+        : { ...next, values: { ...next.values, [id]: value } };
   }
-  return { ...row, values: { ...row.values, [property.id]: value } };
+  return next;
+}
+
+/** Same stored value; an empty Name is '' or null. */
+function sameCell(property: Property, a: unknown, b: unknown): boolean {
+  const plain = (v: unknown) => (property.config.type === 'title' && v === '' ? null : v);
+  return sameStored(plain(a), plain(b));
 }
 
 function inAnswer(data: ViewData, rowId: Id): boolean {
   if (data.groups) return data.groups.some((g) => g.rows.some((r) => r.id === rowId));
   return data.rows.some((r) => r.id === rowId);
 }
+
+/** Most rows one paste changes, updated and added together (as for POST /rows/bulk). */
+const PASTE_ROWS = 500;
 
 /** The Table layout: rows and columns, grouped or not, with editing in the cells. */
 export default function TableLayout({ meta, view, data, viewer, actions, readOnly }: LayoutProps) {
@@ -190,6 +249,14 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const [focusRequest, setFocusRequest] = useState<{ key: string } | null>(null);
   const [menuFor, setMenuFor] = useState<Id | null>(null);
   const [selection, setSelection] = useState<RowSelection>(NO_SELECTION);
+  // A block of cells runs from this cell to the active one (Shift+arrows, Shift-click).
+  const [range, setRange] = useState<CellAt | null>(null);
+  const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
+  // Undo and redo: the person's changes in this database while it's open here.
+  const [history] = useState(() => new EditHistory());
+  // Row writes go out a few at a time and in order (a paste can change 500 rows).
+  const [queue] = useState(() => writeQueue(WRITES_AT_ONCE));
+  const notices = useRef(0);
   // A header being dragged to a new place: where the pointer is, px from the table's left edge.
   const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
   const cells = useRef(new Map<string, HTMLDivElement>());
@@ -202,6 +269,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   useEffect(() => {
     viewNow.current = view;
   }, [view]);
+
+  useEffect(() => () => history.clear(), [history, meta.id]);
 
   useEffect(() => {
     if (focusRequest) cells.current.get(focusRequest.key)?.focus();
@@ -258,6 +327,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   }, [data, created, collapsed]);
 
   const lines = useMemo(() => sections.flatMap((s) => (s.collapsed ? [] : s.lines)), [sections]);
+  const lineAt = useMemo(() => new Map(lines.map((line, index) => [line.key, index])), [lines]);
   // Every row in the answer by id (collapsed groups too): ticked rows that left drop out.
   const lineOf = useMemo(() => {
     const map = new Map<Id, Line>();
@@ -297,17 +367,34 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       ? cellKey(first.key, firstColumn.property.id)
       : null;
 
-  const focusCell = (line: string, propertyId: Id) => {
+  // The block of cells from the range's first cell to the active one, while both are on screen.
+  const columnAt = (propertyId: Id) => columns.findIndex((c) => c.property.id === propertyId);
+  const rangeBox = (): CellBox | null => {
+    if (!range || !active) return null;
+    const from = lineAt.get(range.line);
+    const to = lineAt.get(active.line);
+    const left = columnAt(range.propertyId);
+    const right = columnAt(active.propertyId);
+    if (from === undefined || to === undefined || left < 0 || right < 0) return null;
+    return boxOf({ row: from, column: left }, { row: to, column: right });
+  };
+  const box = rangeBox();
+  // Two cells or more: drawn as a block, and Delete or Escape act on it.
+  const block = box && (box.top !== box.bottom || box.left !== box.right) ? box : null;
+
+  /** Moves the active cell; the block of cells goes unless `keepRange` (it grows). */
+  const focusCell = (line: string, propertyId: Id, keepRange = false) => {
+    if (!keepRange) setRange(null);
     setActive({ line, propertyId });
     setFocusRequest({ key: cellKey(line, propertyId) });
   };
 
-  /** Column index -1 is the selection column (when rows can be ticked). */
-  const focusAt = (rowIndex: number, columnIndex: number) => {
+  /** Column index -1 is the selection column (when rows can be ticked; not in a block of cells). */
+  const focusAt = (rowIndex: number, columnIndex: number, extend = false) => {
     const line = lines[Math.max(0, Math.min(lines.length - 1, rowIndex))];
-    const at = Math.max(canSelect ? -1 : 0, Math.min(columns.length - 1, columnIndex));
+    const at = Math.max(canSelect && !extend ? -1 : 0, Math.min(columns.length - 1, columnIndex));
     const id = at === -1 ? SELECT_KEY : columns[at]?.property.id;
-    if (line && id !== undefined) focusCell(line.key, id);
+    if (line && id !== undefined) focusCell(line.key, id, extend);
   };
 
   /** Tab and Shift+Tab: the next or previous cell, on to the next or previous row. */
@@ -328,15 +415,105 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     return true;
   };
 
-  const save = (line: Line, property: Property, value: unknown) => {
-    if (created.some((c) => c.row.id === line.row.id)) {
-      setCreated((list) =>
-        list.map((c) =>
-          c.row.id === line.row.id ? { ...c, row: withValue(c.row, property, value) } : c,
-        ),
-      );
+  /**
+   * One updateValues per row, through the queue. Rows made here show the values until the answer
+   * has them.
+   */
+  const writeValues = (values: readonly ValueChange[], side: 'before' | 'after') => {
+    const byRow = new Map<Id, Partial<Record<Id, unknown>>>();
+    for (const change of values) {
+      const rowId = history.idOf(change.rowId);
+      byRow.set(rowId, { ...byRow.get(rowId), [change.propertyId]: change[side] });
     }
-    actions.updateValues(line.row.id, { [property.id]: value }).catch(() => undefined);
+    for (const [rowId, patch] of byRow) {
+      setCreated((list) =>
+        list.some((c) => c.row.id === rowId)
+          ? list.map((c) =>
+              c.row.id === rowId ? { ...c, row: withValues(c.row, meta.properties, patch) } : c,
+            )
+          : list,
+      );
+      queue(() => actions.updateValues(rowId, patch)).catch(() => undefined);
+    }
+  };
+
+  /** Every change to values goes through here: one call is one step for Ctrl+Z. */
+  const change = (writes: readonly Write[], added: readonly AddedRow[] = []) => {
+    const values: ValueChange[] = [];
+    for (const { row, property, value } of writes) {
+      const before = rowCell(row, property).value;
+      if (!sameCell(property, before, value)) {
+        values.push({ rowId: row.id, propertyId: property.id, before, after: value });
+      }
+    }
+    history.record({ values, added });
+    writeValues(values, 'after');
+  };
+
+  const save = (line: Line, property: Property, value: unknown) =>
+    change([{ row: line.row, property, value }]);
+
+  /** Makes rows a step added, one after another so they keep their order. */
+  const makeRows = async (added: readonly AddedRow[]) => {
+    const before = data;
+    for (const item of added) {
+      if (item.undone) continue;
+      const row = await queue(() => actions.createRow(item.input)).catch(() => null);
+      if (!row) return;
+      if (item.rowId !== null) history.rename(item.rowId, row.id);
+      item.rowId = row.id;
+      if (item.undone) {
+        actions.trashRows([row.id]).catch(() => undefined);
+        continue;
+      }
+      const made: Created = { row: asQueryRow(row), sectionKey: item.sectionKey, data: before };
+      setCreated((list) => [...list, made]);
+    }
+  };
+
+  /** After undo or redo: the first cell it changed, or a row that stays if the active one goes. */
+  const focusStep = (step: Step, gone: ReadonlySet<Id>) => {
+    for (const { rowId, propertyId } of step.values) {
+      const id = history.idOf(rowId);
+      const line = gone.has(id) ? undefined : lines.find((l) => l.row.id === id);
+      if (line && columnAt(propertyId) >= 0) {
+        focusCell(line.key, propertyId);
+        return;
+      }
+    }
+    const at = active ? (lineAt.get(active.line) ?? -1) : -1;
+    const leaving = lines[at];
+    if (!active || !leaving || !gone.has(leaving.row.id)) return;
+    const stays = (l: Line) => !gone.has(l.row.id);
+    const next = lines.slice(0, at).reverse().find(stays) ?? lines.find(stays);
+    if (next) focusCell(next.key, active.propertyId);
+  };
+
+  const undo = () => {
+    if (readOnly) return;
+    const step = history.undo();
+    if (!step) return;
+    writeValues(step.values, 'before');
+    const gone = new Set<Id>();
+    for (const item of step.added) {
+      item.undone = true;
+      if (item.rowId !== null) gone.add(history.idOf(item.rowId));
+    }
+    if (gone.size > 0) {
+      setCreated((list) => list.filter((c) => !gone.has(c.row.id)));
+      actions.trashRows([...gone]).catch(() => undefined);
+    }
+    focusStep(step, gone);
+  };
+
+  const redo = () => {
+    if (readOnly) return;
+    const step = history.redo();
+    if (!step) return;
+    for (const item of step.added) item.undone = false;
+    if (step.added.length > 0) void makeRows(step.added);
+    writeValues(step.values, 'after');
+    focusStep(step, new Set());
   };
 
   const toggle = (line: Line, property: Property) => {
@@ -344,6 +521,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   };
 
   const startEditing = (line: Line, property: Property, initialText?: string) => {
+    setRange(null);
     if (property.config.type === 'checkbox') {
       if (canEdit(property) && initialText === undefined) toggle(line, property);
       return;
@@ -356,15 +534,32 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     }
   };
 
-  const clearCell = (line: Line, property: Property): boolean => {
-    if (!canEdit(property)) return false;
+  /** Delete or Backspace: what clears a cell (nothing when it's empty already). */
+  const clearing = (line: Line, property: Property): Write | null => {
     const { value } = rowCell(line.row, property);
     if (property.config.type === 'checkbox') {
-      if (value === true) save(line, property, false);
-      return true;
+      return value === true ? { row: line.row, property, value: false } : null;
     }
-    if (!isEmptyValue(value as ReadValue)) save(line, property, null);
+    return isEmptyValue(value as ReadValue) ? null : { row: line.row, property, value: null };
+  };
+
+  const clearCell = (line: Line, property: Property): boolean => {
+    if (!canEdit(property)) return false;
+    const write = clearing(line, property);
+    if (write) change([write]);
     return true;
+  };
+
+  /** Clears the cells of a block the viewer can change, as one step. */
+  const clearBlock = (cells: CellBox) => {
+    const writes: Write[] = [];
+    for (const line of lines.slice(cells.top, cells.bottom + 1)) {
+      for (const { property } of columns.slice(cells.left, cells.right + 1)) {
+        const write = canEdit(property) ? clearing(line, property) : null;
+        if (write) writes.push(write);
+      }
+    }
+    change(writes);
   };
 
   const finishEditing = (line: Line, property: Property, move?: CommitDetails['move']) => {
@@ -380,6 +575,13 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     if (target !== event.currentTarget && target.closest(OWN_PRESS)) return;
     const property = column.property;
     if (editing && editing.line === line.key && editing.propertyId === property.id) return;
+    // Shift-click makes a block of cells from the active one.
+    if (event.shiftKey && active && activeShown && active.propertyId !== SELECT_KEY) {
+      if (!box) setRange(active);
+      focusCell(line.key, property.id, true);
+      return;
+    }
+    setRange(null);
     if (canEdit(property) && property.config.type === 'checkbox') {
       focusCell(line.key, property.id);
       toggle(line, property);
@@ -409,6 +611,10 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         return true;
       case 'Delete':
       case 'Backspace':
+        if (block) {
+          clearBlock(block);
+          return true;
+        }
         return clearCell(line, property);
       default:
         if (event.key.length !== 1 || mod || event.altKey) return false;
@@ -418,37 +624,162 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     }
   };
 
+  /** The text Ctrl+C copies: the block of cells, the ticked rows, or the active cell. */
+  const copiedText = (line: Line, columnIndex: number): string => {
+    const evalCtx: EvalContext = { ...ctx, properties: meta.properties };
+    const text = (l: Line, c: TableColumn) =>
+      copyText(c.property, rowCell(l.row, c.property), evalCtx);
+    if (box) {
+      const shown = columns.slice(box.left, box.right + 1);
+      return toTsv(lines.slice(box.top, box.bottom + 1).map((l) => shown.map((c) => text(l, c))));
+    }
+    // From the selection column or a ticked row: whole rows.
+    const ticked = selected.size > 0 && (columnIndex < 0 || selected.has(line.row.id));
+    if (ticked || columnIndex < 0) {
+      const rows = ticked ? [...lineOf.values()].filter((l) => selected.has(l.row.id)) : [line];
+      return toTsv(rows.map((l) => columns.map((c) => text(l, c))));
+    }
+    const column = columns[columnIndex];
+    return column ? toTsv([[text(line, column)]]) : '';
+  };
+
+  /**
+   * Ctrl+V: a block from a spreadsheet, from the active cell (or the block of cells' top left; a
+   * single value fills the block). Values are read as CSV import reads them, rows are added after
+   * the last one, and values that don't fit are skipped and counted, as are those past the first
+   * PASTE_ROWS rows. One step for Ctrl+Z.
+   */
+  const paste = (text: string, line: Line, columnIndex: number) => {
+    const clip = fromTsv(text);
+    if (clip.length === 0) return;
+    const top = box ? box.top : (lineAt.get(line.key) ?? 0);
+    const left = box ? box.left : Math.max(0, columnIndex);
+    const importCtx: ImportContext = {
+      viewer,
+      findUser: () => undefined,
+      findRows: titleFinder({
+        databaseId: meta.id,
+        properties: meta.properties,
+        rows: [...lineOf.values()].map((l) => l.row),
+        rowTitles: data.rowTitles,
+      }),
+    };
+    const writes: Write[] = [];
+    const newRows = new Map<number, NewRow>();
+    let skipped = 0;
+    for (const { row, column, text: value } of pastedValues(clip, top, left, box)) {
+      const property = columns[column]?.property;
+      const target = lines[row];
+      if (
+        row - top >= PASTE_ROWS ||
+        !property ||
+        !canEdit(property) ||
+        !PASTE_TYPES.has(property.config.type) ||
+        (!target && !canAdd)
+      ) {
+        if (value.trim() !== '') skipped += 1;
+        continue;
+      }
+      const read = readCell(property, value, importCtx);
+      // Until the view can add options to a property, values that need new ones are skipped.
+      if (!read.ok || (read.newOptions?.length ?? 0) > 0) {
+        skipped += 1;
+        continue;
+      }
+      if (target) {
+        writes.push({ row: target.row, property, value: read.value });
+      } else if (read.value !== null) {
+        const input = newRows.get(row) ?? {};
+        newRows.set(
+          row,
+          property.config.type === 'title'
+            ? { ...input, title: String(read.value) }
+            : { ...input, values: { ...input.values, [property.id]: read.value } },
+        );
+      }
+    }
+    // New rows go to the last group shown, unless a pasted value says which group.
+    const last = sections.filter((s) => !s.collapsed && s.lines.length > 0).at(-1);
+    const grouping = view.grouping?.propertyId;
+    const added = [...newRows.values()].map((input): AddedRow => ({
+      input: {
+        ...input,
+        // Pasted rows are plain rows, as imported ones are.
+        templateId: null,
+        ...(last?.group && !(grouping !== undefined && input.values && grouping in input.values)
+          ? { groupKey: last.group.key }
+          : {}),
+      },
+      sectionKey: last?.key ?? '',
+      rowId: null,
+      undone: false,
+    }));
+    change(writes, added);
+    if (added.length > 0) void makeRows(added);
+    if (skipped > 0) {
+      notices.current += 1;
+      setNotice({ id: notices.current, text: TABLE_TEXT.skipped(skipped) });
+    }
+  };
+
+  const copyCells = (event: ClipboardEvent<HTMLDivElement>, line: Line, columnIndex: number) => {
+    if (event.target !== event.currentTarget || editing) return;
+    event.clipboardData.setData('text/plain', copiedText(line, columnIndex));
+    event.preventDefault();
+  };
+
+  const pasteCells = (event: ClipboardEvent<HTMLDivElement>, line: Line, columnIndex: number) => {
+    if (event.target !== event.currentTarget || editing || readOnly) return;
+    event.preventDefault();
+    paste(event.clipboardData.getData('text/plain'), line, columnIndex);
+  };
+
   /** Keys on a cell; `columnIndex` -1 is the selection column. */
   const keyOnCell = (event: KeyboardEvent<HTMLDivElement>, line: Line, columnIndex: number) => {
     if (event.target !== event.currentTarget || editing) return;
-    const rowIndex = lines.findIndex((l) => l.key === line.key);
+    const rowIndex = lineAt.get(line.key) ?? -1;
     const column = columns[columnIndex];
     const id = column ? column.property.id : SELECT_KEY;
     const mod = event.metaKey || event.ctrlKey;
-    if (mod && !event.altKey && event.key.toLowerCase() === 'a') {
-      if (!canSelect) return;
-      setSelection(selectAll(lines));
+    const letter = mod && !event.altKey ? event.key.toLowerCase() : '';
+    if (letter === 'c') {
+      // Without selected text not every browser sends "copy", so the Clipboard API writes it too.
+      navigator.clipboard?.writeText(copiedText(line, columnIndex)).catch(() => undefined);
+      return;
+    }
+    if (letter === 'a' || letter === 'z' || letter === 'y') {
+      if (letter === 'a') {
+        if (!canSelect) return;
+        setSelection(selectAll(lines));
+      } else if (letter === 'z' && !event.shiftKey) {
+        undo();
+      } else {
+        redo();
+      }
       event.preventDefault();
       return;
     }
     switch (event.key) {
       case 'ArrowUp':
-      case 'ArrowDown': {
-        const to = rowIndex + (event.key === 'ArrowUp' ? -1 : 1);
-        const target = lines[to];
-        // Shift+arrows in the selection column tick the rows on the way.
-        if (!column && event.shiftKey && target) {
+      case 'ArrowDown':
+      case 'ArrowLeft':
+      case 'ArrowRight': {
+        const down = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+        const right = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        if (column && event.shiftKey) {
+          // Shift+arrows on a value cell make a block of cells (the selection column stays out).
+          if (!box) setRange({ line: line.key, propertyId: id });
+          focusAt(rowIndex + down, columnIndex + right, true);
+          break;
+        }
+        const target = lines[rowIndex + down];
+        // Shift+Up and Shift+Down in the selection column tick the rows on the way.
+        if (!column && event.shiftKey && down !== 0 && target) {
           setSelection((current) => extendTo(current, lines, line.key, target.key));
         }
-        focusAt(to, columnIndex);
+        focusAt(rowIndex + down, columnIndex + right);
         break;
       }
-      case 'ArrowLeft':
-        focusAt(rowIndex, columnIndex - 1);
-        break;
-      case 'ArrowRight':
-        focusAt(rowIndex, columnIndex + 1);
-        break;
       case 'Home':
         focusAt(mod ? 0 : rowIndex, 0);
         break;
@@ -459,8 +790,9 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         if (!moveAlong(line.key, id, event.shiftKey ? -1 : 1)) return;
         break;
       case 'Escape':
-        if (selected.size === 0) return;
-        setSelection(NO_SELECTION);
+        if (block) setRange(null);
+        else if (selected.size > 0) setSelection(NO_SELECTION);
+        else return;
         break;
       default:
         if (column) {
@@ -485,6 +817,10 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           ...list,
           { row: asQueryRow(row), sectionKey: section.key, data: before },
         ]);
+        history.record({
+          values: [],
+          added: [{ input, sectionKey: section.key, rowId: row.id, undone: false }],
+        });
         if (nameColumn) {
           const line = lineKey(section.key, row.id);
           setActive({ line, propertyId: nameColumn.property.id });
@@ -557,10 +893,12 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
       (!isEmptyValue(value as ReadValue) && isEmptyValue(next as ReadValue))
     )
       return;
+    const writes: Write[] = [];
     for (const id of selected) {
       const line = lineOf.get(id);
-      if (line && !sameStored(rowCell(line.row, property).value, next)) save(line, property, next);
+      if (line) writes.push({ row: line.row, property, value: next });
     }
+    change(writes);
   };
 
   const trashSelected = () => {
@@ -569,6 +907,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     const stays = lines.find((l) => !selected.has(l.row.id));
     setSelection(NO_SELECTION);
     setCreated((list) => list.filter((c) => !selected.has(c.row.id)));
+    history.forget(selected);
     if (stays) focusCell(stays.key, SELECT_KEY);
     actions.trashRows(ids).catch(() => undefined);
   };
@@ -680,6 +1019,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         }}
         onClick={(event) => pressSelect(event, line)}
         onKeyDown={(event) => keyOnCell(event, line, -1)}
+        onCopy={(event) => copyCells(event, line, -1)}
+        onPaste={(event) => pasteCells(event, line, -1)}
         className={cn(
           selectClass,
           'min-h-9 cursor-pointer outline-none max-md:min-h-11',
@@ -709,6 +1050,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     const isName = property.config.type === 'title';
     const cell = rowCell(line.row, property);
     const isEditing = editing?.line === line.key && editing.propertyId === property.id;
+    const inBlock = inBox(block, lineAt.get(line.key) ?? -1, columnIndex);
     return (
       <div
         key={property.id}
@@ -717,8 +1059,15 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
         tabIndex={key === tabStop ? 0 : -1}
         data-property-id={property.id}
         aria-readonly={canEdit(property) ? undefined : true}
+        aria-selected={inBlock || undefined}
+        onMouseDown={(event) => {
+          // Shift-click makes a block of cells; it shouldn't select text on the way.
+          if (event.shiftKey) event.preventDefault();
+        }}
         onClick={(event) => pressCell(event, line, column)}
         onKeyDown={(event) => keyOnCell(event, line, columnIndex)}
+        onCopy={(event) => copyCells(event, line, columnIndex)}
+        onPaste={(event) => pasteCells(event, line, columnIndex)}
         style={placeOf(column)}
         className={cn(
           'relative flex min-h-9 shrink-0 items-start gap-1 px-2 py-1.5 outline-none max-md:min-h-11',
@@ -776,6 +1125,9 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
             }}
             onCancel={(details) => finishEditing(line, property, details?.move)}
           />
+        )}
+        {inBlock && (
+          <span aria-hidden className="pointer-events-none absolute inset-0 bg-ring/10" />
         )}
       </div>
     );
@@ -901,7 +1253,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           role="grid"
           aria-label={view.name}
           aria-colcount={colCount}
-          aria-multiselectable={canSelect || undefined}
+          aria-multiselectable
           aria-readonly={readOnly || undefined}
           className="relative w-max min-w-full text-small text-fg"
         >
@@ -987,6 +1339,7 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
           onClear={() => setSelection(NO_SELECTION)}
         />
       )}
+      {notice && <Notice key={notice.id} text={notice.text} onShown={() => setNotice(null)} />}
     </>
   );
 }

@@ -17,7 +17,6 @@ import {
   myLearningFor,
   RECERTIFICATION_ASSIGNER,
   syncPath,
-  todayIn,
   type CourseProgress,
 } from './service';
 import { memorySources, only, type MemoryWorld } from './testing';
@@ -573,18 +572,5 @@ describe('assignRecertification', () => {
     ];
     const done = await myLearningFor(sources, me, '2026-11-03', 'UTC');
     expect(brief(done.finished)).toEqual([[escalations.id, '2026-11-25', 'done_on_time']]);
-  });
-});
-
-describe('todayIn', () => {
-  const at = new Date('2026-10-27T03:00:00Z');
-
-  it("uses the person's time zone, or Care Hub's when it isn't one", () => {
-    expect(todayIn('Asia/Tokyo', at)).toEqual({ today: '2026-10-27', timeZone: 'Asia/Tokyo' });
-    expect(todayIn('Mars/Olympus_Mons', at)).toEqual({
-      today: '2026-10-26',
-      timeZone: 'America/Denver',
-    });
-    expect(todayIn(undefined, at)).toEqual({ today: '2026-10-26', timeZone: 'America/Denver' });
   });
 });
