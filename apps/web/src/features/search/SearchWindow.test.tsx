@@ -182,12 +182,16 @@ describe('the search window', () => {
       'true',
     );
     fireEvent.keyDown(box, { key: 'Delete' });
-    expect(searches.queryByRole('option', { name: 'refund' })).not.toBeInTheDocument();
-    expect(calls).toContainEqual({
-      method: 'DELETE',
-      url: '/api/search/recent/s1',
-      body: undefined,
-    });
+    await waitFor(() =>
+      expect(searches.queryByRole('option', { name: 'refund' })).not.toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'DELETE',
+        url: '/api/search/recent/s1',
+        body: undefined,
+      }),
+    );
 
     fireEvent.click(searches.getByRole('button', { name: 'Clear' }));
     await waitFor(() =>
