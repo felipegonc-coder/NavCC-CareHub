@@ -97,7 +97,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     expect(view).toEqual({
       keySet: true,
       model: 'claude-test',
-      navApproved: false,
+      workspaceApproved: false,
       switches: ALL_OFF,
       chatRetentionDays: null,
       usage: { month: '2026-10', requests: 0, monthlyRequests: 3000, byFeature: NONE_USED },
@@ -109,15 +109,15 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
   it('saves only what changed and logs each change once', async () => {
     const workspaceId = setUp();
     const view = await change(workspaceId, {
-      navApproved: true,
+      workspaceApproved: true,
       switches: { writing_help: true, assistant: false },
       chatRetentionDays: 90,
     });
-    expect(view.navApproved).toBe(true);
+    expect(view.workspaceApproved).toBe(true);
     expect(view.switches).toEqual({ ...ALL_OFF, writing_help: true });
     expect(view.chatRetentionDays).toBe(90);
     expect(lines.map((line) => [line.security.key, line.security.value])).toEqual([
-      ['claude.navApproved', true],
+      ['claude.workspaceApproved', true],
       ['claude.writing_help', true],
       ['claude.chatRetentionDays', 90],
     ]);
@@ -128,7 +128,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     });
 
     lines.length = 0;
-    await change(workspaceId, { navApproved: true, switches: { writing_help: true } });
+    await change(workspaceId, { workspaceApproved: true, switches: { writing_help: true } });
     expect(lines).toEqual([]);
 
     const kept = await change(workspaceId, { chatRetentionDays: null });
@@ -141,7 +141,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     const workspaceId = setUp();
     await change(workspaceId, { switches: { meeting_summary: true } });
     expect(await isClaudeFeatureOn(t.db, workspaceId, 'meeting_summary')).toBe(false);
-    await change(workspaceId, { navApproved: true });
+    await change(workspaceId, { workspaceApproved: true });
     expect(await isClaudeFeatureOn(t.db, workspaceId, 'meeting_summary')).toBe(true);
     expect(await isClaudeFeatureOn(t.db, workspaceId, 'assistant')).toBe(false);
     await change(workspaceId, { switches: { meeting_summary: false } });
@@ -170,7 +170,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
   it('tells each person only what they can use now', async () => {
     const workspaceId = setUp();
     await change(workspaceId, {
-      navApproved: true,
+      workspaceApproved: true,
       switches: { writing_help: true, fields: true },
     });
     expect((await claudeStatusFor(t.db, editor.id)).on).toEqual({
@@ -193,7 +193,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     const signedOut = await t.app.inject({ method: 'GET', url: '/api/claude/status' });
     expect(signedOut.statusCode).toBe(401);
 
-    // Until the roles PR binds members, nobody is in a workspace.
+    // Until members are bound, nobody is in a workspace.
     const status = await injectAs(t.app, editor, { method: 'GET', url: '/api/claude/status' });
     expect(status.statusCode).toBe(200);
     expect(status.json()).toEqual({ on: ALL_OFF });
@@ -204,7 +204,7 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     const asEditor = await injectAs(t.app, editor, {
       method: 'PUT',
       url: '/api/claude/settings',
-      payload: { navApproved: true },
+      payload: { workspaceApproved: true },
     });
     expect(asEditor.statusCode).toBe(403);
     const unknown = await injectAs(t.app, admin, {
@@ -216,11 +216,11 @@ describe.skipIf(!hasDatabase)('Settings → Claude', () => {
     const saved = await injectAs(t.app, admin, {
       method: 'PUT',
       url: '/api/claude/settings',
-      payload: { navApproved: true, chatRetentionDays: 30 },
+      payload: { workspaceApproved: true, chatRetentionDays: 30 },
     });
     expect(saved.statusCode).toBe(200);
     const view = claudeSettingsViewSchema.parse(saved.json());
-    expect(view).toMatchObject({ navApproved: true, chatRetentionDays: 30, keySet: true });
+    expect(view).toMatchObject({ workspaceApproved: true, chatRetentionDays: 30, keySet: true });
     const read = await injectAs(t.app, admin, { method: 'GET', url: '/api/claude/settings' });
     expect(read.json()).toEqual(saved.json());
   });

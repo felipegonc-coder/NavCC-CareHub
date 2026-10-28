@@ -35,7 +35,7 @@ export interface AskClaudeJsonInput<T> extends AskClaudeInput {
   schema: z.ZodType<T>;
 }
 
-/** Whether the server has the key, an Admin has given the OK, and the feature's switch is on. */
+/** Whether the server has the key, the workspace is approved, and the feature's switch is on. */
 export async function isClaudeFeatureOn(
   db: Db | Tx,
   workspaceId: string,
@@ -77,8 +77,7 @@ export function askClaudeJson<T>(db: Db | Tx, input: AskClaudeJsonInput<T>): Pro
 const JSON_ONLY =
   'Answer with one JSON value and nothing else: no words around it and no code fences.';
 
-/** Why the feature can't be used in the workspace now (the key, the OK, the switch), or undefined. */
-export async function featureRefusal(
+async function featureRefusal(
   db: Db | Tx,
   workspaceId: string,
   feature: ClaudeFeature,
