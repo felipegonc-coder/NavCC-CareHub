@@ -1,4 +1,4 @@
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ALL_OFF, isClaudeOn, setClaudeStatus } from './status';
@@ -16,8 +16,8 @@ function json(status: number, body: unknown): Response {
 const failure = () =>
   json(500, { error: { code: 'unexpected', message: 'Something went wrong. Try again.' } });
 
-function renderSync(defaults: { refetchOnWindowFocus?: boolean } = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, ...defaults } } });
+function renderSync() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={client}>
       <StatusSync />
@@ -29,7 +29,6 @@ function renderSync(defaults: { refetchOnWindowFocus?: boolean } = {}) {
 afterEach(() => {
   globalThis.fetch = realFetch;
   setClaudeStatus(ALL_OFF);
-  focusManager.setFocused(undefined);
 });
 
 describe('StatusSync', () => {
@@ -53,23 +52,6 @@ describe('StatusSync', () => {
     await waitFor(() => expect(isClaudeOn('assistant')).toBe(true));
     await act(() => client.refetchQueries({ queryKey: STATUS_KEY }));
     await waitFor(() => expect(isClaudeOn('assistant')).toBe(false));
-  });
-
-  it('asks again when someone comes back to the tab, so a feature switched off goes away', async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(json(200, { on: { ...ALL_OFF.on, assistant: true } }))
-      .mockImplementation(async () => json(200, ALL_OFF));
-    globalThis.fetch = fetchMock;
-    // Even when the app's query defaults don't ask again on focus.
-    renderSync({ refetchOnWindowFocus: false });
-    await waitFor(() => expect(isClaudeOn('assistant')).toBe(true));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    act(() => focusManager.setFocused(false));
-    act(() => focusManager.setFocused(true));
-    await waitFor(() => expect(isClaudeOn('assistant')).toBe(false));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('ignores an answer of the wrong shape', async () => {

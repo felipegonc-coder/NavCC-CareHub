@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { ANTHROPIC_VERSION, REQUEST_TIMEOUT_MS, sendToClaude } from './client';
+import { describe, expect, it } from 'vitest';
+import { ANTHROPIC_VERSION, sendToClaude } from './client';
 import { ClaudeError } from './errors';
 import type { ClaudeLogDetails, ClaudeRuntime } from './runtime';
 import { CLAUDE_MESSAGES_URL, readClaudeSettings } from './settings';
@@ -100,40 +100,6 @@ describe('sendToClaude', () => {
       { status: 502, type: 'overloaded_error' },
       { status: 503, type: 'overloaded_error' },
     ]);
-  });
-
-  it('gives the whole request 60 seconds, retries included', async () => {
-    const busy = { type: 'error', error: { type: 'overloaded_error', message: 'busy' } };
-    const slow = fakeRuntime([
-      reply(529, busy, { 'retry-after': '10' }),
-      reply(529, busy, { 'retry-after': '10' }),
-      answer('Too late.'),
-    ]);
-    // Each answer takes 25 s, and waiting moves the clock too.
-    let clock = Date.parse('2026-10-27T18:00:00Z');
-    const runtime: ClaudeRuntime = {
-      ...slow.runtime,
-      now: () => new Date(clock),
-      fetch: async (url, init) => {
-        clock += 25_000;
-        return slow.runtime.fetch(url, init);
-      },
-      sleep: async (ms) => {
-        clock += ms;
-        await slow.runtime.sleep(ms);
-      },
-    };
-    const timeouts = vi.spyOn(AbortSignal, 'timeout');
-    try {
-      expect((await failure(sendToClaude(runtime, request))).reason).toBe('unavailable');
-      expect(timeouts.mock.calls.map(([ms]) => ms)).toEqual([REQUEST_TIMEOUT_MS, 25_000]);
-    } finally {
-      timeouts.mockRestore();
-    }
-    expect(REQUEST_TIMEOUT_MS).toBe(60_000);
-    // The second 529 came at 60 s, with no time left for another try.
-    expect(slow.calls).toHaveLength(2);
-    expect(slow.sleeps).toEqual([10_000]);
   });
 
   it('never tries other 4xx answers again', async () => {

@@ -2,11 +2,10 @@ import { CLAUDE_FEATURES, type ClaudeFeature } from '@carehub/extras/claude';
 import type { ClaudeStatus } from '@carehub/extras/claude/settings';
 import { useSyncExternalStore } from 'react';
 
-// Which Claude features the person signed in can use now: the key, the feature's switch and Use
-// Claude (Claude features spec, sections 3.1 and 5). Everything is off until the server says
-// otherwise, so no Claude entry point shows while it's unknown (CL-01, CL-04). StatusSync asks
-// every 5 seconds and when someone comes back to the tab, so a feature switched off goes away
-// within 5 seconds (CL-05).
+// Which Claude features the person signed in can use now: the key, the workspace approval, the
+// feature's switch and Use Claude (Claude features spec, sections 3.1 and 5). Everything is off until the server
+// says otherwise, so no Claude entry point shows while it's unknown (CL-01, CL-04). StatusSync
+// asks every 5 seconds, so a feature switched off goes away within 5 seconds (CL-05).
 
 export const ALL_OFF: ClaudeStatus = {
   on: Object.fromEntries(CLAUDE_FEATURES.map((feature) => [feature, false])) as ClaudeStatus['on'],

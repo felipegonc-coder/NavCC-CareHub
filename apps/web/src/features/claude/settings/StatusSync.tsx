@@ -10,16 +10,14 @@ export const STATUS_EVERY_MS = 5_000;
 
 /**
  * In the shell's overlays: keeps the Claude status up to date and draws nothing. Hidden tabs stop
- * asking, and a tab asks again as soon as someone comes back to it, so a feature switched off
- * meanwhile goes away then. Any failure (signed out, offline, an old server) counts as all off.
+ * asking and ask again when they're back. Any failure (signed out, offline, an old server) counts
+ * as all off.
  */
 export function StatusSync() {
   const { data, isError } = useQuery({
     queryKey: STATUS_KEY,
     queryFn: ({ signal }) => api.get('/api/claude/status', { schema: claudeStatusSchema, signal }),
     refetchInterval: STATUS_EVERY_MS,
-    // Set here, so it holds whatever the app's query defaults say.
-    refetchOnWindowFocus: true,
     staleTime: 0,
     retry: false,
   });
