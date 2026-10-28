@@ -251,7 +251,15 @@ describe('"/" menu', () => {
     store.setItems([item('x', 'Actions'), item('y', 'Database'), item('z', 'Care')]);
     await openMenu('', store);
     const groups = store.getSnapshot()?.items.map(groupOf);
-    expect([...new Set(groups)]).toEqual(['Basic blocks', 'Media', 'Database', 'Care', 'Actions']);
+    expect([...new Set(groups)]).toEqual([
+      'Basic blocks',
+      'Media',
+      'Database',
+      'Advanced',
+      'Inline',
+      'Care',
+      'Actions',
+    ]);
   });
 
   it('keeps a list item a list item when you pick the same list', async () => {
