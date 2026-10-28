@@ -63,7 +63,11 @@ describe.skipIf(!hasDatabase)('summarizeMeeting', () => {
           monthlyRequests: 3000,
           url: CLAUDE_MESSAGES_URL,
         }),
-        access: { isSettingOn: async () => true, canUseClaude: async () => true },
+        db,
+        access: {
+          settingsOn: async (_db, _id, keys) => new Set(keys),
+          canUseClaude: async () => true,
+        },
         pages: {
           canOpenPage: async (_db, id, _userId, pageId) =>
             id === workspaceId && pageId === openPageId,

@@ -38,7 +38,7 @@ The tests never reach Claude. The server is pointed at a local stub:
 
 - **Server environment:**
   - `ANTHROPIC_API_KEY`: any fictional value, for example `test-key-not-real`.
-  - `ANTHROPIC_BASE_URL=http://127.0.0.1:4599`. The server accepts only loopback addresses here.
+  - `ANTHROPIC_BASE_URL=http://127.0.0.1:4599`. The server reads it only while test hooks are on, so it also needs `CAREHUB_TEST_HOOKS=1`, and it accepts only `http://127.0.0.1:<port>` here.
 - **The stub:** `tests/e2e/extras/claude-stub.ts`, from the Claude PRs.
   - Start it with `startClaudeStub({ port })`, which returns `{ url, requests(), clear(), answerNext(text), close() }` (`clear()` also drops queued answers), or as a process with `node tests/e2e/extras/claude-stub.ts` (port from `CLAUDE_STUB_PORT`, default 4599).
   - `POST /v1/messages` answers with canned, predictable text: `STUB_TEXT`, or `STUB_JSON` (a meeting summary) when the request asks for one JSON value.
@@ -50,4 +50,6 @@ The tests never reach Claude. The server is pointed at a local stub:
 - **CL-01:** with the switches off, `GET /__requests` stays empty whatever the test does.
 - **CL-10 (leak test):** the fictional key must never appear in the server output, any API answer, any page or the web bundle.
 
-The two environment lines for the browser-test workflow are a `.github/` change, so the main lead adds them after the security reviewer's OK.
+The environment lines for the browser-test workflow (and `CAREHUB_TEST_HOOKS=1`, if the workflow doesn't set it already) are a `.github/` change, so the main lead adds them after the security reviewer's OK.
+
+Each person can have only 3 Claude requests waiting at once, so a test shouldn't start more than 3 `STUB-SLOW` requests as one person.
