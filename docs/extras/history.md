@@ -9,16 +9,12 @@ Spec: [page-history-and-trash.md](../plan/specs/page-history-and-trash.md) (chec
 - **What's kept** (`history_versions`): a full copy of the title, icon, cover, page style and content (ProseMirror JSON), the kind, the name, the editors, who caused it, its size and a sha-256 digest. The spec allows storing changes with a full copy every 20 versions; full copies come first, and reading doesn't depend on it.
 - **Kinds:** `automatic`, `before_restore`, `before_import`, `before_template`, `before_replace` (Replace all), `before_accept_all` (Accept all suggestions) and `before_automation`. "Named" isn't a kind: any version can have a name.
 - **Named versions** are kept forever, up to 100 per page (409 after that).
-- **Clean-up** (HT-03): the hourly task `history.cleanup` runs in the 3 AM hour (Denver time until workspaces have their own) and deletes unnamed versions older than the workspace's period, counting ages from 3:00 sharp. Then it emits `history.versions.cleaned`.
 - **Deleted pages** (HT-11): `page.deleted` removes their versions.
 
 ## For other features (`apps/server/src/features/history/index.ts`)
 
 - `saveVersionNow(tx, pageId, { reason, by })` saves a version right away. Call it in the transaction that replaces the content, before the change: a rollback drops the version too. `reason` is `'restore' | 'import' | 'template' | 'replace' | 'accept_all' | 'automation'`; `by` is the person, or null for automations. It returns `{ id, pageId, kind, createdAt }`, or null when the page has no versions (missing, in Trash, a database). Until the page model and the content API are on main it always returns null and runs no queries. In tests, mock `../history` and check the call.
-- `countExpiringVersions(db, workspaceId, days, now?)`: how many unnamed versions are older than `days`, for "Tonight this permanently deletes 1,240 page versions…" (Data settings, DS-01). Pass `nextCleanupAt()` as `now` and the count is exactly what that night deletes.
-- `versionStorageBytes(db, workspaceId)`: bytes the workspace's versions take, for the storage numbers in Data settings.
-- Workspace setting `history.versionRetentionDays` (`VERSION_RETENTION_KEY`): `30`, `90`, `365` or `null` (forever); the default is 365 (DS-D2). Validate it with `versionRetentionSchema` from `@carehub/extras/history`. Anything else counts as the default.
-- Events, after the commit: `history.version.restored { pageId, workspaceId, versionId, restoredVersionId, by }` (`versionId` is the version saved just before the restore) and `history.versions.cleaned { workspaceId, deleted, at }` (for Data settings' clean-up record).
+- Event, after the commit: `history.version.restored { pageId, workspaceId, versionId, restoredVersionId, by }` (`versionId` is the version saved just before the restore).
 
 ## API (`/api/history`)
 
@@ -43,8 +39,6 @@ Until they're bound nothing is tracked or saved, no queries run and the routes a
 | The page, `getPageAccess`, putting back title, icon, cover and style | `pages.ts`                         | the page model, `features/pages/index.ts` (#49)       |
 | `getPageContent`, `setPageContent`                                   | `content.ts`                       | `features/collab/index.ts` (#200)                     |
 | Polling `page_docs.updated_at`                                       | `versions.ts` (`recordSavedEdits`) | the event `page.contentSaved` (#200), already handled |
-| `history.versionRetentionDays`                                       | `retention.ts`                     | `getWorkspaceSetting` (workspaces 1c)                 |
-| The workspace's time zone for the clean-up                           | `retention.ts`                     | workspaces 1c                                         |
 
 The periodic tasks run in the jobs runner, which starts once the jobs routes are registered (#288).
 

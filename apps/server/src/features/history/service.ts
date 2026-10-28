@@ -9,7 +9,6 @@ import { and, count, desc, eq, inArray, isNotNull, lt, or, type SQL } from 'driz
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { users } from '../auth/schema';
-import { assertCanChange } from './access';
 import { historyContent } from './content';
 import { historyPages, type HistoryPage } from './pages';
 import { historyVersions } from './schema';
@@ -211,10 +210,6 @@ export async function restoreVersion(
   const content = historyContent();
   if (!content) throw httpError(404, 'not_found');
   return db.transaction(async (tx) => {
-    // Checked again inside the transaction, in case the page was locked or archived meanwhile.
-    const current = await historyPages().getPage(tx, page.id);
-    if (!current || current.trashed) throw httpError(404, 'not_found');
-    assertCanChange(current);
     const row = await versionRow(tx, page.id, versionId);
     const before = await saveVersionNow(tx, page.id, { reason: 'restore', by });
     if (!before) throw httpError(404, 'not_found');

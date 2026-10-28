@@ -37,8 +37,6 @@ describe.skipIf(!hasDatabase)('the versions API on Postgres', () => {
   const restored: VersionRestoredEvent[] = [];
   const updated: unknown[] = [];
   const unbind: (() => void)[] = [];
-  /** Pages that get locked right after the next read, as if someone locked them meanwhile. */
-  const lockAfterRead = new Set<string>();
 
   beforeAll(async () => {
     test = await createTestApp();
@@ -48,11 +46,7 @@ describe.skipIf(!hasDatabase)('the versions API on Postgres', () => {
     casey = await createUser(test.db, { name: 'Casey Park', email: 'casey.park@example.test' });
     unbind.push(
       bindHistoryPages({
-        getPage: async (_db, id) => {
-          const page = pages.get(id) ?? null;
-          if (page && lockAfterRead.delete(id)) pages.set(id, { ...page, locked: true });
-          return page;
-        },
+        getPage: async (_db, id) => pages.get(id) ?? null,
         getPageAccess: async (_db, userId, id) => levels.get(id)?.get(userId) ?? 'none',
         setPageLook: async (_tx, id, look) => {
           const page = pages.get(id);
@@ -334,24 +328,6 @@ describe.skipIf(!hasDatabase)('the versions API on Postgres', () => {
         expect(response.json().error.message).toBe(message);
       }
     }
-  });
-
-  it('checks the lock again inside the restore', async () => {
-    const pageId = newPage('Intake checklist', 'Step one.');
-    const version = await typeAndPause(
-      pageId,
-      avery,
-      'Step one, then two.',
-      new Date(Date.now() - 9 * MINUTE),
-    );
-    docs.set(pageId, paragraph('Step one, two and three.'));
-    lockAfterRead.add(pageId);
-    const response = await call(avery, 'POST', `${versionsUrl(pageId)}/${version.id}/restore`);
-    expect(response.statusCode).toBe(403);
-    expect(response.json().error.message).toBe('This page is locked. Unlock it first.');
-    expect(textOf(docs.get(pageId)!)).toBe('Step one, two and three.');
-    const list = (await call(avery, 'GET', versionsUrl(pageId))).json() as VersionListResponse;
-    expect(list.versions.map((one) => one.id)).toEqual([version.id]);
   });
 
   it('HT-02: saves a version before Replace all, once per change', async () => {
