@@ -1,5 +1,6 @@
 // The page model's HTTP routes and `app.requirePageAccess` (decision 0007, sections 3.3 and 4.1).
 import fp from 'fastify-plugin';
+import { registerPeriodicTask } from '../jobs';
 import { getDefaultWorkspace } from '../workspaces';
 import { requirePageAccess } from './access';
 import { archiveRoutes } from './archive';
@@ -7,6 +8,8 @@ import { registerPageTopics } from './live';
 import { pageRoutes } from './page-routes';
 import { spaceRoutes } from './space-routes';
 import { setUpWorkspaceSpaces } from './spaces';
+import { purgeTrash } from './trash';
+import { trashRoutes } from './trash-routes';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -31,7 +34,14 @@ export default fp(
     spaceRoutes(app);
     pageRoutes(app);
     archiveRoutes(app);
-    // Trash, favorites and recent pages come in the next pull requests.
+    trashRoutes(app);
+    // Every night, what's been in Trash longer than the Trash period is deleted for good (HT-12).
+    registerPeriodicTask('pages.trash-cleanup', 24 * 3_600_000, async () => {
+      for (const pages of await purgeTrash(app.db)) {
+        app.events.emit('page.deleted', { ...pages, by: null });
+      }
+    });
+    // Favorites and recent pages come in the next pull request.
   },
   { name: 'carehub-pages', fastify: '5.x', dependencies: ['carehub-auth'] },
 );

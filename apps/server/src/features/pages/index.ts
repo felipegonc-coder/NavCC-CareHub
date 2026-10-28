@@ -22,5 +22,7 @@ export { nudgePage } from './live';
 export { changePageKind } from './move';
 export { createPage, getPageLook, setPageLook, setPageTitle } from './pages';
 export type { NewPage, PageLook, PageRow } from './pages';
+export { restorePage, trashPage, trashPages } from './trash';
+export type { TrashedPages } from './trash';
 export { listSubtree } from './tree';
 export type { SubtreePage } from './tree';

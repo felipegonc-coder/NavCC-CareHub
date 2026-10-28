@@ -265,3 +265,63 @@ export type MovePageInput = z.infer<typeof movePageSchema>;
 
 /** The `details` of a 409 when a move changes who can open the page. */
 export type AccessChangeJson = { losing: number; gaining: number };
+
+// Trash (Page history and Trash 3.4).
+
+/** GET /api/trash: newest first, 100 at a time (`before` is the last entry's `deletedAt`). */
+export const trashQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  deletedBy: z.uuid().optional(),
+  spaceId: z.uuid().optional(),
+  type: z.enum([...PAGE_KINDS, 'space']).optional(),
+  before: z.iso.datetime().optional(),
+});
+export type TrashQuery = z.infer<typeof trashQuerySchema>;
+
+/** A page, database or row with everything that went with it, or a space with its pages. */
+export type TrashEntryJson = {
+  id: string;
+  type: PageKind | 'space';
+  title: string;
+  icon: PageIcon | null;
+  /** Where it was ("Support › Policies"): its space (null for a space) and the pages above it. */
+  space: { id: string; name: string; kind: SpaceKind | 'personal' } | null;
+  ancestors: PageAncestor[];
+  /** What went with it ("and 12 sub-pages"): pages and databases, and database rows. */
+  subPages: number;
+  rows: number;
+  deletedBy: PersonRef | null;
+  deletedAt: string;
+  /** "Deletes in 12 days"; the last 3 days show in red. */
+  deletesAt: string;
+  canDeleteForever: boolean;
+};
+
+/** `retentionDays` is for "Trash is empty. Deleted pages stay here for 30 days." */
+export type TrashJson = { entries: TrashEntryJson[]; retentionDays: number };
+
+/**
+ * POST /api/trash/:id/restore. When the place it came from is in Trash too, the answer is a 409
+ * with `TrashPlaceJson` until the person picks "Restore both" (`withParents`) or "Move to…".
+ */
+export const restorePageSchema = z
+  .strictObject({
+    withParents: z.boolean().optional(),
+    moveTo: z
+      .strictObject({
+        parentId: z.uuid().nullable(),
+        spaceId: z.uuid().optional(),
+        index: z.int().min(0).max(100_000).optional(),
+      })
+      .refine((move) => move.parentId !== null || move.spaceId !== undefined, {
+        message: 'Choose a page or a space to move it to.',
+      })
+      .optional(),
+  })
+  .refine((input) => !(input.withParents && input.moveTo), {
+    message: 'Restore it with its parents, or move it somewhere else.',
+  });
+export type RestorePageInput = z.infer<typeof restorePageSchema>;
+
+/** The `details` of that 409: the page or space it was in (no title if the person can't open it). */
+export type TrashPlaceJson = { type: 'page' | 'space'; id: string; title: string | null };

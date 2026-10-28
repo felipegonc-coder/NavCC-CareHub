@@ -191,7 +191,7 @@ export async function setPageLook(tx: Executor, pageId: string, look: PageLook, 
 }
 
 /** `{ id, name }` of the user in `column`, or null. */
-const person = (column: string) =>
+export const person = (column: string) =>
   sql.raw(
     `(SELECT json_build_object('id', u.id, 'name', u.name) FROM users u WHERE u.id = ${column})`,
   );
@@ -232,8 +232,11 @@ export async function readPage(
   };
 }
 
-/** Breadcrumbs, top first. Pages the person can't open become one `{ hidden: true }` per run. */
-async function ancestorsOf(db: Executor, viewer: Viewer, pageId: string) {
+/**
+ * Breadcrumbs, top first. Pages the person can't open become one `{ hidden: true }` per run, and
+ * so do pages in Trash unless `inTrash` (where a page in Trash was).
+ */
+export async function ancestorsOf(db: Executor, viewer: Viewer, pageId: string, inTrash = false) {
   const { rows } = await db.execute<{ id: string; title: string; icon: PageIcon | null }>(sql`
     WITH RECURSIVE up AS (
       SELECT parent_id AS id, 1 AS depth FROM pages WHERE id = ${pageId} AND parent_id IS NOT NULL
@@ -251,7 +254,7 @@ async function ancestorsOf(db: Executor, viewer: Viewer, pageId: string) {
   for (const row of rows) {
     const answer = levels.get(row.id);
     const last = ancestors.at(-1);
-    if (answer && !answer.deleted && answer.level !== 'none') ancestors.push(row);
+    if (answer && (inTrash || !answer.deleted) && answer.level !== 'none') ancestors.push(row);
     else if (!last || !('hidden' in last)) ancestors.push({ hidden: true });
   }
   return ancestors;
