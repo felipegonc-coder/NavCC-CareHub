@@ -47,6 +47,9 @@ export const editorPath = (courseId: string): string =>
 export const lessonPath = (courseId: string, lessonId: string): string =>
   `${editorPath(courseId)}?lesson=${encodeURIComponent(lessonId)}`;
 
+/** The course preview's address. */
+export const previewPath = (courseId: string): string => `${editorPath(courseId)}/preview`;
+
 /** "Paragraph", "Image", "Knowledge check"… for a block. */
 export function blockLabel(block: Block): string {
   if (block.type === 'knowledge_check') return 'Knowledge check';

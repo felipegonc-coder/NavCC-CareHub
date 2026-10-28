@@ -1,11 +1,12 @@
 import { canRedo, canUndo } from '@carehub/learning';
 import type { Course, Id } from '@carehub/learning';
 import { Button, IconButton } from '@carehub/ui';
-import { ArrowLeft, Redo2, Undo2 } from 'lucide-react';
+import { ArrowLeft, Eye, Redo2, Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import type { StudioDraft } from '../data/client';
 import { useStudioDraft } from '../data/queries';
+import { previewPath } from '../labels';
 import { courseEditorReducer, initCourseEditor } from '../state/course-editor';
 import { ErrorState, LoadingState } from '../states';
 import { LessonCanvas } from './LessonCanvas';
@@ -26,6 +27,7 @@ function BackLink() {
 }
 
 function Editor({ draft }: { draft: StudioDraft }) {
+  const navigate = useNavigate();
   const opened = new URLSearchParams(useLocation().search).get('lesson');
   const [state, dispatch] = useReducer(courseEditorReducer, draft.course, (course) =>
     initCourseEditor(course, opened),
@@ -46,6 +48,10 @@ function Editor({ draft }: { draft: StudioDraft }) {
       setNotice({ message, after: next });
     },
     select: (lessonId) => dispatch({ type: 'select', lessonId }),
+  };
+  const preview = async () => {
+    await saving.flush();
+    await navigate(previewPath(course.id));
   };
 
   useEffect(() => {
@@ -89,6 +95,19 @@ function Editor({ draft }: { draft: StudioDraft }) {
         >
           <Redo2 aria-hidden />
         </IconButton>
+        <Button asChild size="sm" variant="secondary">
+          <Link
+            to={previewPath(course.id)}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              void preview();
+            }}
+          >
+            <Eye aria-hidden />
+            Preview
+          </Link>
+        </Button>
       </header>
       {notice?.after === course && (
         <div className="px-4 pt-2">
