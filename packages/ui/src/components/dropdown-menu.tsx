@@ -1,14 +1,17 @@
 import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { Check } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn';
-import { menuItemClasses, surfaceClasses } from './classes';
+import { bottomSheetClasses, menuItemClasses, surfaceClasses } from './classes';
 
 export const DropdownMenu = MenuPrimitive.Root;
 export const DropdownMenuTrigger = MenuPrimitive.Trigger;
 export const DropdownMenuGroup = MenuPrimitive.Group;
 export const DropdownMenuRadioGroup = MenuPrimitive.RadioGroup;
+/** A second menu inside a menu: `DropdownMenuSubTrigger` and `DropdownMenuSubContent`. */
+export const DropdownMenuSub = MenuPrimitive.Sub;
 
+/** Opens next to its button; on a phone, as a bottom sheet. */
 export function DropdownMenuContent({
   className,
   sideOffset = 4,
@@ -18,7 +21,8 @@ export function DropdownMenuContent({
     <MenuPrimitive.Portal>
       <MenuPrimitive.Content
         sideOffset={sideOffset}
-        className={cn(surfaceClasses, 'min-w-44', className)}
+        data-sheet=""
+        className={cn(surfaceClasses, 'min-w-44', bottomSheetClasses, className)}
         {...props}
       />
     </MenuPrimitive.Portal>
@@ -97,5 +101,41 @@ export function DropdownMenuSeparator({
 }: ComponentProps<typeof MenuPrimitive.Separator>) {
   return (
     <MenuPrimitive.Separator className={cn('-mx-1 my-1 h-px bg-border', className)} {...props} />
+  );
+}
+
+/** The row that opens a second menu: on hover, on a click or tap, and with the right arrow key. */
+export function DropdownMenuSubTrigger({
+  className,
+  children,
+  ...props
+}: ComponentProps<typeof MenuPrimitive.SubTrigger>) {
+  return (
+    <MenuPrimitive.SubTrigger
+      className={cn(menuItemClasses, 'data-[state=open]:bg-fill-hover', className)}
+      {...props}
+    >
+      {children}
+      <ChevronRight aria-hidden className="ml-auto" />
+    </MenuPrimitive.SubTrigger>
+  );
+}
+
+/**
+ * The second menu, beside its row; the left arrow key closes it. On a phone it opens as a sheet
+ * over the first menu without dimming it again, so the first menu's rows stay tappable.
+ */
+export function DropdownMenuSubContent({
+  className,
+  ...props
+}: ComponentProps<typeof MenuPrimitive.SubContent>) {
+  return (
+    <MenuPrimitive.Portal>
+      <MenuPrimitive.SubContent
+        data-sheet="stacked"
+        className={cn(surfaceClasses, 'min-w-44', bottomSheetClasses, className)}
+        {...props}
+      />
+    </MenuPrimitive.Portal>
   );
 }

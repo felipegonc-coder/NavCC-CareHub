@@ -178,3 +178,52 @@ describe('foldLine', () => {
     expect(foldLine('X'.repeat(76))).toBe(`${'X'.repeat(75)}\r\n X`);
   });
 });
+
+describe('limits (issue #213)', () => {
+  it('drops components nested deeper than 8 and reads on after them', () => {
+    const names = Array.from({ length: 12 }, (_, i) => `X-LEVEL-${i}`);
+    const [calendar] = readComponents(
+      lines(
+        [
+          'BEGIN:VCALENDAR',
+          ...names.map((name) => `BEGIN:${name}`),
+          'SUMMARY:Too deep',
+          ...names.reverse().map((name) => `END:${name}`),
+          'BEGIN:VEVENT',
+          'UID:after',
+          'END:VEVENT',
+          'END:VCALENDAR',
+        ].join('\r\n'),
+      ),
+    );
+    let deepest = calendar;
+    let depth = 1;
+    while (deepest?.children[0]?.name.startsWith('X-LEVEL')) {
+      deepest = deepest.children[0];
+      depth++;
+    }
+    expect(depth).toBe(8);
+    expect(deepest?.props).toEqual([]);
+    expect(calendar?.children.map((c) => c.name)).toEqual(['X-LEVEL-0', 'VEVENT']);
+    expect(calendar?.children[1]?.props[0]?.value).toBe('after');
+  });
+
+  it('treats a line over the parameter caps as malformed', () => {
+    const params = (count: number) => Array.from({ length: count }, (_, i) => `;X-P${i}=1`);
+    expect(parseContentLine(`X-NOTE${params(100).join('')}:x`, 1)?.params.size).toBe(100);
+    expect(parseContentLine(`X-NOTE${params(101).join('')}:x`, 1)).toBeUndefined();
+    const values = (count: number) => Array.from({ length: count }, () => 'a').join(',');
+    expect(parseContentLine(`X-NOTE;M=${values(1000)}:x`, 1)?.params.get('M')).toHaveLength(1000);
+    expect(parseContentLine(`X-NOTE;M=${values(1001)}:x`, 1)).toBeUndefined();
+    expect(parseContentLine(`X-NOTE;M=${values(600)};M=${values(600)}:x`, 1)).toBeUndefined();
+  });
+
+  it('adds repeated parameters to the same list, in order', () => {
+    const line = parseContentLine(
+      'ATTENDEE;MEMBER="mailto:a@example.com";ROLE=CHAIR;MEMBER=b,c:mailto:avery.lin@example.com',
+      1,
+    );
+    expect(line?.params.get('MEMBER')).toEqual(['mailto:a@example.com', 'b', 'c']);
+    expect(line?.params.get('ROLE')).toEqual(['CHAIR']);
+  });
+});

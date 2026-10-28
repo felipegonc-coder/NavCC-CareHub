@@ -15,7 +15,7 @@ Import from `features/notices` (the index) only.
 - `useNoticesPreview()`: the newest notice as `{ title, sender, latestAt }` (`NoticesPreview`);
   `null` when there are none, `undefined` while loading or after an error.
 
-Messages (W1-H) mounts `NoticesChat` at `/messages/care-hub`, in a flex column under its own page
+Messages mounts `NoticesChat` at `/messages/care-hub`, in a flex column under its own page
 title. The chat has no `<main>` or page heading; its headings start at `h3`. It fills the column
 (`flex-1 min-h-0`) and scrolls inside itself.
 
@@ -51,8 +51,8 @@ settings.
   notices**.
 - In All, notices count as read once the newest one has been on screen while the tab is in
   front. Opening a notice's link or card, or using one of its action buttons, reads that one.
-- Cards show the page or event as the reader may see it: a locked or deleted one shows only that
-  ("🔒 A page you can't open", "This page was deleted").
+- Cards (up to 3, in order) show the page or event as the reader may see it: a locked or deleted
+  one shows only that ("🔒 A page you can't open", "This page was deleted").
 - Action buttons run on the server. One with choices opens a menu. The confirmation (or the
   error) shows under the buttons.
 - While scrolled up, **Jump to latest** goes to the newest notice. Notices that arrive while the
