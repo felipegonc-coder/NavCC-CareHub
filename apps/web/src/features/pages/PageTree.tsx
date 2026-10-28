@@ -12,6 +12,7 @@ import {
 } from '@carehub/ui';
 import {
   ChevronRight,
+  CornerUpRight,
   Database,
   ExternalLink,
   FileText,
@@ -30,12 +31,15 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
   type SyntheticEvent,
 } from 'react';
 import { Link, useMatch, useNavigate } from 'react-router';
 import type { EntryActions } from './actions';
+import { draggedPage, endDrag, startDrag } from './drag';
+import { dropPlace, dropTarget, stepTarget, type DropPlace, type MoveScope } from './move';
 import type { PageIcon, TreeNode } from './types';
 import {
   FIRST_STEP,
@@ -93,11 +97,23 @@ export interface PageTreeProps {
   actions: EntryActions;
   /** What an open database shows under it: its views, from the Databases lane. */
   renderExtra?: ((page: TreeNode) => ReactNode) | undefined;
+  /** For a space's tree: entries can be dropped here and moved with Ctrl+Shift+↑ and ↓. */
+  moves?: MoveScope | undefined;
+}
+
+/** Handlers that make a row a drag source and a drop target. */
+interface RowDrag {
+  place: DropPlace | null;
+  start(event: DragEvent<HTMLElement>): void;
+  over(event: DragEvent<HTMLElement>): void;
+  leave(event: DragEvent<HTMLElement>): void;
+  drop(event: DragEvent<HTMLElement>): void;
+  end(): void;
 }
 
 /** A page tree with the tree keyboard pattern (Sidebar spec, sections 2 and 6). */
 export function PageTree(props: PageTreeProps) {
-  const { label, byParent, roots, scope, expanded, onExpand, actions, renderExtra } = props;
+  const { label, byParent, roots, scope, expanded, onExpand, actions, renderExtra, moves } = props;
   const navigate = useNavigate();
   const current = useMatch('/p/:pageId')?.params.pageId;
   const treeRef = useRef<HTMLUListElement>(null);
@@ -107,6 +123,7 @@ export function PageTree(props: PageTreeProps) {
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [menuKey, setMenuKey] = useState<string | null>(null);
   const [renameKey, setRenameKey] = useState<string | null>(null);
+  const [drop, setDrop] = useState<{ key: string; place: DropPlace } | null>(null);
 
   const rows = useMemo(() => {
     const hasExtra = renderExtra ? (page: TreeNode) => page.kind === 'database' : undefined;
@@ -147,12 +164,52 @@ export function PageTree(props: PageTreeProps) {
       new Map(before).set(parentId, (before.get(parentId) ?? FIRST_STEP) + MORE_STEP),
     );
 
+  /** Where a drop on this row would put the dragged entry, if it may go there. */
+  const dropAt = (row: NodeRow, event: DragEvent<HTMLElement>) => {
+    const page = draggedPage();
+    if (!page || !moves) return null;
+    const rect = (
+      event.currentTarget.firstElementChild ?? event.currentTarget
+    ).getBoundingClientRect();
+    const place = dropPlace(rect, event.clientY, row.node.kind === 'page');
+    const to = dropTarget(byParent, page, row.node, place, moves);
+    return to && { page, place, to };
+  };
+  const rowDrag = (row: NodeRow): RowDrag => ({
+    place: drop?.key === row.key ? drop.place : null,
+    start: (event) => startDrag(event, row.node),
+    over(event) {
+      const at = dropAt(row, event);
+      if (!at) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      if (drop?.key !== row.key || drop.place !== at.place)
+        setDrop({ key: row.key, place: at.place });
+    },
+    leave(event) {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null);
+    },
+    drop(event) {
+      const at = dropAt(row, event);
+      setDrop(null);
+      if (!at) return;
+      event.preventDefault();
+      endDrag();
+      if (at.place === 'inside') onExpand([row.key], true);
+      actions.move(at.page, at.to);
+    },
+    end() {
+      endDrag();
+      setDrop(null);
+    },
+  });
+
   const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
     const target = event.target as HTMLElement;
-    if (!fromInside(event) || target.tagName === 'INPUT') return;
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!fromInside(event) || target.tagName === 'INPUT' || event.altKey) return;
     const index = rows.findIndex((row) => row.key === tabbable);
-    const action = keyAction(rows, index, event.key, { shift: event.shiftKey });
+    const ctrl = event.ctrlKey || event.metaKey;
+    const action = keyAction(rows, index, event.key, { shift: event.shiftKey, ctrl });
     if (!action) return;
     event.preventDefault();
     const row = 'index' in action ? rows[action.index] : undefined;
@@ -174,6 +231,14 @@ export function PageTree(props: PageTreeProps) {
       case 'rename':
         if (row?.kind === 'node' && atLeast(row.node.access, 'edit')) setRenameKey(row.key);
         break;
+      case 'reorder': {
+        if (row?.kind !== 'node' || !moves || !atLeast(row.node.access, 'full')) break;
+        const to = stepTarget(byParent, row.node, action.step, moves);
+        if (!to) break;
+        actions.move(row.node, to);
+        setTimeout(() => focusRow(row.key)); // the row moved; keep the keyboard on it
+        break;
+      }
     }
   };
 
@@ -244,6 +309,7 @@ export function PageTree(props: PageTreeProps) {
             menuOpen={menuKey === row.key}
             renaming={renameKey === row.key}
             actions={actions}
+            drag={rowDrag(row)}
             onFocusRow={() => setFocusKey(row.key)}
             onToggle={() => {
               onExpand([row.key], !row.expanded);
@@ -290,6 +356,7 @@ interface TreeItemProps {
   menuOpen: boolean;
   renaming: boolean;
   actions: EntryActions;
+  drag: RowDrag;
   onFocusRow(): void;
   onToggle(): void;
   onMenu(open: boolean): void;
@@ -309,6 +376,7 @@ function TreeItem({
   menuOpen,
   renaming,
   actions,
+  drag,
   children,
   ...on
 }: TreeItemProps) {
@@ -317,8 +385,11 @@ function TreeItem({
   const pathId = useId();
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressed = useRef(false);
+  const pointer = useRef('');
+  const onSubPage = useRef(false);
   const title = titleOf(node);
   const canEdit = atLeast(node.access, 'edit');
+  const canDrag = atLeast(node.access, 'full') && !renaming;
   const canAddInside = canEdit && actions.canCreate && node.kind === 'page';
   const hiddenParent = topLevel && (node.pathHidden ?? node.parentId !== null);
   const endPress = () => {
@@ -345,8 +416,22 @@ function TreeItem({
         event.preventDefault();
         on.onMenu(true);
       }}
+      draggable={canDrag}
+      onDragStart={(event) => {
+        if (!own(event)) return; // a sub-page inside is being dragged
+        // On touch screens a long press opens the menu instead; "Move to" moves the entry. A drag
+        // begun on a sub-page that can't move mustn't move this entry instead.
+        if (!canDrag || pointer.current === 'touch' || onSubPage.current) event.preventDefault();
+        else drag.start(event);
+      }}
+      onDragOver={(event) => own(event) && drag.over(event)}
+      onDragLeave={(event) => own(event) && drag.leave(event)}
+      onDrop={(event) => own(event) && drag.drop(event)}
+      onDragEnd={(event) => own(event) && drag.end()}
       onPointerDown={(event) => {
-        if (event.pointerType !== 'touch' || !own(event)) return;
+        pointer.current = event.pointerType;
+        onSubPage.current = !own(event);
+        if (event.pointerType !== 'touch' || onSubPage.current) return;
         pressed.current = false;
         press.current = setTimeout(() => {
           pressed.current = true;
@@ -361,11 +446,21 @@ function TreeItem({
       <div
         className={cn(
           sidebarRowClasses({ active: current }),
-          'group gap-1 pr-1',
+          'group relative gap-1 pr-1',
           hiddenParent && 'h-auto min-h-8 py-1',
+          drag.place === 'inside' && 'ring-2 ring-inset ring-primary',
         )}
         style={indent(row.level)}
       >
+        {(drag.place === 'before' || drag.place === 'after') && (
+          <span
+            aria-hidden
+            className={cn(
+              'pointer-events-none absolute inset-x-1 h-0.5 rounded bg-primary',
+              drag.place === 'before' ? '-top-px' : '-bottom-px',
+            )}
+          />
+        )}
         {row.expandable ? (
           <button
             type="button"
@@ -392,6 +487,8 @@ function TreeItem({
               pressed.current = false; // the long-press opened the menu instead
               event.preventDefault();
             }}
+            // A long press opens the entry menu, not the phone's link preview.
+            style={{ WebkitTouchCallout: 'none' }}
             className="flex min-w-0 flex-1 flex-col justify-center self-stretch"
           >
             <span id={titleId} className="truncate">
@@ -491,6 +588,12 @@ function EntryMenu({
           <Pencil aria-hidden />
           Rename
           <Kbd className="ml-auto">F2</Kbd>
+        </DropdownMenuItem>
+      )}
+      {atLeast(page.access, 'full') && (
+        <DropdownMenuItem onSelect={() => actions.chooseMove(page)}>
+          <CornerUpRight aria-hidden />
+          Move to
         </DropdownMenuItem>
       )}
       <DropdownMenuItem onSelect={() => window.open(pageUrl(page.id), '_blank', 'noopener')}>

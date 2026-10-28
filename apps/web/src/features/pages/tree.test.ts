@@ -172,6 +172,18 @@ describe('keyboard', () => {
     expect(keyAction(rows, 2, 'F10')).toBeNull();
     expect(keyAction(rows, 2, 'F2')).toEqual({ type: 'rename', index: 2 });
   });
+
+  it('moves an entry among its siblings with Ctrl+Shift+↑ and ↓', () => {
+    const rows = visibleRows(byParent, { expanded: new Set() });
+    expect(keyAction(rows, 1, 'ArrowUp', { ctrl: true, shift: true })).toEqual({
+      type: 'reorder',
+      index: 1,
+      step: -1,
+    });
+    expect(keyAction(rows, 1, 'ArrowDown', { ctrl: true, shift: true })).toMatchObject({ step: 1 });
+    expect(keyAction(rows, 1, 'ArrowDown', { ctrl: true })).toBeNull();
+    expect(keyAction(rows, 1, 'Home', { ctrl: true, shift: true })).toBeNull();
+  });
 });
 
 describe('nesting rows', () => {

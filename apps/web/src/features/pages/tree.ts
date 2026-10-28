@@ -205,6 +205,7 @@ export type TreeKeyAction =
   | { type: 'open'; index: number }
   | { type: 'menu'; index: number }
   | { type: 'rename'; index: number }
+  | { type: 'reorder'; index: number; step: 1 | -1 }
   | null;
 
 /** What a key press on row `index` does, following the tree pattern (spec section 6). */
@@ -216,6 +217,13 @@ export function keyAction<T>(
 ): TreeKeyAction {
   const row = rows[index];
   if (!row) return null;
+  if (modifiers.ctrl) {
+    // Ctrl+Shift+↑ and ↓ move the entry among its siblings; other Ctrl keys belong to the app.
+    const step = key === 'ArrowUp' ? -1 : key === 'ArrowDown' ? 1 : 0;
+    return modifiers.shift && step !== 0 && row.kind === 'node'
+      ? { type: 'reorder', index, step }
+      : null;
+  }
   switch (key) {
     case 'ArrowDown':
       return { type: 'focus', index: stepFocus(rows, index, 1) };

@@ -5,13 +5,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import PagesSidebar from './PagesSidebar';
 import type { PageLink, Space, TreeNode } from './types';
 
-const api = vi.hoisted(() => ({
-  get: vi.fn<(path: string) => Promise<unknown>>(),
-  post: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
-  put: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
-  delete: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
-}));
-vi.mock('../../lib/api', () => ({ api, ApiError: class extends Error {} }));
+const { api, Refused } = vi.hoisted(() => {
+  /** Stands in for ApiError. */
+  class Refused extends Error {
+    constructor(
+      readonly status: number,
+      message: string,
+      readonly details?: unknown,
+    ) {
+      super(message);
+    }
+  }
+  return {
+    api: {
+      get: vi.fn<(path: string) => Promise<unknown>>(),
+      post: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
+      put: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
+      delete: vi.fn<(path: string, body?: unknown) => Promise<unknown>>(),
+    },
+    Refused,
+  };
+});
+vi.mock('../../lib/api', () => ({ api, ApiError: Refused }));
 vi.mock('@carehub/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@carehub/ui')>()),
   useToast: () => ({ toast: () => undefined }),
@@ -228,5 +243,76 @@ describe('PagesSidebar', () => {
     expect(await screen.findByRole('tree', { name: 'General' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add a page to General' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Add a page to Private' })).toBeNull();
+  });
+
+  it('moves a page dropped on a space, asking first when its access would change', async () => {
+    renderSidebar({
+      '/api/spaces': { spaces: [...spaces, { id: 'care', kind: 'closed', name: 'Care team' }] },
+      '/api/spaces/general/tree': { nodes: [node('a1', null, 'Onboarding', { access: 'full' })] },
+      '/api/spaces/care/tree': { nodes: [node('c1', null, 'Handbook')] },
+    });
+    api.post.mockRejectedValueOnce(
+      new Refused(409, 'Access would change.', { losing: [{ name: 'Ana Silva' }], gaining: [] }),
+    );
+    const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(await screen.findByRole('treeitem', { name: 'Onboarding' }), {
+      dataTransfer,
+    });
+    const care = await screen.findByRole('button', { name: 'Care team' });
+    fireEvent.dragOver(care, { dataTransfer });
+    fireEvent.drop(care, { dataTransfer });
+    const confirm = await screen.findByRole('alertdialog', {
+      name: 'Change who can open “Onboarding”?',
+    });
+    expect(confirm).toHaveTextContent('1 person will lose accessAna Silva');
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Move' }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenLastCalledWith('/api/pages/a1/move', {
+        spaceId: 'care',
+        parentId: null,
+        confirmAccessChange: true,
+      }),
+    );
+  });
+
+  it('moves a page dropped on Private to its top level', async () => {
+    renderSidebar({
+      '/api/spaces/general/tree': { nodes: [node('a1', null, 'Onboarding', { access: 'full' })] },
+    });
+    const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(await screen.findByRole('treeitem', { name: 'Onboarding' }), {
+      dataTransfer,
+    });
+    const heading = within(section('Private')).getByRole('heading', { name: 'Private' });
+    fireEvent.dragOver(heading, { dataTransfer });
+    fireEvent.drop(heading, { dataTransfer });
+    await waitFor(() =>
+      expect(api.post).toHaveBeenLastCalledWith('/api/pages/a1/move', {
+        spaceId: 'mine',
+        parentId: null,
+      }),
+    );
+  });
+
+  it('moves a page with "Move to", finding the place by name', async () => {
+    renderSidebar({
+      '/api/spaces': { spaces: [...spaces, { id: 'care', kind: 'closed', name: 'Care team' }] },
+      '/api/spaces/general/tree': { nodes: [node('a1', null, 'Onboarding', { access: 'full' })] },
+      '/api/spaces/care/tree': { nodes: [node('c1', null, 'Handbook')] },
+    });
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: 'Onboarding' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Move to' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move “Onboarding” to' });
+    fireEvent.change(within(dialog).getByRole('searchbox', { name: 'Find a page or space' }), {
+      target: { value: 'hand' },
+    });
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^Handbook/ }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenLastCalledWith('/api/pages/a1/move', {
+        spaceId: 'care',
+        parentId: 'c1',
+      }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

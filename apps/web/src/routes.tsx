@@ -20,6 +20,7 @@ import { NotFoundPage } from './shell/NotFoundPage';
 import { routes as homeRoutes } from './features/home/routes';
 
 // feature: pages
+import { routes as pagesRoutes } from './features/pages/routes';
 
 // feature: settings
 
@@ -82,6 +83,7 @@ export const appRoutes: RouteObject[] = [
   ...homeRoutes,
 
   // feature: pages
+  ...pagesRoutes,
 
   // feature: settings
 
