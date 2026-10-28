@@ -1,0 +1,330 @@
+/*
+ * Tables (blocks/table.ui.tsx). Colors, sizes and type come from the @carehub/ui tokens, as in
+ * ../styles.css; lines of 1px or 2px are drawn as they are.
+ */
+
+.ch-table-inner {
+  position: relative;
+}
+
+/*
+ * A wide table scrolls sideways inside its block (phones too). The space around it holds the
+ * row and column handles and the + bars; the negative margins keep the table in line with the
+ * text.
+ */
+.ch-table-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 0 calc(-1 * var(--ch-space-7)) 0 calc(-1 * var(--ch-space-5));
+  padding: var(--ch-space-5) var(--ch-space-7) var(--ch-space-7) var(--ch-space-5);
+}
+
+.ch-table-frame {
+  position: relative;
+  width: max-content;
+}
+
+.ch-table[data-fit-width] .ch-table-frame {
+  width: auto;
+}
+
+.ch-table table {
+  margin: 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* The editable rows sit in a wrapper inside tbody, which takes no box of its own. */
+.ch-table tbody > [data-node-view-content-react] {
+  display: contents;
+}
+
+.ch-table td,
+.ch-table th {
+  position: relative;
+  box-sizing: border-box;
+  padding: var(--ch-space-1_5) var(--ch-space-2);
+  border: 1px solid rgb(var(--ch-border));
+  font-weight: var(--ch-weight-normal);
+  text-align: start;
+  vertical-align: top;
+}
+
+.ch-table th {
+  background: rgb(var(--ch-fill));
+  font-weight: var(--ch-weight-semibold);
+}
+
+.ch-table :is(td, th) > * {
+  margin: 0;
+}
+
+.ch-table :is(td, th) > * + * {
+  margin-top: var(--ch-space-1);
+}
+
+.ch-table [data-background='gray'] {
+  background: rgb(var(--ch-gray-bg));
+}
+
+.ch-table [data-background='brown'] {
+  background: rgb(var(--ch-brown-bg));
+}
+
+.ch-table [data-background='orange'] {
+  background: rgb(var(--ch-orange-bg));
+}
+
+.ch-table [data-background='yellow'] {
+  background: rgb(var(--ch-yellow-bg));
+}
+
+.ch-table [data-background='green'] {
+  background: rgb(var(--ch-green-bg));
+}
+
+.ch-table [data-background='blue'] {
+  background: rgb(var(--ch-blue-bg));
+}
+
+.ch-table [data-background='purple'] {
+  background: rgb(var(--ch-purple-bg));
+}
+
+.ch-table [data-background='pink'] {
+  background: rgb(var(--ch-pink-bg));
+}
+
+.ch-table [data-background='red'] {
+  background: rgb(var(--ch-red-bg));
+}
+
+/* Cells selected with Shift+arrows or a handle (prosemirror-tables marks them). */
+.ch-table .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--ch-ring) / 15%);
+  pointer-events: none;
+}
+
+/* The edge being dragged to resize a column (prosemirror-tables draws it). */
+.ch-table .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: -1px;
+  width: var(--ch-space-1);
+  background: rgb(var(--ch-ring));
+  pointer-events: none;
+}
+
+.ch-editor.resize-cursor {
+  cursor: col-resize;
+}
+
+.ch-table-ui svg {
+  pointer-events: none;
+}
+
+.ch-table-handle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  background: none;
+  color: rgb(var(--ch-faint));
+  cursor: grab;
+  touch-action: none;
+}
+
+.ch-table-handle:hover,
+.ch-table-handle[aria-expanded='true'] {
+  background: rgb(var(--ch-fill-hover));
+  color: rgb(var(--ch-fg));
+}
+
+.ch-table-handle[data-axis='row'] {
+  right: 100%;
+  width: var(--ch-space-4);
+  margin-right: var(--ch-space-0_5);
+}
+
+.ch-table-handle[data-axis='column'] {
+  bottom: 100%;
+  height: var(--ch-space-4);
+  margin-bottom: var(--ch-space-0_5);
+}
+
+/* Where a dragged row or column will land. */
+.ch-table-drop {
+  position: absolute;
+  background: rgb(var(--ch-primary));
+  pointer-events: none;
+}
+
+.ch-table-drop[data-axis='row'] {
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+}
+
+.ch-table-drop[data-axis='column'] {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+}
+
+/* The + bars, shown while the pointer is over the table (always on touch screens). */
+.ch-table-add,
+.ch-table-options {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  color: rgb(var(--ch-muted));
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ch-table-add {
+  background: rgb(var(--ch-fill));
+}
+
+.ch-table-options {
+  top: 0;
+  right: 0;
+  width: var(--ch-space-6);
+  height: var(--ch-space-5);
+  background: none;
+}
+
+.ch-table:hover :is(.ch-table-add, .ch-table-options),
+.ch-table-ui:focus-visible,
+.ch-table-options[aria-expanded='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ch-table-add,
+  .ch-table-options {
+    opacity: 1;
+  }
+}
+
+.ch-table-add:hover:enabled,
+.ch-table-options:hover {
+  background: rgb(var(--ch-fill-hover));
+  color: rgb(var(--ch-fg));
+}
+
+.ch-table-add:disabled {
+  color: rgb(var(--ch-faint));
+  cursor: not-allowed;
+}
+
+.ch-table-add[data-axis='column'] {
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: var(--ch-space-5);
+  margin-left: var(--ch-space-1);
+}
+
+.ch-table-add[data-axis='row'] {
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: var(--ch-space-5);
+  margin-top: var(--ch-space-1);
+}
+
+.ch-table-menu,
+.ch-table-cell-bar {
+  position: absolute;
+  z-index: 40;
+  display: flex;
+  box-sizing: border-box;
+  padding: var(--ch-space-1);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+  color: rgb(var(--ch-fg));
+  box-shadow: var(--ch-shadow-menu);
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+}
+
+.ch-table-menu {
+  flex-direction: column;
+  min-width: var(--ch-space-44);
+  margin-top: var(--ch-space-1);
+}
+
+/* The bar for selected cells sits above the first of them. */
+.ch-table-cell-bar {
+  align-items: center;
+  gap: var(--ch-space-1);
+  margin-top: calc(-1 * var(--ch-space-1));
+  transform: translateY(-100%);
+}
+
+.ch-table-menu-item {
+  display: block;
+  width: 100%;
+  padding: var(--ch-space-1) var(--ch-space-2);
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ch-table-cell-bar .ch-table-menu-item {
+  width: auto;
+}
+
+.ch-table-menu-item:hover:enabled {
+  background: rgb(var(--ch-fill-hover));
+}
+
+.ch-table-menu-item:disabled {
+  color: rgb(var(--ch-faint));
+  cursor: default;
+}
+
+.ch-table-menu-item[aria-pressed='true']::after {
+  content: '✓';
+  float: right;
+  margin-left: var(--ch-space-2);
+}
+
+.ch-table-select {
+  margin: var(--ch-space-1) 0;
+  padding: var(--ch-space-1) var(--ch-space-2);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius-sm);
+  background: rgb(var(--ch-bg));
+  color: inherit;
+  font: inherit;
+}
+
+.ch-table-cell-bar .ch-table-select {
+  margin: 0;
+}
+
+.ch-table-ui :focus-visible,
+.ch-table-ui:focus-visible {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: 1px;
+}

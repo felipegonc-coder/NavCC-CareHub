@@ -1,0 +1,136 @@
+/*
+ * Equations (blocks/math.ui.tsx). Colors, sizes and type come from the @carehub/ui tokens, as in
+ * ../styles.css; lines of 1px or 2px are drawn as they are. KaTeX brings its own styles for the
+ * drawing itself.
+ */
+
+.ch-math-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ch-space-1);
+}
+
+.ch-math-view {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+}
+
+button.ch-math-view {
+  cursor: pointer;
+}
+
+button.ch-math-view:hover {
+  background: rgb(var(--ch-fill));
+}
+
+button.ch-math-view:focus-visible,
+.ch-math-input:focus-visible,
+.ch-math-done:focus-visible {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: 1px;
+}
+
+/* A block equation is centered on its own line, and scrolls sideways when it's too wide. */
+.ch-math-block .ch-math-view {
+  display: block;
+  width: 100%;
+  min-height: var(--ch-space-10);
+  padding: var(--ch-space-2) var(--ch-space-3);
+  overflow-x: auto;
+  text-align: center;
+}
+
+.ch-math-block .katex-display {
+  margin: 0;
+}
+
+.ch-math-inline {
+  position: relative;
+}
+
+.ch-math-inline .ch-math-view {
+  display: inline;
+  padding: 0 var(--ch-space-0_5);
+}
+
+.ch-math-source,
+.ch-math-empty {
+  color: rgb(var(--ch-muted));
+  font-family: var(--ch-font-mono);
+  font-size: var(--ch-text-small);
+}
+
+.ch-math-error {
+  color: rgb(var(--ch-danger));
+  font-size: var(--ch-text-small);
+}
+
+.ch-math-editor {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ch-space-2);
+  padding: var(--ch-space-2);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+}
+
+.ch-math-input {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  padding: var(--ch-space-1) var(--ch-space-2);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius-sm);
+  background: rgb(var(--ch-bg));
+  color: rgb(var(--ch-fg));
+  font-family: var(--ch-font-mono);
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+  resize: vertical;
+}
+
+.ch-math-input::placeholder {
+  color: rgb(var(--ch-faint));
+}
+
+.ch-math-done {
+  flex: none;
+  padding: var(--ch-space-1) var(--ch-space-3);
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  background: rgb(var(--ch-primary));
+  color: rgb(var(--ch-primary-fg));
+  font: inherit;
+  font-size: var(--ch-text-small);
+  font-weight: var(--ch-weight-medium);
+  line-height: var(--ch-leading-small);
+  cursor: pointer;
+}
+
+/* An inline equation's TeX is typed in a small box under it. */
+.ch-math-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  gap: var(--ch-space-2);
+  box-sizing: border-box;
+  width: var(--ch-space-80);
+  max-width: 90vw;
+  margin-top: var(--ch-space-1);
+  padding: var(--ch-space-2);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-bg));
+  box-shadow: var(--ch-shadow-menu);
+  line-height: normal;
+}

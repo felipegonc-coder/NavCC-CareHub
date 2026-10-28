@@ -1,0 +1,184 @@
+/*
+ * Code blocks (blocks/code.ui.tsx). Colors, sizes and type come from the @carehub/ui tokens, as in
+ * ../styles.css; lines of 1px or 2px are drawn as they are.
+ */
+
+.ch-code-box {
+  border-radius: var(--ch-radius);
+  background: rgb(var(--ch-fill));
+}
+
+.ch-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ch-space-2);
+  padding: var(--ch-space-1) var(--ch-space-2) 0 var(--ch-space-3);
+  color: rgb(var(--ch-muted));
+  font-size: var(--ch-text-label);
+  line-height: var(--ch-leading-label);
+  user-select: none;
+}
+
+.ch-code-language {
+  max-width: 50%;
+  padding: var(--ch-space-0_5) var(--ch-space-1);
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+select.ch-code-language {
+  cursor: pointer;
+}
+
+select.ch-code-language:hover {
+  background: rgb(var(--ch-fill-hover));
+}
+
+.ch-code-actions {
+  display: inline-flex;
+  gap: var(--ch-space-0_5);
+}
+
+.ch-code-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ch-space-7);
+  height: var(--ch-space-7);
+  padding: 0;
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ch-code-button:hover,
+.ch-code-button[aria-pressed='true'] {
+  background: rgb(var(--ch-fill-hover));
+  color: rgb(var(--ch-fg));
+}
+
+/* Presses on an icon count as presses on its button (the editor leaves those to the view). */
+.ch-code-bar svg {
+  pointer-events: none;
+}
+
+.ch-code-bar :focus-visible,
+.ch-code-caption:focus-visible {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: 1px;
+}
+
+/* The grey box is drawn around the bar and the code together. */
+.ch-editor .ch-code pre {
+  position: relative;
+  margin: 0;
+  background: none;
+  border-radius: 0;
+}
+
+/* Line numbers sit in a gutter, so wrapped lines line up with the code. */
+.ch-code[data-line-numbers] code {
+  display: block;
+  padding-left: calc(var(--ch-space-8) + var(--ch-space-2));
+}
+
+.ch-code-line-number {
+  position: absolute;
+  width: var(--ch-space-8);
+  margin-left: calc(-1 * (var(--ch-space-8) + var(--ch-space-2)));
+  color: rgb(var(--ch-faint));
+  text-align: right;
+  user-select: none;
+}
+
+.ch-code-caption {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: var(--ch-space-1) 0 0;
+  padding: var(--ch-space-0_5) var(--ch-space-1);
+  border: none;
+  border-radius: var(--ch-radius-sm);
+  background: none;
+  color: rgb(var(--ch-muted));
+  font: inherit;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+}
+
+.ch-code-caption::placeholder {
+  color: rgb(var(--ch-faint));
+}
+
+/* Syntax colors (highlight.js classes), from the kit's text colors. */
+.ch-code .hljs-comment,
+.ch-code .hljs-quote,
+.ch-code .hljs-meta {
+  color: rgb(var(--ch-muted));
+}
+
+.ch-code .hljs-comment,
+.ch-code .hljs-quote,
+.ch-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.ch-code .hljs-strong {
+  font-weight: var(--ch-weight-bold);
+}
+
+.ch-code .hljs-keyword,
+.ch-code .hljs-selector-tag,
+.ch-code .hljs-doctag,
+.ch-code .hljs-meta .hljs-keyword {
+  color: rgb(var(--ch-purple-text));
+}
+
+.ch-code .hljs-string,
+.ch-code .hljs-regexp,
+.ch-code .hljs-symbol,
+.ch-code .hljs-addition,
+.ch-code .hljs-meta .hljs-string {
+  color: rgb(var(--ch-green-text));
+}
+
+.ch-code .hljs-number,
+.ch-code .hljs-literal,
+.ch-code .hljs-bullet,
+.ch-code .hljs-link {
+  color: rgb(var(--ch-orange-text));
+}
+
+.ch-code .hljs-title,
+.ch-code .hljs-section,
+.ch-code .hljs-name,
+.ch-code .hljs-selector-id {
+  color: rgb(var(--ch-blue-text));
+}
+
+.ch-code .hljs-type,
+.ch-code .hljs-built_in,
+.ch-code .hljs-title.class_,
+.ch-code .hljs-selector-class {
+  color: rgb(var(--ch-brown-text));
+}
+
+.ch-code .hljs-attr,
+.ch-code .hljs-attribute,
+.ch-code .hljs-variable,
+.ch-code .hljs-template-variable,
+.ch-code .hljs-property,
+.ch-code .hljs-selector-attr,
+.ch-code .hljs-selector-pseudo {
+  color: rgb(var(--ch-pink-text));
+}
+
+.ch-code .hljs-deletion {
+  color: rgb(var(--ch-red-text));
+}
