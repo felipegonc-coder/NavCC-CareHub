@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import type { Id, Property, View, ViewPropertySetting } from '@carehub/databases';
+import {
+  LIMITS,
+  type Id,
+  type Property,
+  type View,
+  type ViewPropertySetting,
+} from '@carehub/databases';
 import { clampWidth, dropTarget, type TableColumn } from './columns';
 import { DRAG_START, followDrag } from './drag';
 import type { ColumnChanges } from './header';
@@ -22,13 +28,15 @@ export function settingsWith(
 
 /**
  * The header's column tools: drag an edge to resize, drag a header to move it (a press opens its
- * menu), the column items, the Properties menu and Wrap cells. `gridLeft` is the table's left edge.
+ * menu), the table's items in the column menus, the Properties menu and Wrap cells. `gridLeft` is
+ * the table's left edge.
  */
 export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
   // A column's width while its edge is dragged, and until saving it is done.
   const [resize, setResize] = useState<{ propertyId: Id; width: number } | null>(null);
   // A header being dragged to a new place: where the pointer is, px from the table's left edge.
   const [moving, setMoving] = useState<{ propertyId: Id; x: number } | null>(null);
+  const [menuFor, setMenuFor] = useState<Id | null>(null);
   const dragStop = useRef<(() => void) | null>(null);
   const dragged = useRef(false);
 
@@ -51,6 +59,16 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
       void changeView((v) => ({
         table: withTableOptions(v, { frozenUpTo: frozen ? column.property.id : null }),
       })),
+    // This property first; the view's other sorts stay after it.
+    sort: (direction) =>
+      void changeView((v) => ({
+        sorts: [
+          { propertyId: column.property.id, direction },
+          ...v.sorts.filter((s) => s.propertyId !== column.property.id),
+        ].slice(0, LIMITS.sorts),
+      })),
+    group: (grouped) =>
+      void changeView(() => ({ grouping: grouped ? { propertyId: column.property.id } : null })),
   });
 
   const showColumn = (property: Property, shown: boolean) =>
@@ -125,16 +143,19 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
     });
   };
 
-  /** A press on a header ended: true unless it ended a drag (then the menu stays shut). */
-  const pressHeader = (): boolean => {
-    if (!dragged.current) return true;
-    dragged.current = false;
-    return false;
+  const pressHeader = (column: TableColumn) => {
+    if (dragged.current) {
+      dragged.current = false;
+      return;
+    }
+    setMenuFor(column.property.id);
   };
 
   return {
     resize,
     moving,
+    menuFor,
+    setMenuFor,
     startResize,
     startMove,
     pressHeader,

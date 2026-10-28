@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { jobsDatabase, layoutProps, PRIORITY, PROPS } from '../test-utils';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { jobsDatabase, layoutProps, PRIORITY, PROPS, renderWithDatabase } from '../test-utils';
 import TableLayout from './layout';
 
 const rowOf = (rowId: string): HTMLElement => {
@@ -34,7 +34,7 @@ beforeEach(() => {
 
 describe('TableLayout selection', () => {
   it('ticks rows, Shift-clicks a range and ticks all from the header', () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     expect(screen.queryByRole('toolbar', { name: 'Selected rows' })).toBeNull();
     fireEvent.click(tickBox('Fix kitchen sink leak'));
     expect(ticked()).toEqual(['row-sink']);
@@ -53,7 +53,7 @@ describe('TableLayout selection', () => {
   });
 
   it('ticks rows from the keyboard, Ctrl+A ticks all and Escape clears', () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     fireEvent.keyDown(cellOf('row-sink', PROPS.name), { key: 'ArrowLeft' });
     expect(selectCell('row-sink')).toHaveFocus();
     fireEvent.keyDown(selectCell('row-sink'), { key: ' ' });
@@ -73,7 +73,7 @@ describe('TableLayout selection', () => {
   });
 
   it('ticks the rows on the way with Shift+arrows in the selection column', () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     fireEvent.keyDown(cellOf('row-sink', PROPS.name), { key: 'ArrowLeft' });
     fireEvent.keyDown(selectCell('row-sink'), { key: 'ArrowDown', shiftKey: true });
     expect(ticked()).toEqual(['row-sink', 'row-heater']);
@@ -86,7 +86,7 @@ describe('TableLayout selection', () => {
 
   it('moves the ticked rows to Trash with Delete', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(tickBox('Fix kitchen sink leak'));
     fireEvent.click(tickBox('Replace water heater'));
     fireEvent.click(within(bar()).getByRole('button', { name: 'Delete' }));
@@ -96,29 +96,17 @@ describe('TableLayout selection', () => {
 
   it('duplicates the ticked rows, top to bottom, and keeps them ticked', () => {
     const props = layoutProps();
-    // `duplicateRows` is optional in the view actions for now.
-    const duplicateRows = vi.fn(async () => []);
-    Object.assign(props.actions, { duplicateRows });
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(tickBox('Annual boiler service'));
     fireEvent.click(tickBox('Fix kitchen sink leak'));
     fireEvent.click(within(bar()).getByRole('button', { name: 'Duplicate' }));
-    expect(duplicateRows).toHaveBeenCalledWith(['row-sink', 'row-boiler']);
+    expect(props.actions.duplicateRows).toHaveBeenCalledWith(['row-sink', 'row-boiler']);
     expect(ticked()).toEqual(['row-sink', 'row-boiler']);
-  });
-
-  it('has no Duplicate when the table has no duplicateRows', () => {
-    const props = layoutProps();
-    Object.assign(props.actions, { duplicateRows: undefined });
-    render(<TableLayout {...props} />);
-    fireEvent.click(tickBox('Fix kitchen sink leak'));
-    expect(within(bar()).queryByRole('button', { name: 'Duplicate' })).toBeNull();
-    expect(within(bar()).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
   });
 
   it('sets one property for every ticked row', () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     fireEvent.click(tickBox('Fix kitchen sink leak'));
     fireEvent.click(tickBox('Annual boiler service'));
     fireEvent.keyDown(within(bar()).getByRole('button', { name: 'Set property' }), {
@@ -136,17 +124,17 @@ describe('TableLayout selection', () => {
 
   it('lets Can edit content tick rows, but not Can view or read-only', () => {
     const editor = { ...jobsDatabase(), viewerAccess: 'edit_content' as const };
-    const first = render(<TableLayout {...layoutProps({ meta: editor })} />);
+    const first = renderWithDatabase(<TableLayout {...layoutProps({ meta: editor })} />);
     expect(screen.getByRole('checkbox', { name: 'Select all rows' })).toBeInTheDocument();
     expect(screen.getByRole('grid')).toHaveAttribute('aria-multiselectable', 'true');
     first.unmount();
 
     const viewer = { ...jobsDatabase(), viewerAccess: 'view' as const };
-    const second = render(<TableLayout {...layoutProps({ meta: viewer })} />);
+    const second = renderWithDatabase(<TableLayout {...layoutProps({ meta: viewer })} />);
     expect(screen.queryByRole('checkbox', { name: 'Select all rows' })).toBeNull();
     second.unmount();
 
-    render(<TableLayout {...layoutProps({ readOnly: true })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ readOnly: true })} />);
     expect(screen.queryByRole('checkbox', { name: 'Select all rows' })).toBeNull();
     expect(document.querySelector('[data-select-cell]')).toBeNull();
     expect(rowOf('row-sink')).not.toHaveAttribute('aria-selected');

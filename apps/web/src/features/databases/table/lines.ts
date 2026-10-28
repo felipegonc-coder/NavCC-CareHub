@@ -64,31 +64,6 @@ export const BULK_TYPES = new Set([
   'phone',
 ]);
 
-/** Types a pasted value can go into (read as CSV import reads them). */
-export const PASTE_TYPES = new Set([
-  'title',
-  'text',
-  'number',
-  'select',
-  'multi_select',
-  'status',
-  'date',
-  'checkbox',
-  'url',
-  'email',
-  'phone',
-  'person',
-  'relation',
-  'checklist',
-]);
-
-/** One value to write: the history keeps what it replaces. */
-export interface Write {
-  row: QueryRow;
-  property: Property;
-  value: unknown;
-}
-
 export function asQueryRow(row: Row): QueryRow {
   return {
     id: row.id,
@@ -98,6 +73,7 @@ export function asQueryRow(row: Row): QueryRow {
     values: row.values,
     computed: {},
     hiddenLinks: {},
+    color: { row: null, cells: {} },
     createdAt: row.createdAt,
     createdBy: row.createdBy,
     editedAt: row.editedAt,

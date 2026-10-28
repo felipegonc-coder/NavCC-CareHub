@@ -14,7 +14,7 @@ import type { DropMark } from './row-drop';
 /** What the row menu does. Absent moves can't happen (the first or last row); no moves: sorted. */
 export interface RowMenuItems {
   open(): void;
-  /** Only when the table can duplicate rows (`duplicateRows`) and the viewer can add rows. */
+  /** Only for people who can add rows. */
   duplicate?: () => void;
   copyLink(): void;
   moves: { up?: () => void; down?: () => void } | null;

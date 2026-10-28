@@ -4,11 +4,13 @@ export const TABLE_TEXT = {
   loadMore: 'Load more',
   hiddenByFilter: 'Hidden by filter',
   open: 'Open',
-  /** The column menu. */
+  /** The table's items in a column's menu. */
+  sortAscending: 'Sort ascending',
+  sortDescending: 'Sort descending',
+  groupBy: 'Group by',
   width: 'Width',
   wrapColumn: 'Wrap column',
   freeze: 'Freeze up to here',
-  hide: 'Hide in this view',
   /** The menu at the end of the header: show and hide columns. */
   properties: 'Properties',
   wrapCells: 'Wrap cells',
