@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import type { Id, Property, View, ViewPropertySetting } from '@carehub/databases';
+import {
+  LIMITS,
+  type Id,
+  type Property,
+  type View,
+  type ViewPropertySetting,
+} from '@carehub/databases';
 import { clampWidth, dropTarget, type TableColumn } from './columns';
 import { DRAG_START, followDrag } from './drag';
 import type { ColumnChanges } from './header';
-import { moveSetting, withSetting, withTableOptions } from './view-settings';
+import { moveSetting, withCalculation, withSetting, withTableOptions } from './view-settings';
 
 /** Makes a change to the view from the view with the changes so far in it, and saves it. */
 export type ChangeView = (make: (current: View) => Partial<View>) => Promise<void>;
@@ -22,7 +28,8 @@ export function settingsWith(
 
 /**
  * The header's column tools: drag an edge to resize, drag a header to move it (a press opens its
- * menu), the column menus, the Properties menu and Wrap cells. `gridLeft` is the table's left edge.
+ * menu), the table's items in the column menus, the Properties menu and Wrap cells. `gridLeft` is
+ * the table's left edge.
  */
 export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
   // A column's width while its edge is dragged, and until saving it is done.
@@ -52,9 +59,19 @@ export function useColumnTools(changeView: ChangeView, gridLeft: () => number) {
       void changeView((v) => ({
         table: withTableOptions(v, { frozenUpTo: frozen ? column.property.id : null }),
       })),
-    hide: () =>
+    // This property first; the view's other sorts stay after it.
+    sort: (direction) =>
       void changeView((v) => ({
-        properties: settingsWith(v, column.property, { visible: false }),
+        sorts: [
+          { propertyId: column.property.id, direction },
+          ...v.sorts.filter((s) => s.propertyId !== column.property.id),
+        ].slice(0, LIMITS.sorts),
+      })),
+    group: (grouped) =>
+      void changeView(() => ({ grouping: grouped ? { propertyId: column.property.id } : null })),
+    calculate: (aggregate) =>
+      void changeView((v) => ({
+        calculations: withCalculation(v.calculations, column.property.id, aggregate),
       })),
   });
 

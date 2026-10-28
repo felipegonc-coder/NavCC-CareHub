@@ -1,7 +1,15 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { View } from '@carehub/databases';
-import { fixtureRow, jobsDatabase, layoutProps, PROPS, queryData, viewData } from '../test-utils';
+import {
+  fixtureRow,
+  jobsDatabase,
+  layoutProps,
+  PROPS,
+  queryData,
+  renderWithDatabase,
+  viewData,
+} from '../test-utils';
 import TableLayout from './layout';
 
 const manyRows = (count: number) =>
@@ -53,13 +61,13 @@ describe('TableLayout virtual rows', () => {
       ...table,
       properties: meta.properties.map((p) => ({ propertyId: p.id, visible: p.id === PROPS.name })),
     };
-    render(<TableLayout {...manyProps(1000, true)} view={view} />);
+    renderWithDatabase(<TableLayout {...manyProps(1000, true)} view={view} />);
     expect(drawnIds()).toHaveLength(1000);
     expect(screen.getByRole('grid')).not.toHaveAttribute('aria-rowcount');
   }, 20000);
 
   it('past 1,000 draws only the rows near the screen, numbered for screen readers', () => {
-    render(<TableLayout {...manyProps(1500)} />);
+    renderWithDatabase(<TableLayout {...manyProps(1500)} />);
     const drawn = drawnIds();
     expect(drawn[0]).toBe('row-0');
     expect(drawn.length).toBeGreaterThan(10);
@@ -71,7 +79,7 @@ describe('TableLayout virtual rows', () => {
   });
 
   it('draws the rows that scroll onto the screen', async () => {
-    render(<TableLayout {...manyProps(1500)} />);
+    renderWithDatabase(<TableLayout {...manyProps(1500)} />);
     // 700 rows (37 px each until measured) above the screen.
     rowsTopAt(-37 * 700);
     fireEvent.scroll(window);
@@ -81,7 +89,7 @@ describe('TableLayout virtual rows', () => {
   });
 
   it('moves the focus to rows that are not drawn', async () => {
-    render(<TableLayout {...manyProps(1500)} />);
+    renderWithDatabase(<TableLayout {...manyProps(1500)} />);
     expect(drawnIds()).not.toContain('row-1499');
     fireEvent.keyDown(cellOf('row-0', PROPS.status), { key: 'End', ctrlKey: true });
     await waitFor(() => expect(cellOf('row-1499', PROPS.notes)).toHaveFocus());
@@ -90,7 +98,7 @@ describe('TableLayout virtual rows', () => {
   });
 
   it('ticks every row with Ctrl+A, drawn or not', () => {
-    render(<TableLayout {...manyProps(1500)} />);
+    renderWithDatabase(<TableLayout {...manyProps(1500)} />);
     fireEvent.keyDown(cellOf('row-0', PROPS.status), { key: 'a', ctrlKey: true });
     expect(screen.getByRole('toolbar', { name: 'Selected rows' })).toHaveTextContent(
       '1500 selected',
@@ -101,7 +109,7 @@ describe('TableLayout virtual rows', () => {
 describe('TableLayout long press', () => {
   it('opens the row menu, and the lift is not a tap on the cell', async () => {
     const props = layoutProps();
-    render(<TableLayout {...props} />);
+    renderWithDatabase(<TableLayout {...props} />);
     const name = cellOf('row-heater', PROPS.name);
     touch(name, 'pointerdown');
     await wait(300);
@@ -116,7 +124,7 @@ describe('TableLayout long press', () => {
   });
 
   it('opens nothing when the finger moves (a scroll)', async () => {
-    render(<TableLayout {...layoutProps()} />);
+    renderWithDatabase(<TableLayout {...layoutProps()} />);
     const name = cellOf('row-heater', PROPS.name);
     touch(name, 'pointerdown');
     const move = new MouseEvent('pointermove', { bubbles: true, clientX: 20, clientY: 60 });
@@ -127,7 +135,7 @@ describe('TableLayout long press', () => {
   });
 
   it('opens nothing for people who can only read', async () => {
-    render(<TableLayout {...layoutProps({ readOnly: true })} />);
+    renderWithDatabase(<TableLayout {...layoutProps({ readOnly: true })} />);
     touch(cellOf('row-heater', PROPS.name), 'pointerdown');
     await wait(600);
     expect(screen.queryByRole('menu')).toBeNull();
