@@ -1,4 +1,25 @@
 export {
+  CourseReportLearnerSchema,
+  CourseReportQuizSchema,
+  CourseReportResponseSchema,
+  CourseReportSchema,
+  DropOffLessonSchema,
+  EnrollmentRowSchema,
+  OverdueEntrySchema,
+  OverdueResponseSchema,
+  QuestionAnalysisEntrySchema,
+  ReportQuerySchema,
+  ReportsOverviewResponseSchema,
+  ReportsOverviewSchema,
+  WrongPickSchema,
+  type CourseReportLearner,
+  type CourseReportQuiz,
+  type CourseReportResponse,
+  type OverdueResponse,
+  type ReportQuery,
+  type ReportsOverviewResponse,
+} from './api';
+export {
   courseReport,
   overdueList,
   personTranscript,
@@ -9,7 +30,14 @@ export {
   type ReportsOverview,
   type TeamViewEntry,
 } from './course-report';
-export { courseReportCsv, toCsv, type CsvCell, type CsvColumn } from './csv';
+export {
+  courseReportCsv,
+  overdueListCsv,
+  reportsOverviewCsv,
+  toCsv,
+  type CsvCell,
+  type CsvColumn,
+} from './csv';
 export { dropOff, type DropOffLesson } from './drop-off';
 export {
   questionAnalysis,

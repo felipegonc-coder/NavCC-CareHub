@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { courseReportCsv, toCsv, type CsvCell, type CsvColumn, type EnrollmentRow } from './index';
+import {
+  courseReportCsv,
+  overdueListCsv,
+  reportsOverviewCsv,
+  toCsv,
+  type CourseReport,
+  type CsvCell,
+  type CsvColumn,
+  type EnrollmentRow,
+  type OverdueEntry,
+} from './index';
 
 type Line = { name: CsvCell; note: CsvCell };
 const columns: CsvColumn<Line>[] = [
@@ -121,5 +131,84 @@ describe('courseReportCsv', () => {
 
   it('is just a header without rows', () => {
     expect(courseReportCsv([], '2026-11-02')).toBe(`${header}\r\n`);
+  });
+});
+
+describe('reportsOverviewCsv', () => {
+  it('writes one line per course in the order given, averages empty without any', () => {
+    const report: CourseReport = {
+      total: 3,
+      notStarted: 1,
+      inProgress: 1,
+      completed: 0,
+      passed: 1,
+      failed: 0,
+      overdue: 1,
+      completionPercent: 33,
+      averageScore: 88,
+      averageActiveSeconds: 1530,
+    };
+    const empty: CourseReport = {
+      ...report,
+      total: 0,
+      notStarted: 0,
+      inProgress: 0,
+      passed: 0,
+      overdue: 0,
+      completionPercent: 0,
+      averageScore: null,
+      averageActiveSeconds: null,
+    };
+    const courses = [
+      { courseTitle: 'Fire safety basics', report },
+      { courseTitle: 'Lifting, safely', report: empty },
+    ];
+    expect(reportsOverviewCsv(courses, { bom: true })).toBe(
+      '\uFEFF' +
+        [
+          'Course,Learners,Not started,In progress,Completed,Passed,Failed,Overdue,Completion %,' +
+            'Average score,Average time spent (minutes)',
+          'Fire safety basics,3,1,1,0,1,0,1,33,88,26',
+          '"Lifting, safely",0,0,0,0,0,0,0,0,,',
+          '',
+        ].join('\r\n'),
+    );
+  });
+});
+
+describe('overdueListCsv', () => {
+  it('writes one line per late learner and course in the order given', () => {
+    const late = (
+      learnerName: string,
+      status: OverdueEntry['status'],
+      dueDate: string,
+      daysOverdue: number,
+    ): OverdueEntry => ({
+      learnerId: `p-${learnerName.length}`,
+      learnerName,
+      groupIds: [],
+      courseId: 'c-fire',
+      courseTitle: 'Fire safety basics',
+      status,
+      score: null,
+      activeSeconds: 0,
+      attempts: 0,
+      required: true,
+      dueDate,
+      daysOverdue,
+    });
+    const entries = [
+      late('Avery Quill', 'not_started', '2026-10-20', 13),
+      late('Okafor, Bram', 'failed', '2026-10-30', 3),
+    ];
+    expect(overdueListCsv(entries)).toBe(
+      [
+        'Name,Course,Status,Due,Days overdue',
+        'Avery Quill,Fire safety basics,Not started,2026-10-20,13',
+        '"Okafor, Bram",Fire safety basics,Failed,2026-10-30,3',
+        '',
+      ].join('\r\n'),
+    );
+    expect(overdueListCsv([], { bom: true })).toBe('\uFEFFName,Course,Status,Due,Days overdue\r\n');
   });
 });

@@ -126,6 +126,16 @@ describe('quizAnswersOf', () => {
       ['calls-q-order', false, false],
     ]);
     expect(results[0]?.picked).toEqual(['email']);
+    // No feedback: it can give the right answer away, and that goes to the learner alone (0316).
+    expect(Object.keys(results[0] ?? {}).sort()).toEqual([
+      'answered',
+      'correct',
+      'earned',
+      'fraction',
+      'max',
+      'picked',
+      'questionId',
+    ]);
     // A survey has no right answers, but keeps what was picked.
     expect(poll?.attempts[0]?.results).toMatchObject([
       { questionId: 'survey-useful', answered: true, correct: false, picked: ['very'] },
