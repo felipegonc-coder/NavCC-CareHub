@@ -4,7 +4,12 @@ import type { Tx } from '../../../db';
 import { bindHistoryContent } from '../../history/content';
 import { bindHistoryPages } from '../../history/pages';
 import { applyPlan, type ImportTarget } from './apply';
-import { bindImportPorts } from './ports';
+import {
+  bindImportPorts,
+  type ImportedDates,
+  type NewImportDatabase,
+  type RowLinks,
+} from './ports';
 
 const tx = {} as Tx;
 const userId = '00000000-0000-4000-8000-0000000000aa';
@@ -29,6 +34,7 @@ afterEach(() => {
 /** Fake page model, content and files, recording what the import writes and in what order. */
 function fakes(options: { refuseFiles?: boolean } = {}) {
   const made: Made[] = [];
+  const databases: NewImportDatabase[] = [];
   const content = new Map<string, unknown>();
   const log: string[] = [];
   let next = 0;
@@ -43,6 +49,7 @@ function fakes(options: { refuseFiles?: boolean } = {}) {
       createDatabase: async (_tx, database) => {
         const databaseId = id(++next);
         made.push({ id: databaseId, kind: 'database', ...pick(database) });
+        databases.push(database);
         log.push(`database ${database.title}`);
         return { id: databaseId, rowIds: database.rows.map(() => id(++next)) };
       },
@@ -55,7 +62,7 @@ function fakes(options: { refuseFiles?: boolean } = {}) {
       },
     }),
   );
-  return { made, content, log };
+  return { made, databases, content, log };
 }
 
 const pick = (page: { title: string; parentId: string | null; spaceId: string | null }) => ({
@@ -95,6 +102,7 @@ describe('applyPlan', () => {
     };
     const result = await applyPlan(tx, {
       userId,
+      source: 'markdown',
       target: into,
       plan,
       files: [new Uint8Array([1, 2, 3])],
@@ -125,6 +133,7 @@ describe('applyPlan', () => {
     const { made, content } = fakes();
     const result = await applyPlan(tx, {
       userId,
+      source: 'csv',
       target: privately,
       files: [],
       plan: {
@@ -175,6 +184,7 @@ describe('applyPlan', () => {
     const { content } = fakes({ refuseFiles: true });
     const result = await applyPlan(tx, {
       userId,
+      source: 'markdown',
       target: into,
       files: [new Uint8Array([1])],
       plan: {
@@ -216,6 +226,7 @@ describe('applyPlan', () => {
     }));
     const result = await applyPlan(tx, {
       userId,
+      source: 'markdown',
       target: into,
       files: [new Uint8Array([1])],
       plan: { ...emptyPlan, files: [{ key: 'f1', name: 'desk.png' }], problems },
@@ -250,7 +261,7 @@ describe('applyPlan', () => {
         },
       ],
     };
-    await applyPlan(tx, { userId, target: into, files: [], plan });
+    await applyPlan(tx, { userId, source: 'markdown', target: into, files: [], plan });
     expect(log).toEqual([`version ${into.pageId}`, 'page Intake']);
   });
 
@@ -267,6 +278,7 @@ describe('applyPlan', () => {
     await expect(
       applyPlan(tx, {
         userId,
+        source: 'markdown',
         target: into,
         files: [],
         plan,
@@ -285,9 +297,158 @@ describe('applyPlan', () => {
         { key: 'p1', parent: 'p9', title: 'Lost', content: { markdown: '' }, source: 'Lost.md' },
       ],
     };
-    await expect(applyPlan(tx, { userId, target: into, files: [], plan })).rejects.toThrow(
-      ImportFileError,
-    );
+    await expect(
+      applyPlan(tx, { userId, source: 'markdown', target: into, files: [], plan }),
+    ).rejects.toThrow(ImportFileError);
     expect(made).toEqual([]);
+  });
+
+  it('matches people to members, links rows to rows once they are made, and keeps the board', async () => {
+    const { databases } = fakes();
+    const asked: string[][] = [];
+    const linked: RowLinks[] = [];
+    unbind.push(
+      bindImportPorts({
+        findMembers: async (_db, workspaceId, texts) => {
+          expect(workspaceId).toBe(into.workspaceId);
+          asked.push([...texts]);
+          return [
+            { userId: id(801), email: 'Avery@Example.test', name: 'Avery Kim' },
+            { userId: id(802), email: 'jordan@example.test', name: 'Jordan Lee' },
+            { userId: id(803), email: 'sam.o@example.test', name: 'Sam Ortiz' },
+            { userId: id(804), email: 'sam.ortiz@example.test', name: 'Sam Ortiz' },
+          ];
+        },
+        timeZoneOf: async () => 'Europe/Lisbon',
+        linkRows: async (_tx, links) => void linked.push(links),
+      }),
+    );
+    const result = await applyPlan(tx, {
+      userId,
+      source: 'asana',
+      target: into,
+      files: [],
+      plan: {
+        ...emptyPlan,
+        databases: [
+          {
+            key: 'd1',
+            parent: null,
+            title: 'Front desk',
+            columns: [
+              { name: 'Name', type: null },
+              { name: 'Section', type: 'select' },
+              { name: 'Assignee', type: 'person' },
+              { name: 'Parent task', type: 'relation' },
+            ],
+            rows: [
+              { key: 'r1', cells: ['Call Rowan', 'To do', 'avery@example.test, Sam Ortiz', ''] },
+              { key: 'r2', cells: ['Book room', 'Doing', 'Jordan Lee, Avery Kim', 'r1'] },
+              { key: 'r3', cells: ['Order cups', 'To do', 'rowan@example.test', 'r1, r9, r1'] },
+            ],
+            source: 'Front desk.csv',
+            view: { layout: 'board', groupBy: 'Section' },
+          },
+        ],
+      },
+    });
+    expect(asked).toEqual([
+      ['avery@example.test', 'Sam Ortiz', 'Jordan Lee', 'Avery Kim', 'rowan@example.test'],
+    ]);
+    expect(databases[0]).toMatchObject({
+      rows: [
+        ['Call Rowan', 'To do', id(801), ''],
+        ['Book room', 'Doing', `${id(802)}, ${id(801)}`, ''],
+        ['Order cups', 'To do', '', ''],
+      ],
+      view: { layout: 'board', groupBy: 'Section' },
+      timeZone: 'Europe/Lisbon',
+    });
+    expect(linked).toEqual([
+      {
+        databaseId: id(1),
+        column: 'Parent task',
+        links: [
+          { rowId: id(3), to: [id(2)] },
+          { rowId: id(4), to: [id(2)] },
+        ],
+      },
+    ]);
+    expect(result.problems).toEqual([
+      {
+        file: 'Front desk.csv',
+        what: 'Left out',
+        why: 'More than one member is called "Sam Ortiz".',
+      },
+      {
+        file: 'Front desk.csv',
+        what: 'Left out',
+        why: 'No member has the name or email "rowan@example.test".',
+      },
+      { file: 'Front desk.csv', what: 'Left out', why: "A linked row isn't in the import." },
+    ]);
+  });
+
+  it("keeps the source's dates in Updates, reading times without a zone in the person's", async () => {
+    const { databases } = fakes();
+    const notes: ImportedDates[][] = [];
+    unbind.push(
+      bindImportPorts({
+        timeZoneOf: async () => 'America/New_York',
+        noteImported: async (_tx, dates) => void notes.push([...dates]),
+      }),
+    );
+    await applyPlan(tx, {
+      userId,
+      source: 'evernote',
+      target: into,
+      files: [],
+      plan: {
+        ...emptyPlan,
+        pages: [
+          {
+            key: 'p1',
+            parent: null,
+            title: 'Trip',
+            content: { markdown: 'Bring maps.' },
+            source: 'Notes.enex',
+            created: '2021-03-03T10:15:00',
+            updated: '2021-03-04',
+          },
+          {
+            key: 'p2',
+            parent: null,
+            title: 'Undated',
+            content: { markdown: '' },
+            source: 'Notes.enex',
+            created: 'last spring',
+          },
+        ],
+        databases: [
+          {
+            key: 'd1',
+            parent: null,
+            title: 'Notes',
+            columns: [{ name: 'Name', type: null }],
+            rows: [{ key: 'r1', cells: ['Shopping'], updated: '2021-03-05T09:00:00+01:00' }],
+            source: 'Notes.enex',
+          },
+        ],
+      },
+    });
+    expect(notes).toEqual([
+      [
+        {
+          pageId: id(1),
+          source: 'evernote',
+          created: '2021-03-03T15:15:00.000Z',
+          updated: '2021-03-04',
+          by: userId,
+        },
+        { pageId: id(4), source: 'evernote', updated: '2021-03-05T08:00:00.000Z', by: userId },
+      ],
+    ]);
+    expect(databases[0]?.timeZone).toBe('America/New_York');
+    expect(databases[0]?.view).toBeUndefined();
   });
 });
