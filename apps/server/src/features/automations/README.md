@@ -43,6 +43,31 @@ for anyone else, guests and people outside the workspace included (AU-09). It us
   another workspace's automation), 400 `invalid` with `details` (each with the field's `path`,
   such as `['actions', 0, 'recipients']`), and 413 `too_large` past 50 automations (AU-11).
 
+## Database triggers (`triggers/`)
+
+Form response and Date arrives (AU-D2). They only queue runs, through the runner's `queueRun`
+(declared in `triggers/runner.ts` until `running.ts` is on main); the runner checks the conditions,
+the owner and the hourly limit, and keeps the run history.
+
+- **Form response** (`formResponse.ts`): each answer through the chosen form queues one run of
+  every switched-on automation watching it, keyed `response:<response id>`, with the respondent as
+  Triggered by and nobody for anonymous forms (AU-14).
+- **Date arrives** (`dateArrives.ts`): the periodic task `automations.dates`, every 30 seconds and
+  one at a time across servers. For each switched-on Date arrives automation it gets the owner
+  (`actingOwner`), asks Databases as the owner for the rows whose date can arrive since the last
+  check, and queues each arrival keyed `date:<row id>:<arrival>`, with the arrival as `plannedFor`
+  (AU-15). The arrival maths is in `@carehub/team-automations/dates`. Rows in Trash never come back
+  from Databases, and a moved date gets a new key. After a stop it carries on from its last check,
+  up to a day back, and the runner logs arrivals an hour late or more as Missed (AU-05). When
+  Databases answers null for the owner, it pauses ("… can't open the database or its date
+  property anymore.").
+- **Checks** (`dateChecks.ts`): `automations_date_checks`
+  (`migrations/202610280450_automations_date_checks.sql`) keeps how far each automation was
+  checked. Switching one off forgets it, so it starts again from when it's switched back on.
+- `registerAutomationTriggers(app, { store, queueRun, actingOwner, pause })` (`register.ts`)
+  starts both. `databases.ts` has what they need from Databases (`listDatedRows` and form
+  answers), as stand-ins with no rows and no answers until Databases is on main.
+
 ## Coming next
 
 Each part is its own pull request: running through background jobs (`automations.run`), the Form
