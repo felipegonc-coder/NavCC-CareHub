@@ -61,6 +61,8 @@ const MAX_U32 = 0xffffffff;
 /** Flag bits 0 (encrypted) and 6 (strong encryption); method 99 is AES. */
 const ENCRYPTED_FLAGS = 0x41;
 const AES = 99;
+/** Flag bit 3: the CRC-32 and sizes come after the data (a data descriptor), not in the local header. */
+const DESCRIPTOR_FLAG = 0x8;
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -96,10 +98,37 @@ function findEnd(view: DataView): number {
   return -1;
 }
 
+/** An entry name as stored, with "/" between folders. */
+const entryName = (raw: Uint8Array): string => decodeCsvBytes(raw).replace(/\\/g, '/');
+
+/**
+ * Where an entry's data starts, after a local header that agrees with the central directory: the
+ * same name and method and, without a data descriptor, the same CRC-32 and sizes. -1 if there's no
+ * such header or the data would run past `limit`.
+ */
+function dataStart(bytes: Uint8Array, entry: ZipEntry, limit: number): number {
+  const view = viewOf(bytes);
+  const h = entry.headerOffset;
+  if (h + 30 > limit || view.getUint32(h, true) !== LOCAL) return -1;
+  const nameLength = view.getUint16(h + 26, true);
+  const start = h + 30 + nameLength + view.getUint16(h + 28, true);
+  if (start + entry.compressedSize > limit) return -1;
+  if (view.getUint16(h + 8, true) !== entry.method) return -1;
+  if (entryName(bytes.subarray(h + 30, h + 30 + nameLength)) !== entry.name) return -1;
+  const described = view.getUint16(h + 6, true) & DESCRIPTOR_FLAG;
+  const same =
+    view.getUint32(h + 14, true) === entry.crc32 &&
+    view.getUint32(h + 18, true) === entry.compressedSize &&
+    view.getUint32(h + 22, true) === entry.size;
+  return described || same ? start : -1;
+}
+
 /**
  * Reads the central directory. Refuses, before inflating anything: encrypted entries, more than
  * 1,000 entries, an entry over 50 MB or a total over 100 MB once unpacked (as declared; reading an
- * entry checks it really is that size).
+ * entry checks it really is that size). So that every zip reader sees the same files, it also
+ * refuses as damaged: names that repeat (ignoring case), local headers that don't agree with the
+ * directory, and entries whose bytes overlap each other or the directory.
  */
 export function readZip(bytes: Uint8Array): ZipRead {
   const fail = (problem: ZipProblem): ZipRead => ({ ok: false, problem });
@@ -116,6 +145,7 @@ export function readZip(bytes: Uint8Array): ZipRead {
   if (count > ZIP_LIMITS.entries) return fail('too_many_entries');
   if (cdOffset + cdSize > end) return fail('damaged');
   const entries: ZipEntry[] = [];
+  const names = new Set<string>();
   let total = 0;
   let p = cdOffset;
   for (let k = 0; k < count; k++) {
@@ -135,7 +165,9 @@ export function readZip(bytes: Uint8Array): ZipRead {
     if (size > ZIP_LIMITS.entryBytes) return fail('entry_too_big');
     total += size;
     if (total > ZIP_LIMITS.totalBytes) return fail('too_big');
-    const name = decodeCsvBytes(bytes.subarray(p + 46, p + 46 + nameLength)).replace(/\\/g, '/');
+    const name = entryName(bytes.subarray(p + 46, p + 46 + nameLength));
+    if (names.has(name.toLowerCase())) return fail('damaged');
+    names.add(name.toLowerCase());
     entries.push({
       name,
       method,
@@ -145,6 +177,17 @@ export function readZip(bytes: Uint8Array): ZipRead {
       headerOffset,
     });
     p = next;
+  }
+  const spans: [number, number][] = [];
+  for (const entry of entries) {
+    const start = dataStart(bytes, entry, cdOffset);
+    if (start < 0) return fail('damaged');
+    spans.push([entry.headerOffset, start + entry.compressedSize]);
+  }
+  let reached = 0;
+  for (const [from, to] of spans.sort((a, b) => a[0] - b[0])) {
+    if (from < reached) return fail('damaged');
+    reached = to;
   }
   return { ok: true, zip: { bytes, entries } };
 }
@@ -160,11 +203,8 @@ export function readZipEntry(
 ): ZipEntryRead {
   const fail = (problem: ZipProblem): ZipEntryRead => ({ ok: false, problem });
   const { bytes } = zip;
-  const view = viewOf(bytes);
-  const h = entry.headerOffset;
-  if (h + 30 > bytes.length || view.getUint32(h, true) !== LOCAL) return fail('damaged');
-  const start = h + 30 + view.getUint16(h + 26, true) + view.getUint16(h + 28, true);
-  if (start + entry.compressedSize > bytes.length) return fail('damaged');
+  const start = dataStart(bytes, entry, bytes.length);
+  if (start < 0) return fail('damaged');
   const raw = bytes.subarray(start, start + entry.compressedSize);
   let data: Uint8Array;
   if (entry.method === 0) {

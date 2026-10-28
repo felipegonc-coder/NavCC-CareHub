@@ -5,7 +5,8 @@
  * and Status by option order; Multi-select by its first value's option order; dates by their start
  * (a date without a time counts from the viewer's midnight); checkboxes unticked first; people by
  * the first person's name; checklists by the share done; IDs by number; formulas and rollups by
- * their result (lists by their first item). Empty values always sort last, in both directions.
+ * their result (lists by their first item); verifications by state (Verified, Expired, Not
+ * verified), then by the until date. Empty values always sort last, in both directions.
  * Ties fall back to the view's manual order, then the oldest row, then the row id.
  */
 import { startOfDayInstant } from './dates';
@@ -13,6 +14,7 @@ import { toScaled } from './decimal';
 import { plainText } from './richtext';
 import { findProperty, readValue, type ReadValue } from './row';
 import { compareText } from './text';
+import { isVerificationValue, verificationState } from './verification';
 import {
   LIMITS,
   type ChecklistItem,
@@ -25,6 +27,7 @@ import {
   type RichText,
   type Row,
   type Sort,
+  type VerificationState,
 } from './types';
 
 /** A value made comparable: a lower rank comes first, then the number, exact decimal or text. */
@@ -142,6 +145,23 @@ function computedKey(v: ComputedValue, ctx: EvalContext, memo: Memo): SortKey | 
   }
 }
 
+/** A verification's keys only ever meet each other, so its state can be the rank. */
+const VERIFICATION_RANK: Record<VerificationState, number> = {
+  verified: 0,
+  expired: 1,
+  none: 2,
+};
+
+/**
+ * Spec 3.4, "Status, then date": Verified, Expired, Not verified (a state, never empty); within
+ * each, by the until date, with no end date after every date.
+ */
+function verificationKey(v: ReadValue): SortKey {
+  const day =
+    isVerificationValue(v) && v.until !== null ? Number(v.until.replaceAll('-', '')) : Infinity;
+  return { rank: VERIFICATION_RANK[verificationState(v)], value: day };
+}
+
 /** The key a value sorts by for its property; null when it is empty (or can't be sorted). */
 function keyOf(prop: Property, v: ReadValue, ctx: EvalContext, memo: Memo): SortKey | null {
   const c = prop.config;
@@ -186,6 +206,8 @@ function keyOf(prop: Property, v: ReadValue, ctx: EvalContext, memo: Memo): Sort
     case 'formula':
     case 'rollup':
       return isComputed(v) ? computedKey(v, ctx, memo) : null;
+    case 'verification':
+      return verificationKey(v);
     case 'files':
     case 'relation':
     case 'button':

@@ -30,6 +30,7 @@ describe('isSafeHref', () => {
     'data:text/html,hello',
     'vbscript:msgbox(1)',
     'file:///etc/passwd',
+    '\u00a0javascript:alert(1)',
     '',
     '   ',
     '//',
@@ -61,6 +62,29 @@ describe('safeHref', () => {
       expect(safeHref(href)).toBeNull();
     },
   );
+
+  // Invisible characters are blank too: trimmed at the ends, and no help in hiding a scheme.
+  it.each([
+    ['U+00A0 no-break space', '\u00a0'],
+    ['U+00AD soft hyphen', '\u00ad'],
+    ['U+200B zero-width space', '\u200b'],
+    ['U+2028 line separator', '\u2028'],
+    ['U+2060 word joiner', '\u2060'],
+    ['U+3000 ideographic space', '\u3000'],
+    ['U+3164 Hangul filler', '\u3164'],
+    ['U+FEFF byte order mark', '\ufeff'],
+    ['U+E0020 tag space', '\u{e0020}'],
+  ])('treats %s as blank', (_name, blank) => {
+    expect(safeHref(`${blank}javascript:alert(1)`)).toBeNull();
+    expect(safeHref(`${blank}JavaScript:alert(1)${blank}`)).toBeNull();
+    expect(safeHref(`java${blank}script:alert(1)`)).toBeNull();
+    expect(safeHref(`${blank}data:text/html,hello`)).toBeNull();
+    expect(safeHref(`${blank}//care.example.org/rota`)).toBe('https://care.example.org/rota');
+    expect(safeHref(`/${blank}/care.example.org/rota`)).toBe('https://care.example.org/rota');
+    expect(safeHref(`${blank}https://example.com${blank}`)).toBe('https://example.com');
+    expect(safeHref(`${blank}/p/page-123${blank}`)).toBe('/p/page-123');
+    expect(safeHref(blank)).toBeNull();
+  });
 });
 
 describe('opensNewTab', () => {
