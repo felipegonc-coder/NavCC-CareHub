@@ -1,5 +1,5 @@
 // Whether the assistant panel is offered to the person signed in: the Assistant switch is on (with
-// the key and "Nav has given the OK" ticked) and they may Use Claude (Claude features spec,
+// the key and "Approved for this workspace" ticked) and they may Use Claude (Claude features spec,
 // sections 3.1, 3.3 and 5). Off until told otherwise, so nothing shows while it's unknown (CL-01,
 // CL-04). The Claude settings code keeps it in step (within 5 seconds of a switch change, CL-05)
 // by calling `setAssistantOn`.
