@@ -1,18 +1,26 @@
 /**
  * Property settings (spec 3.4): row pages and descriptions, number formats and currencies, date and
- * time formats, and ID prefixes.
+ * time formats, ID prefixes, and the changes an option list takes (status options in groups).
  */
 import {
   CURRENCIES,
   DATE_FORMATS,
   formatCalendarDate,
   formatTime,
+  STATUS_GROUPS,
+  type ConfigOf,
   type DateFormat,
+  type Id,
   type NumberDecimals,
   type NumberDisplay,
+  type OptionColor,
   type Property,
+  type SelectOption,
+  type StatusGroup,
+  type StatusOption,
   type TimeFormat,
 } from '@carehub/databases';
+import { newOption, validateOptionName } from '@carehub/databases/options';
 import { normalizeIdPrefix } from '@carehub/databases/unique-id';
 import { VALUE_MESSAGES } from '@carehub/databases/values';
 import { DEFAULT_DIVIDE_BY } from './logic';
@@ -176,4 +184,91 @@ export function readIdPrefix(text: string): { prefix: string | null } | { error:
   const prefix = normalizeIdPrefix(text);
   if (prefix === null || PREFIX.test(prefix)) return { prefix };
   return { error: SETTINGS_TEXT.prefixInvalid };
+}
+
+/** Moves the item at `from` so it ends up at index `to`. */
+export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  if (item === undefined) return [...list];
+  next.splice(Math.max(0, Math.min(to, next.length)), 0, item);
+  return next;
+}
+
+export function renameOption<O extends SelectOption>(options: readonly O[], id: Id, name: string) {
+  return options.map((o) => (o.id === id ? { ...o, name: name.trim() } : o));
+}
+
+export function recolorOption<O extends SelectOption>(
+  options: readonly O[],
+  id: Id,
+  color: OptionColor,
+) {
+  return options.map((o) => (o.id === id ? { ...o, color } : o));
+}
+
+/** Checks a typed option name, then adds it in the next color; or says why it can't be added. */
+export function addSelectOption(
+  options: readonly SelectOption[],
+  name: string,
+): { options: SelectOption[] } | { error: string } {
+  const error = validateOptionName(name, options);
+  if (error) return { error };
+  return { options: [...options, newOption(name, options)] };
+}
+
+/** Status options grouped, in their fixed group order. */
+export function statusGroups(
+  options: readonly StatusOption[],
+): { group: StatusGroup; options: StatusOption[] }[] {
+  return STATUS_GROUPS.map((group) => ({
+    group,
+    options: options.filter((o) => o.group === group),
+  }));
+}
+
+/** Puts a group's options back in the full list in their new order (other groups stay put). */
+function withGroup(
+  options: readonly StatusOption[],
+  group: StatusGroup,
+  inGroup: readonly StatusOption[],
+): StatusOption[] {
+  return statusGroups(options).flatMap((g) => (g.group === group ? [...inGroup] : g.options));
+}
+
+/** Adds an option at the end of a status group, colored after the group's last option. */
+export function addStatusOption(
+  config: ConfigOf<'status'>,
+  group: StatusGroup,
+  name: string,
+): { options: StatusOption[] } | { error: string } {
+  const error = validateOptionName(name, config.options);
+  if (error) return { error };
+  const inGroup = config.options.filter((o) => o.group === group);
+  const option: StatusOption = { ...newOption(name, inGroup), group };
+  return { options: withGroup(config.options, group, [...inGroup, option]) };
+}
+
+/** Moves an option within its status group, from one index to another. */
+export function moveInGroup(
+  options: readonly StatusOption[],
+  group: StatusGroup,
+  from: number,
+  to: number,
+): StatusOption[] {
+  const inGroup = options.filter((o) => o.group === group);
+  return withGroup(options, group, moveItem(inGroup, from, to));
+}
+
+/** Moves an option to the end of another group. Check canDeleteStatusOption first. */
+export function moveToGroup(
+  options: readonly StatusOption[],
+  id: Id,
+  group: StatusGroup,
+): StatusOption[] {
+  const option = options.find((o) => o.id === id);
+  if (!option) return [...options];
+  const rest = options.filter((o) => o.id !== id);
+  const inGroup = rest.filter((o) => o.group === group);
+  return withGroup(rest, group, [...inGroup, { ...option, group }]);
 }

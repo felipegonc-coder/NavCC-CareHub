@@ -212,6 +212,20 @@ describe('PropertyMenu: the items each property gets', () => {
     ]);
   });
 
+  it('lets a layout item open a panel once the menu has closed, keeping focus there', async () => {
+    render(<input aria-label="Filter rule" />);
+    const rule = screen.getByRole('textbox', { name: 'Filter rule' });
+    const { trigger } = renderMenu(PROPS.cost, {
+      viewItems: (afterClose) => (
+        <DropdownMenuItem onSelect={() => afterClose(() => rule.focus())}>Filter</DropdownMenuItem>
+      ),
+    });
+    await openMenu(trigger);
+    await choose('Filter');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(rule).toHaveFocus();
+  });
+
   it('leaves out Hide and Insert without a view to change', async () => {
     const { trigger } = renderMenu(PROPS.cost, { view: undefined });
     await openMenu(trigger);
@@ -293,6 +307,16 @@ describe('PropertyMenu: changing the type', () => {
       to: 'text',
       cleared: 0,
     });
+  });
+
+  it('says "at least" when the view hasn’t loaded every row', async () => {
+    const { trigger } = renderMenu(PROPS.notes, { moreRows: true });
+    await openMenu(trigger);
+    await choose(/^Change type/);
+    await choose('Number');
+    expect(
+      screen.getByRole('dialog', { name: 'Change "Notes" to Number?' }),
+    ).toHaveAccessibleDescription('Values in at least 1 row will be cleared.');
   });
 
   it('asks first when values would be cleared, saying how many', async () => {
