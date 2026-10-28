@@ -190,6 +190,14 @@ describe('New ▾', () => {
     expect(within(popover).queryByRole('button', { name: '+ New template' })).toBeNull();
   });
 
+  it('says "No templates yet." with + New template while there are none', async () => {
+    await shown(mockClient());
+    const popover = await openTemplates();
+    expect(within(popover).getByText('No templates yet.')).toBeInTheDocument();
+    expect(within(popover).queryByRole('list')).toBeNull();
+    expect(within(popover).getByRole('button', { name: '+ New template' })).toBeInTheDocument();
+  });
+
   it("has no arrow when there are no templates and the person can't make them", async () => {
     const client = mockClient();
     client.getDatabase.mockResolvedValue(jobsDatabase({ viewerAccess: 'edit_content' }));

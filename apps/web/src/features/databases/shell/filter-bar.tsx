@@ -1,30 +1,34 @@
 /**
  * The filter bar under the toolbar (spec 3.2): the view's sorts and filter as chips. Each chip
- * opens its panel under it: Sort, one condition of the Filter, or the whole filter for "Advanced
- * filter".
+ * opens its panel under it: Sort, the Filter at the chip's rule, or the Filter's groups for
+ * "Advanced filter".
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown } from 'lucide-react';
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@carehub/ui';
 import { PANEL_LABELS, type PanelProps } from '../contract';
-import type { FilterNames } from '../filter-text';
+import { panelContext } from '../filters/types';
 import { barChips, type BarChip } from './chips';
 import { PanelBody, type Panels } from './panel-host';
 
-type Shared = Omit<PanelProps, 'panel' | 'close' | 'conditionId'>;
+type Shared = Omit<PanelProps, 'panel' | 'close' | 'target'>;
 
 export interface FilterBarProps extends Shared {
   panels: Panels;
-  /** People's names and related rows' titles from the view's answer. */
-  names: FilterNames;
 }
 
-export function FilterBar({ panels, names, ...shared }: FilterBarProps) {
-  const chips = barChips(shared.view, shared.meta.properties, names);
+export function FilterBar({ panels, ...shared }: FilterBarProps) {
+  const { meta, viewer, data, rowTitles } = shared;
+  // Rules name the people and related rows that the view's answer names.
+  const ctx = useMemo(() => {
+    const people = Object.entries(data?.people ?? {}).map(([id, { name }]) => ({ id, name }));
+    return panelContext({ meta, viewer, people, rowTitles });
+  }, [meta, viewer, data?.people, rowTitles]);
+  const chips = barChips(shared.view, ctx, shared.propertyIds);
   const gone = panels.chip !== null && !chips.some((chip) => chip.key === panels.chip);
   const { dismiss } = panels;
   useEffect(() => {
-    // Its condition was removed, so the chip and its panel go.
+    // Its rule was removed, so the chip and its panel go.
     if (gone) dismiss();
   }, [gone, dismiss]);
 
@@ -73,12 +77,7 @@ function Chip({ chip, panels, shared }: { chip: BarChip; panels: Panels; shared:
         }}
         onCloseAutoFocus={panels.closeAutoFocus}
       >
-        <PanelBody
-          {...shared}
-          panel={chip.panel}
-          conditionId={chip.conditionId}
-          close={panels.close}
-        />
+        <PanelBody {...shared} panel={chip.panel} target={chip.target} close={panels.close} />
       </PopoverContent>
     </Popover>
   );

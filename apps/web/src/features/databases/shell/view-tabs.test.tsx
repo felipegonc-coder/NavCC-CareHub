@@ -16,6 +16,7 @@ import {
 } from '../test-utils';
 import { DatabaseView, type DatabaseViewProps } from './database-view';
 import { probe } from './test-layout';
+import { TAB_DRAG_TYPE } from './view-tabs';
 
 vi.mock('../layouts', async () => {
   const { probeLayouts } = await import('./test-layout');
@@ -180,6 +181,8 @@ describe('view tabs', () => {
     await waitFor(() =>
       expect(client.orderViews).toHaveBeenCalledWith(JOBS_ID, [VIEWS.board, VIEWS.table]),
     );
+    // Only the view's id, no text, which the page around a database block would paste.
+    expect(dataTransfer.setData.mock.calls).toEqual([[TAB_DRAG_TYPE, VIEWS.board]]);
   });
 
   it('hides a deleted view at once with Undo, and Undo brings it back', async () => {

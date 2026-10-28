@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { FilterGroup } from '@carehub/databases';
-import { jobsProperties, PROPS, STATUS } from '../fixtures';
-import type { FilterNames } from '../filter-text';
-import { ADVANCED_FILTER, barChips } from './chips';
+import { ME, type FilterGroup } from '@carehub/databases';
+import { jobsDatabase, PROPS, STATUS, testViewer, USERS } from '../fixtures';
+import { panelContext } from '../filters/types';
+import { barChips } from './chips';
 
-const properties = jobsProperties();
-const names: FilterNames = { person: () => undefined, row: () => undefined };
+const ctx = panelContext({
+  meta: jobsDatabase(),
+  viewer: testViewer(),
+  people: [{ id: USERS.jordan.id, name: USERS.jordan.name }],
+});
 
 const doneAndPaid: FilterGroup = {
   kind: 'group',
@@ -18,17 +21,16 @@ const doneAndPaid: FilterGroup = {
 };
 
 describe('barChips', () => {
-  it('has no chips without sorts or conditions', () => {
-    expect(barChips({ filter: null, sorts: [] }, properties, names)).toEqual([]);
+  it('has no chips without sorts or rules', () => {
+    expect(barChips({ filter: null, sorts: [] }, ctx)).toEqual([]);
     const empty: FilterGroup = { kind: 'group', id: 'root', combinator: 'and', children: [] };
-    expect(barChips({ filter: empty, sorts: [] }, properties, names)).toEqual([]);
+    expect(barChips({ filter: empty, sorts: [] }, ctx)).toEqual([]);
   });
 
-  it('shows one chip per condition of an "All of" filter, after the sorts', () => {
+  it('shows one chip per rule of an "All of" filter, after the sorts', () => {
     const chips = barChips(
       { filter: doneAndPaid, sorts: [{ propertyId: PROPS.due, direction: 'desc' }] },
-      properties,
-      names,
+      ctx,
     );
     expect(chips).toEqual([
       {
@@ -39,13 +41,30 @@ describe('barChips', () => {
         direction: 'desc',
       },
       {
-        key: 'condition:c-status',
+        key: 'rule:c-status',
         panel: 'filter',
-        text: 'Status: Is Done',
-        conditionId: 'c-status',
+        text: 'Status is Done',
+        target: { ruleId: 'c-status' },
       },
-      { key: 'condition:c-paid', panel: 'filter', text: 'Paid: Is ticked', conditionId: 'c-paid' },
+      { key: 'rule:c-paid', panel: 'filter', text: 'Paid is ticked', target: { ruleId: 'c-paid' } },
     ]);
+  });
+
+  it('names people, and "Me"', () => {
+    const filter: FilterGroup = {
+      ...doneAndPaid,
+      children: [
+        {
+          kind: 'condition',
+          id: 'c-technician',
+          propertyId: PROPS.technician,
+          op: 'contains_any',
+          value: [ME, USERS.jordan.id],
+        },
+      ],
+    };
+    const [chip] = barChips({ filter, sorts: [] }, ctx);
+    expect(chip?.text).toBe('Technician contains any of Me, Jordan Park');
   });
 
   it('counts several sorts', () => {
@@ -57,8 +76,7 @@ describe('barChips', () => {
           { propertyId: PROPS.due, direction: 'desc' },
         ],
       },
-      properties,
-      names,
+      ctx,
     );
     expect(chip).toEqual({
       key: 'sort',
@@ -68,23 +86,25 @@ describe('barChips', () => {
     });
   });
 
-  it('shows "Advanced filter" for "Any of" and for groups', () => {
+  it('shows "Advanced filter" for "Any of" and for groups, which opens the groups', () => {
     const anyOf: FilterGroup = { ...doneAndPaid, combinator: 'or' };
     const nested: FilterGroup = { ...doneAndPaid, children: [anyOf] };
     for (const filter of [anyOf, nested]) {
-      expect(barChips({ filter, sorts: [] }, properties, names)).toEqual([
-        { key: 'advanced', panel: 'filter', text: ADVANCED_FILTER },
+      expect(barChips({ filter, sorts: [] }, ctx)).toEqual([
+        { key: 'advanced', panel: 'filter', text: 'Advanced filter', target: { advanced: true } },
       ]);
     }
   });
 
-  it("leaves out sorts and conditions on properties the viewer can't see", () => {
-    const shown = properties.filter((p) => p.id !== PROPS.paid && p.id !== PROPS.due);
+  it("leaves out sorts and rules on properties the viewer can't see", () => {
+    const visible = jobsDatabase()
+      .properties.map((p) => p.id)
+      .filter((id) => id !== PROPS.paid && id !== PROPS.due);
     const chips = barChips(
       { filter: doneAndPaid, sorts: [{ propertyId: PROPS.due, direction: 'asc' }] },
-      shown,
-      names,
+      ctx,
+      visible,
     );
-    expect(chips.map((chip) => chip.key)).toEqual(['condition:c-status']);
+    expect(chips.map((chip) => chip.key)).toEqual(['rule:c-status']);
   });
 });
