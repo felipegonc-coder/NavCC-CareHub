@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allDayLabel,
   beforeLabel,
   formatWhen,
   fromInputs,
-  onTheDayTime,
+  minutesOf,
   reminderTitle,
   sentence,
   splitBefore,
@@ -51,6 +52,9 @@ describe('time before an event', () => {
     expect(splitBefore(60)).toEqual({ amount: 1, unit: 'hours' });
     expect(splitBefore(1500)).toEqual({ amount: 25, unit: 'hours' });
     expect(splitBefore(2880)).toEqual({ amount: 2, unit: 'days' });
+    expect(minutesOf(2, 'days')).toBe(2880);
+    expect(minutesOf(25, 'hours')).toBe(1500);
+    expect(minutesOf(90, 'minutes')).toBe(90);
   });
 
   it('labels it in words', () => {
@@ -66,9 +70,15 @@ describe('time before an event', () => {
   it('names a time on the day of an all-day event with negative minutes', () => {
     expect(beforeLabel(-540, denver)).toBe('On the day at 9:00 AM');
     expect(beforeLabel(-540, { ...denver, use24h: true })).toBe('On the day at 09:00');
-    expect(onTheDayTime(-540)).toBe('09:00');
-    expect(onTheDayTime(-1439)).toBe('23:59');
-    expect(onTheDayTime(0)).toBe('00:00');
+  });
+
+  it('counts all-day reminders from 00:00 on the day', () => {
+    expect(allDayLabel(-540, denver)).toBe('On the day at 9:00 AM');
+    expect(allDayLabel(-1439, denver)).toBe('On the day at 11:59 PM');
+    expect(allDayLabel(0, denver)).toBe('On the day at 12:00 AM');
+    expect(allDayLabel(900, denver)).toBe('The day before at 9:00 AM');
+    expect(allDayLabel(1440, { ...denver, use24h: true })).toBe('The day before at 00:00');
+    expect(allDayLabel(2370, denver)).toBe('2 days before at 8:30 AM');
   });
 });
 
