@@ -26,7 +26,6 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { useGallery, useTemplateCopy } from './api';
-import { TemplateCardMenu } from './card-menu';
 import { originTitle, readOrigin } from './links';
 import { addToChoices, TemplatePreview } from './preview';
 import { TemplateCardView } from './template-card';
@@ -270,15 +269,6 @@ export function GalleryScreen() {
                     compact={phone}
                     onOpen={() => open(card)}
                     onKeyDown={onCardKeyDown(card, index)}
-                    menu={
-                      card.canManage ? (
-                        <TemplateCardMenu
-                          card={card}
-                          spaces={data?.spaces ?? []}
-                          categories={data?.categories ?? []}
-                        />
-                      ) : undefined
-                    }
                   />
                 ))}
               </ul>
