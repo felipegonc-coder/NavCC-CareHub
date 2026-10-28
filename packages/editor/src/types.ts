@@ -29,6 +29,12 @@ export interface CollabProvider {
   awareness?: Awareness | null;
 }
 
+/** What a "/" menu entry gets besides the editor when it runs. */
+export interface SlashContext {
+  /** The ID of the page being edited (`BlockEditor`'s `pageId`), or null if it has none. */
+  pageId: string | null;
+}
+
 /** An entry in the "/" menu. */
 export interface SlashItem {
   /** Unique. An entry with the id of a built-in block (like `heading1`) replaces it. */
@@ -46,8 +52,11 @@ export interface SlashItem {
   group?: string;
   /** The Markdown shortcut for the same block, shown on the right, like `#` or `---`. */
   hint?: string;
-  /** Runs once the typed "/query" is gone, with the cursor where it was. */
-  run(editor: Editor): void;
+  /**
+   * Runs once the typed "/query" is gone, with the cursor where it was. `context.pageId` is the
+   * page being edited, for entries that make something on it, like an inline database.
+   */
+  run(editor: Editor, context: SlashContext): void;
 }
 
 /** A way to choose a link target in the link panel, like "Link to a lesson". */

@@ -8,6 +8,7 @@ import {
   remindersApi,
   remindersKeys,
   withoutReminder,
+  type NewReminder,
   type PendingReminder,
   type Reminder,
   type ReminderChange,
@@ -36,6 +37,14 @@ export function usePendingReminders(limit = 5): UseQueryResult<PendingReminder[]
   return useReminderList(select);
 }
 
+export function useCreateReminder() {
+  const queryClient = useQueryClient();
+  return useMutation<Reminder, ApiError, NewReminder>({
+    mutationFn: (input) => remindersApi.create(input),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: remindersKeys.list }),
+  });
+}
+
 export function useChangeReminder() {
   const queryClient = useQueryClient();
   return useMutation<Reminder, ApiError, { id: string; change: ReminderChange }>({
@@ -57,16 +66,24 @@ export function useDeleteReminder() {
   });
 }
 
-/**
- * The person's time zone and 12- or 24-hour setting. A stand-in that reads GET /api/auth/me until
- * the shell's signed-in user hook is on main; the defaults until it answers.
- */
-export function useTimePrefs(): TimeSettings {
-  const { data } = useQuery({
+const useTimeSettings = () =>
+  useQuery({
     queryKey: ['reminders', 'me'],
     queryFn: ({ signal }) => remindersApi.timeSettings(signal),
     staleTime: Infinity,
     retry: false,
   });
-  return data ?? DEFAULT_TIME_SETTINGS;
+
+/**
+ * The person's time zone and 12- or 24-hour setting. A stand-in that reads GET /api/auth/me until
+ * the shell's signed-in user hook is on main; the defaults until it answers.
+ */
+export function useTimePrefs(): TimeSettings {
+  return useTimeSettings().data ?? DEFAULT_TIME_SETTINGS;
+}
+
+/** The same, but null until it answers (the defaults if it fails), for choosing preset times. */
+export function useLoadedTimePrefs(): TimeSettings | null {
+  const { data, isError } = useTimeSettings();
+  return data ?? (isError ? DEFAULT_TIME_SETTINGS : null);
 }

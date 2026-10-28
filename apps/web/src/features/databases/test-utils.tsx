@@ -148,6 +148,7 @@ export function mockActions(): MockActions {
     updateView: vi.fn<ViewActions['updateView']>(async () => undefined),
     setOverride: vi.fn<ViewActions['setOverride']>(),
     loadMore: vi.fn<ViewActions['loadMore']>(async () => undefined),
+    openPanel: vi.fn<ViewActions['openPanel']>(),
   };
 }
 

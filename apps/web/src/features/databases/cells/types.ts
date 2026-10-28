@@ -46,7 +46,10 @@ export interface CellViewProps {
   wrap?: boolean;
   /** Checkbox: ticks straight from the cell. Without it the box is only drawn. */
   onToggle?: (checked: boolean) => void;
-  /** Button: runs its actions (a promise keeps the spinner on). Without it the button is greyed out. */
+  /**
+   * Button: runs its actions (a promise keeps the spinner on); the links it opens go through
+   * openButtonLink. Without it the button is greyed out.
+   */
   onPress?: () => unknown;
   /** Why the button can't be pressed, shown on hover ("Only people who can edit this page"). */
   pressBlockedReason?: string;

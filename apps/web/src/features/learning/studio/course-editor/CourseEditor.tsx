@@ -1,13 +1,15 @@
 import { canRedo, canUndo } from '@carehub/learning';
 import type { Course, Id } from '@carehub/learning';
 import { Button, IconButton } from '@carehub/ui';
-import { ArrowLeft, Redo2, Undo2 } from 'lucide-react';
+import { ArrowLeft, Eye, Redo2, Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import type { StudioDraft } from '../data/client';
 import { useStudioDraft } from '../data/queries';
+import { previewPath } from '../labels';
 import { courseEditorReducer, initCourseEditor } from '../state/course-editor';
 import { ErrorState, LoadingState } from '../states';
+import { CourseSettings } from './CourseSettings';
 import { LessonCanvas } from './LessonCanvas';
 import { Outline } from './Outline';
 import { SaveState, UndoNotice } from './parts';
@@ -26,6 +28,7 @@ function BackLink() {
 }
 
 function Editor({ draft }: { draft: StudioDraft }) {
+  const navigate = useNavigate();
   const opened = new URLSearchParams(useLocation().search).get('lesson');
   const [state, dispatch] = useReducer(courseEditorReducer, draft.course, (course) =>
     initCourseEditor(course, opened),
@@ -33,8 +36,10 @@ function Editor({ draft }: { draft: StudioDraft }) {
   const course = state.history.present;
   const saving = useDraftAutosave(course.id, draft.revision, course);
   const [notice, setNotice] = useState<{ message: string; after: Course } | null>(null);
+  const [view, setView] = useState<'lesson' | 'settings'>('lesson');
 
   const edit = useCallback<EditorActions['edit']>((change, options: EditOptions = {}) => {
+    if (options.select?.lessonId) setView('lesson');
     dispatch({ type: 'edit', edit: change, at: Date.now(), ...options });
   }, []);
   const actions: EditorActions = {
@@ -45,7 +50,14 @@ function Editor({ draft }: { draft: StudioDraft }) {
       dispatch({ type: 'edit', edit: () => next });
       setNotice({ message, after: next });
     },
-    select: (lessonId) => dispatch({ type: 'select', lessonId }),
+    select: (lessonId) => {
+      setView('lesson');
+      dispatch({ type: 'select', lessonId });
+    },
+  };
+  const preview = async () => {
+    await saving.flush();
+    await navigate(previewPath(course.id));
   };
 
   useEffect(() => {
@@ -89,6 +101,19 @@ function Editor({ draft }: { draft: StudioDraft }) {
         >
           <Redo2 aria-hidden />
         </IconButton>
+        <Button asChild size="sm" variant="secondary">
+          <Link
+            to={previewPath(course.id)}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              void preview();
+            }}
+          >
+            <Eye aria-hidden />
+            Preview
+          </Link>
+        </Button>
       </header>
       {notice?.after === course && (
         <div className="px-4 pt-2">
@@ -96,14 +121,24 @@ function Editor({ draft }: { draft: StudioDraft }) {
         </div>
       )}
       <div className="flex flex-1 flex-col md:flex-row">
-        <Outline {...actions} course={course} lessonId={state.lessonId} />
-        <LessonCanvas
-          key={state.lessonId}
+        <Outline
           {...actions}
           course={course}
-          lesson={course.lessons.find((lesson) => lesson.id === state.lessonId)}
-          blockId={state.blockId}
+          lessonId={view === 'lesson' ? state.lessonId : null}
+          settingsOpen={view === 'settings'}
+          onSettings={() => setView('settings')}
         />
+        {view === 'settings' ? (
+          <CourseSettings course={course} edit={edit} />
+        ) : (
+          <LessonCanvas
+            key={state.lessonId}
+            {...actions}
+            course={course}
+            lesson={course.lessons.find((lesson) => lesson.id === state.lessonId)}
+            blockId={state.blockId}
+          />
+        )}
       </div>
     </main>
   );

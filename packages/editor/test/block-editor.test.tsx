@@ -6,7 +6,7 @@ import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { BlockEditor, type Editor, type SlashItem } from '../src';
 import { renderCaret } from '../src/extensions';
-import { flush, testUser, typeText } from './helpers';
+import { flush, pressKey, testUser, typeText } from './helpers';
 
 let root: Root | undefined;
 let awareness: Awareness | undefined;
@@ -120,6 +120,45 @@ describe('BlockEditor', () => {
     expect(localStorage.getItem(`carehub.editor.recent-blocks.${testUser.id}`)).toBe(
       '["signature"]',
     );
+  });
+
+  it('gives "/" entries the page being edited', async () => {
+    const pages: (string | null)[] = [];
+    const carePlan: SlashItem = {
+      id: 'carePlan',
+      title: 'Care plan',
+      group: 'Database',
+      run: (_editor, context) => {
+        pages.push(context.pageId);
+      },
+    };
+    const ydoc = new Y.Doc();
+    const ready: { editor?: Editor } = {};
+    const page = (pageId?: string) => (
+      <BlockEditor
+        ydoc={ydoc}
+        pageId={pageId}
+        slashItems={[carePlan]}
+        onReady={(editor) => (ready.editor = editor)}
+      />
+    );
+    const runCarePlan = async () => {
+      const editor = ready.editor as Editor;
+      await act(async () => {
+        typeText(editor, '/care');
+        await flush();
+      });
+      await act(async () => {
+        pressKey(editor, 'Enter');
+        await flush();
+      });
+    };
+
+    await render(page());
+    await runCarePlan();
+    await act(async () => root?.render(page('page-1')));
+    await runCarePlan();
+    expect(pages).toEqual([null, 'page-1']);
   });
 
   it('shows no "/" menu when read-only', async () => {
