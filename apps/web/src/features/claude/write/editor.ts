@@ -65,7 +65,9 @@ export interface WriteEditor {
   readonly isDestroyed: boolean;
   chain(): EditChain;
   on(event: 'transaction', handler: ChangeHandler): unknown;
+  on(event: 'destroy', handler: () => void): unknown;
   off(event: 'transaction', handler: ChangeHandler): unknown;
+  off(event: 'destroy', handler: () => void): unknown;
 }
 
 /** `value` as the page editor, or null: the menus and Ctrl+J hand it over untyped. */
