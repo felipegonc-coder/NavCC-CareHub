@@ -5,7 +5,7 @@
 // Browser tests can also allow http links to their stand-in calendars on this computer, by
 // exact origin (test-origins.ts); every other check still applies to those.
 
-import { lookup } from 'node:dns/promises';
+import { Resolver as DnsResolver } from 'node:dns/promises';
 import type { IncomingHttpHeaders } from 'node:http';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -20,6 +20,8 @@ export const LINK_TIMEOUT_MS = 15_000;
 export const LINK_MAX_BYTES = 10 * 1024 * 1024;
 export const LINK_MAX_REDIRECTS = 3;
 export const LINK_MAX_HEADER_BYTES = 16 * 1024;
+export const DNS_TIMEOUT_MS = 2500; // for each try of each DNS query
+export const DNS_TRIES = 2;
 const USER_AGENT = 'CareHub-Calendar/1.0';
 const BLOCKED = "This link points to a private or local network address, which Care Hub can't use.";
 
@@ -28,7 +30,11 @@ export interface ResolvedAddress {
   family: 4 | 6;
 }
 
-export type Resolver = (hostname: string) => Promise<readonly ResolvedAddress[]>;
+/** Finds a host's addresses. `signal` is the fetch's: once it's aborted, stop looking. */
+export type Resolver = (
+  hostname: string,
+  signal: AbortSignal,
+) => Promise<readonly ResolvedAddress[]>;
 
 export interface TransportRequest {
   url: URL; // https (http only for a test origin), without credentials
@@ -55,9 +61,10 @@ export interface FetchLinkOptions {
   resolve?: Resolver; // injectable for tests
   transport?: Transport; // injectable for tests
   /**
-   * Browser tests only: origins from readTestCalendarOrigins, like http://127.0.0.1:4598. Links
-   * and redirects to exactly these may use http, and must reach only loopback addresses. Entries
-   * that aren't http loopback origins with a port are ignored.
+   * Browser tests only: the list readTestCalendarOrigins read when the server started, like
+   * http://127.0.0.1:4598, and never anything from a request or a saved connection. Links and
+   * redirects to exactly these may use http, and must reach only loopback addresses. Entries that
+   * aren't http loopback origins with a port are ignored.
    */
   testOrigins?: readonly string[];
 }
@@ -155,7 +162,7 @@ async function fetchWithRedirects(
     const testOrigin = testOrigins.has(url.origin);
     const addresses = await checkedAddresses(
       url.hostname,
-      options.resolve ?? systemResolver,
+      options.resolve ?? defaultResolver,
       signal,
       testOrigin,
     );
@@ -253,7 +260,7 @@ async function checkedAddresses(
     addresses = [{ address: host, family: literal === 6 ? 6 : 4 }];
   } else {
     try {
-      addresses = await abortable(resolve(host), signal);
+      addresses = await abortable(resolve(host, signal), signal);
     } catch (error) {
       if (signal.aborted) throw error;
       throw new FetchLinkError('dns', "Couldn't find the calendar's server. Check the link.", true);
@@ -294,11 +301,64 @@ function toFetchError(error: unknown): FetchLinkError {
   return new FetchLinkError('network', "Couldn't read the calendar from its server.", true);
 }
 
-const systemResolver: Resolver = async (hostname) =>
-  (await lookup(hostname, { all: true, verbatim: true })).map((a) => ({
-    address: a.address,
-    family: a.family === 6 ? 6 : 4,
-  }));
+/** The part of node:dns's Resolver that createResolver uses. */
+export interface DnsClient {
+  resolve4(hostname: string): Promise<string[]>;
+  resolve6(hostname: string): Promise<string[]>;
+  cancel(): void;
+}
+
+export interface ResolverOptions {
+  timeoutMs?: number; // for each try of each query
+  tries?: number;
+  dns?: (options: { timeout: number; tries: number }) => DnsClient; // for tests
+}
+
+const LOOPBACK: readonly ResolvedAddress[] = [
+  { address: '127.0.0.1', family: 4 },
+  { address: '::1', family: 6 },
+];
+
+/**
+ * Looks hosts up with DNS queries (A and AAAA), not the system's getaddrinfo, which runs on the
+ * threads Node uses for files and crypto and can't be stopped: a link's slow DNS server could
+ * hold those up. Each try has a time limit, and a cancelled fetch cancels its queries.
+ * `localhost` and names under it are loopback without a query (RFC 6761).
+ */
+export function createResolver({
+  timeoutMs = DNS_TIMEOUT_MS,
+  tries = DNS_TRIES,
+  dns = (options) => new DnsResolver(options),
+}: ResolverOptions = {}): Resolver {
+  return async (hostname, signal) => {
+    signal.throwIfAborted();
+    const name = hostname.toLowerCase().replace(/\.$/, '');
+    if (name === 'localhost' || name.endsWith('.localhost')) return LOOPBACK;
+    const client = dns({ timeout: timeoutMs, tries }); // its own, so cancel() stops only these
+    const cancel = () => client.cancel();
+    signal.addEventListener('abort', cancel, { once: true });
+    try {
+      const [v4, v6] = await Promise.allSettled([
+        client.resolve4(hostname),
+        client.resolve6(hostname),
+      ]);
+      const found: ResolvedAddress[] = [
+        ...(v4.status === 'fulfilled'
+          ? v4.value.map((address) => ({ address, family: 4 as const }))
+          : []),
+        ...(v6.status === 'fulfilled'
+          ? v6.value.map((address) => ({ address, family: 6 as const }))
+          : []),
+      ];
+      if (found.length > 0) return found;
+      throw v4.status === 'rejected' ? v4.reason : new Error('No addresses found');
+    } finally {
+      signal.removeEventListener('abort', cancel);
+    }
+  };
+}
+
+const defaultResolver = createResolver();
 
 /** A lookup function that answers only with the checked addresses. */
 export function pinnedLookup(addresses: readonly ResolvedAddress[]): LookupFunction {
