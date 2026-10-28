@@ -198,6 +198,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
     setOverride,
     loadMore: result.loadMore,
     onOpenRow: props.onOpenRow,
+    openPanel: (panel, target, opener) => panels.show(panel, opener, target),
   });
 
   const access = meta.viewerAccess;
@@ -206,8 +207,9 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
   const canAdd = online && can('add_rows', access, { locked, canAddRows: meta.viewerCanAddRows });
   const canImport = online && can('import', access, { locked });
 
-  const newRow = () => {
-    actions.createRow().then(
+  // New uses the view's default template; New ▾ picks one, or an empty row (null).
+  const newRow = (templateId?: Id | null) => {
+    actions.createRow(templateId === undefined ? undefined : { templateId }).then(
       (row) => actions.openRow(row.id),
       // The toast already says why.
       () => undefined,
@@ -250,7 +252,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
         />
       ) : (
         <NoRows
-          onNew={canAdd ? newRow : undefined}
+          onNew={canAdd ? () => newRow() : undefined}
           onImportCsv={canImport ? () => panels.show('importCsv') : undefined}
         />
       );
@@ -291,6 +293,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
         <PanelDialog
           {...shared}
           panel={dialog}
+          target={panels.target}
           close={panels.close}
           onCloseAutoFocus={panels.closeAutoFocus}
         />

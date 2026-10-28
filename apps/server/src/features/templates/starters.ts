@@ -19,10 +19,7 @@ export interface Starter {
   page: StarterPage;
 }
 
-const emoji = (value: string): TemplateIcon => ({
-  type: 'emoji',
-  emoji: value,
-});
+const emoji = (value: string): TemplateIcon => ({ type: 'emoji', emoji: value });
 /** A variable chip, as the collab feature writes inline nodes in Markdown. */
 const chip = (kind: TemplateVariable, offsetDays = 0) =>
   `<!-- carehub:inline ${JSON.stringify({ type: TEMPLATE_VARIABLE_NODE, attrs: { kind, offsetDays } })} -->`;
@@ -84,6 +81,61 @@ export const STARTERS: readonly Starter[] = [
         '## Shout-outs',
         '',
         '- Thanks to Jordan Reyes for covering the late shift',
+      ),
+    },
+  },
+  {
+    key: 'one-on-one',
+    name: '1:1 notes',
+    description: 'A shared page for regular one-on-ones between a lead and an agent.',
+    category: 'Team',
+    page: {
+      title: '1:1 notes',
+      icon: emoji('🤝'),
+      markdown: lines(
+        `**Date:** ${chip('today')}`,
+        '',
+        '## How are things going?',
+        '',
+        '- ',
+        '',
+        '## Wins since last time',
+        '',
+        '- ',
+        '',
+        '## Goals and growth',
+        '',
+        '- [ ] Shadow a senior agent on escalations',
+        '',
+        '## Next steps',
+        '',
+        '- [ ] ',
+      ),
+    },
+  },
+  {
+    key: 'shift-handover',
+    name: 'Shift handover',
+    description: 'What the next shift needs to know: open tickets, outages and follow-ups.',
+    category: 'Support',
+    page: {
+      title: 'Shift handover',
+      icon: emoji('🔁'),
+      markdown: lines(
+        `**Handed over by** ${chip('me')} · ${chip('now')}`,
+        '',
+        '## Open tickets to watch',
+        '',
+        '- [ ] Ticket 4821: refund waiting on finance',
+        '- [ ] Ticket 4830: customer asked for a call back after 3 PM',
+        '',
+        '## Known issues',
+        '',
+        '- Card payments slow for some customers since 10:15 AM (status page updated)',
+        '',
+        '## Notes for the next shift',
+        '',
+        '- ',
       ),
     },
   },
