@@ -1,8 +1,8 @@
 import type { FileRef } from '@carehub/databases';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { CELL_TEXT } from './messages';
-import { openEditor, pressOutside, prop } from './test-helpers';
+import { CELL_TEXT, SETTINGS_TEXT } from './messages';
+import { openEditor, pointer, pressOutside, prop } from './test-helpers';
 
 const photos = prop({ type: 'files' }, 'Photos');
 const invoice: FileRef = {
@@ -37,8 +37,34 @@ describe('FilesEditor', () => {
     expect(linkBox()).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: CELL_TEXT.remove('invoice.pdf') }));
     expect(screen.queryByText('invoice.pdf')).toBeNull();
+    // One file left: nothing to reorder.
+    expect(screen.queryByRole('button', { name: CELL_TEXT.moveFile('leak.jpg') })).toBeNull();
     enter(linkBox());
     expect(onCommit).toHaveBeenCalledWith([leak], { changed: true });
+  });
+
+  it('moves a file with the arrow keys on its handle and saves that order', async () => {
+    const { onCommit } = await openEditor({ property: photos, value: [invoice, leak] });
+    const handle = screen.getByRole('button', { name: CELL_TEXT.moveFile('leak.jpg') });
+    expect(handle).toHaveAccessibleDescription(SETTINGS_TEXT.moveHint);
+    handle.focus();
+    fireEvent.keyDown(handle, { key: 'ArrowUp' });
+    expect(screen.getByRole('button', { name: CELL_TEXT.moveFile('leak.jpg') })).toHaveFocus();
+    enter(linkBox());
+    expect(onCommit).toHaveBeenCalledWith([leak, invoice], { changed: true });
+  });
+
+  it('moves a file by dragging its handle', async () => {
+    const { onCommit } = await openEditor({ property: photos, value: [invoice, leak] });
+    screen.getAllByRole('listitem').forEach((item, i) => {
+      item.getBoundingClientRect = () => ({ top: i * 40, height: 40 }) as DOMRect;
+    });
+    const handle = screen.getByRole('button', { name: CELL_TEXT.moveFile('invoice.pdf') });
+    pointer(handle, 'pointerdown', 20);
+    pointer(handle, 'pointermove', 70);
+    pointer(handle, 'pointerup', 70);
+    enter(linkBox());
+    expect(onCommit).toHaveBeenCalledWith([leak, invoice], { changed: true });
   });
 
   it('adds web links, with https:// when it is missing', async () => {

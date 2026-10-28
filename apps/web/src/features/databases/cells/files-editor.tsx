@@ -1,12 +1,15 @@
 import { LIMITS, type FileRef } from '@carehub/databases';
 import { VALUE_MESSAGES, validateValue } from '@carehub/databases/values';
-import { Button, cn, IconButton, Input, Spinner } from '@carehub/ui';
+import { Button, cn, IconButton, Input, Spinner, VisuallyHidden } from '@carehub/ui';
 import { Paperclip, Upload, X } from 'lucide-react';
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import { FileChip } from './chips';
+import { DragHandle, dragItemClass } from './drag-handle';
 import { EditorShell } from './editor-shell';
 import { commitDetails, webLinkFile } from './logic';
-import { CELL_TEXT } from './messages';
+import { CELL_TEXT, SETTINGS_TEXT } from './messages';
+import { useReorder } from './reorder';
+import { moveItem } from './settings-logic';
 import type { CellEditorProps, CellMove } from './types';
 
 /** A saved file or web link, or an upload that is running or failed. */
@@ -16,7 +19,8 @@ const readEntries = (v: unknown): Entry[] =>
   Array.isArray(v) ? (v as FileRef[]).map((ref) => ({ key: ref.id, ref })) : [];
 
 /**
- * Files: uploads (when `onUpload` is given) and web links, up to 20. A failed upload shows Retry.
+ * Files: uploads (when `onUpload` is given) and web links, up to 20, in an order changed by
+ * dragging (the first picture is the one gallery cards use). A failed upload shows Retry.
  * Saving waits for running uploads; failed ones are left out.
  */
 export function FilesEditor({
@@ -34,6 +38,10 @@ export function FilesEditor({
   const uploadButton = useRef<HTMLButtonElement>(null);
   const linkInput = useRef<HTMLInputElement>(null);
   const uploads = useRef(0);
+  const hintId = useId();
+  const reorder = useReorder(entries.length, (from, to) =>
+    setEntries((list) => moveItem(list, from, to)),
+  );
 
   const replace = (key: string, next: Entry | null) =>
     setEntries((list) => list.flatMap((e) => (e.key !== key ? [e] : next ? [next] : [])));
@@ -117,11 +125,23 @@ export function FilesEditor({
       className="w-80 gap-2 p-2"
     >
       {entries.length > 0 && (
-        <ul className="flex flex-col gap-1">
-          {entries.map((e) => {
+        <ul className="flex flex-col">
+          {entries.map((e, index) => {
             const name = 'ref' in e ? e.ref.name : e.upload.name;
             return (
-              <li key={e.key} className="flex min-w-0 items-center gap-2">
+              <li
+                key={e.key}
+                ref={reorder.item(index)}
+                className={cn('flex min-w-0 items-center gap-2', dragItemClass(reorder, index))}
+              >
+                {entries.length > 1 && (
+                  <DragHandle
+                    reorder={reorder}
+                    index={index}
+                    label={CELL_TEXT.moveFile(name)}
+                    hintId={hintId}
+                  />
+                )}
                 {'ref' in e ? (
                   <FileChip file={e.ref} ctx={ctx} />
                 ) : (
@@ -159,6 +179,7 @@ export function FilesEditor({
           })}
         </ul>
       )}
+      <VisuallyHidden id={hintId}>{SETTINGS_TEXT.moveHint}</VisuallyHidden>
       {onUpload && (
         <div>
           <Button

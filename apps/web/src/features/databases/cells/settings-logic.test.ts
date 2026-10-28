@@ -1,16 +1,24 @@
-import type { NumberDisplay } from '@carehub/databases';
+import type { ConfigOf, NumberDisplay, SelectOption, StatusOption } from '@carehub/databases';
 import { REQUEST_LIMITS, uniqueIdPrefixSchema } from '@carehub/databases/schemas';
 import { describe, expect, it } from 'vitest';
 import {
+  addSelectOption,
+  addStatusOption,
   dateFormatChoices,
   DESCRIPTION_LIMIT,
+  moveInGroup,
+  moveItem,
+  moveToGroup,
   numberFormatChoices,
   numberFormatKey,
   readChoice,
   readDecimals,
   readDivideBy,
   readIdPrefix,
+  recolorOption,
+  renameOption,
   ROW_PAGE_CHOICES,
+  statusGroups,
   timeFormatChoices,
   withNumberFormat,
   withShowAs,
@@ -142,5 +150,99 @@ describe('ID prefix', () => {
     for (const text of ['QA', 'JOB_2', 'a-b', 'Q A', 'QA#', 'Café', 'Q'.repeat(21)]) {
       expect('prefix' in readIdPrefix(text)).toBe(uniqueIdPrefixSchema.safeParse(text).success);
     }
+  });
+});
+
+const select: SelectOption[] = [
+  { id: 'high', name: 'High', color: 'red' },
+  { id: 'medium', name: 'Medium', color: 'yellow' },
+  { id: 'low', name: 'Low', color: 'gray' },
+];
+
+describe('select options', () => {
+  it('moves an option to a new place', () => {
+    expect(moveItem(select, 0, 2).map((o) => o.id)).toEqual(['medium', 'low', 'high']);
+    expect(moveItem(select, 2, 0).map((o) => o.id)).toEqual(['low', 'high', 'medium']);
+    expect(moveItem(select, 5, 0)).toEqual(select);
+  });
+
+  it('renames and recolors one option', () => {
+    expect(renameOption(select, 'low', '  Someday ')[2]).toEqual({
+      id: 'low',
+      name: 'Someday',
+      color: 'gray',
+    });
+    expect(recolorOption(select, 'high', 'pink')[0]?.color).toBe('pink');
+  });
+
+  it('adds an option in the next color, or says why not', () => {
+    const added = addSelectOption(select, ' Urgent ');
+    expect('options' in added && added.options[3]).toMatchObject({
+      name: 'Urgent',
+      color: 'brown',
+    });
+    expect(addSelectOption(select, 'high')).toEqual({
+      error: 'An option with that name already exists.',
+    });
+    expect(addSelectOption(select, 'A, B')).toEqual({
+      error: "Option names can't contain commas.",
+    });
+    expect(addSelectOption(select, ' ')).toEqual({ error: 'Enter an option name.' });
+  });
+});
+
+const status: ConfigOf<'status'> = {
+  type: 'status',
+  defaultOptionId: 'new',
+  options: [
+    { id: 'new', name: 'New', color: 'gray', group: 'todo' },
+    { id: 'doing', name: 'Doing', color: 'blue', group: 'in_progress' },
+    { id: 'waiting', name: 'Waiting', color: 'yellow', group: 'todo' },
+    { id: 'done', name: 'Done', color: 'green', group: 'complete' },
+  ],
+};
+const ids = (options: readonly StatusOption[]) => options.map((o) => `${o.group}:${o.id}`);
+
+describe('status options', () => {
+  it('lists the groups in their fixed order', () => {
+    expect(statusGroups(status.options).map((g) => [g.group, g.options.map((o) => o.id)])).toEqual([
+      ['todo', ['new', 'waiting']],
+      ['in_progress', ['doing']],
+      ['complete', ['done']],
+    ]);
+  });
+
+  it('adds an option at the end of its group', () => {
+    const added = addStatusOption(status, 'todo', 'On hold');
+    if (!('options' in added)) throw new Error(added.error);
+    expect(ids(added.options)).toEqual([
+      'todo:new',
+      'todo:waiting',
+      `todo:${added.options[2]?.id}`,
+      'in_progress:doing',
+      'complete:done',
+    ]);
+    expect(added.options[2]).toMatchObject({ name: 'On hold', color: 'green', group: 'todo' });
+    expect(addStatusOption(status, 'complete', 'doing')).toEqual({
+      error: 'An option with that name already exists.',
+    });
+  });
+
+  it('moves an option within its group', () => {
+    expect(ids(moveInGroup(status.options, 'todo', 1, 0))).toEqual([
+      'todo:waiting',
+      'todo:new',
+      'in_progress:doing',
+      'complete:done',
+    ]);
+  });
+
+  it('moves an option to the end of another group', () => {
+    expect(ids(moveToGroup(status.options, 'waiting', 'complete'))).toEqual([
+      'todo:new',
+      'in_progress:doing',
+      'complete:done',
+      'complete:waiting',
+    ]);
   });
 });

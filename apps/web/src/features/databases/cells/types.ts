@@ -84,6 +84,8 @@ export interface CellEditorProps {
   canCreateOptions?: boolean;
   /** Person: the people who can be picked. */
   people?: readonly PersonChoice[];
+  /** Person: people whose name or email matches ("" lists everyone); used instead of `people`. */
+  searchPeople?: (query: string) => Promise<readonly PersonChoice[]>;
   /** Relation: the target database's rows matching a search ("" lists the first ones). */
   searchRows?: (query: string) => Promise<readonly RowChoice[]>;
   /** Relation: adds a row to the target database ("+ New row"). */
