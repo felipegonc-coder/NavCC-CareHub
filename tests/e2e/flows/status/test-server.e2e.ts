@@ -24,7 +24,7 @@ const commands = {
 
 /** The down page Caddy shows while the app doesn't answer (section 2), word for word. */
 const downPage =
-  "Care Hub isn't responding. It usually comes back within a minute. If it's still down after 10 minutes, restart the ThinkCentre.";
+  "Care Hub isn't responding. It usually comes back within a minute. If it's still down after 10 minutes, restart the server.";
 
 function run(command: string): void {
   execSync(command, { stdio: 'inherit', timeout: 2 * MINUTE });

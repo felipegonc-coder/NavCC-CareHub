@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { expect } from '../_support/index.js';
+import { apiFor, expect } from '../_support/index.js';
 import { literally } from '../pages/page-screen.js';
 import { choice } from './share-dialog.js';
 
@@ -42,17 +42,57 @@ export class MembersTab {
     return row;
   }
 
-  /** Changes a member's role with their row's dropdown; Care Hub says "Riley Chen is now a Viewer". */
-  async changeRole(name: string, role: string) {
+  /** Picks a role in a member's row dropdown, without waiting for it to be saved (or refused). */
+  async pickRole(name: string, role: string) {
     const row = await this.row(name);
     const roleField = row
       .getByRole('combobox')
       .or(row.getByRole('button', { name: /^(admin|editor|commenter|viewer|role)\b/i }))
       .first();
     await pick(this.page, roleField, role);
+  }
+
+  /** Changes a member's role with their row's dropdown; Care Hub says "Riley Chen is now a Viewer". */
+  async changeRole(name: string, role: string) {
+    await this.pickRole(name, role);
     const saved = new RegExp(`${literally(name).source} is now an? ${literally(role).source}`);
     await expect(this.page.getByText(saved)).toBeVisible();
   }
+
+  /**
+   * A member's row menu (Change role, Groups, Reset password, Turn off 2-step verification, Remove
+   * from workspace). Assumed: a button in the row named "More", "Actions", "Options" or "…".
+   */
+  async rowMenu(name: string): Promise<Locator> {
+    const row = await this.row(name);
+    await row.getByRole('button', { name: /^(…|(more|actions|options)\b)/i }).click();
+    const menu = this.page.getByRole('menu');
+    await expect(menu).toBeVisible();
+    return menu;
+  }
+}
+
+/** A person as GET /api/workspace/members lists them (decision 0007; guests included). */
+export type Member = {
+  id: string;
+  name: string;
+  email: string;
+  roleName: string;
+  isGuest: boolean;
+};
+
+/** Everyone in the workspace, as the signed-in person's Members list has them. */
+export async function listMembers(page: Page): Promise<Member[]> {
+  const reply = await (
+    await apiFor(page)
+  ).get<Member[] | { members: Member[] }>('/api/workspace/members');
+  return Array.isArray(reply) ? reply : reply.members;
+}
+
+/** The names of the workspace's Admins: its members whose role is Admin. */
+export async function adminNames(page: Page): Promise<string[]> {
+  const members = await listMembers(page);
+  return members.filter((each) => !each.isGuest && each.roleName === 'Admin').map((m) => m.name);
 }
 
 /**

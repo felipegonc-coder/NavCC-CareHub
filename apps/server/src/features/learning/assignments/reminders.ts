@@ -5,29 +5,26 @@ import {
   type SentReminder,
 } from '@carehub/learning';
 import type { SendNoticeInput } from '../../notices';
-import {
-  learnerAssignments,
-  todayIn,
-  type AssignmentSources,
-  type LearnerAssignments,
-} from './service';
+import { LEARNING_DAY_ZONE, learningToday } from '../day';
+import { learnerAssignments, type AssignmentSources, type LearnerAssignments } from './service';
 
-// The reminders job (docs/learning/api.md, Jobs). Every hour from 8:00 to 20:00 in Care Hub's time
-// zone, each person with a course assigned gets the reminders `remindersDue` says are due today, as
-// notices in their 🔔 Care Hub chat (never an email), unless Learning is off in the workspace. Each
-// reminder is logged just before its notice goes out, so none is sent twice, even when a run stops
-// half way; when a notice can't go out, its reminder comes off the log again and the next run sends
-// it. The "assigned" notice also goes out the moment an assignment is made (`sendAssignedNotices`);
-// the job sends it to people who join a group later, and to anyone that one missed.
+// The reminders job (docs/learning/api.md, Jobs). Every hour from 8:00 to 20:00 in the Learning
+// day's zone (decision 0317), each person with a course assigned gets the reminders `remindersDue`
+// says are due today, as notices in their 🔔 Care Hub chat (never an email), unless Learning is off
+// in the workspace. Each reminder is logged just before its notice goes out, so none is sent twice,
+// even when a run stops half way; when a notice can't go out, its reminder comes off the log again
+// and the next run sends it. The "assigned" notice also goes out the moment an assignment is made
+// (`sendAssignedNotices`); the job sends it to people who join a group later, and to anyone that
+// one missed.
 
 /** The periodic task (features/jobs): one run at a time across the servers. */
 export const REMINDERS_TASK = 'learning.reminders';
 export const REMINDERS_EVERY_MS = 60 * 60 * 1000;
 
-/** Reminders go out from 8:00 until 20:00, Care Hub time. */
+/** Reminders go out from 8:00 until 20:00 in LEARNING_DAY_ZONE. */
 const SENDING_HOURS = { from: 8, until: 20 };
 
-/** A reminder that went out (learning_reminders_sent); `sentOn` is the day, Care Hub time. */
+/** A reminder that went out (learning_reminders_sent); `sentOn` is the Learning day. */
 export type SentReminderRow = {
   workspaceId: string;
   userId: string;
@@ -81,8 +78,8 @@ export async function sendReminders(
   now = new Date(),
   signal?: AbortSignal,
 ): Promise<number> {
-  const { today, timeZone } = todayIn(undefined, now);
-  const hour = hourIn(timeZone, now);
+  const today = learningToday(now);
+  const hour = hourIn(LEARNING_DAY_ZONE, now);
   if (hour < SENDING_HOURS.from || hour >= SENDING_HOURS.until) return 0;
   const outcome: Outcome = { sent: 0, failed: [] };
   for (const workspaceId of await sources.workspaces()) {
@@ -108,7 +105,7 @@ export async function sendAssignedNotices(
   if (!(await sources.learningEnabled(workspaceId))) return 0;
   const made = new Set(assignmentIds);
   const outcome: Outcome = { sent: 0, failed: [] };
-  await remindWorkspace(sources, workspaceId, todayIn(undefined, now).today, outcome, undefined, {
+  await remindWorkspace(sources, workspaceId, learningToday(now), outcome, undefined, {
     kinds: ['assigned'],
     only: (assignment) => assignment.assignmentIds.some((id) => made.has(id)),
   });
@@ -178,8 +175,8 @@ async function remindWorkspace(
   }
 }
 
-/** The day, in Care Hub's time zone, the first of these assignments was made. */
+/** The Learning day the first of these assignments was made. */
 function firstDayOf(ids: readonly string[], madeAt: ReadonlyMap<string, Date>): string {
   const times = ids.flatMap((id) => madeAt.get(id)?.getTime() ?? []);
-  return times.length === 0 ? '' : todayIn(undefined, new Date(Math.min(...times))).today;
+  return times.length === 0 ? '' : learningToday(new Date(Math.min(...times)));
 }
