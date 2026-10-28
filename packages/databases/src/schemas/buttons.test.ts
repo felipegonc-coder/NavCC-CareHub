@@ -136,6 +136,23 @@ describe('buttonActionSchema', () => {
     expect(ok(buttonActionSchema, to([], ids(LIMITS.properties + 1)))).toBe(false);
   });
 
+  it('sends messages to groups, roles and Everyone', () => {
+    const to = (extra: Record<string, unknown>) => ({
+      ...message,
+      to: { ...message.to, ...extra },
+    });
+    const most = ids(REQUEST_LIMITS.principals);
+    expect(ok(buttonActionSchema, to({ groupIds: most, roleIds: most, everyone: true }))).toBe(
+      true,
+    );
+    expect(ok(buttonActionSchema, to({ groupIds: ids(REQUEST_LIMITS.principals + 1) }))).toBe(
+      false,
+    );
+    expect(ok(buttonActionSchema, to({ roleIds: [''] }))).toBe(false);
+    expect(ok(buttonActionSchema, to({ everyone: 'yes' }))).toBe(false);
+    expect(ok(buttonActionSchema, to({ everyone: undefined }))).toBe(false);
+  });
+
   it('takes messages up to 2,000 characters', () => {
     const m = (n: number) => ({ ...message, message: 'x'.repeat(n) });
     expect(ok(buttonActionSchema, m(REQUEST_LIMITS.message))).toBe(true);

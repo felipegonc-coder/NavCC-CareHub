@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { NoticeFilter } from './domain/filters';
 import { NoticeInputError } from './domain/validate';
 import { isNoticeOwner } from './domain/view';
 import {
@@ -39,7 +40,9 @@ function comment(overrides: Partial<SendNoticeInput> = {}): SendNoticeInput {
 }
 
 /** A runtime over a memory store, with a clock the test moves and a log of what happened. */
-function setup(options: { emit?: NoticesRuntime['emit'] } = {}) {
+function setup(
+  options: { emit?: NoticesRuntime['emit']; isMember?: NoticesRuntime['isMember'] } = {},
+) {
   const store = createMemoryNoticeStore();
   const log: string[] = [];
   const emitted: [string, NoticeCreatedEvent][] = [];
@@ -68,6 +71,7 @@ function setup(options: { emit?: NoticesRuntime['emit'] } = {}) {
     now: () => clock,
     onError: (error) => errors.push(error),
   };
+  if (options.isMember) runtime.isMember = options.isMember;
   return {
     store,
     runtime,
@@ -156,6 +160,9 @@ describe('grouping', () => {
     ['in another workspace', comment({ workspaceId: otherWorkspaceId })],
     ['with another key', comment({ groupKey: 'comments:qa-form' })],
     ['without a key', comment({ groupKey: undefined })],
+    ['of another kind', comment({ kind: 'suggestion' })],
+    // A comment that mentions the person is never folded into their comment notices (CM-08).
+    ['for a mention', comment({ kind: 'mention', title: 'Mentioned you in a comment' })],
   ];
   for (const [name, next] of apart) {
     it(`adds a new notice ${name}`, async () => {
@@ -165,6 +172,14 @@ describe('grouping', () => {
       expect(store.records).toHaveLength(2);
     });
   }
+
+  it('never groups mentions', async () => {
+    const { store, send } = setup();
+    const mention = comment({ kind: 'mention', title: 'Mentioned you in a comment' });
+    await send(mention);
+    await expect(send(mention)).resolves.toMatchObject({ grouped: false });
+    expect(store.records.map((notice) => notice.groupKey)).toEqual([null, null]);
+  });
 
   it('adds a new notice 5 minutes after the last one', async () => {
     const { store, send, wait } = setup();
@@ -198,6 +213,42 @@ describe('unread counts and privacy', () => {
     expect(await store.countUnread(averysChat)).toBe(1);
     expect(await store.countUnread({ workspaceId, userId: sam })).toBe(1);
     expect(await store.countUnread({ workspaceId: otherWorkspaceId, userId: avery })).toBe(1);
+
+    // Mark all as read: the whole chat, and only that chat.
+    expect(await store.markRead(averysChat, { all: true }, now)).toBe(1);
+    expect(await store.countUnread(averysChat)).toBe(0);
+    expect(await store.countUnread({ workspaceId, userId: sam })).toBe(1);
+    expect(await store.countUnread({ workspaceId: otherWorkspaceId, userId: avery })).toBe(1);
+  });
+
+  it('lists only the notices a filter chip shows', async () => {
+    const { store, send } = setup();
+    const kinds = ['mention', 'comment', 'reminder', 'access_request', 'alert', 'reply'] as const;
+    for (const kind of kinds) await send(comment({ kind, title: kind, groupKey: undefined }));
+    const [reminder] = await store.list(averysChat, { limit: 1, filter: 'reminders' });
+    await store.markRead(averysChat, { noticeIds: [reminder?.id ?? ''] }, new Date());
+    const titles = async (filter: NoticeFilter) =>
+      (await store.list(averysChat, { limit: 10, filter })).map((notice) => notice.title);
+
+    expect(await titles('all')).toEqual([
+      'reply',
+      'alert',
+      'access_request',
+      'reminder',
+      'comment',
+      'mention',
+    ]);
+    expect(await titles('mentions')).toEqual(['reply', 'mention']);
+    expect(await titles('following')).toEqual(['comment']);
+    expect(await titles('reminders')).toEqual(['reminder']);
+    expect(await titles('requests')).toEqual(['access_request']);
+    expect(await titles('unread')).toEqual([
+      'reply',
+      'alert',
+      'access_request',
+      'comment',
+      'mention',
+    ]);
   });
 
   it("lists a chat newest first, a page at a time, without other people's notices", async () => {
@@ -213,15 +264,84 @@ describe('unread counts and privacy', () => {
     expect(rest.map((notice) => notice.title)).toEqual(['First']);
   });
 
-  it('knows whose chat a notice is in, and nobody else owns it, admins included', async () => {
+  it('gets a notice for its owner, and nobody else owns it, admins included', async () => {
     const { store, send } = setup();
     const { noticeId } = await send(comment());
-    const owner = await store.ownerOf(noticeId);
-    expect(owner).toEqual(averysChat);
-    expect(owner && isNoticeOwner(owner, averysChat)).toBe(true);
+    const notice = await store.get(noticeId);
+    expect(notice).toMatchObject({ id: noticeId, ...averysChat, title: 'Commented on a page' });
+    expect(notice && isNoticeOwner(notice, averysChat)).toBe(true);
     // Sam is an admin of Care Team Demo.
-    expect(owner && isNoticeOwner(owner, { workspaceId, userId: sam })).toBe(false);
-    expect(await store.ownerOf('3f1c2d4e-0000-4000-8000-00000000ffff')).toBeNull();
+    expect(notice && isNoticeOwner(notice, { workspaceId, userId: sam })).toBe(false);
+    expect(await store.get('3f1c2d4e-0000-4000-8000-00000000ffff')).toBeNull();
+  });
+});
+
+describe('idempotency keys', () => {
+  it('adds nothing and tells no one when a send is retried with the same key', async () => {
+    const { store, emitted, published, send } = setup();
+    const first = await send(comment({ idempotencyKey: 'comments:c-1' }));
+    const retry = await send(comment({ idempotencyKey: 'comments:c-1', text: 'Edited.' }));
+    expect(retry).toEqual({ noticeId: first.noticeId, grouped: false, duplicate: true });
+    expect(store.records.map((notice) => [notice.text, notice.count])).toEqual([
+      ['Looks good to me.', 1],
+    ]);
+    expect(emitted).toHaveLength(1);
+    expect(published).toHaveLength(1);
+  });
+
+  it('keeps keys apart for each person and workspace', async () => {
+    const { store, send } = setup();
+    const key = 'reminders:r-1:2026-11-02T09:00';
+    for (const input of [
+      comment({ idempotencyKey: key }),
+      comment({ userId: riley, idempotencyKey: key }),
+      comment({ workspaceId: otherWorkspaceId, idempotencyKey: key }),
+    ]) {
+      expect((await send(input)).duplicate).toBeUndefined();
+    }
+    expect(store.records).toHaveLength(3);
+  });
+
+  it('returns the grouped notice for a key whose send was grouped', async () => {
+    const { send, wait } = setup();
+    const first = await send(comment());
+    wait(MINUTE);
+    const grouped = await send(comment({ idempotencyKey: 'comments:c-2' }));
+    expect(grouped).toEqual({ noticeId: first.noticeId, grouped: true });
+    await expect(send(comment({ idempotencyKey: 'comments:c-2' }))).resolves.toEqual({
+      noticeId: first.noticeId,
+      grouped: false,
+      duplicate: true,
+    });
+  });
+});
+
+describe('membership', () => {
+  it("drops notices for people who aren't in the workspace", async () => {
+    const asked: [string, string][] = [];
+    const { store, log, send } = setup({
+      isMember: async (inWorkspace, userId) => {
+        asked.push([inWorkspace, userId]);
+        return userId !== riley;
+      },
+    });
+    await expect(send(comment({ userId: riley }))).resolves.toEqual({
+      noticeId: '',
+      grouped: false,
+      dropped: true,
+    });
+    expect(store.records).toHaveLength(0);
+    expect(log).toEqual([]);
+    await expect(send(comment())).resolves.toMatchObject({ grouped: false });
+    expect(asked).toEqual([
+      [workspaceId, riley],
+      [workspaceId, avery],
+    ]);
+  });
+
+  it('still checks the input first', async () => {
+    const { send } = setup({ isMember: async () => false });
+    await expect(send(comment({ title: '' }))).rejects.toBeInstanceOf(NoticeInputError);
   });
 });
 
