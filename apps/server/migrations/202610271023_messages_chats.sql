@@ -18,7 +18,7 @@ CREATE TABLE msg_chats (
   -- messages of a chat get 1, 2, 3, … in the order they're sent.
   last_seq integer NOT NULL DEFAULT 0,
   last_message_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT msg_chats_type_check CHECK (
+  CONSTRAINT msg_chats_shape_check CHECK (
     (type = 'direct' AND direct_key IS NOT NULL AND members_key IS NULL AND name IS NULL)
     OR (type = 'group' AND direct_key IS NULL AND members_key IS NOT NULL)
   )
@@ -64,7 +64,7 @@ CREATE TABLE msg_messages (
   deleted_at timestamptz,
   CONSTRAINT msg_messages_seq_key UNIQUE (chat_id, seq),
   CONSTRAINT msg_messages_client_key UNIQUE (sender_id, client_id),
-  CONSTRAINT msg_messages_kind_check CHECK (
+  CONSTRAINT msg_messages_shape_check CHECK (
     (kind = 'message' AND client_id IS NOT NULL AND system IS NULL)
     OR (kind = 'system' AND client_id IS NULL AND sender_id IS NULL AND system IS NOT NULL)
   )
