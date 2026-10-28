@@ -31,14 +31,18 @@ import {
   type QueryGroup,
   type RowPlace,
 } from '../contract';
+import { isApiError, UNKNOWN_ERROR_MESSAGE } from '../api';
 import {
   CELL_TEXT,
   CellEditor,
   CellView,
+  PropertyMenu,
   rowCell,
+  usePropertyActions,
   type CellContext,
   type CommitDetails,
   type PersonChoice,
+  type PropertyMenuEvent,
 } from './cell-adapter';
 import { BulkBar } from './bulk-bar';
 import {
@@ -57,7 +61,7 @@ import { dropTarget, propertyOrder, tableColumns, tableOptions, type TableColumn
 import { DRAG_START, followPointer } from './drag';
 import { missingOptions, sameStored, withSavedOptions } from './edits';
 import { TotalsRow } from './footer';
-import { HeaderCell, PropertiesMenu } from './header';
+import { columnItems, HeaderCell, PropertiesMenu } from './header';
 import { EditHistory, type AddedRow, type Step, type ValueChange, type Write } from './history';
 import {
   asQueryRow,
@@ -169,6 +173,8 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
   // Undo and redo: the person's changes in this database while it's open here.
   const [history] = useState(() => new EditHistory());
+  // Rename, type change, insert, duplicate and delete in the columns' menus (W3-3's PropertyMenu).
+  const propertyActions = usePropertyActions(meta.id);
   // Row writes go out a few at a time and in order (a paste can change 500 rows).
   const [queue] = useState(() => writeQueue(WRITES_AT_ONCE));
   // The workspace's people: Person editors list them, and pasted names are found among them.
@@ -248,6 +254,11 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
   );
 
   const lines = useMemo(() => sections.flatMap((s) => (s.collapsed ? [] : s.lines)), [sections]);
+  // Every row the table has, once each: a column's menu counts the values a change would clear.
+  const loadedRows = useMemo(
+    () => [...new Map(sections.flatMap((s) => s.lines.map((l) => [l.row.id, l.row]))).values()],
+    [sections],
+  );
   const lineAt = useMemo(() => new Map(lines.map((line, index) => [line.key, index])), [lines]);
   // A row menu closes when its row goes (to Trash, or out of the view), so it can't come back open.
   useEffect(() => {
@@ -877,6 +888,13 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
     setNotice({ id: notices.current, text });
   };
 
+  // A property that changed type or went: undo can't write its old values back.
+  const propertyChanged = (event: PropertyMenuEvent) => {
+    if (event.kind === 'type_changed' || event.kind === 'deleted') {
+      history.forgetProperty(event.property.id);
+    }
+  };
+
   const gridTop = () => grid.current?.getBoundingClientRect().top ?? 0;
 
   /** The sections and their rows as drawn now, px from the table's top edge. */
@@ -1461,14 +1479,42 @@ export default function TableLayout({ meta, view, data, viewer, actions, readOnl
                   style={placeOf(column)}
                   className={cellClass(column)}
                   editable={canEditViews}
-                  frozenHere={options.frozenUpTo === column.property.id}
-                  menuOpen={menuFor === column.property.id}
-                  onMenuOpenChange={(open) => setMenuFor(open ? column.property.id : null)}
+                  menu={(button) => (
+                    <PropertyMenu
+                      meta={meta}
+                      property={column.property}
+                      actions={propertyActions}
+                      view={view}
+                      updateView={(patch) => changeView(() => patch)}
+                      rows={loadedRows}
+                      ctx={ctx}
+                      people={people}
+                      viewItems={columnItems({
+                        column,
+                        editable: canEditViews,
+                        frozenHere: options.frozenUpTo === column.property.id,
+                        grouped: view.grouping?.propertyId === column.property.id,
+                        calculation: view.calculations[column.property.id],
+                        change: tools.columnChanges(column),
+                      })}
+                      open={menuFor === column.property.id}
+                      onOpenChange={(open) =>
+                        setMenuFor((now) =>
+                          open ? column.property.id : now === column.property.id ? null : now,
+                        )
+                      }
+                      onChanged={propertyChanged}
+                      onError={(error) =>
+                        say(isApiError(error) ? error.message : UNKNOWN_ERROR_MESSAGE)
+                      }
+                    >
+                      {button}
+                    </PropertyMenu>
+                  )}
                   onPress={() => tools.pressHeader(column)}
                   moving={moving?.propertyId === column.property.id}
                   onMoveStart={(event) => tools.startMove(event, column, columns)}
                   onResizeStart={(event) => tools.startResize(event, column)}
-                  change={tools.columnChanges(column)}
                 />
               ))}
               {canEditViews && (
