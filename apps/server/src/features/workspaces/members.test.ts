@@ -4,17 +4,21 @@ import {
   PERMISSION_KEYS,
   type PermissionKey,
 } from '@carehub/shared';
+import { randomBytes } from 'node:crypto';
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, createUser, hasDatabase, injectAs, type TestApp } from '../../testing';
 import { createRole } from '../roles';
 import {
+  addMember,
   getCurrentMember,
   getDefaultWorkspace,
   getMembership,
   syncDefaultWorkspace,
+  type AddMemberInput,
 } from './members';
+import { removeMember } from './removal';
 import { roles, workspaceMembers, workspaces } from './schema';
 
 const LEARNING: PermissionKey[] = ['learning.build', 'learning.assign', 'learning.analytics'];
@@ -30,6 +34,14 @@ describe.skipIf(!hasDatabase)('workspaces, roles and members', () => {
         const kind = async (request: { member: { kind: string } | null }) => ({
           kind: request.member?.kind,
         });
+        instance.get('/api/test/plain', kind);
+        instance.get('/api/test/anyone', { config: { allowNonMembers: true } }, kind);
+        instance.get('/api/test/site', { preHandler: instance.requireSiteAdmin }, kind);
+        instance.get(
+          '/api/test/site-anywhere',
+          { config: { allowNonMembers: true }, preHandler: instance.requireSiteAdmin },
+          kind,
+        );
         instance.get('/api/test/member', { preHandler: instance.requireMember }, kind);
         instance.get(
           '/api/test/guests-too',
@@ -134,6 +146,102 @@ describe.skipIf(!hasDatabase)('workspaces, roles and members', () => {
     expect(await get(member, '/api/test/member')).toBe(403);
     const me = await injectAs(app, member, { method: 'GET', url: '/api/auth/me' });
     expect(me.json()).toMatchObject({ member: null });
+  });
+
+  describe('every route checks membership', () => {
+    /** A viewer, a guest, someone outside the workspace and a removed member, in that order. */
+    async function people() {
+      const removed = await createUser(testApp.db, { role: 'editor' });
+      expect(await removeMember(app, removed.id)).toBe(true);
+      return [
+        await createUser(testApp.db, { role: 'viewer' }),
+        await createUser(testApp.db, { kind: 'guest' }),
+        await createUser(testApp.db, { role: null }),
+        removed,
+      ];
+    }
+    async function answers(everyone: { id: string }[], options: InjectOptions) {
+      const statuses: number[] = [];
+      for (const person of everyone) {
+        statuses.push((await injectAs(app, person, options)).statusCode);
+      }
+      return statuses;
+    }
+
+    it('lets members in by default, guests with allowGuests and anyone with allowNonMembers', async () => {
+      const everyone = await people();
+      expect(await answers(everyone, { method: 'GET', url: '/api/test/plain' })).toEqual([
+        200, 403, 403, 403,
+      ]);
+      expect(await answers(everyone, { method: 'GET', url: '/api/test/guests-too' })).toEqual([
+        200, 200, 403, 403,
+      ]);
+      expect(await answers(everyone, { method: 'GET', url: '/api/test/anyone' })).toEqual([
+        200, 200, 200, 200,
+      ]);
+      expect((await app.inject({ method: 'GET', url: '/api/test/anyone' })).statusCode).toBe(401);
+      const refused = await injectAs(app, everyone[1]!, { method: 'GET', url: '/api/test/plain' });
+      expect(refused.json()).toEqual({
+        error: { code: 'forbidden', message: "You don't have access to this." },
+      });
+    });
+
+    it('Home, push, reminders and live refuse guests, outsiders and removed members', async () => {
+      const [member, ...others] = await people();
+      const routes: InjectOptions[] = [
+        { method: 'GET', url: '/api/home/settings' },
+        { method: 'GET', url: '/api/push/subscriptions' },
+        { method: 'GET', url: '/api/reminders' },
+        { method: 'POST', url: '/api/live/topics', payload: { connectionId: 'none' } },
+        { method: 'GET', url: '/api/live' },
+      ];
+      for (const route of routes) {
+        expect(await answers(others, route), `${route.method} ${route.url}`).toEqual([
+          403, 403, 403,
+        ]);
+      }
+      // A member gets through: 404 is the unknown connection. The stream is left out (it stays open).
+      const theirs: number[] = [];
+      for (const route of routes.slice(0, 4)) {
+        theirs.push((await injectAs(app, member!, route)).statusCode);
+      }
+      expect(theirs).toEqual([200, 200, 200, 404]);
+    });
+
+    it('account routes work outside the workspace', async () => {
+      const password = randomBytes(12).toString('base64url');
+      const outsider = await createUser(testApp.db, { role: null, password });
+      const me = await injectAs(app, outsider, { method: 'GET', url: '/api/auth/me' });
+      expect(me.json()).toMatchObject({ member: null });
+      const changed = await injectAs(app, outsider, {
+        method: 'POST',
+        url: '/api/auth/password',
+        payload: { currentPassword: password, newPassword: randomBytes(12).toString('base64url') },
+      });
+      expect(changed.statusCode).toBe(200);
+      const url = '/api/auth/sign-out-everywhere';
+      expect((await injectAs(app, outsider, { method: 'POST', url })).statusCode).toBe(200);
+    });
+
+    it('a site admin outside the workspace gets only routes with allowNonMembers', async () => {
+      const siteAdmin = await createUser(testApp.db, { siteAdmin: true, role: null });
+      const member = await createUser(testApp.db);
+      expect(await get(siteAdmin, '/api/test/site')).toBe(403);
+      expect(await get(siteAdmin, '/api/test/site-anywhere')).toBe(200);
+      expect(await get(member, '/api/test/site-anywhere')).toBe(403);
+    });
+  });
+
+  it('addMember needs a role for a member, and adds nothing without one', async () => {
+    const person = await createUser(testApp.db, { role: null });
+    const noRole = { userId: person.id } as AddMemberInput;
+    await expect(addMember(testApp.db, noRole)).rejects.toThrow('A member needs a role');
+    expect(await getCurrentMember(testApp.db, person.id)).toBeNull();
+    await addMember(testApp.db, { userId: person.id, role: 'viewer' });
+    expect(await getCurrentMember(testApp.db, person.id)).toMatchObject({
+      kind: 'member',
+      roleName: BUILT_IN_ROLES.viewer.name,
+    });
   });
 
   it('getMembership finds members and guests of that workspace, and null for anyone else', async () => {

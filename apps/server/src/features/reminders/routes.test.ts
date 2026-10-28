@@ -10,7 +10,6 @@ import {
 } from '../../testing';
 import { drainJobsForTest } from '../jobs/testing';
 import { bindMemoryNotices } from '../notices/testing';
-import { STAND_IN_WORKSPACE_ID } from './routes';
 import {
   createEventReminder,
   deleteEventReminders,
@@ -180,7 +179,7 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
     const [five, six, seven] = [5, 6, 7].map((hours) => ({ start: hoursFromNow(hours) }));
     const occurrenceStart = '2026-11-02T09:00';
     const input = {
-      workspaceId: STAND_IN_WORKSPACE_ID,
+      workspaceId: avery.workspaceId!,
       eventId: 'evt_pg',
       occurrenceStart,
       start: five!,
@@ -209,7 +208,7 @@ describe.skipIf(!hasDatabase)('reminders on Postgres', () => {
       email: 'riley.chen@example.test',
     });
     const reminder = {
-      workspaceId: STAND_IN_WORKSPACE_ID,
+      workspaceId: riley.workspaceId!,
       userId: riley.id,
       target: PAGE,
       minutesBefore: null,
