@@ -137,15 +137,16 @@ export function removeNode(root: FilterGroup, id: Id): FilterGroup {
   return editNode(root, id, () => []);
 }
 
-function copyOf(node: FilterNode): FilterNode {
+/** A copy of a rule or group with new ids. */
+export function copyNode(node: FilterNode): FilterNode {
   return node.kind === 'group'
-    ? { ...node, id: newId(), children: node.children.map(copyOf) }
+    ? { ...node, id: newId(), children: node.children.map(copyNode) }
     : { ...node, id: newId() };
 }
 
 /** A copy of a rule or group (new ids) right after it. */
 export function duplicateNode(root: FilterGroup, id: Id): FilterGroup {
-  return editNode(root, id, (node) => [node, copyOf(node)]);
+  return editNode(root, id, (node) => [node, copyNode(node)]);
 }
 
 export function setCombinator(root: FilterGroup, groupId: Id, combinator: Combinator): FilterGroup {

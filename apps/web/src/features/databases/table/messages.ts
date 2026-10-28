@@ -22,4 +22,9 @@ export const TABLE_TEXT = {
   setProperty: 'Set property',
   delete: 'Delete',
   clearSelection: 'Clear selection',
+  /** After a paste, when some values couldn't go in. */
+  skipped: (count: number) =>
+    count === 1
+      ? "1 value didn't fit and was skipped."
+      : `${count} values didn't fit and were skipped.`,
 } as const;

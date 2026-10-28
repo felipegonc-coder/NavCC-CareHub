@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HttpError } from '../../core/errors';
 import { NOTES_MARKDOWN } from './domain/notes';
 import { NOTES_PARENT_TITLE, registerMeetingEventLookup, takeMeetingNotes } from './service';
-import { createMemoryNotesStore, createMemoryPages, memoryDb } from './testing';
+import { createMemoryCore, createMemoryNotesStore, memoryDb } from './testing';
 import type { MeetingEvent, Viewer } from './types';
 
 const WORKSPACE = 'care-team-demo';
+const NOW = new Date('2026-10-27T12:00:00.000Z');
 const member = (userId: string, canCreatePages = true): Viewer => ({
   userId,
   workspaceId: WORKSPACE,
@@ -39,10 +40,10 @@ const standUp = (occurrence: string, start: string): MeetingEvent => ({
 
 let events: MeetingEvent[];
 let store: ReturnType<typeof createMemoryNotesStore>;
-let pages: ReturnType<typeof createMemoryPages>;
+let core: ReturnType<typeof createMemoryCore>;
 const take = (viewer: Viewer, input: { eventId: string; occurrence?: string }) =>
-  takeMeetingNotes(memoryDb, { store, pages: pages.service }, viewer, input);
-const notesPages = () => pages.pages.filter((page) => page.title !== NOTES_PARENT_TITLE);
+  takeMeetingNotes(memoryDb, { store, core: core.service }, viewer, input, NOW);
+const notesPages = () => core.pages.filter((page) => page.title !== NOTES_PARENT_TITLE);
 
 async function failure(promise: Promise<unknown>): Promise<number> {
   const error = await promise.then(
@@ -56,11 +57,13 @@ async function failure(promise: Promise<unknown>): Promise<number> {
 beforeEach(() => {
   events = [
     huddle,
+    { ...huddle, eventId: 'rota-review', title: 'Rota review' },
     standUp('2026-10-26T09:30', '2026-10-26T15:30:00.000Z'),
     standUp('2026-11-02T09:30', '2026-11-02T16:30:00.000Z'),
+    standUp('2028-11-06T09:30', '2028-11-06T16:30:00.000Z'),
   ];
   store = createMemoryNotesStore();
-  pages = createMemoryPages();
+  core = createMemoryCore();
   registerMeetingEventLookup(async (_db, { workspaceId, eventId, occurrence }) => {
     if (workspaceId !== WORKSPACE) return null;
     const found = events.find(
@@ -75,15 +78,16 @@ describe('takeMeetingNotes', () => {
   it('makes the notes page under Meeting notes in the private space (MT-01)', async () => {
     const { notes, created } = await take(avery, { eventId: 'team-huddle' });
     expect(created).toBe(true);
-    const [parent, page] = pages.pages;
+    const [parent, page] = core.pages;
     expect(parent).toMatchObject({ title: 'Meeting notes', parentId: null, createdBy: 'avery' });
-    expect(parent?.spaceId).toBe(pages.privateSpaces.get('avery'));
+    expect(parent?.spaceId).toBe(core.privateSpaces.get('avery'));
     expect(page).toMatchObject({
       id: notes.pageId,
       title: 'Team huddle · Oct 27, 2026',
       parentId: parent?.id,
       spaceId: parent?.spaceId,
       markdown: NOTES_MARKDOWN,
+      inheritAccess: false,
     });
     expect(notes).toMatchObject({
       workspaceId: WORKSPACE,
@@ -115,32 +119,42 @@ describe('takeMeetingNotes', () => {
 
   it("shares the page with the event's workspace attendees as Can edit (MT-D1)", async () => {
     const { notes } = await take(sam, { eventId: 'team-huddle' });
-    const shared = pages.grants.map(({ pageId, userId, level, grantedBy }) => ({
+    const shared = core.grants.map(({ pageId, userId, level, source }) => ({
       pageId,
       userId,
       level,
-      grantedBy,
+      source,
     }));
     expect(shared).toEqual(
       ['avery', 'riley', 'casey'].map((userId) => ({
         pageId: notes.pageId,
         userId,
         level: 'edit',
-        grantedBy: 'sam',
+        source: { type: 'user', id: 'sam' },
       })),
     );
     expect(store.grants.map((grant) => grant.userId)).toEqual(['avery', 'riley', 'casey']);
-    expect(store.grants.map((grant) => grant.grantId)).toEqual(pages.grants.map((g) => g.id));
+    expect(store.grants.map((grant) => grant.grantId)).toEqual(core.grants.map((g) => g.id));
   });
 
-  it('gives Can edit to someone invited after the notes were made', async () => {
+  it('gives nothing to guests or people who left the workspace', async () => {
+    core.notMembers.add('riley');
+    const { notes } = await take(avery, { eventId: 'team-huddle' });
+    expect(core.grants.map((grant) => grant.userId)).toEqual(['sam', 'casey']);
+    expect(core.canOpen('riley', notes.pageId)).toBe(false);
+  });
+
+  it('gives Can edit, from the meeting, to someone invited after the notes were made', async () => {
     const { notes } = await take(avery, { eventId: 'team-huddle' });
     events[0] = { ...huddle, memberIds: [...huddle.memberIds, 'jordan'] };
     const opened = await take(jordan, { eventId: 'team-huddle' });
     expect(opened).toMatchObject({ created: false, notes: { pageId: notes.pageId } });
-    expect(pages.grants.at(-1)).toMatchObject({ userId: 'jordan', grantedBy: 'avery' });
+    expect(core.grants.at(-1)).toMatchObject({
+      userId: 'jordan',
+      source: { type: 'meeting', notesId: notes.id },
+    });
     await take(jordan, { eventId: 'team-huddle' });
-    expect(pages.grants.filter((grant) => grant.userId === 'jordan')).toHaveLength(1);
+    expect(core.grants.filter((grant) => grant.userId === 'jordan')).toHaveLength(1);
   });
 
   it('makes a page for each occurrence of a repeating meeting, in one Meeting notes page', async () => {
@@ -152,21 +166,43 @@ describe('takeMeetingNotes', () => {
       'Weekly stand-up · Oct 26, 2026',
       'Weekly stand-up · Nov 2, 2026',
     ]);
-    expect(pages.pages.filter((page) => page.title === NOTES_PARENT_TITLE)).toHaveLength(1);
+    expect(core.pages.filter((page) => page.title === NOTES_PARENT_TITLE)).toHaveLength(1);
   });
 
-  it('makes a new Meeting notes page when the old one is gone', async () => {
+  it('makes a new Meeting notes page when the old one is in Trash or in another space', async () => {
     await take(avery, { eventId: 'team-huddle' });
-    const old = pages.pages[0]!;
-    old.trashed = true;
+    const trashed = core.pages[0]!;
+    trashed.trashed = true;
+    await take(avery, { eventId: 'rota-review' });
+    const second = core.pages.find((page) => page.id === store.places.get(`${WORKSPACE}:avery`))!;
+    expect(second).toMatchObject({ title: NOTES_PARENT_TITLE, trashed: false });
+    expect(second.id).not.toBe(trashed.id);
+
+    core.move(second.id, 'team-space');
     const { notes } = await take(avery, {
       eventId: 'weekly-stand-up',
       occurrence: '2026-10-26T09:30',
     });
-    const parent = pages.pages.find((page) => page.id === store.places.get(`${WORKSPACE}:avery`));
-    expect(parent).toMatchObject({ title: NOTES_PARENT_TITLE, trashed: false });
-    expect(parent?.id).not.toBe(old.id);
-    expect(pages.pages.find((page) => page.id === notes.pageId)?.parentId).toBe(parent?.id);
+    const third = core.pages.find((page) => page.id === store.places.get(`${WORKSPACE}:avery`))!;
+    expect(third.id).not.toBe(second.id);
+    expect(third.spaceId).toBe(core.privateSpaces.get('avery'));
+    expect(core.pages.find((page) => page.id === notes.pageId)?.parentId).toBe(third.id);
+  });
+
+  it('keeps new notes from people the Meeting notes page was shared with or moved to', async () => {
+    await take(avery, { eventId: 'team-huddle' });
+    const parent = core.pages[0]!;
+    core.share(parent.id, 'morgan');
+    const shared = await take(avery, { eventId: 'rota-review' });
+    expect(core.pages.find((page) => page.id === shared.notes.pageId)?.parentId).toBe(parent.id);
+    expect(core.canOpen('morgan', parent.id)).toBe(true);
+    expect(core.canOpen('morgan', shared.notes.pageId)).toBe(false);
+
+    core.teamSpaces.set('team-space', new Set(['morgan']));
+    core.move(parent.id, 'team-space');
+    const moved = await take(avery, { eventId: 'weekly-stand-up', occurrence: '2026-10-26T09:30' });
+    expect(core.canOpen('morgan', moved.notes.pageId)).toBe(false);
+    expect(core.canOpen('sam', moved.notes.pageId)).toBe(true);
   });
 
   it("keeps each workspace's notes apart, even for the same event ID", async () => {
@@ -178,18 +214,24 @@ describe('takeMeetingNotes', () => {
     expect(theirs.notes.pageId).not.toBe(ours.notes.pageId);
   });
 
-  it('is only for the organizer and invited members (403)', async () => {
-    expect(await failure(take(morgan, { eventId: 'team-huddle' }))).toBe(403);
+  it("is 404 for people not invited, as for events that don't exist", async () => {
+    expect(await failure(take(morgan, { eventId: 'team-huddle' }))).toBe(404);
     await take(avery, { eventId: 'team-huddle' });
-    expect(await failure(take(morgan, { eventId: 'team-huddle' }))).toBe(403);
-    expect(pages.grants.some((grant) => grant.userId === 'morgan')).toBe(false);
+    expect(await failure(take(morgan, { eventId: 'team-huddle' }))).toBe(404);
+    expect(core.grants.some((grant) => grant.userId === 'morgan')).toBe(false);
   });
 
   it('needs the Create permission to make the page, not to open it', async () => {
     expect(await failure(take(casey, { eventId: 'team-huddle' }))).toBe(403);
-    expect(pages.pages).toHaveLength(0);
+    expect(core.pages).toHaveLength(0);
     const { notes } = await take(riley, { eventId: 'team-huddle' });
     expect((await take(casey, { eventId: 'team-huddle' })).notes.pageId).toBe(notes.pageId);
+  });
+
+  it('makes notes only for occurrences within a year of today (400)', async () => {
+    const later = { eventId: 'weekly-stand-up', occurrence: '2028-11-06T09:30' };
+    expect(await failure(take(avery, later))).toBe(400);
+    expect(core.pages).toHaveLength(0);
   });
 
   it("is 404 for an event or occurrence Calendar doesn't find", async () => {
@@ -204,10 +246,10 @@ describe('takeMeetingNotes', () => {
   });
 
   it('makes nothing until pages are on the server (409)', async () => {
-    const noPages = takeMeetingNotes(memoryDb, { store, pages: null }, avery, {
+    const noCore = takeMeetingNotes(memoryDb, { store, core: null }, avery, {
       eventId: 'team-huddle',
     });
-    expect(await failure(noPages)).toBe(409);
+    expect(await failure(noCore)).toBe(409);
     expect(store.notes).toHaveLength(0);
   });
 });
