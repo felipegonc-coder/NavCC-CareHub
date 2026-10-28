@@ -12,7 +12,7 @@ import {
   type TestApp,
   type TestUser,
 } from '../../../testing';
-import { drainJobsForTest } from '../../jobs/testing';
+import { drainJobsForTest, pauseJobsForTest } from '../../jobs/testing';
 import { bindImportPorts } from './ports';
 import importRoutes, { OPEN_MAX } from './routes';
 import { ieImportUploads, ieImports } from './schema';
@@ -53,6 +53,7 @@ describe.skipIf(!hasDatabase)('imports on Postgres', () => {
   let kai: TestUser;
   let careTeam: string;
   let unbind: () => void;
+  let resumeJobs: () => Promise<void>;
 
   beforeAll(async () => {
     test = await createTestApp({
@@ -60,6 +61,9 @@ describe.skipIf(!hasDatabase)('imports on Postgres', () => {
         await app.register(importRoutes, { prefix: URL });
       },
     });
+    // Jobs run only when a test runs them (runJobs): none may start before the test's next
+    // request, such as Cancel or a change of access.
+    resumeJobs = await pauseJobsForTest();
     avery = await createUser(test.db, { name: 'Avery Lin', email: 'avery.lin@example.test' });
     sam = await createUser(test.db, { name: 'Sam Ortiz', email: 'sam.ortiz@example.test' });
     kai = await createUser(test.db, { name: 'Kai Moreno', email: 'kai.moreno@example.test' });
@@ -84,6 +88,7 @@ describe.skipIf(!hasDatabase)('imports on Postgres', () => {
   });
   afterAll(async () => {
     unbind?.();
+    await resumeJobs?.();
     await test?.close();
   });
 
