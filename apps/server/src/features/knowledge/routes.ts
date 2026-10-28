@@ -21,6 +21,8 @@ import type { EventBus } from '../../core/events';
 import type { Db } from '../../db';
 import { registerPeriodicTask } from '../jobs';
 import { publishToUsers, publishTopic, registerTopic } from '../live';
+import { turnBack, turnBackPreview, turnInto, turnIntoPreview } from './convert';
+import { bindKnowledgeEvents, verificationChanged } from './events';
 import { deliverNotices, type KbNotice } from './notices';
 import { registerRowAccessLimiter } from './ports';
 import {
@@ -90,7 +92,11 @@ const knowledgeRoutes: FastifyPluginAsync = async (app) => {
     const { workspaceId, userId } = parsed.data;
     await deliverNotices(await ownerLeft(app.db, workspaceId, userId), app.log);
   });
-  app.addHook('onClose', async () => off());
+  const unbindEvents = bindKnowledgeEvents(app.events);
+  app.addHook('onClose', async () => {
+    off();
+    unbindEvents();
+  });
   const changed = (pageId: string) =>
     publishTopic(`${TOPIC}:${pageId}`, { type: 'knowledge.changed', data: { pageId } });
   /** After the commit: the notices, then a refresh for the people the report concerns. */
@@ -179,6 +185,31 @@ const knowledgeRoutes: FastifyPluginAsync = async (app) => {
     const { status } = reportStatusInputSchema.parse(request.body);
     const change = await setReportStatus(app.db, userOf(request), reportId, status);
     return sent(request, change);
+  });
+
+  app.get('/pages/:pageId/turn-into', async (request) => {
+    const { pageId } = pageParams.parse(request.params);
+    return turnIntoPreview(app.db, userOf(request), pageId);
+  });
+
+  app.post('/pages/:pageId/turn-into', async (request, reply) => {
+    const { pageId } = pageParams.parse(request.params);
+    return reply.code(201).send(await turnInto(app.db, userOf(request), pageId));
+  });
+
+  app.get('/bases/:databaseId/turn-back', async (request) => {
+    const { databaseId } = baseParams.parse(request.params);
+    return turnBackPreview(app.db, userOf(request), databaseId);
+  });
+
+  app.post('/bases/:databaseId/turn-back', async (request) => {
+    const { databaseId } = baseParams.parse(request.params);
+    const { workspaceId, pageIds, verified } = await turnBack(app.db, userOf(request), databaseId);
+    for (const pageId of [databaseId, ...pageIds]) changed(pageId);
+    for (const pageId of verified) {
+      verificationChanged({ workspaceId, pageId, state: 'none', until: null });
+    }
+    return { pageId: databaseId, pages: pageIds.length };
   });
 
   app.get('/bases/:databaseId/health', async (request) => {

@@ -9,14 +9,19 @@ import type { AddressInfo } from 'node:net';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import {
+  createResolver,
   createTransport,
+  DNS_TIMEOUT_MS,
+  DNS_TRIES,
   fetchCalendarLink,
   FetchLinkError,
   LINK_MAX_HEADER_BYTES,
+  LINK_TIMEOUT_MS,
   pinnedLookup,
   toHttpsUrl,
 } from './fetch-link';
 import type {
+  DnsClient,
   FetchLinkOptions,
   ResolvedAddress,
   Resolver,
@@ -393,13 +398,13 @@ describe('fetchCalendarLink', () => {
 
 describe('fetchCalendarLink with test origins', () => {
   const testOrigins = ['http://127.0.0.1:4598', 'http://localhost:4597'];
-  const local: Resolver = async (hostname) =>
+  const local: Resolver = async (hostname, signal) =>
     hostname === 'localhost'
       ? [
           { address: '::1', family: 6 },
           { address: '127.0.0.1', family: 4 },
         ]
-      : resolver()(hostname);
+      : resolver()(hostname, signal);
 
   it('lets links to exactly these origins use http and loopback addresses', async () => {
     const { requests, transport } = server(() => reply(200, {}, ICS));
@@ -507,6 +512,129 @@ describe('fetchCalendarLink with test origins', () => {
       standIn.closeAllConnections();
       await new Promise((resolve) => standIn.close(resolve));
     }
+  });
+});
+
+/** A DNS client with fixed answers: an address list, a DNS error code, or no answer at all. */
+function fakeDns(answers: Record<string, string[] | string | 'no answer'>) {
+  const made: { timeout: number; tries: number }[] = [];
+  const asked: string[] = [];
+  let cancelled = 0;
+  const pending: ((error: Error) => void)[] = [];
+  const query = (type: string) => (hostname: string) => {
+    asked.push(`${type} ${hostname}`);
+    const answer = answers[`${type} ${hostname}`] ?? 'ENOTFOUND';
+    if (answer === 'no answer') return new Promise<string[]>((_, reject) => pending.push(reject));
+    if (typeof answer === 'string') {
+      return Promise.reject(Object.assign(new Error(`query${type} ${answer}`), { code: answer }));
+    }
+    return Promise.resolve(answer);
+  };
+  const dns = (options: { timeout: number; tries: number }): DnsClient => {
+    made.push(options);
+    return {
+      resolve4: query('A'),
+      resolve6: query('AAAA'),
+      cancel: () => {
+        cancelled++;
+        for (const reject of pending.splice(0)) {
+          reject(Object.assign(new Error('queryA ECANCELLED'), { code: 'ECANCELLED' }));
+        }
+      },
+    };
+  };
+  return { dns, made, asked, cancelled: () => cancelled };
+}
+
+describe('createResolver', () => {
+  const signal = new AbortController().signal;
+
+  it('finds IPv4 and IPv6 addresses, also when there is only one kind', async () => {
+    const { dns } = fakeDns({
+      'A calendar.example.com': ['93.184.216.34'],
+      'AAAA calendar.example.com': ['2606:2800:220:1:248:1893:25c8:1946'],
+      'A mirror.example.org': ['93.184.216.35'],
+      'AAAA mirror.example.org': 'ENODATA',
+      'A v6.example.net': 'ENODATA',
+      'AAAA v6.example.net': ['2606:2800:220:1:248:1893:25c8:1947'],
+    });
+    const resolve = createResolver({ dns });
+    expect(await resolve('calendar.example.com', signal)).toEqual([
+      { address: '93.184.216.34', family: 4 },
+      { address: '2606:2800:220:1:248:1893:25c8:1946', family: 6 },
+    ]);
+    expect(await resolve('mirror.example.org', signal)).toEqual([
+      { address: '93.184.216.35', family: 4 },
+    ]);
+    expect(await resolve('v6.example.net', signal)).toEqual([
+      { address: '2606:2800:220:1:248:1893:25c8:1947', family: 6 },
+    ]);
+  });
+
+  it('fails when it finds neither', async () => {
+    const { dns } = fakeDns({ 'A nothing.example.net': 'ENODATA' });
+    const error = await createResolver({ dns })('nothing.example.net', signal).catch(
+      (e: unknown) => e,
+    );
+    expect((error as NodeJS.ErrnoException).code).toBe('ENODATA');
+  });
+
+  it('gives each try a time limit', async () => {
+    const { dns, made } = fakeDns({ 'A calendar.example.com': ['93.184.216.34'] });
+    await createResolver({ dns })('calendar.example.com', signal);
+    await createResolver({ dns, timeoutMs: 500, tries: 1 })('calendar.example.com', signal);
+    expect(made).toEqual([
+      { timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES },
+      { timeout: 500, tries: 1 },
+    ]);
+    expect(DNS_TIMEOUT_MS * DNS_TRIES).toBeLessThan(LINK_TIMEOUT_MS);
+  });
+
+  it('cancels its queries when the fetch is cancelled', async () => {
+    const fake = fakeDns({
+      'A slow.example.com': 'no answer',
+      'AAAA slow.example.com': 'no answer',
+    });
+    const controller = new AbortController();
+    const lookup = createResolver({ dns: fake.dns })('slow.example.com', controller.signal);
+    controller.abort(new Error('Stopped'));
+    const late = new Promise((done) => setTimeout(() => done('still looking'), 500));
+    const outcome = lookup.then(
+      () => 'found',
+      (e: unknown) => (e as NodeJS.ErrnoException).code,
+    );
+    expect(await Promise.race([outcome, late])).toBe('ECANCELLED');
+    expect(fake.cancelled()).toBe(1);
+    const error = await createResolver({ dns: fake.dns })(
+      'calendar.example.com',
+      AbortSignal.abort(new Error('Stopped before')),
+    ).catch((e: unknown) => e);
+    expect((error as Error).message).toBe('Stopped before');
+    expect(fake.made).toHaveLength(1); // no queries for the second
+  });
+
+  it('reads localhost and names under it as loopback, without a query (RFC 6761)', async () => {
+    const { dns, asked } = fakeDns({ 'A localhost': ['93.184.216.34'] });
+    const resolve = createResolver({ dns });
+    for (const name of ['localhost', 'LOCALHOST', 'localhost.', 'calendar.localhost']) {
+      expect(await resolve(name, signal)).toEqual([
+        { address: '127.0.0.1', family: 4 },
+        { address: '::1', family: 6 },
+      ]);
+    }
+    expect(asked).toEqual([]);
+  });
+
+  it("gets the fetch's signal, which stops the lookup when the fetch times out", async () => {
+    const seen: AbortSignal[] = [];
+    const hanging: Resolver = (_hostname, lookupSignal) => {
+      seen.push(lookupSignal);
+      return new Promise(() => undefined);
+    };
+    const error = await failure(LINK, { timeoutMs: 30, resolve: hanging });
+    expect(error.code).toBe('timeout');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.aborted).toBe(true);
   });
 });
 

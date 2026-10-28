@@ -140,6 +140,12 @@ export interface ViewActions {
   setOverride(override: ViewOverride | null): void;
   /** The next page of the view, of a group or of a board sub-group. */
   loadMore(groupKey?: string, subGroupKey?: string): Promise<void>;
+  /**
+   * Opens a toolbar panel as its button would (under the toolbar, or as a dialog), at `target`:
+   * a column's Filter is `openPanel('filter', { propertyId })`. When it closes, focus goes back to
+   * `opener` if it's still on the page.
+   */
+  openPanel(panel: PanelName, target?: PanelTarget, opener?: HTMLElement | null): void;
 }
 
 /** What the shell hands to a layout. */
@@ -233,6 +239,19 @@ export const DIALOG_PANELS: ReadonlySet<PanelName> = new Set<PanelName>([
   'propertyAccess',
 ]);
 
+/**
+ * Where a panel opens when something other than its button opens it (Filter, so far). The panel
+ * decides what that shows.
+ */
+export interface PanelTarget {
+  /** A column's Filter (actions.openPanel): the rule on this property, or a new one. */
+  propertyId?: Id;
+  /** A rule's chip in the filter bar: that rule. */
+  ruleId?: Id;
+  /** The "Advanced filter" chip: the filter's groups. */
+  advanced?: boolean;
+}
+
 /** What the shell hands to a panel. */
 export interface PanelProps {
   /** Which panel this is (one component may draw several). */
@@ -259,6 +278,8 @@ export interface PanelProps {
   propertyIds?: readonly Id[];
   /** From the view's answer: the titles of the rows its rows link to. */
   rowTitles?: Readonly<Record<Id, string>>;
+  /** Where it was opened at (actions.openPanel, a filter chip). Absent: from its button. */
+  target?: PanelTarget;
   /** Closes the panel and gives focus back to its button. Esc and presses outside close it too. */
   close(): void;
 }

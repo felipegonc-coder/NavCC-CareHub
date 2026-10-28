@@ -117,7 +117,7 @@ describe('New ▾', () => {
 
     fireEvent.click(within(await openTemplates()).getByRole('button', { name: 'Empty' }));
     await waitFor(() => expect(client.createRow).toHaveBeenCalledTimes(2));
-    expect(client.createRow.mock.calls[1]?.[1]).toMatchObject({ templateId: undefined });
+    expect(client.createRow.mock.calls[1]?.[1]).toMatchObject({ templateId: null });
   });
 
   it('opens a new template to edit it', async () => {
