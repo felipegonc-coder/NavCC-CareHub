@@ -1,9 +1,14 @@
 // Take meeting notes: one notes page per event occurrence (Meetings spec, sections 3 and 5).
-import { atLeast } from '@carehub/shared';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
-import { attendeesOf, NOTES_MARKDOWN, notesTitle, type TakeNotesInput } from './domain/notes';
-import type { MeetingEventLookup, MeetingNotes, NotesPages, Viewer } from './types';
+import {
+  attendeesOf,
+  NOTES_MARKDOWN,
+  notesTitle,
+  withinNotesWindow,
+  type TakeNotesInput,
+} from './domain/notes';
+import type { GrantSource, MeetingEventLookup, MeetingNotes, NotesCore, Viewer } from './types';
 
 /** Where notes are kept: Postgres in the app (store.ts), memory in unit tests (testing.ts). */
 export interface NotesStore {
@@ -34,47 +39,56 @@ export function registerMeetingEventLookup(lookup: MeetingEventLookup | null): v
 
 /**
  * Take meeting notes (MT-01): the occurrence's notes, made first if there are none. Only for its
- * organizer and invited members (403), and making them needs the Create permission. 404 when
- * Calendar doesn't find the event or occurrence. Two clicks at once get the same page.
+ * organizer and invited members; anyone else gets 404, as for an event Calendar doesn't find, so
+ * private events aren't confirmed. Making notes needs the Create permission and an occurrence
+ * within a year of today. Two clicks at once get the same page.
  */
 export async function takeMeetingNotes(
   db: Db,
-  { store, pages }: { store: NotesStore; pages: NotesPages | null },
+  { store, core }: { store: NotesStore; core: NotesCore | null },
   viewer: Viewer,
   input: TakeNotesInput,
+  now = new Date(),
 ): Promise<{ notes: MeetingNotes; created: boolean }> {
   const { workspaceId, userId } = viewer;
   const event = eventLookup && (await eventLookup(db, { workspaceId, ...input }));
-  if (!event) throw httpError(404, 'not_found');
-  const attendees = attendeesOf(event);
-  if (!attendees.includes(userId)) throw httpError(403, 'forbidden');
-  if (!pages) {
+  const attendees = event ? attendeesOf(event) : [];
+  if (!event || !attendees.includes(userId)) throw httpError(404, 'not_found');
+  if (!core) {
     throw httpError(409, 'conflict', "Meeting notes need pages, which aren't set up yet.");
   }
 
-  // Can edit for these attendees, given in the name of the person who made the notes (MT-D1).
-  const share = async (tx: Tx, notes: MeetingNotes, userIds: readonly string[]) => {
+  // Can edit for attendees who are current members (MT-D1); guests and people who left get none.
+  const share = async (
+    tx: Tx,
+    notes: MeetingNotes,
+    ids: readonly string[],
+    source: GrantSource,
+  ) => {
     const granted = new Set([notes.createdBy, ...(await store.grantedUsers(tx, notes.id))]);
-    for (const id of userIds.filter((user) => !granted.has(user))) {
+    for (const id of ids.filter((user) => !granted.has(user))) {
+      if (!(await core.isMember(tx, workspaceId, id))) continue;
       const principal = { type: 'user', id } as const;
-      const grant = await pages.grantAccess(tx, {
+      const grant = await core.grantAccess(tx, {
         pageId: notes.pageId,
         principal,
         level: 'edit',
-        grantedBy: notes.createdBy,
+        source,
       });
       await store.addGrant(tx, { notesId: notes.id, userId: id, grantId: grant.id });
     }
   };
 
-  // The person's "Meeting notes" page: made in their private space the first time, or if it's gone.
+  // The person's "Meeting notes" page while it's still in their private space and not in Trash.
+  // Moved to another space or gone, it's replaced, so it can't widen who sees new notes.
   const notesPlace = async (tx: Tx) => {
     await store.lock(tx, `meetings:place:${workspaceId}:${userId}`);
+    const spaceId = await core.getPrivateSpaceId(tx, userId);
     const saved = await store.getPlace(tx, workspaceId, userId);
-    if (saved && atLeast(await pages.getPageAccess(tx, userId, saved), 'edit')) return saved;
-    const spaceId = await pages.getPrivateSpaceId(tx, userId);
+    const place = saved ? await core.getPagePlace(tx, saved) : null;
+    if (saved && place?.spaceId === spaceId && !place.inTrash) return saved;
     const page = { workspaceId, spaceId, kind: 'page', title: NOTES_PARENT_TITLE } as const;
-    const { id } = await pages.createPage(tx, { ...page, createdBy: userId });
+    const { id } = await core.createPage(tx, { ...page, createdBy: userId });
     await store.setPlace(tx, { workspaceId, userId, pageId: id });
     return id;
   };
@@ -86,23 +100,27 @@ export async function takeMeetingNotes(
     await store.lock(tx, `meetings:notes:${workspaceId}:${event.eventId}:${key}`);
     const existing = await store.findForOccurrence(tx, occurrence);
     if (existing) {
-      // Someone invited after the notes were made gets the access the event gives.
-      await share(tx, existing, [userId]);
+      // Someone invited after the notes were made gets the access the meeting gives.
+      await share(tx, existing, [userId], { type: 'meeting', notesId: existing.id });
       return { notes: existing, created: false };
     }
     if (!viewer.canCreatePages) throw httpError(403, 'forbidden');
+    if (!withinNotesWindow(event, now)) {
+      throw httpError(400, 'invalid', 'Meeting notes are for meetings within a year of today.');
+    }
     const parentId = await notesPlace(tx);
-    const title = notesTitle(event);
-    const page = await pages.createPage(tx, {
+    // Notes pages don't inherit from "Meeting notes": only the note-taker and attendees get in.
+    const page = await core.createPage(tx, {
       workspaceId,
       parentId,
       kind: 'page',
-      title,
+      title: notesTitle(event),
       createdBy: userId,
+      inheritAccess: false,
     });
-    await pages.setPageContentFromMarkdown(tx, page.id, NOTES_MARKDOWN);
+    await core.setPageContentFromMarkdown(tx, page.id, NOTES_MARKDOWN);
     const notes = await store.insert(tx, { ...occurrence, pageId: page.id, createdBy: userId });
-    await share(tx, notes, attendees);
+    await share(tx, notes, attendees, { type: 'user', id: userId });
     return { notes, created: true };
   });
 }

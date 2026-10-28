@@ -3,7 +3,7 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { blockSlashItems } from './blocks/ui';
-import type { SlashItem } from './types';
+import type { SlashContext, SlashItem } from './types';
 
 /** The spec's groups, in menu order. Other groups follow in the order they first appear. */
 const GROUPS = ['Suggested', 'Basic blocks', 'Media', 'Database', 'Advanced', 'Inline', 'Embeds'];
@@ -67,6 +67,7 @@ export class SlashMenuStore {
   private listeners = new Set<() => void>();
   private items: SlashItem[] = [...blockSlashItems];
   private recent: string[] = [];
+  private pageId: string | null = null;
   private readonly storageKey: string | undefined;
 
   /** With a `storageKey`, the blocks you used last are kept in localStorage under it. */
@@ -96,6 +97,16 @@ export class SlashMenuStore {
   /** Offers the block groups' entries plus `extra` (an entry with a block's id replaces it). */
   setItems(extra?: readonly SlashItem[]) {
     this.items = mergeSlashItems(blockSlashItems, extra);
+  }
+
+  /** The page being edited, which entries get when they run (`context.pageId`). */
+  setPageId(pageId: string | null) {
+    this.pageId = pageId;
+  }
+
+  /** What an entry gets besides the editor when it runs. */
+  context(): SlashContext {
+    return { pageId: this.pageId };
   }
 
   /** The matching entries; with nothing typed yet, the blocks you used last come first. */
@@ -230,7 +241,7 @@ export const SlashCommand = Extension.create<{ store: SlashMenuStore | null }>({
         items: ({ query }) => store.find(query),
         command: ({ editor, range, props }) => {
           editor.chain().focus().deleteRange(range).run();
-          props.run(editor);
+          props.run(editor, store.context());
           store.remember(props.id);
         },
         render: () => ({

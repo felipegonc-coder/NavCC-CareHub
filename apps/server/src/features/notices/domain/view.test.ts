@@ -56,6 +56,7 @@ function record(overrides: Partial<NoticeRecord> = {}): NoticeRecord {
     title: 'Commented on a page',
     text: 'Looks good to me.',
     card: { type: 'page', pageId: coachingPlan },
+    extraCards: [],
     buttons: [{ label: 'Open', href: `/p/${coachingPlan}` }],
     groupKey: `comments:${coachingPlan}`,
     count: 2,
@@ -150,6 +151,29 @@ describe('collectCardRefs', () => {
     });
   });
 
+  it('looks at every card of a notice', () => {
+    const refs = collectCardRefs([
+      {
+        card: { type: 'event', eventId: 'evt_42' },
+        extraCards: [
+          { type: 'page', pageId: qaForm },
+          { type: 'page', pageId: coachingPlan },
+        ],
+      },
+      {
+        card: { type: 'page', pageId: qaForm },
+        extraCards: [{ type: 'event', eventId: 'evt_43' }],
+      },
+    ]);
+    expect(refs).toEqual({
+      pageIds: [qaForm, coachingPlan],
+      events: [
+        { eventId: 'evt_42', occurrenceStart: null },
+        { eventId: 'evt_43', occurrenceStart: null },
+      ],
+    });
+  });
+
   it('keys events by ID and occurrence', () => {
     expect(eventCardKey({ eventId: 'evt_42' })).toBe('evt_42|');
     expect(eventCardKey({ eventId: 'evt_42', occurrenceStart: null })).toBe('evt_42|');
@@ -184,6 +208,14 @@ describe('viewButtons', () => {
 });
 
 describe('toNoticeView', () => {
+  const openCoachingPlan = {
+    type: 'page',
+    state: 'open',
+    pageId: coachingPlan,
+    href: `/p/${coachingPlan}`,
+    ...coachingPlanCard,
+  } as const;
+
   it('shows a notice as its owner sees it', () => {
     expect(toNoticeView(record(), lookups([[coachingPlan, coachingPlanCard]]))).toEqual({
       id: '3f1c2d4e-0000-4000-8000-00000000a001',
@@ -194,13 +226,8 @@ describe('toNoticeView', () => {
       icon: null,
       title: 'Commented on a page',
       text: 'Looks good to me.',
-      card: {
-        type: 'page',
-        state: 'open',
-        pageId: coachingPlan,
-        href: `/p/${coachingPlan}`,
-        ...coachingPlanCard,
-      },
+      card: openCoachingPlan,
+      cards: [openCoachingPlan],
       buttons: [{ type: 'link', label: 'Open', href: `/p/${coachingPlan}` }],
       count: 2,
       createdAt: '2026-10-27T09:00:00.000Z',
@@ -212,7 +239,33 @@ describe('toNoticeView', () => {
   it('never carries the title of a page the reader lost access to', () => {
     const view = toNoticeView(record(), lookups([[coachingPlan, 'locked']]));
     expect(view.card).toStrictEqual({ type: 'page', state: 'locked' });
+    expect(view.cards).toStrictEqual([{ type: 'page', state: 'locked' }]);
     expect(JSON.stringify(view)).not.toContain('Coaching plan');
+  });
+
+  it('shows every card in order, each by its own access', () => {
+    const view = toNoticeView(
+      record({
+        extraCards: [
+          { type: 'page', pageId: qaForm },
+          { type: 'event', eventId: 'evt_42', occurrenceStart: '2026-11-02' },
+        ],
+      }),
+      lookups([[coachingPlan, coachingPlanCard]], [['evt_42|2026-11-02', 'deleted']]),
+    );
+    expect(view.card).toEqual(openCoachingPlan);
+    expect(view.cards).toEqual([
+      openCoachingPlan,
+      { type: 'page', state: 'locked' },
+      { type: 'event', state: 'deleted' },
+    ]);
+    expect(JSON.stringify(view)).not.toContain(qaForm);
+  });
+
+  it('has no cards when the notice has none', () => {
+    const view = toNoticeView(record({ card: null }), lookups());
+    expect(view.card).toBeNull();
+    expect(view.cards).toEqual([]);
   });
 
   it('marks read notices', () => {
@@ -248,6 +301,12 @@ describe('noticeLink', () => {
 
   it("goes to the page card's page without a link button", () => {
     expect(noticeLink({ buttons: [snooze], card })).toBe(`/p/${coachingPlan}`);
+  });
+
+  it('goes to the first page card, after any event cards', () => {
+    const event: NoticeCard = { type: 'event', eventId: 'evt_42' };
+    const extraCards: NoticeCard[] = [{ type: 'page', pageId: qaForm }, card];
+    expect(noticeLink({ buttons: [], card: event, extraCards })).toBe(`/p/${qaForm}`);
   });
 
   it('goes to the chat otherwise', () => {

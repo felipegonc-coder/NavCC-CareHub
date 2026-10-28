@@ -7,6 +7,9 @@ import { apiFor, expect, needs, onlyIn, signInAs, test } from '../_support/index
 import { TARA, content, draftCourse, pageFor } from './course-data.js';
 import { NOT_FOUND } from './learner-page.js';
 
+// The browser is in Tokyo: Learning shows days in the profile's time zone (decision 0317).
+test.use({ timezoneId: 'Asia/Tokyo' });
+
 type ReviewLink = { id: string; url: string };
 
 test.describe('Learning: review links', () => {

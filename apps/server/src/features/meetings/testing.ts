@@ -1,9 +1,8 @@
-// Test helpers: notes in memory, and pages standing in for core's, for this feature's tests.
+// Test helpers: notes in memory, and pages and members standing in for core's.
 import { randomUUID } from 'node:crypto';
-import type { AccessLevel } from '@carehub/shared';
 import type { Db } from '../../db';
 import type { NotesStore } from './service';
-import type { MeetingNotes, NotesPages } from './types';
+import type { GrantSource, MeetingNotes, NotesCore } from './types';
 
 type MemoryTx = { releases: (() => void)[] };
 
@@ -80,48 +79,88 @@ export function createMemoryNotesStore(): MemoryNotesStore {
 
 export interface MemoryPage {
   id: string;
-  spaceId: string | null;
+  spaceId: string;
   parentId: string | null;
   title: string;
   createdBy: string;
   markdown: string;
   trashed: boolean;
+  inheritAccess: boolean;
+}
+
+export interface MemoryGrant {
+  id: string;
+  pageId: string;
+  userId: string;
+  level: 'edit';
+  source: GrantSource;
 }
 
 /**
- * Pages, private spaces and person grants in memory, standing in for core's. Each call waits a
+ * Pages, spaces, person grants and members in memory, standing in for core's. Each write waits a
  * tick first, so two requests interleave as they would on Postgres.
  */
-export function createMemoryPages() {
+export function createMemoryCore() {
   const pages: MemoryPage[] = [];
-  const grants: { id: string; pageId: string; userId: string; level: 'edit'; grantedBy: string }[] =
-    [];
+  const grants: MemoryGrant[] = [];
   const privateSpaces = new Map<string, string>();
+  /** Team spaces and the people in them. */
+  const teamSpaces = new Map<string, Set<string>>();
+  /** Guests and people who left the workspace. */
+  const notMembers = new Set<string>();
   const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
   const find = (pageId: string) => pages.find((page) => page.id === pageId);
-  const service: NotesPages = {
+
+  /** As in 0007: the page's creator, a grant on it, or while it inherits, its parent or space. */
+  const canOpen = (userId: string, pageId: string): boolean => {
+    const page = find(pageId);
+    if (!page || page.trashed) return false;
+    if (page.createdBy === userId) return true;
+    if (grants.some((grant) => grant.pageId === pageId && grant.userId === userId)) return true;
+    if (!page.inheritAccess) return false;
+    if (page.parentId) return canOpen(userId, page.parentId);
+    return teamSpaces.get(page.spaceId)?.has(userId) ?? false;
+  };
+  /** Shares a page with someone, as its owner would. */
+  const share = (pageId: string, userId: string) => {
+    const source = { type: 'user', id: find(pageId)!.createdBy } as const;
+    grants.push({ id: randomUUID(), pageId, userId, level: 'edit', source });
+  };
+  /** Moves a page, and the pages right under it, to another space. */
+  const move = (pageId: string, spaceId: string) => {
+    for (const page of pages.filter((p) => p.id === pageId || p.parentId === pageId)) {
+      page.spaceId = spaceId;
+    }
+  };
+
+  const service: NotesCore = {
     async getPrivateSpaceId(_db, userId) {
       await tick();
       const spaceId = privateSpaces.get(userId) ?? randomUUID();
       privateSpaces.set(userId, spaceId);
       return spaceId;
     },
-    async createPage(_db, { spaceId, parentId, title, createdBy }) {
+    async createPage(_db, { spaceId, parentId, title, createdBy, inheritAccess }) {
       await tick();
-      const space = spaceId ?? (parentId ? find(parentId)?.spaceId : undefined) ?? null;
+      const space = spaceId ?? (parentId ? find(parentId)?.spaceId : undefined);
+      if (!space) throw new Error('A new page needs a space or a parent.');
       const page = { id: randomUUID(), spaceId: space, parentId: parentId ?? null, title };
-      pages.push({ ...page, createdBy, markdown: '', trashed: false });
+      const rest = {
+        createdBy,
+        markdown: '',
+        trashed: false,
+        inheritAccess: inheritAccess ?? true,
+      };
+      pages.push({ ...page, ...rest });
       return { id: page.id };
     },
-    async getPageAccess(_db, userId, pageId): Promise<AccessLevel> {
+    async getPagePlace(_db, pageId) {
       const page = find(pageId);
-      if (!page || page.trashed) return 'none';
-      if (page.createdBy === userId) return 'full';
-      return grants.some((g) => g.pageId === pageId && g.userId === userId) ? 'edit' : 'none';
+      return page ? { spaceId: page.spaceId, inTrash: page.trashed } : null;
     },
-    async grantAccess(_db, { pageId, principal, level, grantedBy }) {
+    async grantAccess(_db, { pageId, principal, level, source }) {
       await tick();
-      const grant = { id: randomUUID(), pageId, userId: principal.id, level, grantedBy };
+      const grant = { id: randomUUID(), pageId, userId: principal.id, level, source };
       grants.push(grant);
       return { id: grant.id };
     },
@@ -129,6 +168,9 @@ export function createMemoryPages() {
       const page = find(pageId);
       if (page) page.markdown = markdown;
     },
+    async isMember(_db, _workspaceId, userId) {
+      return !notMembers.has(userId);
+    },
   };
-  return { service, pages, grants, privateSpaces };
+  return { service, pages, grants, privateSpaces, teamSpaces, notMembers, canOpen, share, move };
 }
