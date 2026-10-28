@@ -14,6 +14,9 @@ Secrets live only in the server's settings file. They never go in the repository
 | `PUSH_VAPID_PRIVATE_KEY` | push | The private half of that key pair | Same as above |
 | `PUSH_VAPID_SUBJECT` | push | A contact for the push services: a `mailto:` address or an `https://` URL | Same as above |
 | `CALENDAR_SECRET_KEY` | calendar | Encrypts stored calendar tokens, iCloud app-specific passwords and private calendar links (32 random bytes, base64) | Connecting calendars is off: "Calendar connections aren't set up yet." |
+| `MEETINGS_SECRET_KEY` | meetings | Encrypts stored video link sign-ins for Zoom, Microsoft Teams and Google Meet (32 random bytes, base64). Separate from `CALENDAR_SECRET_KEY` | Video links are off: "Zoom isn't set up yet." |
+| `ZOOM_CLIENT_ID` | meetings | Zoom app for video links: each person connects their own Zoom account. Also needs `MEETINGS_SECRET_KEY`, `CAREHUB_PUBLIC_URL` and an Admin turning Zoom on in Settings | "Zoom isn't set up yet." Add video link doesn't offer Zoom |
+| `ZOOM_CLIENT_SECRET` | meetings | The secret of that app | Same as above |
 | `MODELS_DIR` | meetings | Folder with the speech model files Care Hub serves for private, in-browser transcription | Transcription is off: "Transcription isn't set up yet." |
 | `TZ` | status | The server's time zone: the nightly backup time, and the uptime days for people who aren't signed in | `America/Denver` |
 | `BACKUP_AT` | status | When the nightly backup runs (HH:MM in `TZ`), shown as "Next backup" | `02:00` |
@@ -25,6 +28,8 @@ Secrets live only in the server's settings file. They never go in the repository
 ## Making the values
 
 - `CALENDAR_SECRET_KEY`: `openssl rand -base64 32`. Keep a copy with the backups: without it, stored calendar connections can't be read and people have to connect again.
+- `MEETINGS_SECRET_KEY`: `openssl rand -base64 32`, a different value from `CALENDAR_SECRET_KEY`. Keep a copy with the backups: without it, people have to connect Zoom, Microsoft Teams and Google Meet again.
+- Zoom: in the Zoom App Marketplace, a General app that's user-managed, with the redirect URL `<CAREHUB_PUBLIC_URL>/api/meetings/video-links/zoom/callback` and the scope `meeting:write:meeting` (create meetings). Each person connects their own Zoom account; Care Hub only creates meetings when someone clicks Add video link. After setting the values, an Admin turns Zoom on in Settings.
 - Web push key pair (run once, anywhere with Node 24, for example inside the Care Hub container):
 
   ```sh
@@ -53,4 +58,11 @@ PUSH_VAPID_SUBJECT=mailto:admin@example.com
 CALENDAR_SECRET_KEY=
 # Folder with the speech model files for private transcription
 MODELS_DIR=
+# Video links (Zoom now; Microsoft Teams and Google Meet next). Each also needs an
+# Admin to turn it on in Settings. Encrypts their sign-ins: openssl rand -base64 32
+MEETINGS_SECRET_KEY=
+# Zoom: a user-managed General app, scope meeting:write:meeting,
+# redirect URL <CAREHUB_PUBLIC_URL>/api/meetings/video-links/zoom/callback
+ZOOM_CLIENT_ID=
+ZOOM_CLIENT_SECRET=
 ```
