@@ -1,6 +1,6 @@
 // Settings → Notifications (Settings and members spec, 3.3; Messages spec, "Unread and
-// notifications"): what to be notified about, whether notifications show the text, pausing them,
-// and push in this and the person's other browsers.
+// notifications"): what to be notified about, whether notifications show the text, which notices
+// reach the 🔔 chat, pausing them, and push in this and the person's other browsers.
 import {
   Field,
   Select,
@@ -21,6 +21,7 @@ import {
   type PreferenceChanges,
 } from './api';
 import { DeviceList, ThisBrowser } from './BrowserSettings';
+import { NoticeKindSettings } from './NoticeKindSettings';
 import { GroupSkeleton, LoadError, SettingRow } from './parts';
 import { PauseSettings } from './PauseSettings';
 import { NOTIFY_ABOUT_LABEL, TEXT } from './text';
@@ -43,6 +44,7 @@ export function NotificationSettings({
   return (
     <div className="flex flex-col gap-8" data-testid="notifications-settings">
       <MessageSettings client={client} />
+      <NoticeKindSettings />
       <PauseSettings client={client} />
       <ThisBrowser {...browser} />
       <DeviceList client={client} canTest={browser.serverReady === true} />
