@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import type { Course } from '@carehub/learning';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { StudioProvider } from './context';
 import type { StudioClient } from './data/client';
@@ -55,3 +56,19 @@ export function renderStudio(
 /** The text of each `<title>` on the page (React moves a screen's title into the head). */
 export const pageTitles = (): string[] =>
   Array.from(document.querySelectorAll('title'), (title) => title.textContent ?? '');
+
+/**
+ * Saves `build(blank)` (from a blank standard course called "Hand hygiene") and opens it in the editor, once
+ * its title shows.
+ */
+export async function renderEditor(
+  build: (blank: Course) => Course = (blank) => blank,
+  client: StudioClient = testStudioClient(),
+) {
+  const draft = await client.createCourse({ type: 'standard', title: 'Hand hygiene' });
+  const course = build(draft.course);
+  await client.saveCourse(course.id, course, draft.revision);
+  const view = renderStudio(`/learning/studio/courses/${course.id}`, { client });
+  await screen.findByRole('heading', { level: 1, name: course.title });
+  return { ...view, courseId: course.id };
+}

@@ -97,7 +97,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // feature: meetings
 
-  // feature: automations
+  await app.register(import('./features/automations/routes'), { prefix: '/api/automations' });
 
   // feature: analytics
 

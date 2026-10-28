@@ -12,7 +12,7 @@ import {
   type TestApp,
   type TestUser,
 } from '../../testing';
-import { listSearchTerms, reindexForSearch } from './index';
+import { forgetSearchTermsBefore, listSearchTerms, reindexForSearch } from './index';
 import { bindSearchMember, bindSearchPages, type IndexPage } from './pages';
 import { recordSearch, searchTermOf, termDayOf } from './recent';
 import {
@@ -252,6 +252,16 @@ describe.skipIf(!hasDatabase)('recent lists and search terms on Postgres', () =>
       SELECT (SELECT count(*) FROM search_term_keys WHERE day = '2026-10-20')::int
         + (SELECT count(*) FROM search_term_people WHERE day = '2026-10-20')::int AS n`);
     expect(left.rows[0]?.n).toBe(0);
+
+    // Data settings' clean-up: the days before the one given go, in that workspace only.
+    await forgetSearchTermsBefore(test.db, randomUUID(), later);
+    expect(await listSearchTerms(test.db, workspaceId, period)).toEqual(listed);
+    await forgetSearchTermsBefore(test.db, workspaceId, later);
+    expect(await listSearchTerms(test.db, workspaceId, period)).toEqual([]);
+    const kept = await test.db.execute<{ term: string; day: string }>(
+      sql`SELECT term, day::text FROM search_terms WHERE workspace_id = ${workspaceId}`,
+    );
+    expect(kept.rows).toEqual([{ term: 'pay bands', day: '2026-10-21' }]);
   });
 
   it('ranks pages the person opened in the last 30 days higher (SR-05)', async () => {

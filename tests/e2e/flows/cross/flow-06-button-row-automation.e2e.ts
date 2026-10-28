@@ -1,5 +1,14 @@
-import type { APIResponse, Page, Request } from '@playwright/test';
-import { apiFor, expect, needs, onlyIn, signInAs, test, uniqueName } from '../_support/index.js';
+import type { Request } from '@playwright/test';
+import {
+  expect,
+  needs,
+  onlyIn,
+  sendAgainAs,
+  signInAs,
+  test,
+  uniqueName,
+  userIdOf,
+} from '../_support/index.js';
 import { AutomationEditor } from '../automations/automation-editor.js';
 import { CareHubChat } from '../comments/care-hub-chat.js';
 import { addProperty, config, makeDatabase, optionId } from '../databases/database-api.js';
@@ -12,27 +21,6 @@ import { ButtonSettings, addRowTemplate, undoOf } from '../templates/templates-p
 
 /** Database triggers start their actions within 10 seconds; the open chat shows them within 2. */
 const TRIGGERED_MS = 12_000;
-
-/** The id of the person signed in on `page` (GET /api/auth/me), for a Person value. */
-async function userIdOf(page: Page): Promise<string> {
-  const me = await (await apiFor(page)).get<{ user?: { id?: string } }>('/api/auth/me');
-  if (!me.user?.id) throw new Error('GET /api/auth/me answered without a user id.');
-  return me.user.id;
-}
-
-/** Sends a request the screens made again, as the person signed in on `page`. */
-async function sendAgainAs(page: Page, request: Request): Promise<APIResponse> {
-  const cookies = await page.context().cookies();
-  const csrf = cookies.find((cookie) => cookie.name.endsWith('carehub_csrf'))?.value ?? '';
-  const headers: Record<string, string> = {
-    'X-CSRF-Token': csrf,
-    Origin: new URL(request.url()).origin,
-  };
-  const type = request.headers()['content-type'];
-  if (type) headers['Content-Type'] = type;
-  const data = request.postDataBuffer() ?? undefined;
-  return page.request.fetch(request.url(), { method: request.method(), headers, data });
-}
 
 // FLOW-06 (Specs, cross-area flows): on the page QA desk, Avery clicks the button New QA review,
 // which adds a row to QA reviews from its template, while "Row added to QA reviews → message the
