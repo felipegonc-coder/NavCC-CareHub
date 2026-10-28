@@ -198,6 +198,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
     setOverride,
     loadMore: result.loadMore,
     onOpenRow: props.onOpenRow,
+    openPanel: (panel, target, opener) => panels.show(panel, opener, target),
   });
 
   const access = meta.viewerAccess;
@@ -292,6 +293,7 @@ function ViewBody({ meta, savedView, ...props }: ViewBodyProps) {
         <PanelDialog
           {...shared}
           panel={dialog}
+          target={panels.target}
           close={panels.close}
           onCloseAutoFocus={panels.closeAutoFocus}
         />

@@ -31,8 +31,13 @@ export const REPORT_STATUS_LABELS: Readonly<Record<ReportStatus, string>> = {
 };
 
 /** New and In progress reports are open; they count on the strip and in the health line. */
+export const OPEN_REPORT_STATUSES = [
+  'new',
+  'in_progress',
+] as const satisfies readonly ReportStatus[];
+
 export function isOpenReport(status: ReportStatus): boolean {
-  return status === 'new' || status === 'in_progress';
+  return (OPEN_REPORT_STATUSES as readonly ReportStatus[]).includes(status);
 }
 
 const optionalText = (max: number) =>
@@ -47,7 +52,10 @@ export const reportInputSchema = z
     reason: z.enum(REPORT_REASONS, { error: "Pick what's wrong." }),
     text: optionalText(KB_LIMITS.reportText),
     quote: optionalText(KB_LIMITS.reportQuote),
-    blockId: z.string().min(1).max(64).optional(),
+    blockId: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/)
+      .optional(),
   })
   .refine((input) => input.reason !== 'other' || Boolean(input.text), {
     error: "Say what's wrong.",

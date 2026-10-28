@@ -5,15 +5,20 @@
 import { Suspense, useCallback, useMemo, useRef, useState } from 'react';
 import type { Id } from '@carehub/databases';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, Skeleton } from '@carehub/ui';
-import { PANEL_LABELS, type PanelName, type PanelProps } from '../contract';
+import { PANEL_LABELS, type PanelName, type PanelProps, type PanelTarget } from '../contract';
 import { PANELS } from '../panels';
 import { ErrorBoundary } from './boundary';
 
 export interface Panels {
   /** The panel showing, if any. */
   open: PanelName | null;
-  /** Shows a panel; when it closes, focus goes back to `opener` (else to what had focus). */
-  show(panel: PanelName, opener?: HTMLElement | null): void;
+  /** Where it was opened at (PanelProps.target); undefined when its button opened it. */
+  target: PanelTarget | undefined;
+  /**
+   * Shows a panel, at `target` if given; when it closes, focus goes back to `opener` (else to what
+   * had focus).
+   */
+  show(panel: PanelName, opener?: HTMLElement | null, target?: PanelTarget): void;
   /** A panel's button: shows the panel, or closes it when it's showing. */
   toggle(panel: PanelName, opener: HTMLElement): void;
   /** Closes the panel and gives focus back to what opened it (Esc, Close, the panel's own close). */
@@ -30,6 +35,7 @@ export interface Panels {
 interface Shown {
   viewId: Id;
   panel: PanelName;
+  target?: PanelTarget;
 }
 
 export function usePanels(viewId: Id): Panels {
@@ -37,14 +43,16 @@ export function usePanels(viewId: Id): Panels {
   const opener = useRef<HTMLElement | null>(null);
   const giveBack = useRef(false);
   // Another view starts with its panels closed.
-  const open = shown?.viewId === viewId ? shown.panel : null;
+  const current = shown?.viewId === viewId ? shown : null;
+  const open = current?.panel ?? null;
+  const target = current?.target;
 
   const show = useCallback(
-    (panel: PanelName, from?: HTMLElement | null) => {
+    (panel: PanelName, from?: HTMLElement | null, at?: PanelTarget) => {
       const focused = document.activeElement;
       opener.current = from ?? (focused instanceof HTMLElement ? focused : null);
       giveBack.current = false;
-      setShown({ viewId, panel });
+      setShown({ viewId, panel, target: at });
     },
     [viewId],
   );
@@ -73,8 +81,8 @@ export function usePanels(viewId: Id): Panels {
   );
 
   return useMemo(
-    () => ({ open, show, toggle, close, dismiss, closeAutoFocus }),
-    [open, show, toggle, close, dismiss, closeAutoFocus],
+    () => ({ open, target, show, toggle, close, dismiss, closeAutoFocus }),
+    [open, target, show, toggle, close, dismiss, closeAutoFocus],
   );
 }
 

@@ -1,7 +1,7 @@
 import type { SearchRecentResponse, SearchResult } from '@carehub/extras/search';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { closeSearch } from './open';
 import { SearchOverlay } from './SearchOverlay';
@@ -113,6 +113,16 @@ async function openWindow(key = 'k') {
   return { dialog: within(dialog), box };
 }
 
+// jsdom has no ResizeObserver; the chips' menus measure themselves.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+beforeAll(() => {
+  window.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
+});
 beforeEach(() => {
   closeSearch();
 });
@@ -268,6 +278,82 @@ describe('the search window', () => {
     expect(history('qzxv').map((call) => call.body)).toEqual([
       { text: 'qzxv', save: true, found: 0 },
     ]);
+  });
+
+  it('filters with the chips and sorts; Clear filters turns them all off (SR-06)', async () => {
+    const calls = serve({ found: [refund, policy] });
+    const searched = () =>
+      calls.filter((call) => call.url === '/api/search/query').map((call) => call.body);
+    show();
+    const { dialog, box } = await openWindow();
+    fireEvent.change(box, { target: { value: 'ref' } });
+    await dialog.findByRole('option', { name: /^Refund steps/ });
+    expect(dialog.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+
+    fireEvent.click(dialog.getByRole('button', { name: 'Title only' }));
+    expect(dialog.getByRole('button', { name: 'Title only' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    fireEvent.keyDown(dialog.getByRole('button', { name: 'Type' }), { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'Databases' }));
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(await dialog.findByRole('button', { name: 'Type: Databases' })).toBeInTheDocument();
+    fireEvent.keyDown(dialog.getByRole('button', { name: 'Sort: Best match' }), { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Edited, newest first' }));
+    await waitFor(() =>
+      expect(searched()).toContainEqual({
+        text: 'ref',
+        filters: { titleOnly: true, types: ['database'] },
+        sort: 'edited_desc',
+      }),
+    );
+
+    fireEvent.click(await dialog.findByRole('button', { name: 'Clear filters' }));
+    expect(box).toHaveFocus();
+    expect(dialog.getByRole('button', { name: 'Title only' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(dialog.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Sort: Edited, newest first' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(searched().at(-1)).toEqual({ text: 'ref', filters: {}, sort: 'edited_desc' }),
+    );
+  });
+
+  it('saves the filters with the search, and a recent search brings them back', async () => {
+    const calls = serve({
+      found: [refund],
+      recent: {
+        pages: [],
+        searches: [
+          {
+            id: 's1',
+            text: 'refund',
+            filters: { titleOnly: true },
+            searchedAt: '2026-10-26T15:00:00.000Z',
+          },
+        ],
+      },
+    });
+    show();
+    const { dialog, box } = await openWindow();
+    fireEvent.click(await dialog.findByRole('option', { name: 'refund' }));
+    expect(box).toHaveValue('refund');
+    expect(box).toHaveFocus();
+    expect(dialog.getByRole('button', { name: 'Title only' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await dialog.findByRole('option', { name: /^Refund steps/ });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(`/p/${PAGE_A}`));
+    expect(calls).toContainEqual({
+      method: 'POST',
+      url: '/api/search/history',
+      body: { text: 'refund', filters: { titleOnly: true }, save: true, found: 1, opened: PAGE_A },
+    });
   });
 
   it('offers Try again when search fails', async () => {

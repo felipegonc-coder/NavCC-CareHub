@@ -1,9 +1,11 @@
 // The notices tables, as Drizzle sees them. The SQL is in the migrations
-// 202610270040_notices_notices.sql, 202610270440_notices_kinds-and-keys.sql and
-// 202610271400_notices_extra-cards.sql, and store.test.ts checks that the two agree.
+// 202610270040_notices_notices.sql, 202610270440_notices_kinds-and-keys.sql,
+// 202610271400_notices_extra-cards.sql and 202610271430_notices_settings.sql, and store.test.ts
+// checks that the two agree.
 import { sql } from 'drizzle-orm';
 import {
   bigserial,
+  boolean,
   integer,
   jsonb,
   pgTable,
@@ -53,4 +55,19 @@ export const noticeIdempotencyKeys = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.workspaceId, table.key] })],
+);
+
+/** Each person's notice settings in each workspace (Settings → Notifications). No row: all on. */
+export const noticeSettings = pgTable(
+  'notices_settings',
+  {
+    userId: uuid('user_id').notNull(),
+    workspaceId: uuid('workspace_id').notNull(),
+    comments: boolean('comments').notNull().default(true),
+    edits: boolean('edits').notNull().default(true),
+    formResponses: boolean('form_responses').notNull().default(true),
+    automations: boolean('automations').notNull().default(true),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.workspaceId] })],
 );
