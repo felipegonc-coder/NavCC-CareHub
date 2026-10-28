@@ -46,8 +46,7 @@ RUN npm ci --ignore-scripts --omit=dev --workspace=apps/server \
 
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 LABEL org.opencontainers.image.title="Care Hub" \
-      org.opencontainers.image.description="Care Hub workspace app (server and web app)" \
-      org.opencontainers.image.source="https://github.com/felipegonc-coder/NavCC-CareHub"
+      org.opencontainers.image.description="Care Hub workspace app (server and web app)"
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST_DIR=/app/apps/web/dist FILES_DIR=/data/files
 COPY --from=server-deps /app/ /app/
 COPY --from=build /app/ /app/
