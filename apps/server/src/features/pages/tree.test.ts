@@ -8,7 +8,7 @@ import { createTestApp, createUser, hasDatabase, injectAs, type TestUser } from 
 import { liveHub } from '../live';
 import { grantAccess } from './access';
 import { changePageKind } from './move';
-import { createPage } from './pages';
+import { createPage, insertPage, MAX_DEPTH } from './pages';
 import { getPrivateSpaceId, joinSpace } from './spaces';
 import { listSubtree } from './tree';
 
@@ -173,7 +173,95 @@ describe.skipIf(!hasDatabase)('the page tree and moving pages', () => {
     expect(kept.body.error.message).toBe("This space's pages can't be moved to other spaces.");
     await call(eli, 'PATCH', `/api/spaces/${space.id}`, { allowMoveOut: true });
     await call(eli, 'PATCH', `/api/spaces/${floor.id}`, { archived: true });
-    expect((await move(emery, shifts, { ...confirm, spaceId: floor.id })).status).toBe(409);
+    const archived = await move<Failure>(emery, shifts, { ...confirm, spaceId: floor.id });
+    expect(archived.status).toBe(409);
+    expect(archived.body.error.message).toMatch(/^This space is archived/);
+  });
+
+  it('lets nobody gain access by moving pages to another space (Roles spec, Stop inheriting)', async () => {
+    const space = await newSpace({ name: 'Case files' });
+    await joinSpace(db, space.id, emery.id);
+    const cases = await make('Cases', { spaceId: space.id });
+    const principal = { type: 'user' as const, id: emery.id };
+    await grantAccess(db, { pageId: cases.id, principal, level: 'full', grantedBy: eli.id });
+    const sealed = await make('Sealed case', { parentId: cases.id });
+    await db.execute(sql`UPDATE pages SET inherit_access = false WHERE id = ${sealed.id}`);
+    const spaceOf = async (id: string) =>
+      (await db.execute<{ id: string }>(sql`SELECT space_id AS id FROM pages WHERE id = ${id}`))
+        .rows[0]?.id;
+
+    // Emery has Full access on Cases but can't open Sealed case, which her Private section opens.
+    const emerys = await getPrivateSpaceId(db, emery.id, workspaceId);
+    const toHers = { parentId: null, spaceId: emerys, confirmAccessChange: true };
+    const refused = await move<Failure>(emery, cases, toHers);
+    expect(refused.status).toBe(403);
+    expect(JSON.stringify(refused.body)).not.toContain('Sealed');
+    expect([await spaceOf(cases.id), await spaceOf(sealed.id)]).toEqual([space.id, space.id]);
+
+    // The same for a closed page in Trash under it; once nothing is closed to her, it moves.
+    await db.execute(sql`UPDATE pages SET inherit_access = true WHERE id = ${sealed.id}`);
+    const binned = await make('Old case', { parentId: sealed.id });
+    await db.execute(sql`
+      UPDATE pages SET inherit_access = false, deleted_at = now() WHERE id = ${binned.id}`);
+    expect((await move(emery, cases, toHers)).status).toBe(403);
+    await db.execute(sql`UPDATE pages SET inherit_access = true WHERE id = ${binned.id}`);
+    expect((await move(emery, cases, toHers)).status).toBe(200);
+    expect(await spaceOf(binned.id)).toBe(emerys);
+
+    // An Admin moving a page shared with them out of a Private section into a team space.
+    const plan = await createPage(db, {
+      workspaceId,
+      kind: 'page',
+      title: 'Personal plan',
+      createdBy: emery.id,
+    });
+    const diary = await createPage(db, {
+      workspaceId,
+      parentId: plan.id,
+      kind: 'page',
+      title: 'Diary',
+      createdBy: emery.id,
+    });
+    await db.execute(sql`UPDATE pages SET inherit_access = false WHERE id = ${diary.id}`);
+    const toAdmin = { type: 'user' as const, id: admin.id };
+    await grantAccess(db, {
+      pageId: plan.id,
+      principal: toAdmin,
+      level: 'full',
+      grantedBy: emery.id,
+    });
+    const toTeam = { parentId: null, spaceId: space.id, confirmAccessChange: true };
+    expect((await move(admin, plan, toTeam)).status).toBe(403);
+    expect(await spaceOf(diary.id)).toBe(emerys);
+  });
+
+  it('makes one move wait for another, so two moves at once make no loop', async () => {
+    const space = await newSpace({ name: 'Two desks' });
+    const deskA = await make('Desk A', { spaceId: space.id });
+    const drawerA = await make('Drawer A', { parentId: deskA.id });
+    const deskB = await make('Desk B', { spaceId: space.id });
+    const drawerB = await make('Drawer B', { parentId: deskB.id });
+    const both = await Promise.all([
+      move(eli, deskA, { parentId: drawerB.id }),
+      move(eli, deskB, { parentId: drawerA.id }),
+    ]);
+    expect(both.map((answer) => answer.status).sort()).toEqual([200, 400]);
+  });
+
+  it('refuses moves that would nest pages too deep', async () => {
+    const space = await newSpace({ name: 'Deep stacks' });
+    const add = (title: string, place: { spaceId?: string; parentId?: string }) =>
+      insertPage(db, { workspaceId, ...place, kind: 'page', title, createdBy: eli.id });
+    const levels = [await add('Level 1', { spaceId: space.id })];
+    while (levels.length < MAX_DEPTH - 1) {
+      levels.push(await add(`Level ${levels.length + 1}`, { parentId: levels.at(-1)!.id }));
+    }
+    const box = await make('Box', { spaceId: space.id });
+    await make('Lid', { parentId: box.id });
+    const tooDeep = await move<Failure>(eli, box, { parentId: levels.at(-1)!.id });
+    expect(tooDeep.status).toBe(400);
+    expect(tooDeep.body.error.message).toBe(`Pages can nest up to ${MAX_DEPTH} levels deep.`);
+    expect((await move(eli, box, { parentId: levels.at(-2)!.id })).status).toBe(200);
   });
 
   it('asks first when a move changes who can open the page (SB-04)', async () => {
@@ -191,12 +279,30 @@ describe.skipIf(!hasDatabase)('the page tree and moving pages', () => {
     });
     expect((await call(eli, 'GET', `/api/pages/${draft.id}`)).body.spaceId).toBe(draft.spaceId);
 
+    expect(
+      (await move<Failure>(eli, draft, { parentId: null, spaceId: space.id })).body.error.message,
+    ).toBe('3 people will gain access.');
     const confirmed = { parentId: null, spaceId: space.id, confirmAccessChange: true };
     expect((await move(eli, draft, confirmed)).body).toMatchObject({ spaceId: space.id });
     const back = await move<Failure>(eli, draft, { parentId: null, spaceId: draft.spaceId });
     expect(back.body.error.message).toBe('3 people will lose access.');
     const letters = await make('Letters', { spaceId: space.id });
     expect((await move(eli, draft, { parentId: letters.id })).status).toBe(200);
+
+    // Pages under it that keep their own access count too: the Admin keeps the page through a
+    // grant but loses the closed page under it, which a Private section doesn't open to Admins.
+    const notes = await make('Board notes', { parentId: letters.id });
+    await db.execute(sql`UPDATE pages SET inherit_access = false WHERE id = ${notes.id}`);
+    const toAdmin = { type: 'user' as const, id: admin.id };
+    await grantAccess(db, {
+      pageId: letters.id,
+      principal: toAdmin,
+      level: 'view',
+      grantedBy: eli.id,
+    });
+    const mine = await getPrivateSpaceId(db, eli.id, workspaceId);
+    const counted = await move<Failure>(eli, letters, { parentId: null, spaceId: mine });
+    expect(counted.body.error.details).toEqual({ losing: 3, gaining: 0 });
   });
 
   it('turns a page moved into a database into a row, and back (page.kindChanged)', async () => {
@@ -240,15 +346,20 @@ describe.skipIf(!hasDatabase)('the page tree and moving pages', () => {
     const rooms = await make('Rooms', { parentId: plan.id });
     const binned = await make('Old rooms', { parentId: rooms.id });
     await db.execute(sql`UPDATE pages SET deleted_at = now() WHERE id = ${binned.id}`);
+    const beds = await make('Beds', { parentId: plan.id }, { kind: 'database' });
+    const bed = await make('Bed 1', { parentId: beds.id }, { kind: 'row' });
     const moved = await move(eli, plan, { parentId: null, spaceId: newWing.id });
     expect(moved.status).toBe(200);
     const { rows } = await db.execute<{ spaceId: string; parentId: string | null }>(sql`
       SELECT space_id AS "spaceId", parent_id AS "parentId" FROM pages
-      WHERE id IN (${plan.id}, ${rooms.id}, ${binned.id}) ORDER BY created_at, id`);
+      WHERE id IN (${plan.id}, ${rooms.id}, ${binned.id}, ${beds.id}, ${bed.id})
+      ORDER BY created_at, id`);
     expect(rows).toEqual([
       { spaceId: newWing.id, parentId: null },
       { spaceId: newWing.id, parentId: plan.id },
       { spaceId: newWing.id, parentId: rooms.id },
+      { spaceId: newWing.id, parentId: plan.id },
+      { spaceId: newWing.id, parentId: beds.id },
     ]);
   });
 
