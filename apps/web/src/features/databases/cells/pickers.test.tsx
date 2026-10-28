@@ -240,6 +240,44 @@ describe('Person', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('This property allows one person only.');
     expect(onCommit).not.toHaveBeenCalled();
   });
+
+  it('searches people as you type with searchPeople', async () => {
+    const searchPeople = vi.fn((query: string) =>
+      Promise.resolve(people.filter((p) => p.email?.startsWith(query))),
+    );
+    await openEditor({ property: crew, value: null, searchPeople });
+    expect(searchPeople).toHaveBeenCalledWith('');
+    expect(await screen.findByRole('option', { name: 'Avery Lin' })).toBeInTheDocument();
+    type(search('Crew'), 'jordan');
+    await waitFor(() => expect(searchPeople).toHaveBeenLastCalledWith('jordan'));
+    await waitFor(() => expect(screen.queryByRole('option', { name: 'Avery Lin' })).toBeNull());
+    expect(option('Jordan Park')).toBeInTheDocument();
+  });
+
+  it('names someone picked from a search on their chip', async () => {
+    const { onCommit } = await openEditor({
+      property: crew,
+      value: null,
+      searchPeople: () => Promise.resolve(people),
+      ctx: cellCtx({ userName: () => undefined }),
+    });
+    fireEvent.click(await screen.findByRole('option', { name: 'Jordan Park' }));
+    expect(
+      screen.getByRole('button', { name: CELL_TEXT.remove('Jordan Park') }),
+    ).toBeInTheDocument();
+    key(search('Crew'), 'Enter');
+    expect(onCommit).toHaveBeenCalledWith([USERS.jordan.id], { changed: true });
+  });
+
+  it('shows no matches when the search fails', async () => {
+    await openEditor({
+      property: crew,
+      value: null,
+      searchPeople: () => Promise.reject(new Error('Offline')),
+    });
+    expect(await screen.findByText(CELL_TEXT.noMatches)).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
 });
 
 const customers: RowChoice[] = [

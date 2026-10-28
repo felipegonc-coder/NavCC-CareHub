@@ -20,7 +20,7 @@ import { HiddenRowsChip, OptionChip, PersonChip, RowChip } from './chips';
 import { EditorShell } from './editor-shell';
 import { commitDetails, matchesQuery } from './logic';
 import { CELL_TEXT, STATUS_GROUP_LABELS } from './messages';
-import type { CellEditorProps, CellMove, RowChoice } from './types';
+import type { CellEditorProps, CellMove, PersonChoice, RowChoice } from './types';
 
 const MENU_ITEM =
   'relative flex cursor-default select-none items-center gap-2 rounded px-2 py-1.5 text-small text-fg outline-none';
@@ -326,20 +326,74 @@ export function OptionEditor({
   );
 }
 
-/** Person: search the people list by name or email; "one person only" picks and saves. */
+const SEARCH_DELAY_MS = 150;
+
+/**
+ * Runs `run` with the trimmed query: at once the first time, then when typing pauses. Answers to
+ * older queries are dropped, and a failed search has no results. Without `run` it does nothing.
+ */
+function useSearch<T>(
+  run: ((query: string) => Promise<readonly T[]>) | undefined,
+  query: string,
+): { results: readonly T[]; loading: boolean } {
+  const [results, setResults] = useState<readonly T[]>([]);
+  const [loading, setLoading] = useState(Boolean(run));
+  const search = useRef(run);
+  useEffect(() => {
+    search.current = run;
+  });
+  const first = useRef(true);
+  useEffect(() => {
+    const current = search.current;
+    if (!current) return;
+    let live = true;
+    setLoading(true);
+    const timer = setTimeout(
+      () => {
+        current(query.trim()).then(
+          (found) => {
+            if (!live) return;
+            setResults(found);
+            setLoading(false);
+          },
+          () => {
+            if (!live) return;
+            setResults([]);
+            setLoading(false);
+          },
+        );
+      },
+      first.current ? 0 : SEARCH_DELAY_MS,
+    );
+    first.current = false;
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [query]);
+  return { results, loading };
+}
+
+/**
+ * Person: search by name or email, in the people list or with `searchPeople`; "one person only"
+ * picks and saves.
+ */
 export function PersonEditor({
   property,
   value,
   ctx,
   initialText,
   people = [],
+  searchPeople,
   onCommit,
   onCancel,
 }: CellEditorProps) {
   const single = (property.config as ConfigOf<'person'>).single;
   const [picked, setPicked] = useState<Id[]>(() => toIds(value));
+  const [names, setNames] = useState<Record<Id, string>>({});
   const [query, setQuery] = useState(initialText ?? '');
   const [error, setError] = useState<string | null>(null);
+  const found = useSearch(searchPeople, query);
   const save = (ids: Id[], move?: CellMove): boolean => {
     const res = validateValue(property, ids);
     if (!res.ok) {
@@ -349,23 +403,27 @@ export function PersonEditor({
     onCommit(res.value, commitDetails(value ?? null, res.value, move));
     return true;
   };
-  const pick = (id: Id) => {
+  const pick = (person: PersonChoice) => {
     setError(null);
     setQuery('');
-    if (single) save([id]);
-    else setPicked((ids) => toggle(ids, id));
+    setNames((n) => ({ ...n, [person.id]: person.name }));
+    if (single) save([person.id]);
+    else setPicked((ids) => toggle(ids, person.id));
   };
-  const items: PickerItem[] = people
-    .filter((p) => !ctx.isRemovedUser?.(p.id) && matchesQuery(query, p.name, p.email))
+  const matches = searchPeople
+    ? found.results
+    : people.filter((p) => matchesQuery(query, p.name, p.email));
+  const items: PickerItem[] = matches
+    .filter((p) => !ctx.isRemovedUser?.(p.id))
     .map((p) => ({
       key: p.id,
       label: p.name,
       node: <PersonChip id={p.id} name={p.name} ctx={ctx} avatar={p.avatarUrl} />,
       selected: picked.includes(p.id),
-      onPick: () => pick(p.id),
+      onPick: () => pick(p),
     }));
   const chips = picked.flatMap((id) => {
-    const name = ctx.userName(id) ?? people.find((p) => p.id === id)?.name;
+    const name = ctx.userName(id) ?? names[id] ?? people.find((p) => p.id === id)?.name;
     if (name === undefined) return [];
     const remove = () => setPicked((ids) => ids.filter((x) => x !== id));
     return [
@@ -387,14 +445,13 @@ export function PersonEditor({
       items={items}
       multiple={!single}
       error={error}
+      loading={found.loading}
       onSave={(move) => save(picked, move)}
       onCancel={() => onCancel()}
       onBackspace={() => setPicked((ids) => ids.slice(0, -1))}
     />
   );
 }
-
-const SEARCH_DELAY_MS = 150;
 
 /**
  * Relation: searches the target database's rows (`searchRows`) and can add one ("+ New row").
@@ -415,42 +472,8 @@ export function RelationEditor({
   const [picked, setPicked] = useState<Id[]>(() => toIds(value));
   const [titles, setTitles] = useState<Record<Id, string>>({});
   const [query, setQuery] = useState(initialText ?? '');
-  const [results, setResults] = useState<readonly RowChoice[]>([]);
-  const [loading, setLoading] = useState(Boolean(searchRows));
   const [error, setError] = useState<string | null>(null);
-  const search = useRef(searchRows);
-  useEffect(() => {
-    search.current = searchRows;
-  });
-  const first = useRef(true);
-  useEffect(() => {
-    const run = search.current;
-    if (!run) return;
-    let live = true;
-    setLoading(true);
-    const timer = setTimeout(
-      () => {
-        run(query.trim()).then(
-          (rows) => {
-            if (!live) return;
-            setResults(rows);
-            setLoading(false);
-          },
-          () => {
-            if (!live) return;
-            setResults([]);
-            setLoading(false);
-          },
-        );
-      },
-      first.current ? 0 : SEARCH_DELAY_MS,
-    );
-    first.current = false;
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [query]);
+  const { results, loading } = useSearch(searchRows, query);
 
   const titleOf = (id: Id): string | undefined => titles[id] ?? ctx.rowTitle?.(id);
   const save = (ids: Id[], move?: CellMove): boolean => {
