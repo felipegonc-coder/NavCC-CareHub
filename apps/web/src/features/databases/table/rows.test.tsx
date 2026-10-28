@@ -80,12 +80,12 @@ afterEach(() => {
 });
 
 describe('TableLayout row menu', () => {
-  it('opens from the handle without ticking the row: Open, Copy link, Move up and down, Delete', async () => {
+  it('opens from the handle without ticking the row: Open, Duplicate, Copy link, Move up and down, Delete', async () => {
     const props = layoutProps();
     const { actions } = props;
     render(<TableLayout {...props} />);
     fireEvent.click(handleOf('row-heater', 'Replace water heater'));
-    expect(items()).toEqual(['Open', 'Copy link', 'Move up', 'Move down', 'Delete']);
+    expect(items()).toEqual(['Open', 'Duplicate', 'Copy link', 'Move up', 'Move down', 'Delete']);
     expect(rowOf('row-heater')).toHaveAttribute('aria-selected', 'false');
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Move up' }));
@@ -114,6 +114,15 @@ describe('TableLayout row menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
     expect(actions.trashRows).toHaveBeenCalledWith(['row-boiler']);
     await waitFor(() => expect(gutterOf('row-drain')).toHaveFocus());
+  });
+
+  it('duplicates the row and gives focus back to the row', async () => {
+    const props = layoutProps();
+    render(<TableLayout {...props} />);
+    fireEvent.click(handleOf('row-heater', 'Replace water heater'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(props.actions.duplicateRows).toHaveBeenCalledWith(['row-heater']);
+    await waitFor(() => expect(gutterOf('row-heater')).toHaveFocus());
   });
 
   it('copies a link to the row', async () => {
@@ -149,11 +158,10 @@ describe('TableLayout row menu', () => {
   });
 
   it('has no moves in a sorted view, and no handles when read-only', () => {
-    const { unmount } = render(
-      <TableLayout {...layoutProps({ view: tableView({ sorts: byCost }) })} />,
-    );
+    const sorted = layoutProps({ view: tableView({ sorts: byCost }) });
+    const { unmount } = render(<TableLayout {...sorted} />);
     fireEvent.click(handleOf('row-drain', 'Unclog bathroom drain'));
-    expect(items()).toEqual(['Open', 'Copy link', 'Delete']);
+    expect(items()).toEqual(['Open', 'Duplicate', 'Copy link', 'Delete']);
     unmount();
 
     render(<TableLayout {...layoutProps({ readOnly: true })} />);

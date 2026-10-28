@@ -20,6 +20,7 @@ export const TABLE_TEXT = {
   selectedRows: 'Selected rows',
   selected: (count: number) => `${count} selected`,
   setProperty: 'Set property',
+  duplicate: 'Duplicate',
   delete: 'Delete',
   clearSelection: 'Clear selection',
   /** The handle at the start of a row, and the row menu. */

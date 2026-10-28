@@ -94,6 +94,16 @@ describe('TableLayout selection', () => {
     expect(screen.queryByRole('toolbar', { name: 'Selected rows' })).toBeNull();
   });
 
+  it('duplicates the ticked rows, top to bottom, and keeps them ticked', () => {
+    const props = layoutProps();
+    render(<TableLayout {...props} />);
+    fireEvent.click(tickBox('Annual boiler service'));
+    fireEvent.click(tickBox('Fix kitchen sink leak'));
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Duplicate' }));
+    expect(props.actions.duplicateRows).toHaveBeenCalledWith(['row-sink', 'row-boiler']);
+    expect(ticked()).toEqual(['row-sink', 'row-boiler']);
+  });
+
   it('sets one property for every ticked row', () => {
     const props = layoutProps();
     render(<TableLayout {...props} />);
