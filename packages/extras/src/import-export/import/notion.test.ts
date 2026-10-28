@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   calloutsAsQuotes,
   cellText,
+  notionId,
   notionImporter,
+  notionLinkId,
   notionName,
   planNotion,
   rowPage,
@@ -185,6 +187,10 @@ describe('Notion export', () => {
     expect(calloutsAsQuotes('```\n<aside>\n```')).toBe('```\n<aside>\n```');
     expect(notionName(`Callbacks ${id(2)}`)).toBe('Callbacks');
     expect(notionName('Callbacks')).toBe('Callbacks');
+    expect(notionId(`Callbacks ${'aB'.repeat(16)}`)).toBe('ab'.repeat(16));
+    expect(notionId('Callbacks')).toBeUndefined();
+    expect(notionLinkId(`https://www.notion.so/Call-Rowan-${id(4)}?pvs=21`)).toBe(id(4));
+    expect(notionLinkId(`https://example.org/Call-Rowan-${id(4)}`)).toBeUndefined();
   });
 
   it('reads the text of pages and CSV files from the zip, and only those', async () => {
