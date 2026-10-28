@@ -18,3 +18,4 @@ export * from './player/index';
 export * from './authoring/index';
 export * from './banks/index';
 export * from './media/index';
+export * from './help/index';
