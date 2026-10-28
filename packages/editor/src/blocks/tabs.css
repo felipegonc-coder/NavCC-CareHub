@@ -1,0 +1,134 @@
+/*
+ * The tabs block (tabs.ui.tsx). Tokens only, as in ../styles.css: a color --ch-<name> holds RGB
+ * channels, used as rgb(var(--ch-<name>)); lines of 1px or 2px are drawn as they are.
+ */
+
+.ch-tabs-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ch-space-1);
+  border-bottom: 1px solid rgb(var(--ch-border));
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Tabs that don't fit scroll sideways, as on phones. */
+.ch-tabs-row {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.ch-tab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ch-space-1_5);
+  max-width: var(--ch-space-60);
+  min-height: var(--ch-space-9);
+  padding: var(--ch-space-1) var(--ch-space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--ch-radius-sm) var(--ch-radius-sm) 0 0;
+  background: none;
+  color: rgb(var(--ch-muted));
+  font: inherit;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+  font-weight: var(--ch-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ch-tab[aria-selected='true'] {
+  border-bottom-color: rgb(var(--ch-fg));
+  color: rgb(var(--ch-fg));
+}
+
+.ch-tabs[data-label-size='small'] .ch-tab {
+  font-size: var(--ch-text-label);
+  line-height: var(--ch-leading-label);
+}
+
+.ch-tabs[data-label-size='large'] .ch-tab {
+  font-size: var(--ch-text-body);
+  line-height: var(--ch-leading-body);
+}
+
+.ch-tab:focus-visible,
+.ch-tabs-add:focus-visible,
+.ch-tab-rename:focus-visible {
+  outline: 2px solid rgb(var(--ch-ring));
+  outline-offset: -2px;
+}
+
+.ch-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ch-tab-rename {
+  width: var(--ch-space-40);
+  margin: var(--ch-space-1) 0;
+  padding: var(--ch-space-0_5) var(--ch-space-2);
+  border: 1px solid rgb(var(--ch-border));
+  border-radius: var(--ch-radius-sm);
+  background: rgb(var(--ch-bg));
+  color: rgb(var(--ch-fg));
+  font: inherit;
+  font-size: var(--ch-text-small);
+  line-height: var(--ch-leading-small);
+}
+
+.ch-tabs-add {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--ch-space-9);
+  min-height: var(--ch-space-9);
+  border: 0;
+  border-radius: var(--ch-radius);
+  background: none;
+  color: rgb(var(--ch-muted));
+  cursor: pointer;
+}
+
+.ch-tab:hover,
+.ch-tabs-add:hover {
+  background: rgb(var(--ch-fill));
+  color: rgb(var(--ch-fg));
+}
+
+/* A read-only editor only opens tabs. */
+.ch-editor[contenteditable='false'] .ch-tabs-add {
+  display: none;
+}
+
+/* Touch screens: targets of at least 44 × 44 px. */
+@media (pointer: coarse) {
+  .ch-tab,
+  .ch-tabs-add {
+    min-height: var(--ch-space-11);
+  }
+
+  .ch-tabs-add {
+    min-width: var(--ch-space-11);
+  }
+}
+
+.ch-tabs-content {
+  padding-top: var(--ch-space-2);
+}
+
+.ch-tabs [data-tab-content] > * + * {
+  margin-top: var(--ch-space-1);
+}
+
+/* The label line each tab starts with in HTML: the tab row shows it instead. */
+.ch-tabs [data-tab-label],
+.ch-editor .ch-tab-hidden {
+  display: none;
+}

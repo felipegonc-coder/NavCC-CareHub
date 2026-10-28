@@ -8,6 +8,7 @@ import {
   type EditorState,
   type Transaction,
 } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
 /** The most tabs one tabs block can have (Pages and blocks, Tabs). */
 export const MAX_TABS = 20;
@@ -45,6 +46,8 @@ declare module '@tiptap/core' {
       deleteTab: (tabsPos: number, index: number) => ReturnType;
       /** Sets the size of the tab labels. */
       setTabLabelSize: (tabsPos: number, size: TabLabelSize) => ReturnType;
+      /** Opens a tab for you only, never in the page; also in a read-only editor. */
+      openTab: (tabsPos: number, index: number) => ReturnType;
     };
   }
 }
@@ -221,12 +224,28 @@ function shifted(selection: SelectionJson, by: number): SelectionJson {
   };
 }
 
-/** Transactions that bring changes from the Y.Doc: other people's, undo and redo, loading. */
-function fromYjs(state: EditorState): (tr: Transaction) => boolean {
-  const sync = state.plugins.find((plugin) =>
+const ySync = (state: EditorState) =>
+  state.plugins.find((plugin) =>
     String((plugin as unknown as { key?: unknown }).key).startsWith('y-sync$'),
   );
+
+/** Transactions that bring changes from the Y.Doc: other people's, undo and redo, loading. */
+function fromYjs(state: EditorState): (tr: Transaction) => boolean {
+  const sync = ySync(state);
   return (tr) => sync !== undefined && tr.getMeta(sync) !== undefined;
+}
+
+/** Changes from the Y.Doc other than your own undo and redo: other people's, and loading. */
+function fromOthers(state: EditorState): (tr: Transaction) => boolean {
+  const sync = ySync(state);
+  return (tr) => {
+    const meta: unknown = sync && tr.getMeta(sync);
+    return (
+      typeof meta === 'object' &&
+      meta !== null &&
+      !('isUndoRedoOperation' in meta && meta.isUndoRedoOperation)
+    );
+  };
 }
 
 /**
@@ -283,6 +302,145 @@ function fillTabIds(transactions: readonly Transaction[], state: EditorState): T
 }
 
 const tabIdsKey = new PluginKey('tabIds');
+
+/** The attribute that holds a block's ID (from ../block-ids, which schema files can't import). */
+const BLOCK_ID = 'blockId';
+
+/** The ID of a tab's first block, or null. */
+function firstBlockId(tab: ProseMirrorNode): string | null {
+  let first: unknown = null;
+  tab.descendants((node) => {
+    if (first === null && BLOCK_ID in node.attrs) first = node.attrs[BLOCK_ID] ?? '';
+    return first === null;
+  });
+  return typeof first === 'string' && first !== '' ? first : null;
+}
+
+/** What says a tab is open: its tab ID and the ID of its first block, for tabs that had none. */
+function keysOf(tab: ProseMirrorNode): string[] {
+  const id = tabIdOf(tab);
+  const block = firstBlockId(tab);
+  return [...(id === null ? [] : [id]), ...(block === null ? [] : [`block-${block}`])];
+}
+
+/** The key a tab is remembered by when it's open (also in its view's element IDs), or null. */
+export const tabKey = (tab: ProseMirrorNode): string | null => keysOf(tab)[0] ?? null;
+
+/** Which tab of each tabs block you have open: kept in this editor, never in the page. */
+interface OpenTabs {
+  /** The keys (`tabKey`) of the tabs shown. */
+  open: ReadonlySet<string>;
+  decorations: DecorationSet;
+}
+
+/** A transaction's meta that opens tabs: each one's key, and the keys of the tabs beside it. */
+type Opening = { key: string; others: string[] };
+
+const openTabsKey = new PluginKey<OpenTabs>('openTabs');
+
+/** The index of the tab you have open in `tabs`: the first one if none is. */
+function openIndex(tabs: ProseMirrorNode, open: ReadonlySet<string>): number {
+  for (let index = 0; index < tabs.childCount; index += 1) {
+    if (keysOf(tabs.child(index)).some((key) => open.has(key))) return index;
+  }
+  return 0;
+}
+
+/** What opens the tab at `index` of `tabs`; null if it has no key. */
+function opening(tabs: ProseMirrorNode, index: number): Opening | null {
+  const key = tabKey(tabs.child(index));
+  if (key === null) return null;
+  const others: string[] = [];
+  tabs.forEach((tab, _offset, i) => {
+    if (i !== index) others.push(...keysOf(tab));
+  });
+  return { key, others };
+}
+
+function withOpened(open: ReadonlySet<string>, openings: readonly Opening[]): ReadonlySet<string> {
+  const next = new Set(open);
+  for (const { key, others } of openings) {
+    for (const other of others) next.delete(other);
+    next.add(key);
+  }
+  return next;
+}
+
+/**
+ * Shows the tab you want open in each tabs block (`wanted`; the first tab if none), so a tab
+ * stays open by its key when tabs move. Each tabs block is marked for its view with the tab
+ * shown (`spec.openTab`) and the prefix of its element IDs (`spec.idPrefix`). Every tab is a
+ * tab panel; the ones not shown get `.ch-tab-hidden`.
+ */
+function draw(doc: ProseMirrorNode, wanted: ReadonlySet<string>, prefix: string): OpenTabs {
+  const open = new Set<string>();
+  const decorations: Decoration[] = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name !== TABS) return !node.isTextblock;
+    const shown = openIndex(node, wanted);
+    const spec = { openTab: shown, idPrefix: prefix };
+    decorations.push(Decoration.node(pos, pos + node.nodeSize, {}, spec));
+    node.forEach((tab, offset, index) => {
+      const key = tabKey(tab);
+      const from = pos + 1 + offset;
+      const attrs: Record<string, string> = { role: 'tabpanel' };
+      if (index !== shown) attrs.class = 'ch-tab-hidden';
+      if (key !== null) {
+        attrs.id = `${prefix}-panel-${key}`;
+        attrs['aria-labelledby'] = `${prefix}-tab-${key}`;
+        if (index === shown) open.add(key);
+      }
+      decorations.push(Decoration.node(from, from + tab.nodeSize, attrs));
+    });
+    return true;
+  });
+  return { open, decorations: DecorationSet.create(doc, decorations) };
+}
+
+/** The tab you have open in a tabs block and its element ID prefix, from its view's decorations. */
+export function openTabOf(decorations: readonly Decoration[]): { index: number; idPrefix: string } {
+  for (const decoration of decorations) {
+    const { openTab, idPrefix } = decoration.spec as { openTab?: unknown; idPrefix?: unknown };
+    if (typeof openTab === 'number' && typeof idPrefix === 'string') {
+      return { index: openTab, idPrefix };
+    }
+  }
+  return { index: 0, idPrefix: 'ch-tabs' };
+}
+
+/** The tabs around the cursor that you don't have open, outermost first. */
+function hidingTabs(state: EditorState) {
+  const open = openTabsKey.getState(state)?.open ?? new Set<string>();
+  const { $head } = state.selection;
+  const found: { tabs: ProseMirrorNode; tabsPos: number; index: number }[] = [];
+  for (let depth = 2; depth <= $head.depth; depth += 1) {
+    if ($head.node(depth).type.name !== TAB) continue;
+    const tabs = $head.node(depth - 1);
+    const index = $head.index(depth - 1);
+    if (openIndex(tabs, open) !== index)
+      found.push({ tabs, tabsPos: $head.before(depth - 1), index });
+  }
+  return found;
+}
+
+/**
+ * The cursor never stays in a tab you don't have open. When your own change or move puts it in
+ * one (a new tab, undo), that tab opens; when other people's changes do, it goes to the start
+ * of the tab you have open there.
+ */
+function showCursor(transactions: readonly Transaction[], state: EditorState): Transaction | null {
+  const moved = transactions.filter((tr) => tr.docChanged || tr.selectionSet);
+  const hiding = moved.length > 0 ? hidingTabs(state) : [];
+  const outer = hiding[0];
+  if (!outer) return null;
+  const openings = hiding.flatMap(({ tabs, index }) => opening(tabs, index) ?? []);
+  if (!moved.every(fromOthers(state)) && openings.length === hiding.length) {
+    return state.tr.setMeta(openTabsKey, openings);
+  }
+  const open = openTabsKey.getState(state)?.open ?? new Set<string>();
+  const start = tabStart(outer.tabs, outer.tabsPos, openIndex(outer.tabs, open));
+  return state.tr.setSelection(Selection.near(state.doc.resolve(start + 1)));
+}
 
 /**
  * One tab of a tabs block, with its own blocks. `tabId` is a UUID, never read from HTML, so a
@@ -502,16 +660,48 @@ const Tabs = Node.create({
           if (dispatch) tr.setNodeAttribute(tabsPos, 'labelSize', size);
           return true;
         },
+
+      openTab:
+        (tabsPos, index) =>
+        ({ tr, dispatch }) => {
+          const tab = tabAt(tr.doc, tabsPos, index);
+          const meta = tab && opening(tab.tabs, index);
+          if (!tab || !meta) return false;
+          if (dispatch) {
+            tr.setMeta(openTabsKey, [meta]);
+            // A cursor in another tab of the block goes to the start of this one.
+            const { from, to } = tr.selection;
+            const inBlock = from > tabsPos && to < tabsPos + tab.tabs.nodeSize;
+            if (inBlock && (from < tab.pos || to > tab.pos + tab.node.nodeSize)) {
+              tr.setSelection(Selection.near(tr.doc.resolve(tab.pos + 1)));
+            }
+          }
+          return true;
+        },
     };
   },
 
   addProseMirrorPlugins() {
     const { editor } = this;
+    const idPrefix = `ch-tabs-${Math.random().toString(36).slice(2, 10)}`;
     return [
       new Plugin({
         key: tabIdsKey,
         appendTransaction: (transactions, _before, state) =>
           editor.isEditable ? fillTabIds(transactions, state) : null,
+      }),
+      new Plugin<OpenTabs>({
+        key: openTabsKey,
+        state: {
+          init: (_config, state) => draw(state.doc, new Set<string>(), idPrefix),
+          apply: (tr, value, _before, state) => {
+            const meta = tr.getMeta(openTabsKey) as Opening[] | undefined;
+            if (!meta && !tr.docChanged) return value;
+            return draw(state.doc, meta ? withOpened(value.open, meta) : value.open, idPrefix);
+          },
+        },
+        props: { decorations: (state) => openTabsKey.getState(state)?.decorations ?? null },
+        appendTransaction: (transactions, _before, state) => showCursor(transactions, state),
       }),
     ];
   },
