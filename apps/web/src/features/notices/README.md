@@ -73,8 +73,8 @@ change). The types in `api.ts` mirror the server's views in
 
 - Times use the default time settings until the person's own settings reach the web app.
 - Muting the 🔔 Care Hub row (`useNoticesMute()`) comes later.
-- `/api/notices/settings` comes with the server's notices routes, once workspaces are on main.
-  Until then `useNoticeSettings()` returns an error.
+- `/api/notices/settings` comes with the server's notices routes. Until then `useNoticeSettings()`
+  returns an error.
 
 ## Tests
 

@@ -59,9 +59,14 @@ function renderSettings() {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  return renderHook(() => ({ settings: useNoticeSettings(), change: useChangeNoticeSettings() }), {
-    wrapper,
-  });
+  return renderHook(
+    () => {
+      const settings = useNoticeSettings();
+      // `data` is read while rendering, as the Settings screen does, so a refetch renders again.
+      return { settings, data: settings.data, change: useChangeNoticeSettings() };
+    },
+    { wrapper },
+  );
 }
 
 beforeEach(() => {
@@ -89,7 +94,7 @@ describe('useNoticeSettings and useChangeNoticeSettings', () => {
     server.settings.automations = false;
     const { result } = renderSettings();
     await waitFor(() => expect(result.current.settings.isSuccess).toBe(true));
-    expect(result.current.settings.data).toEqual({
+    expect(result.current.data).toEqual({
       comments: true,
       edits: true,
       formResponses: true,
@@ -106,7 +111,7 @@ describe('useNoticeSettings and useChangeNoticeSettings', () => {
     });
 
     act(() => result.current.change.mutate({ comments: false }));
-    await waitFor(() => expect(result.current.settings.data?.comments).toBe(false));
+    await waitFor(() => expect(result.current.data?.comments).toBe(false));
     await waitFor(() => expect(server.patches).toEqual([{ comments: false }]));
     expect(result.current.change.isPending).toBe(true);
 
@@ -114,7 +119,7 @@ describe('useNoticeSettings and useChangeNoticeSettings', () => {
     await waitFor(() => expect(result.current.change.isSuccess).toBe(true));
     // Asked again once the change was saved.
     await waitFor(() => expect(server.gets).toBe(2));
-    expect(result.current.settings.data).toEqual({
+    expect(result.current.data).toEqual({
       comments: false,
       edits: true,
       formResponses: true,
@@ -130,7 +135,7 @@ describe('useNoticeSettings and useChangeNoticeSettings', () => {
     act(() => result.current.change.mutate({ edits: false }));
     await waitFor(() => expect(result.current.change.isError).toBe(true));
     expect(result.current.change.error?.status).toBe(500);
-    expect(result.current.settings.data?.edits).toBe(true);
+    expect(result.current.data?.edits).toBe(true);
   });
 
   it('follow a change made in another tab', async () => {
@@ -142,6 +147,6 @@ describe('useNoticeSettings and useChangeNoticeSettings', () => {
     await act(async () => {
       live.send({ type: 'notice-settings-changed' });
     });
-    await waitFor(() => expect(result.current.settings.data?.formResponses).toBe(false));
+    await waitFor(() => expect(result.current.data?.formResponses).toBe(false));
   });
 });
