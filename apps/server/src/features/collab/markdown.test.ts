@@ -173,6 +173,17 @@ describe('Markdown export', () => {
     expect(fromMarkdown(markdown, info)).toEqual(nodes);
   });
 
+  it('closes marks without copying the text before them', () => {
+    // Each bold run ends in a space that moves past its `**`, two million characters in.
+    const runs = Array.from({ length: 5_000 }, () => [text('x ', bold), text('y')]).flat();
+    const start = `Start${' '.repeat(2_000_000)}`;
+    const nodes = [{ type: 'paragraph', content: [text(start), ...runs] }];
+    const started = performance.now();
+    const markdown = toMarkdown(nodes, info);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(markdown === `${start}${'**x** y'.repeat(5_000)}\n`).toBe(true);
+  });
+
   it('keeps deep nesting and long code in lists within a small multiple of the page', () => {
     const code: PageNode = { type: 'codeBlock', content: [text('x\n'.repeat(100_000).trimEnd())] };
     const quote = (levels: number): PageNode =>

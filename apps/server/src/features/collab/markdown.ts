@@ -183,27 +183,34 @@ function readBack(text: string, info: SchemaInfo, paragraph: boolean): PageNode[
 }
 
 function serializeInline(nodes: readonly PageNode[], info: SchemaInfo, html: boolean): string {
+  // Emphasis can't end after a space, so the spaces and tabs at the end are held in `tail` and
+  // go after any closing delimiters written next. The output itself is never cut or searched:
+  // that takes quadratic time on many short runs.
   let out = '';
+  let tail = '';
+  const write = (value: string) => {
+    // Found from the end: a /[ \t]*$/ search takes quadratic time on a long run of spaces.
+    let end = value.length;
+    while (end > 0 && (value[end - 1] === ' ' || value[end - 1] === '\t')) end -= 1;
+    if (end === 0) {
+      tail += value;
+      return;
+    }
+    out += tail + value.slice(0, end);
+    tail = value.slice(end);
+  };
   const open: PageMark[] = [];
   const closeTo = (keep: number) => {
-    if (open.length <= keep) return;
-    // Emphasis can't end after a space, so trailing spaces move past the closing delimiters.
-    // Found from the end: a /[ \t]*$/ search takes quadratic time on a long run of spaces.
-    let end = out.length;
-    while (end > 0 && (out[end - 1] === ' ' || out[end - 1] === '\t')) end -= 1;
-    const trailing = out.slice(end);
-    out = out.slice(0, end);
     while (open.length > keep) {
       const mark = open.pop();
       if (mark) out += closer(mark, html);
     }
-    out += trailing;
   };
   for (const node of nodes) {
     if (node.type !== 'text') {
       closeTo(0);
       // <br> rather than a line break, so no line but the first can start a block.
-      out += node.type === 'hardBreak' ? '<br>' : placeholder('inline', node);
+      write(node.type === 'hardBreak' ? '<br>' : placeholder('inline', node));
       continue;
     }
     let text = (node.text ?? '').replace(/[\r\n]/g, ' ');
@@ -215,18 +222,19 @@ function serializeInline(nodes: readonly PageNode[], info: SchemaInfo, html: boo
     closeTo(keep);
     if (marks.length > keep && text.trim() !== '') {
       const leading = /^\s*/.exec(text)?.[0] ?? '';
-      out += leading;
       text = text.slice(leading.length);
+      let openers = '';
       for (const mark of marks.slice(keep)) {
-        out += opener(mark, html);
+        openers += opener(mark, html);
         open.push(mark);
       }
+      write(leading + openers);
     }
     const isCode = !html && (node.marks ?? []).some((mark) => mark.type === 'code');
-    out += isCode ? codeSpan(text) : escapeText(text);
+    write(isCode ? codeSpan(text) : escapeText(text));
   }
   closeTo(0);
-  return out;
+  return out + tail;
 }
 
 /** Adjacent text with the same marks as one run, so code spans and delimiters don't touch. */
