@@ -24,6 +24,8 @@ export interface TotalsRowProps {
   calculations?: View['calculations'];
   onCalculate?: (property: Property, aggregate: Aggregate) => void;
   testId?: string;
+  /** The row's number for screen readers, when rows are left out (virtual rows). */
+  rowIndex?: number;
 }
 
 const isAggregate = (value: string): value is Aggregate =>
@@ -39,9 +41,15 @@ export function TotalsRow({
   calculations,
   onCalculate,
   testId,
+  rowIndex,
 }: TotalsRowProps) {
   return (
-    <div role="row" data-testid={testId} className="group/totals flex border-b border-border">
+    <div
+      role="row"
+      aria-rowindex={rowIndex || undefined}
+      data-testid={testId}
+      className="group/totals flex border-b border-border"
+    >
       {leadClass !== undefined && <div role="gridcell" className={leadClass} />}
       {columns.map((column) => {
         const property = column.property;
