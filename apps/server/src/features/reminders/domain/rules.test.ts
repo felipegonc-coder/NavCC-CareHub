@@ -140,16 +140,23 @@ describe('the Reminders list', () => {
     expect(list.sent.map((r) => r.id)).toEqual(['r4', 'r3']);
   });
 
-  it('sends times as ISO text', () => {
-    expect(toReminderView(sent('r4', '2026-10-26T15:00:00Z'))).toEqual({
+  it('sends times as ISO text, with the title and where Open goes', () => {
+    expect(toReminderView(sent('r4', '2026-10-26T15:00:00Z'), 'Bluebird Bakery order')).toEqual({
       id: 'r4',
       target: PAGE,
+      title: 'Bluebird Bakery order',
+      href: `/p/${PAGE.pageId}`,
       minutesBefore: null,
       dueAt: '2026-10-28T15:00:00.000Z',
       note: '',
       status: 'sent',
       sentAt: '2026-10-26T15:00:00.000Z',
       createdAt: '2026-10-26T15:00:00.000Z',
+    });
+    const event = { type: 'event', eventId: 'evt_1', occurrenceStart: '2026-10-28T09:00' } as const;
+    expect(toReminderView({ ...base, target: event, minutesBefore: 10 }, null)).toMatchObject({
+      title: null,
+      href: '/calendar?event=evt_1&occurrence=2026-10-28T09%3A00',
     });
   });
 });

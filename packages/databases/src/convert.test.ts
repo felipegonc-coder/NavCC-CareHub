@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { canConvert, planConversion, type ConversionPlan } from './convert';
 import { defaultConfig, newProperty, relationConfig } from './schema';
-import type {
-  ComputedValue,
-  ConfigOf,
-  EvalContext,
-  Property,
-  PropertyConfig,
-  PropertyType,
-  Row,
-  SelectOption,
-  StatusOption,
-  Viewer,
+import {
+  PROPERTY_TYPES,
+  type ComputedValue,
+  type ConfigOf,
+  type EvalContext,
+  type Property,
+  type PropertyConfig,
+  type PropertyType,
+  type Row,
+  type SelectOption,
+  type StatusOption,
+  type Viewer,
 } from './types';
 
 const viewer: Viewer = {
@@ -93,12 +94,14 @@ describe('canConvert', () => {
     ['text', 'files', false],
     ['text', 'relation', false],
     ['text', 'checklist', false],
-    ['text', 'formula', true],
-    ['number', 'unique_id', true],
-    ['text', 'button', true],
-    ['select', 'rollup', true],
-    ['relation', 'formula', true],
-    ['formula', 'rollup', true],
+    ['text', 'formula', false],
+    ['number', 'unique_id', false],
+    ['text', 'button', false],
+    ['select', 'rollup', false],
+    ['relation', 'formula', false],
+    ['formula', 'rollup', false],
+    ['rollup', 'formula', false],
+    ['button', 'unique_id', false],
     ['title', 'formula', false],
     ['formula', 'formula', false],
     ['unique_id', 'unique_id', false],
@@ -109,6 +112,13 @@ describe('canConvert', () => {
   ];
   it.each(cases)('%s → %s: %s', (from: PropertyType, to: PropertyType, want: boolean) => {
     expect(canConvert(from, to)).toBe(want);
+  });
+  it('changes nothing into Formula, Rollup, ID or Button', () => {
+    const newOnly: PropertyType[] = ['formula', 'rollup', 'unique_id', 'button'];
+    const offered = PROPERTY_TYPES.flatMap((from) =>
+      newOnly.filter((to) => canConvert(from, to)).map((to) => `${from} → ${to}`),
+    );
+    expect(offered).toEqual([]);
   });
 });
 
@@ -428,29 +438,27 @@ describe('planConversion', () => {
       defaultConfig('button'),
     ];
     it.each(into.map((c): [PropertyType, PropertyConfig] => [c.type, c]))(
-      'carries no values into %s',
-      (_type: PropertyType, config: PropertyConfig) => {
+      'throws for %s (only ever added as a new property)',
+      (type: PropertyType, config: PropertyConfig) => {
         const rows = textRows(notes, ['Call', '', 'Quote']);
-        const plan = planConversion(notes, config, rows, ctx);
-        expect(plan.config).toEqual(config);
-        expect(plan.values.size).toBe(0);
-        expect(plan.cleared).toBe(2);
+        expect(() => planConversion(notes, config, rows, ctx)).toThrow(
+          `A text property can't change to ${type}.`,
+        );
       },
     );
-    it('counts unticked checkboxes and IDs as values', () => {
-      const done = newProperty('Done', defaultConfig('checkbox'));
-      const rows = [row('r0', { [done.id]: false }), row('r1', { [done.id]: true })];
-      expect(planConversion(done, defaultConfig('formula'), rows, ctx).cleared).toBe(2);
+    it('throws from computed types too, and for Name and the same type', () => {
+      const total = newProperty('Total', defaultConfig('formula'));
+      expect(() => planConversion(total, rollup, [], ctx)).toThrow(
+        "A formula property can't change to rollup.",
+      );
       const id = newProperty('ID', defaultConfig('unique_id'));
-      const ids = [row('r0', {}, 12), row('r1')];
-      expect(planConversion(id, defaultConfig('button'), ids, ctx).cleared).toBe(1);
-    });
-    it('still never changes Name, and same type is not a change', () => {
+      expect(() => planConversion(id, defaultConfig('button'), [row('r0', {}, 12)], ctx)).toThrow(
+        "A unique_id property can't change to button.",
+      );
       const name = newProperty('Name', defaultConfig('title'));
       expect(() => planConversion(name, defaultConfig('formula'), [], ctx)).toThrow(
         "A title property can't change to formula.",
       );
-      const total = newProperty('Total', defaultConfig('formula'));
       expect(() => planConversion(total, defaultConfig('formula'), [], ctx)).toThrow(
         "A formula property can't change to formula.",
       );

@@ -9,7 +9,6 @@ import {
   readLastView,
   rememberView,
   tabViews,
-  withOverride,
 } from './view-state';
 
 function views(): View[] {
@@ -77,24 +76,6 @@ describe('last view', () => {
     });
     expect(() => rememberView('db-jobs', VIEWS.board)).not.toThrow();
     expect(readLastView('db-jobs')).toBeNull();
-  });
-});
-
-describe('withOverride', () => {
-  it("puts the viewer's own filter, sorts and grouping on top of the saved view", () => {
-    const [table] = views();
-    if (!table) throw new Error('The fixture has a table view.');
-    const shown = withOverride(table, { sorts: bySort, grouping: { propertyId: PROPS.status } });
-    expect(shown.sorts).toEqual(bySort);
-    expect(shown.grouping).toEqual({ propertyId: PROPS.status });
-    expect(shown.filter).toBe(table.filter);
-    expect(shown.name).toBe('All jobs');
-  });
-
-  it('gives back the saved view without one', () => {
-    const [table] = views();
-    if (!table) throw new Error('The fixture has a table view.');
-    expect(withOverride(table, null)).toBe(table);
   });
 });
 

@@ -7,11 +7,16 @@ import {
   createReminder,
   deleteEventReminders,
   deleteReminder,
+  doneFromNotice,
   fireReminder,
   listReminders,
   registerEventLookup,
+  registerTitleLookup,
+  remapEventReminders,
+  snoozeFromNotice,
   syncEventReminders,
   updateReminder,
+  viewsOf,
   type EventReminderInput,
 } from './service';
 import { bindMemoryReminders, memoryDb } from './testing';
@@ -190,6 +195,46 @@ describe('Calendar’s event reminders (HR-08)', () => {
   });
 });
 
+describe('series edits and people removed from an event', () => {
+  it('moves each occurrence to where it went, and deletes the ones that are gone', async () => {
+    const [first, second] = ['2026-10-28T09:00', '2026-10-29T09:00'];
+    const a = await createEventReminder(memoryDb, event({ occurrenceStart: first }));
+    const b = await createEventReminder(
+      memoryDb,
+      event({ occurrenceStart: second, start: at('2026-10-29T15:00:00Z') }),
+    );
+    await createEventReminder(memoryDb, event({ occurrenceStart: second, userId: SAM }));
+    const asked: (string | null)[] = [];
+    const place = {
+      eventId: 'evt_2',
+      occurrenceStart: '2026-10-29T10:00',
+      start: at('2026-10-29T16:00:00Z'),
+    };
+    const map = (occurrence: string | null) => {
+      asked.push(occurrence);
+      return occurrence === first ? null : place;
+    };
+    expect(await remapEventReminders(memoryDb, { eventId: 'evt_1', map })).toBe(3);
+    expect(asked).toEqual([first, second]);
+    expect(await stored(a?.reminderId)).toMatchObject({ status: 'deleted' });
+    const moved = await stored(b?.reminderId);
+    expect(moved?.target).toEqual({
+      type: 'event',
+      eventId: 'evt_2',
+      occurrenceStart: '2026-10-29T10:00',
+    });
+    expect(moved?.dueAt).toEqual(new Date('2026-10-29T15:50:00Z'));
+    expect(await remapEventReminders(memoryDb, { eventId: 'evt_2', map: () => place })).toBe(0);
+  });
+
+  it('deletes only the given people’s reminders', async () => {
+    const created = await createEventReminder(memoryDb, event());
+    await createEventReminder(memoryDb, event({ userId: SAM }));
+    expect(await deleteEventReminders(memoryDb, { eventId: 'evt_1', userIds: [SAM] })).toBe(1);
+    expect(await stored(created?.reminderId)).toMatchObject({ status: 'pending' });
+  });
+});
+
 const inOneHour = () => new Date(clock.getTime() + minutes(60));
 
 describe('Remind me on a page (HR-07)', () => {
@@ -327,5 +372,112 @@ describe('Remind me on an event', () => {
     ).rejects.toMatchObject({
       statusCode: 403,
     });
+  });
+});
+
+describe('Snooze and Done on the notice (HR-09)', () => {
+  const click = (value: string, userId = AVERY) => ({
+    noticeId: randomUUID(),
+    workspaceId: W1,
+    userId,
+    action: 'reminders.snooze',
+    value,
+  });
+  const GONE = { message: 'This reminder was deleted.' };
+  async function sentReminder() {
+    const reminder = await createReminder(memoryDb, viewer, { target: PAGE, at: inOneHour() });
+    tick(minutes(60)); // 9:00 AM in Denver
+    await memory.runDueJobs();
+    return reminder;
+  }
+
+  it('snoozes for 15 minutes, lists it as pending and sends it again', async () => {
+    const { id } = await sentReminder();
+    expect(await snoozeFromNotice(memoryDb, click(`${id}:15m`))).toEqual({
+      message: 'Snoozed for 15 minutes',
+    });
+    expect((await listReminders(memoryDb, viewer)).pending).toMatchObject([
+      { id, status: 'snoozed' },
+    ]);
+    tick(minutes(15));
+    expect(await memory.runDueJobs()).toBe(1);
+    expect(memory.notices).toHaveLength(2);
+    expect(memory.notices[1]?.text).toBeUndefined();
+  });
+
+  it('snoozes until 9:00 AM tomorrow in the person’s zone', async () => {
+    const { id } = await sentReminder();
+    expect(await snoozeFromNotice(memoryDb, click(`${id}:tomorrow`))).toEqual({
+      message: 'Snoozed until tomorrow at 9:00 AM',
+    });
+    expect((await stored(id))?.dueAt).toEqual(new Date('2026-10-28T15:00:00Z'));
+  });
+
+  it('marks it done, and a snoozed one doesn’t come back', async () => {
+    const { id } = await sentReminder();
+    await snoozeFromNotice(memoryDb, click(`${id}:1h`));
+    expect(await doneFromNotice(memoryDb, click(id))).toEqual({ message: 'Marked as done.' });
+    expect(await doneFromNotice(memoryDb, click(id))).toEqual({ message: 'Marked as done.' });
+    expect((await listReminders(memoryDb, viewer)).sent).toMatchObject([{ id, status: 'done' }]);
+    tick(minutes(60));
+    expect(await memory.runDueJobs()).toBe(0);
+  });
+
+  it('says it was deleted for someone else’s, a deleted one, or an unknown choice', async () => {
+    const { id } = await sentReminder();
+    expect(await doneFromNotice(memoryDb, click(id, SAM))).toEqual(GONE);
+    expect(await snoozeFromNotice(memoryDb, click(`${id}:2h`))).toEqual(GONE);
+    await deleteReminder(memoryDb, viewer, id);
+    expect(await snoozeFromNotice(memoryDb, click(`${id}:15m`))).toEqual(GONE);
+    expect(await doneFromNotice(memoryDb, click(id))).toEqual(GONE);
+  });
+});
+
+describe('titles in the list', () => {
+  afterEach(() => {
+    registerTitleLookup('page', null);
+    registerTitleLookup('event', null);
+  });
+
+  it('shows the titles the person may see, with one lookup for each kind', async () => {
+    const lookups: string[][] = [];
+    registerTitleLookup('page', async (_db, userId, ids) => {
+      lookups.push(['page', userId, ...ids]);
+      return new Map([[PAGE.pageId, 'Bluebird Bakery order']]);
+    });
+    registerTitleLookup('event', async (_db, userId, ids) => {
+      lookups.push(['event', userId, ...ids]);
+      return new Map();
+    });
+    const locked = { type: 'page', pageId: '5e0c1d2a-3b4c-4d5e-8f60-000000000009' } as const;
+    const page = await createReminder(memoryDb, viewer, { target: PAGE, at: inOneHour() });
+    const other = await createReminder(memoryDb, viewer, { target: locked, at: inOneHour() });
+    const again = await createReminder(memoryDb, viewer, { target: PAGE, at: inOneHour() });
+    const created = await createEventReminder(memoryDb, event());
+    const onEvent = await stored(created?.reminderId);
+    const views = await viewsOf(memoryDb, viewer, [
+      page,
+      other,
+      again,
+      ...(onEvent ? [onEvent] : []),
+    ]);
+    expect(views.map((view) => view.title)).toEqual([
+      'Bluebird Bakery order',
+      null,
+      'Bluebird Bakery order',
+      null,
+    ]);
+    expect(views[3]).toMatchObject({ href: '/calendar?event=evt_1', minutesBefore: 10 });
+    expect(lookups).toEqual([
+      ['page', AVERY, PAGE.pageId, locked.pageId],
+      ['event', AVERY, 'evt_1'],
+    ]);
+  });
+
+  it('has no titles until pages and Calendar register their lookups', async () => {
+    const page = await createReminder(memoryDb, viewer, { target: PAGE, at: inOneHour() });
+    expect(await viewsOf(memoryDb, viewer, [page])).toMatchObject([
+      { id: page.id, title: null, href: `/p/${PAGE.pageId}` },
+    ]);
   });
 });

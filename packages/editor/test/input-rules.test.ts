@@ -8,6 +8,12 @@ let editor: Editor | undefined;
 afterEach(() => editor?.destroy());
 
 const first = (e: Editor) => e.getJSON().content?.[0];
+/** A paragraph of plain text, as the page stores it (with its block ID). */
+const line = (text: string) => ({
+  type: 'paragraph',
+  attrs: { blockId: expect.any(String) },
+  content: [{ type: 'text', text }],
+});
 /** The page's blocks of one type (the page may keep an empty line at the end). */
 const blocks = (e: Editor, type: string): JSONContent[] =>
   (e.getJSON().content ?? []).filter((node) => node.type === type);
@@ -46,7 +52,7 @@ describe('Markdown shortcuts', () => {
     typeText(editor, '## Shift handover');
     expect(first(editor)).toEqual({
       type: 'heading',
-      attrs: { level: 2 },
+      attrs: { level: 2, blockId: expect.any(String) },
       content: [{ type: 'text', text: 'Shift handover' }],
     });
   });
@@ -56,14 +62,9 @@ describe('Markdown shortcuts', () => {
     async (input) => {
       editor = await createTestEditor();
       typeText(editor, input);
-      expect(first(editor)).not.toEqual({
-        type: 'paragraph',
-        content: [{ type: 'text', text: input }],
-      });
+      expect(first(editor)).not.toEqual(line(input));
       expect(pressKey(editor, 'z', { ctrlKey: true })).toBe(true);
-      expect(editor.getJSON().content).toEqual([
-        { type: 'paragraph', content: [{ type: 'text', text: input }] },
-      ]);
+      expect(editor.getJSON().content).toEqual([line(input)]);
     },
   );
 
@@ -85,9 +86,7 @@ describe('Markdown shortcuts', () => {
     typeText(editor, '# ');
     expect(editor.getJSON().content?.map((node) => node.type)).toEqual(['heading', 'paragraph']);
     expect(pressKey(editor, 'z', { ctrlKey: true })).toBe(true);
-    expect(editor.getJSON().content).toEqual([
-      { type: 'paragraph', content: [{ type: 'text', text: '# ' }] },
-    ]);
+    expect(editor.getJSON().content).toEqual([line('# ')]);
   });
 
   it('leaves Ctrl+Z to the Yjs undo at any other time', async () => {

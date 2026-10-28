@@ -1,29 +1,26 @@
 import type { IsoDate, IsoDateTime, MyLearningEntry } from '@carehub/learning';
 
-// What a My learning card says about the learner's place in a course and its due date.
+// What a My learning card says about the learner's place in a course and its due date. A day
+// something happened is in the profile's time zone; a due date is a calendar day, shown as stored
+// (0317). Neither is ever in the browser's zone.
 
-const dayFormat = new Intl.DateTimeFormat(undefined, {
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-});
-const dueDayFormat = new Intl.DateTimeFormat(undefined, {
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
+const DAY = { day: 'numeric', month: 'short', year: 'numeric' } as const;
+const dueDayFormat = new Intl.DateTimeFormat(undefined, { ...DAY, timeZone: 'UTC' });
 
 /** A due date (a calendar day, the same everywhere): "31 Oct 2026" in the browser's language. */
 export const formatDueDate = (date: IsoDate): string =>
   dueDayFormat.format(new Date(`${date}T00:00:00Z`));
 
-/** The day something happened, in the browser's time zone and language. */
-export const formatDay = (at: IsoDateTime): string => dayFormat.format(new Date(at));
+/** The day something happened, in `timeZone` (the profile's) and the browser's language. */
+export const formatDay = (at: IsoDateTime, timeZone: string): string =>
+  new Intl.DateTimeFormat(undefined, { ...DAY, timeZone }).format(new Date(at));
 
-/** The learner's place in the course: "Not started", "40% done", "Passed on 12 Oct 2026". */
-export function entryStatus(entry: MyLearningEntry): string {
-  const on = entry.completedAt ? ` on ${formatDay(entry.completedAt)}` : '';
+/**
+ * The learner's place in the course: "Not started", "40% done", "Passed on 12 Oct 2026" (the day in
+ * `timeZone`).
+ */
+export function entryStatus(entry: MyLearningEntry, timeZone: string): string {
+  const on = entry.completedAt ? ` on ${formatDay(entry.completedAt, timeZone)}` : '';
   switch (entry.status) {
     case 'not_started':
       return 'Not started';

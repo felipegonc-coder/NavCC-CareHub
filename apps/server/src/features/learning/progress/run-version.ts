@@ -1,11 +1,6 @@
-import type { Db, Tx } from '../db';
-
 /**
- * The course version of a learner's latest run, or null when they haven't started (decision 0311; B3 fills it
- * in). `GET /courses/:id` sends that version, else the live one. The stub returns null, so everyone gets the
- * live version.
+ * The course version of a learner's latest run, or null when they haven't started (decision 0311).
+ * `GET /courses/:id` (B1) sends that version, else the live one. It reads the learner's progress
+ * row, as the progress routes and the quiz attempts route do.
  */
-export const runVersion: (
-  db: Db | Tx,
-  run: { workspaceId: string; userId: string; courseId: string },
-) => Promise<number | null> = async () => null;
+export { runVersion } from './service';
