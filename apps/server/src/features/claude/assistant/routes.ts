@@ -4,21 +4,24 @@
 //   GET    /assistant/chats/:chatId  one of them, with its messages
 //   PATCH  /assistant/chats/:chatId  { title }: Rename
 //   DELETE /assistant/chats/:chatId  Delete, for good
+//   POST   /assistant/ask            one question, answered and saved with its sources
 // Every route needs a member with Use Claude, checked on every request. Chats are private: someone
 // else's chat is 403, for Admins too. Chats past the days an Admin chose in Settings → Claude go
 // before each request's answer, and every hour in every workspace (CL-D3).
 import {
+  askRequestSchema,
   chatIdParamsSchema,
   renameChatSchema,
   type ChatListResponse,
   type ChatResponse,
 } from '@carehub/extras/claude/assistant';
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { httpError } from '../../../core/errors';
 import { registerPeriodicTask } from '../../jobs';
 import { claudeHttpError } from '../index';
 import { claudeMemberOf } from '../server/members';
 import { claudeRuntime } from '../server/runtime';
+import { answerQuestion } from './ask';
 import {
   CHAT_RETENTION_TASK,
   chatMessageViews,
@@ -33,6 +36,15 @@ import {
 import type { Asker } from './pages';
 
 const HOUR_MS = 60 * 60 * 1000;
+
+/** Stop closes the request: true once it closed before the answer was sent. */
+function stoppedWaiting(reply: FastifyReply): () => boolean {
+  let closed = false;
+  reply.raw.once('close', () => {
+    closed = true;
+  });
+  return () => closed && !reply.raw.writableFinished;
+}
 
 const assistantRoutes: FastifyPluginAsync = async (app) => {
   registerPeriodicTask(CHAT_RETENTION_TASK, HOUR_MS, async ({ signal }) => {
@@ -83,6 +95,15 @@ const assistantRoutes: FastifyPluginAsync = async (app) => {
     await ownChat(app.db, asker, chatId);
     await deleteChat(app.db, chatId);
     return reply.code(204).send();
+  });
+
+  app.post('/assistant/ask', async (request, reply) => {
+    const asker = await askerOf(request);
+    const input = askRequestSchema.parse(request.body);
+    const answered = await answerQuestion(app.db, asker, input, stoppedWaiting(reply));
+    // Stopped: the person isn't waiting any more, and nothing was kept.
+    if (!answered) return reply.code(204).send();
+    return answered;
   });
 };
 
