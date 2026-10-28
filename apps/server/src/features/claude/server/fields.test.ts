@@ -1,0 +1,389 @@
+import { randomUUID } from 'node:crypto';
+import type {
+  ClaudeFieldAudience,
+  ClaudeFieldInput,
+  ClaudeFieldSetup,
+  ClaudeFieldValue,
+} from '@carehub/extras/claude/fields';
+import { eq, sql } from 'drizzle-orm';
+import { getTableConfig } from 'drizzle-orm/pg-core';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { createDatabase, runMigrations, type DatabaseConnection, type Db } from '../../../db';
+import { createTestDatabase, createUser, hasDatabase, type TestUser } from '../../../testing';
+import { claudeFieldFills, claudeUsage } from '../schema';
+import { ClaudeError } from './errors';
+import { fieldErrorReason, fillClaudeFields } from './fields';
+import { bindClaudeFieldHost, type ClaudeField } from './fields-host';
+import { configureClaude } from './runtime';
+import { CLAUDE_MESSAGES_URL } from './settings';
+
+// Fictional people, rows and key only.
+const KEY = 'sk-ant-FICTIONAL-test-key-0009';
+const START = new Date('2026-10-27T18:00:00Z');
+const MINUTE = 60_000;
+const NAMES: Record<string, string> = {
+  'property-request': 'Request',
+  'property-status': 'Status',
+  'property-salary': 'Salary',
+  'property-orders': 'Orders',
+};
+
+const answer = (text: string) =>
+  new Response(
+    JSON.stringify({
+      content: [{ type: 'text', text }],
+      usage: { input_tokens: 40, output_tokens: 12 },
+    }),
+    { status: 200 },
+  );
+
+/** 'filled', 'queued', or the reason it was refused. */
+async function outcome(request: Promise<{ status: string }>): Promise<string> {
+  try {
+    return (await request).status;
+  } catch (error) {
+    if (error instanceof ClaudeError) return error.reason;
+    const reason = fieldErrorReason(error);
+    if (reason) return reason;
+    throw error;
+  }
+}
+
+interface FakeRow {
+  id: string;
+  values: Record<string, string>;
+  content: string;
+  editors: string[];
+  value?: ClaudeFieldValue | undefined;
+}
+
+interface Setup {
+  setup?: Partial<ClaudeFieldSetup>;
+  see?: ClaudeFieldAudience;
+  inputs?: ClaudeFieldInput[];
+  off?: string[];
+  noClaude?: string[];
+  replies?: Response[];
+}
+
+describe.skipIf(!hasDatabase)('Claude fields', () => {
+  let connection: DatabaseConnection;
+  let db: Db;
+  let drop: () => Promise<void>;
+  const restores: Array<() => void> = [];
+  const clock = { now: START };
+
+  beforeAll(async () => {
+    const database = await createTestDatabase();
+    drop = database.drop;
+    connection = createDatabase(database.url);
+    db = connection.db;
+    await runMigrations(connection.pool);
+  });
+
+  afterEach(() => {
+    while (restores.length > 0) restores.pop()?.();
+    clock.now = START;
+  });
+
+  afterAll(async () => {
+    await connection?.close();
+    await drop?.();
+  });
+
+  /**
+   * A workspace with everything on, a Tickets database whose Summary field uses Request and
+   * Status, and Claude answering "A fictional summary." unless the test says otherwise.
+   */
+  async function setUp(options: Setup = {}) {
+    const workspaceId = randomUUID();
+    const databaseId = randomUUID();
+    const propertyId = 'property-summary';
+    const avery = await createUser(db, { name: 'Avery Lin' });
+    const morgan = await createUser(db, { name: 'Morgan Diaz' });
+    const rows = new Map<string, FakeRow>();
+    const bodies: Array<Record<string, unknown>> = [];
+    const logs: string[] = [];
+    const replies = [...(options.replies ?? [])];
+
+    const field = (): ClaudeField => ({
+      workspaceId,
+      databaseId,
+      propertyId,
+      setup: {
+        kind: 'summary',
+        instructions: '',
+        uses: ['property-request', 'property-status'],
+        usesPageContent: false,
+        fill: 'by_hand',
+        ...options.setup,
+      },
+      ownerId: morgan.id,
+      see: options.see ?? null,
+      inputs: options.inputs ?? [
+        { id: 'property-request', type: 'text', see: null },
+        { id: 'property-status', type: 'status', see: null },
+      ],
+    });
+
+    restores.push(
+      configureClaude({
+        settings: () => ({
+          apiKey: KEY,
+          model: 'claude-test',
+          monthlyRequests: 3000,
+          url: CLAUDE_MESSAGES_URL,
+        }),
+        access: {
+          isSettingOn: async (_db, id, key) => id === workspaceId && !options.off?.includes(key),
+          canUseClaude: async (_db, id, userId) =>
+            id === workspaceId && !options.noClaude?.includes(userId),
+        },
+        fetch: async (_url, init) => {
+          bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          return replies.shift() ?? answer('A fictional summary.');
+        },
+        sleep: async () => {},
+        log: { warn: (details, message) => logs.push(`${message} ${JSON.stringify(details)}`) },
+        now: () => clock.now,
+      }),
+      bindClaudeFieldHost({
+        field: async (_db, id, property) =>
+          id === databaseId && property === propertyId ? field() : null,
+        fillableRows: async (_db, input) =>
+          input.rowIds.filter((id) => rows.get(id)?.editors.includes(input.userId)),
+        readRowText: async (_db, input) => {
+          const row = rows.get(input.rowId);
+          if (!row?.editors.includes(input.userId)) return null;
+          return {
+            properties: input.propertyIds.map((id) => ({
+              name: NAMES[id] ?? id,
+              text: row.values[id] ?? '',
+            })),
+            ...(input.content ? { content: row.content } : {}),
+          };
+        },
+        saveFill: async (_db, input) => {
+          const row = rows.get(input.rowId);
+          if (!row) throw new Error('No such row.');
+          const old: ClaudeFieldValue = row.value ?? {
+            text: '',
+            filledAt: null,
+            filledFor: null,
+            status: 'filled',
+          };
+          row.value = input.value ?? { ...old, status: 'failed' };
+        },
+      }),
+    );
+
+    function addRow(editors: TestUser[] = [avery, morgan]): FakeRow {
+      const row: FakeRow = {
+        id: randomUUID(),
+        values: {
+          'property-request': 'Customer asks for a refund for order 1042.',
+          'property-status': 'Open',
+          'property-salary': 'FICTIONAL-SALARY-58000',
+          'property-orders': 'FICTIONAL-ORDER-1043',
+        },
+        content: 'Called back on Oct 26. FICTIONAL-CONTENT-NOTE',
+        editors: editors.map((person) => person.id),
+      };
+      rows.set(row.id, row);
+      return row;
+    }
+
+    const target = { databaseId, propertyId };
+    return { workspaceId, databaseId, avery, morgan, rows, bodies, logs, addRow, target };
+  }
+
+  it('fills one row now, sending only the properties it uses', async () => {
+    const t = await setUp();
+    const row = t.addRow();
+    const result = await fillClaudeFields(db, {
+      userId: t.avery.id,
+      ...t.target,
+      rowIds: [row.id],
+    });
+
+    const value = {
+      text: 'A fictional summary.',
+      filledAt: START.toISOString(),
+      filledFor: t.avery.id,
+      status: 'filled',
+    };
+    expect(result).toEqual({ status: 'filled', rowId: row.id, value });
+    expect(row.value).toEqual(value);
+    expect(t.bodies).toHaveLength(1);
+    const sent = JSON.stringify(t.bodies[0]);
+    expect(sent).toContain('Customer asks for a refund for order 1042.');
+    expect(sent).toContain('Open');
+    for (const other of ['FICTIONAL-ORDER-1043', 'FICTIONAL-SALARY-58000', 'FICTIONAL-CONTENT']) {
+      expect(sent).not.toContain(other);
+    }
+    expect(t.bodies[0]?.max_tokens).toBe(600);
+
+    const usage = await db
+      .select()
+      .from(claudeUsage)
+      .where(eq(claudeUsage.workspaceId, t.workspaceId));
+    expect(usage.map((r) => [r.feature, r.userId, r.status])).toEqual([
+      ['fields', t.avery.id, 'ok'],
+    ]);
+    const fills = await db
+      .select()
+      .from(claudeFieldFills)
+      .where(eq(claudeFieldFills.databaseId, t.databaseId));
+    expect(fills.map((r) => [r.userId, r.auto, r.status])).toEqual([[t.avery.id, false, 'ok']]);
+  });
+
+  it('sends the page content only when the field uses it', async () => {
+    const t = await setUp({ setup: { kind: 'key_points', usesPageContent: true } });
+    const row = t.addRow();
+    const points = '- Wants a refund\n- Order 1042\n- Called back\n- Open\n- Urgent\n- Extra';
+    const replies = [answer(points)];
+    restores.push(
+      configureClaude({
+        fetch: async (_url, init) => {
+          t.bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          return replies.shift() ?? answer('Fine.');
+        },
+      }),
+    );
+    const result = await fillClaudeFields(db, {
+      userId: t.avery.id,
+      ...t.target,
+      rowIds: [row.id],
+    });
+    expect(JSON.stringify(t.bodies[0])).toContain('FICTIONAL-CONTENT-NOTE');
+    expect(result.status === 'filled' && result.value.text).toBe(
+      '• Wants a refund\n• Order 1042\n• Called back\n• Open\n• Urgent',
+    );
+  });
+
+  it('sends nothing when Claude fields are off, without claude.use or Can edit', async () => {
+    const base = await setUp();
+    const cases: Array<[Setup, string]> = [
+      [{ off: ['claude.fields'] }, 'switched_off'],
+      [{ off: ['claude.workspaceApproved'] }, 'not_approved'],
+      [{ noClaude: [] }, 'no_permission'],
+    ];
+    for (const [options, reason] of cases) {
+      const t = await setUp(options);
+      if (options.noClaude) options.noClaude.push(t.avery.id);
+      const row = t.addRow();
+      const fill = fillClaudeFields(db, { userId: t.avery.id, ...t.target, rowIds: [row.id] });
+      expect(await outcome(fill)).toBe(reason);
+      expect(t.bodies).toHaveLength(0);
+      expect(row.value).toBeUndefined();
+    }
+
+    const t = await setUp();
+    const row = t.addRow([t.morgan]);
+    const fill = fillClaudeFields(db, { userId: t.avery.id, ...t.target, rowIds: [row.id] });
+    expect(await outcome(fill)).toBe('no_permission');
+    const elsewhere = { databaseId: base.databaseId, propertyId: 'property-status' };
+    const notAField = fillClaudeFields(db, { userId: t.avery.id, ...elsewhere, rowIds: [row.id] });
+    expect(await outcome(notAField)).toBe('no_permission');
+    expect(t.bodies).toHaveLength(0);
+  });
+
+  it("refuses inputs from other rows, or that some people who see the field can't see", async () => {
+    const hr: ClaudeFieldAudience = [{ type: 'group', id: 'group-hr' }];
+    const cases: Array<[Setup, string]> = [
+      [{ inputs: [{ id: 'property-orders', type: 'relation', see: null }] }, 'unusable_input'],
+      [{ inputs: [{ id: 'property-salary', type: 'number', see: hr }] }, 'hidden_input'],
+    ];
+    for (const [options, reason] of cases) {
+      const t = await setUp(options);
+      const row = t.addRow();
+      const fill = fillClaudeFields(db, { userId: t.avery.id, ...t.target, rowIds: [row.id] });
+      expect(await outcome(fill)).toBe(reason);
+      expect(t.bodies).toHaveLength(0);
+    }
+    const t = await setUp({
+      see: hr,
+      inputs: [{ id: 'property-salary', type: 'number', see: hr }],
+    });
+    const row = t.addRow();
+    const fill = fillClaudeFields(db, { userId: t.avery.id, ...t.target, rowIds: [row.id] });
+    expect(await outcome(fill)).toBe('filled');
+  });
+
+  it('keeps the old value and marks it failed when Claude fails', async () => {
+    const failing = () => new Response('{}', { status: 503 });
+    const t = await setUp();
+    const row = t.addRow();
+    const fill = () => fillClaudeFields(db, { userId: t.avery.id, ...t.target, rowIds: [row.id] });
+    await fill();
+    restores.push(configureClaude({ fetch: async () => failing() }));
+    expect(await outcome(fill())).toBe('unavailable');
+    expect(row.value).toEqual({
+      text: 'A fictional summary.',
+      filledAt: START.toISOString(),
+      filledFor: t.avery.id,
+      status: 'failed',
+    });
+    const fills = await db
+      .select()
+      .from(claudeFieldFills)
+      .where(eq(claudeFieldFills.databaseId, t.databaseId));
+    expect(fills.map((r) => r.status).sort()).toEqual(['failed', 'ok']);
+    const everything = JSON.stringify([t.logs, row.value, fills]);
+    expect(everything).not.toContain(KEY);
+    expect(everything).not.toContain('order 1042');
+  });
+
+  it("stops at each database's hourly cap", async () => {
+    const t = await setUp();
+    const row = t.addRow();
+    const old = (minutes: number) => ({
+      workspaceId: t.workspaceId,
+      databaseId: t.databaseId,
+      propertyId: 'property-summary',
+      userId: t.morgan.id,
+      auto: false,
+      status: 'ok' as const,
+      createdAt: new Date(START.getTime() - minutes * MINUTE),
+    });
+    await db
+      .insert(claudeFieldFills)
+      .values([...Array.from({ length: 299 }, () => old(30)), old(61)]);
+    const fill = () => fillClaudeFields(db, { userId: t.avery.id, ...t.target, rowIds: [row.id] });
+    expect(await outcome(fill())).toBe('filled');
+    expect(await outcome(fill())).toBe('database_hour');
+    expect(t.bodies).toHaveLength(1);
+
+    // Half an hour later, the older requests are more than an hour old.
+    clock.now = new Date(START.getTime() + 31 * MINUTE);
+    expect(await outcome(fill())).toBe('filled');
+  });
+
+  it('keeps the migration and the Drizzle table the same', async () => {
+    const config = getTableConfig(claudeFieldFills);
+    const { rows } = await db.execute<{
+      name: string;
+      type: string;
+      not_null: boolean;
+      has_default: boolean;
+    }>(
+      sql`SELECT attname AS name, format_type(atttypid, atttypmod) AS type,
+                 attnotnull AS not_null, atthasdef AS has_default
+          FROM pg_attribute
+          WHERE attrelid = ${config.name}::regclass AND attnum > 0 AND NOT attisdropped`,
+    );
+    const inDatabase = Object.fromEntries(
+      rows.map((row) => [
+        row.name,
+        { type: row.type, notNull: row.not_null, hasDefault: row.has_default },
+      ]),
+    );
+    const inDrizzle = Object.fromEntries(
+      config.columns.map((column) => [
+        column.name,
+        { type: column.getSQLType(), notNull: column.notNull, hasDefault: column.hasDefault },
+      ]),
+    );
+    expect(inDatabase).toEqual(inDrizzle);
+  });
+});

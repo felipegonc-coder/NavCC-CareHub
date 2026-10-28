@@ -27,7 +27,7 @@ Switch and workspace-approval changes go to the Security log (`logSecurityEvent`
   - It's plain text: show it as text, never as HTML.
   - The person must be able to open the notes page, and the result goes to nobody who can't open the notes.
   - A long transcript is cut to fit; the agenda and notes always go in whole.
-- `fillClaudeFields(db, { userId, databaseId, propertyId, rowIds })` is for the Databases field type, once it lands.
+- `fillClaudeFields(db, { userId, databaseId, propertyId, rowIds })` fills a Claude field By hand for the Databases field type; see [Claude fields](#claude-fields-apiclaudefields).
 
 The numbers:
 
@@ -59,6 +59,23 @@ Stand-ins:
 - **Workspace settings:** they're kept in `claude_settings`, through `getWorkspaceSetting` and `setWorkspaceSetting` with the shared names (decision 0007). A missing row means off. A later migration moves the rows across.
 - **Members:** until `bindClaudeMembers(lookup)` is called, nobody is a member, so the status is all off and the settings answer 403.
 - **Security log:** until `logSecurityEvent` exists, the lines go to the app log under `security`.
+
+## Claude fields (`/api/claude/fields`)
+
+Databases owns the property type and its cell (phase 5). The shapes are in `@carehub/extras/claude/fields`.
+
+- **Setup** (`claudeFieldSetupSchema`): `kind` (`summary`: up to 3 sentences; `key_points`: up to 5 points; `custom`: its own `instructions`, up to 1,000 characters), `uses` (property IDs), `usesPageContent` (up to 20,000 characters) and `fill` (`by_hand`, the default for a new field, or `auto`; CL-D4).
+- **Inputs** (`claudeFieldInputProblem`):
+  - Never relations, rollups, buttons, other Claude fields or formulas that read other rows (`unusable_input`).
+  - A value reaches everyone who can see the field, so each input must be open to everyone who sees the row, or the field must be limited to people the input is also limited to (`hidden_input`).
+  - Databases checks this when the setup is saved; every fill checks it again.
+- **Who:** Fill needs `claude.use`, the switch, and Can edit on the row with permission to change the field. Anyone who can see the row sees the value.
+- **What's sent:** the used properties' text as the person sees it and, if ticked, the row page's own text (never synced blocks or linked databases), cut to fit one request. A row with nothing to read fills empty without a request.
+- **The value** (`claudeFieldValueSchema`): plain text up to 10,000 characters, `filledAt`, `filledFor` (null when it filled automatically) and `status`. When a request sent fails, the old text stays and `status` is `failed` ("Couldn't fill. Try again.").
+- **`POST /fill`** `{ databaseId, propertyId, rowIds: [rowId] }` fills one row now and answers `{ status: 'filled', rowId, value }`. Refusals answer `CLAUDE_ERRORS` or `CLAUDE_FIELD_ERRORS` with `details: { reason }`.
+- **Limits:** each database's Claude fields send at most 300 requests an hour (`claude_field_fills`, `database_hour`), on top of the monthly cap and each person's limit. Usage rows have the feature `fields`.
+- **Next PR:** Fill all and Fill empty with the row-count confirm, filling 5 at a time in the background, and automatic fills.
+- **Stand-in:** until Databases calls `bindClaudeFieldHost(host)` (`field`, `fillableRows`, `readRowText`, `saveFill`), no property is a Claude field, so nothing fills.
 
 ## Security rules
 
