@@ -25,7 +25,8 @@ const HOUR_PX = 48;
 const LANE_PX = 24;
 /** Blocks are at least 20 px tall, so one line of text fits. */
 const MIN_BLOCK_MINUTES = (20 * 60) / HOUR_PX;
-const GUTTER = '3.5rem';
+/** The hours' column: the kit's spacing step 14. */
+const GUTTER = 'var(--ch-space-14)';
 /** Shorter blocks show their title and start time on one line. */
 const SHORT_MINUTES = 45;
 
@@ -144,8 +145,8 @@ export function TimeGrid({ days, items, loading, now, prefs, onOpenDay }: TimeGr
                       style={{
                         top: percent(block.top / MINUTES_PER_DAY),
                         height: percent(block.height / MINUTES_PER_DAY),
-                        left: `calc(${percent(block.left)} + 2px)`,
-                        width: `calc(${percent(block.width)} - 4px)`,
+                        left: `calc(${percent(block.left)} + var(--ch-space-0_5))`,
+                        width: `calc(${percent(block.width)} - var(--ch-space-1))`,
                       }}
                     >
                       {block.height < SHORT_MINUTES ? (

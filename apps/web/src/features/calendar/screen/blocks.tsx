@@ -123,8 +123,8 @@ export function LaneItems({
             className="h-5 leading-5"
             style={{
               top: top + lane * laneHeight,
-              left: `calc(${percent(startIndex / count)} + 2px)`,
-              width: `calc(${percent((endIndex - startIndex + 1) / count)} - 4px)`,
+              left: `calc(${percent(startIndex / count)} + var(--ch-space-0_5))`,
+              width: `calc(${percent((endIndex - startIndex + 1) / count)} - var(--ch-space-1))`,
             }}
           >
             <span className="truncate">
