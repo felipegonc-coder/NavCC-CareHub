@@ -5,10 +5,11 @@
 import type { AccessLevel } from '@carehub/shared';
 import type { StarterDatabase } from '@carehub/extras/templates/databases';
 import type { TemplateIcon } from '@carehub/extras/templates/gallery';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { httpError } from '../../core/errors';
 import type { Db, Tx } from '../../db';
 import { saveVersionNow } from '../history';
+import { sendNotice, type SendNoticeInput } from '../notices';
 
 /** The person asking, in their workspace. */
 export interface TemplatesViewer {
@@ -70,6 +71,8 @@ export interface TemplatesCore {
     userId: string,
     spaceId: string,
   ): Promise<{ name: string; isMember: boolean } | null>;
+  /** The team spaces the person is in, for "Who can use it". */
+  spaces(db: Db | Tx, userId: string, workspaceId: string): Promise<{ id: string; name: string }[]>;
   privateSpaceId(tx: Tx, userId: string): Promise<string>;
   createPage(tx: Tx, page: NewPage): Promise<string>;
   setTitle(tx: Tx, pageId: string, title: string, by: string): Promise<void>;
@@ -90,6 +93,45 @@ export interface TemplatesCore {
   rowCount(db: Db | Tx, databaseId: string): Promise<number>;
   /** After the commit: open editors reload these pages (collab's `page.updated`). */
   contentChanged(pageIds: string[], by: string): void;
+
+  // Buttons' row steps, with the presser's access (Databases api.ts, decision 0200). Each one
+  // refuses (403) or reports a missing database (404) before it writes, in a savepoint of `tx`.
+  /** Runs `work` in a transaction, then announces the row changes after the commit. */
+  runRowWrites<T>(app: FastifyInstance, work: (tx: Tx) => Promise<T>): Promise<T>;
+  createRow(tx: Tx, input: RowInput & { templateId?: string }): Promise<{ rowId: string }>;
+  updateRows(tx: Tx, input: RowInput & { rowIds: string[] }): Promise<unknown>;
+  /** Rows not in Trash that the person can view, oldest first, with their level on each. */
+  findRowIds(
+    db: Db | Tx,
+    input: { userId: string; databaseId: string; filter: unknown; limit: number },
+  ): Promise<{ rowId: string; access: AccessLevel }[]>;
+  trashRows(
+    tx: Tx,
+    input: { databaseId: string; rowIds: string[]; actorUserId: string },
+  ): Promise<{ rowIds: string[] }>;
+  /** The row's values the person may see, by property id; null when it's missing or in Trash. */
+  readRow(
+    db: Db | Tx,
+    input: { userId: string; rowId: string },
+  ): Promise<{ values: Record<string, unknown> } | null>;
+  /** The members a button's message reaches, without repeats (people, groups, roles, everyone). */
+  recipients(db: Db | Tx, workspaceId: string, to: MessageTo): Promise<string[]>;
+  sendNotice(input: SendNoticeInput): Promise<unknown>;
+}
+
+export interface RowInput {
+  databaseId: string;
+  /** Stored values by property id. */
+  values: Record<string, unknown>;
+  actorUserId: string;
+  source: 'button';
+}
+
+export interface MessageTo {
+  userIds: string[];
+  groupIds: string[];
+  roleIds: string[];
+  everyone: boolean;
 }
 
 type CoreRequest = {
@@ -124,6 +166,7 @@ const standIn: TemplatesCore = {
   levels: async () => new Map(), // stand-in: getAccessForPages (pages #49)
   children: async () => [], // stand-in: the pages table (pages #49)
   space: async () => null, // stand-in: the spaces table (pages #49)
+  spaces: async () => [], // stand-in: the spaces table (pages #49)
   privateSpaceId: async () => {
     throw notYet(); // stand-in: getPrivateSpaceId (pages #49)
   },
@@ -142,6 +185,22 @@ const standIn: TemplatesCore = {
   createDatabase: async () => null, // stand-in: createDatabase (Databases api.ts)
   rowCount: async () => 0, // stand-in: the Databases lane's row count
   contentChanged: () => {}, // stand-in: emit page.updated (collab #197)
+  runRowWrites: (app, work) => app.db.transaction(work), // stand-in: runRowWrites (Databases api.ts)
+  createRow: async () => {
+    throw notYet(); // stand-in: createRow (Databases api.ts)
+  },
+  updateRows: async () => {
+    throw notYet(); // stand-in: updateRows (Databases api.ts)
+  },
+  findRowIds: async () => {
+    throw notYet(); // stand-in: findRowIds (Databases api.ts)
+  },
+  trashRows: async () => {
+    throw notYet(); // stand-in: trashRows (Databases api.ts)
+  },
+  readRow: async () => null, // stand-in: readRow (Databases api.ts)
+  recipients: async () => [], // stand-in: members, groups and roles (accounts)
+  sendNotice,
 };
 
 let bound: TemplatesCore = standIn;
