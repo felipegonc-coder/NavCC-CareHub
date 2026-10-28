@@ -15,13 +15,11 @@ FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4
 WORKDIR /src
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY --from=manifests /out/ ./
-# Exactly the lockfile, without install scripts (decision 0011), as in ci.yml. npm install
-# (also without scripts) only when the lockfile is out of sync with a package.json, which can
-# happen on a pull request or just after a merge, before the repo bot updates it.
-RUN if npm ci --ignore-scripts > /tmp/npm.log 2>&1; then cat /tmp/npm.log; \
-    else cat /tmp/npm.log; grep -q 'can only install' /tmp/npm.log || exit 1; \
-      echo 'package-lock.json is out of sync: npm install --ignore-scripts instead'; \
-      npm install --ignore-scripts; fi
+# Exactly the lockfile, without install scripts (decision 0011). There is no npm install
+# fallback: if package-lock.json is out of sync with a package.json, npm ci stops the build,
+# so the image never gets a package the lockfile doesn't list. If that happens, build a later
+# commit, once the repo bot has updated the lockfile.
+RUN npm ci --ignore-scripts
 COPY . .
 RUN npm run build
 RUN test -f apps/server/dist/index.js && test -f apps/web/dist/index.html \
@@ -40,10 +38,7 @@ FROM node:24@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4
 WORKDIR /src
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY --from=manifests /out/ ./
-RUN if npm ci --ignore-scripts --omit=dev --workspace=apps/server > /tmp/npm.log 2>&1; then cat /tmp/npm.log; \
-    else cat /tmp/npm.log; grep -q 'can only install' /tmp/npm.log || exit 1; \
-      echo 'package-lock.json is out of sync: npm install --ignore-scripts instead'; \
-      npm install --ignore-scripts --omit=dev --workspace=apps/server; fi \
+RUN npm ci --ignore-scripts --omit=dev --workspace=apps/server \
  && mkdir -p node_modules /app/apps/server \
  && rm -rf node_modules/@carehub node_modules/.package-lock.json \
  && mv node_modules /app/node_modules \
@@ -51,8 +46,7 @@ RUN if npm ci --ignore-scripts --omit=dev --workspace=apps/server > /tmp/npm.log
 
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 LABEL org.opencontainers.image.title="Care Hub" \
-      org.opencontainers.image.description="Care Hub workspace app (server and web app)" \
-      org.opencontainers.image.source="https://github.com/felipegonc-coder/NavCC-CareHub"
+      org.opencontainers.image.description="Care Hub workspace app (server and web app)"
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST_DIR=/app/apps/web/dist FILES_DIR=/data/files
 COPY --from=server-deps /app/ /app/
 COPY --from=build /app/ /app/

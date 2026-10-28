@@ -1,7 +1,9 @@
-// Request bodies for /api/knowledge, checked by the server and used by the web app.
+// Request bodies for /api/knowledge and the shapes it answers with, shared by server and web.
 import { z } from 'zod';
-import { KB_LIMITS, KB_STATUSES } from './constants';
-import { VERIFY_PERIODS, civilDateSchema } from './verification';
+import { KB_LIMITS, KB_STATUSES, type KbStatus } from './constants';
+import type { ReportReason, ReportStatus } from './reports';
+import type { CivilDate } from './time';
+import { VERIFY_PERIODS, civilDateSchema, type VerifyPeriod } from './verification';
 
 export const verifyInputSchema = z
   .strictObject({
@@ -36,3 +38,73 @@ export const settingsInputSchema = z
 export const reviewInputSchema = z.strictObject({
   action: z.enum(['verify', 'needs_changes', 'archive']),
 });
+
+export interface KbPerson {
+  id: string;
+  name: string;
+}
+
+export interface KbSettings {
+  defaultPeriod: VerifyPeriod;
+  editingRemovesVerification: boolean;
+}
+
+/** GET /api/knowledge/pages/:pageId: what the strip, the banners and the menus need. */
+export interface KbPageInfo {
+  pageId: string;
+  databaseId: string;
+  /** The knowledge base's title; empty when the viewer can't open it. */
+  baseTitle: string;
+  status: KbStatus;
+  owners: (KbPerson & { canOpen: boolean })[];
+  verification: {
+    state: 'verified' | 'expired';
+    verifiedBy: KbPerson;
+    verifiedAt: string;
+    until: CivilDate | null;
+  } | null;
+  tags: { id: string; name: string; color: string }[];
+  /** Null unless the viewer can read this page's reports. */
+  openReports: number | null;
+  /** Today in the viewer's time zone, for "Oct 1" or "Jan 20, 2027". */
+  today: CivilDate;
+  defaultPeriod: VerifyPeriod;
+  can: {
+    publish: boolean;
+    verify: boolean;
+    changeOwners: boolean;
+    changeTags: boolean;
+    manageReports: boolean;
+    report: boolean;
+  };
+}
+
+/** A report, for its reporter, the page's owners and the knowledge base's editors only. */
+export interface KbReport {
+  id: string;
+  pageId: string;
+  pageTitle: string;
+  reason: ReportReason;
+  text: string;
+  quote: string | null;
+  blockId: string | null;
+  reporter: KbPerson;
+  status: ReportStatus;
+  createdAt: string;
+  closedAt: string | null;
+}
+
+export interface KbReply {
+  id: string;
+  author: KbPerson;
+  text: string;
+  createdAt: string;
+}
+
+/** GET /api/knowledge/reports/:reportId. */
+export interface KbReportDetail {
+  report: KbReport;
+  replies: KbReply[];
+  /** Owners and editors set the status; the reporter can only add to it. */
+  canManage: boolean;
+}

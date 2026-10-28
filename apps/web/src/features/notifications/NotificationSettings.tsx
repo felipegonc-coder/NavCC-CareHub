@@ -1,6 +1,6 @@
 // Settings → Notifications (Settings and members spec, 3.3; Messages spec, "Unread and
-// notifications"): what to be notified about, whether notifications show the text, and push in
-// this and the person's other browsers.
+// notifications"): what to be notified about, whether notifications show the text, pausing them,
+// and push in this and the person's other browsers.
 import {
   Field,
   Select,
@@ -18,14 +18,16 @@ import {
   notificationsClient,
   type NotificationPreferences,
   type NotificationsClient,
+  type PreferenceChanges,
 } from './api';
 import { DeviceList, ThisBrowser } from './BrowserSettings';
 import { GroupSkeleton, LoadError, SettingRow } from './parts';
+import { PauseSettings } from './PauseSettings';
 import { NOTIFY_ABOUT_LABEL, TEXT } from './text';
 import { browserPush, useBrowserPush, type BrowserPush } from './useBrowserPush';
 import { useShowAfter } from './useShowAfter';
 
-type Setting = keyof NotificationPreferences;
+type Setting = keyof PreferenceChanges;
 
 export interface NotificationSettingsProps {
   /** Stand-ins for tests; the app uses the real server and browser. */
@@ -41,6 +43,7 @@ export function NotificationSettings({
   return (
     <div className="flex flex-col gap-8" data-testid="notifications-settings">
       <MessageSettings client={client} />
+      <PauseSettings client={client} />
       <ThisBrowser {...browser} />
       <DeviceList client={client} canTest={browser.serverReady === true} />
     </div>
@@ -66,7 +69,7 @@ function MessageSettings({ client }: { client: NotificationsClient }) {
   }, [saved]);
 
   const save = useMutation({
-    mutationFn: (changes: Partial<NotificationPreferences>) => client.updatePreferences(changes),
+    mutationFn: (changes: PreferenceChanges) => client.updatePreferences(changes),
     // Shows the change at once and puts it back if it can't be saved.
     onMutate: async (changes) => {
       setFailed(null);
@@ -143,6 +146,6 @@ function MessageSettings({ client }: { client: NotificationsClient }) {
   );
 }
 
-function settingOf(changes: Partial<NotificationPreferences>): Setting {
+function settingOf(changes: PreferenceChanges): Setting {
   return changes.notifyAbout === undefined ? 'showText' : 'notifyAbout';
 }

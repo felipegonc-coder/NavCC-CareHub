@@ -102,18 +102,41 @@ export function repeatReportText(when: string): string {
   return `You reported this page ${when}. Add to that report?`;
 }
 
-/** The 🔔 notices. Titles are only sent to people who can open the page. */
+/**
+ * The 🔔 notices. Titles stay generic (the page comes as a card, looked up for each reader);
+ * texts name a page or knowledge base only for people who can open it.
+ */
 export const KB_NOTICES = {
-  summary: (pages: number, base: string) =>
-    `${plural(pages, 'page', 'pages')} in ${base} ${pages === 1 ? 'needs' : 'need'} review`,
-  expiredToday: (page: string) => `${page} needs review: its verification expired today.`,
-  ownerRemoved: (name: string, pages: number, base: string) =>
-    `${name} no longer owns ${plural(pages, 'page', 'pages')} in ${base}. Pick new owners.`,
-  reported: (reporter: string, page: string, reason: ReportReason) =>
-    `${reporter} reported a problem with ${page}: ${REPORT_REASON_LABELS[reason]}.`,
-  replied: (author: string, page: string) => `${author} replied to your report on ${page}.`,
-  added: (reporter: string, page: string) => `${reporter} added to their report on ${page}.`,
-  closed: (page: string, status: 'fixed' | 'wont_fix') =>
-    `Your report on ${page} was marked ${REPORT_STATUS_LABELS[status]}.`,
-  editRemovedVerification: (page: string) => `${page} is no longer verified because it was edited.`,
+  summary: (pages: number, base: string) => ({
+    title: 'Pages need review',
+    text: `${plural(pages, 'page', 'pages')} in ${base} ${pages === 1 ? 'needs' : 'need'} review`,
+  }),
+  expiredToday: () => ({
+    title: 'Due for review',
+    text: 'This page needs review: its verification expired today.',
+  }),
+  ownerRemoved: (name: string, pages: number, base: string) => ({
+    title: 'Pick new owners',
+    text: `${name} no longer owns ${plural(pages, 'page', 'pages')} in ${base}. Pick new owners.`,
+  }),
+  reported: (reporter: string, reason: ReportReason) => ({
+    title: 'Problem reported',
+    text: `${reporter} reported a problem: ${REPORT_REASON_LABELS[reason]}.`,
+  }),
+  replied: (author: string) => ({
+    title: 'Reply to your report',
+    text: `${author} replied to your report.`,
+  }),
+  added: (reporter: string) => ({
+    title: 'Report updated',
+    text: `${reporter} added to their report.`,
+  }),
+  closed: (status: 'fixed' | 'wont_fix') => ({
+    title: 'Report closed',
+    text: `Your report was marked ${REPORT_STATUS_LABELS[status]}.`,
+  }),
+  editRemovedVerification: () => ({
+    title: 'Verification removed',
+    text: 'This page is no longer verified because it was edited.',
+  }),
 } as const;

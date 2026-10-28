@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { SendNoticeInput } from '../types';
+import { NOTICE_KINDS, type SendNoticeInput } from '../types';
 import { isRelativeHref, NOTICE_LIMITS, NoticeInputError, parseSendNoticeInput } from './validate';
 
-// Care Team Demo, Avery Lin, Sam Ortiz and the "Coaching plan – Q4" page.
+// Care Team Demo, Avery Lin, Sam Ortiz and the "Coaching plan – Q4" and "QA form" pages.
 const workspaceId = '3f1c2d4e-0000-4000-8000-00000000c0de';
 const avery = '3f1c2d4e-0000-4000-8000-0000000a7e51';
 const sam = '3f1c2d4e-0000-4000-8000-00000000005a';
 const coachingPlan = '3f1c2d4e-0000-4000-8000-0000000c0a01';
+const qaForm = '3f1c2d4e-0000-4000-8000-0000000c0a02';
 
 const minimal: SendNoticeInput = {
   workspaceId,
@@ -43,19 +44,21 @@ describe('parseSendNoticeInput', () => {
       icon: null,
       text: null,
       card: null,
+      extraCards: [],
       buttons: [],
       groupKey: null,
+      idempotencyKey: null,
     });
   });
 
   it('keeps every optional field', () => {
     const input: SendNoticeInput = {
       ...minimal,
-      kind: 'mention',
+      kind: 'comment',
       sender: 'Sam Ortiz',
       actorUserId: sam,
       icon: '💬',
-      title: 'Mentioned you in a comment',
+      title: 'Commented on a page you follow',
       text: 'Can you check the follow-up dates?',
       card: { type: 'page', pageId: coachingPlan },
       buttons: [
@@ -72,8 +75,33 @@ describe('parseSendNoticeInput', () => {
         { label: 'Done', action: 'reminders.done', value: 'r-1' },
       ],
       groupKey: `comments:${coachingPlan}`,
+      idempotencyKey: 'reminders:r-1:2026-11-02T09:00',
     };
-    expect(parseSendNoticeInput(input)).toEqual(input);
+    expect(parseSendNoticeInput(input)).toEqual({ ...input, extraCards: [] });
+  });
+
+  it('takes up to 3 cards in order: the first as the card, then the rest', () => {
+    const first = { type: 'page', pageId: coachingPlan } as const;
+    const second = { type: 'event', eventId: 'evt_42', occurrenceStart: '2026-11-02' } as const;
+    const third = { type: 'page', pageId: qaForm } as const;
+    expect(parseSendNoticeInput({ ...minimal, cards: [first, second, third] })).toMatchObject({
+      card: first,
+      extraCards: [second, third],
+    });
+    expect(parseSendNoticeInput({ ...minimal, cards: [first] })).toMatchObject({
+      card: first,
+      extraCards: [],
+    });
+    expect(parseSendNoticeInput({ ...minimal, card: first })).toMatchObject({
+      card: first,
+      extraCards: [],
+    });
+  });
+
+  it('accepts every kind', () => {
+    for (const kind of NOTICE_KINDS) {
+      expect(parseSendNoticeInput({ ...minimal, kind }).kind).toBe(kind);
+    }
   });
 
   it('accepts event cards, with or without one occurrence', () => {
@@ -89,9 +117,25 @@ describe('parseSendNoticeInput', () => {
   });
 
   it('treats blank optional text as absent', () => {
-    const notice = parseSendNoticeInput({ ...minimal, icon: ' ', text: '', groupKey: '  ' });
+    const notice = parseSendNoticeInput({
+      ...minimal,
+      icon: ' ',
+      text: '',
+      groupKey: '  ',
+      idempotencyKey: '',
+    });
     expect(notice.icon).toBeNull();
     expect(notice.text).toBeNull();
+    expect(notice.groupKey).toBeNull();
+    expect(notice.idempotencyKey).toBeNull();
+  });
+
+  it('never groups a mention: each one is its own notice', () => {
+    const notice = parseSendNoticeInput({
+      ...minimal,
+      kind: 'mention',
+      groupKey: `comments:${coachingPlan}`,
+    });
     expect(notice.groupKey).toBeNull();
   });
 
@@ -102,8 +146,10 @@ describe('parseSendNoticeInput', () => {
       title: 't'.repeat(NOTICE_LIMITS.title),
       text: 'x'.repeat(NOTICE_LIMITS.text),
       groupKey: 'k'.repeat(NOTICE_LIMITS.groupKey),
+      idempotencyKey: 'i'.repeat(NOTICE_LIMITS.idempotencyKey),
     });
     expect(notice.text).toHaveLength(NOTICE_LIMITS.text);
+    expect(notice.idempotencyKey).toHaveLength(NOTICE_LIMITS.idempotencyKey);
   });
 
   const rejected: [name: string, change: Record<string, unknown>, path: string][] = [
@@ -115,6 +161,11 @@ describe('parseSendNoticeInput', () => {
     ['a title over the limit', { title: 't'.repeat(NOTICE_LIMITS.title + 1) }, 'title'],
     ['text over the limit', { text: 'x'.repeat(NOTICE_LIMITS.text + 1) }, 'text'],
     ['a bad actor ID', { actorUserId: 'sam' }, 'actorUserId'],
+    [
+      'an idempotency key over the limit',
+      { idempotencyKey: 'i'.repeat(NOTICE_LIMITS.idempotencyKey + 1) },
+      'idempotencyKey',
+    ],
     ['a fourth button', { buttons: Array.from({ length: 4 }, () => open) }, 'buttons'],
     [
       'a link to another site',
@@ -151,6 +202,10 @@ describe('parseSendNoticeInput', () => {
       { card: { ...event, occurrenceStart: 'Monday' } },
       'card.occurrenceStart',
     ],
+    ['an empty list of cards', { cards: [] }, 'cards'],
+    ['4 cards', { cards: [event, event, event, event] }, 'cards'],
+    ['a card and cards', { card: event, cards: [event] }, 'cards'],
+    ['a bad second card', { cards: [event, { type: 'page' }] }, 'cards.1.pageId'],
     ['an unknown field', { pageTitle: 'Coaching plan – Q4' }, 'input'],
   ];
   for (const [name, change, path] of rejected) {

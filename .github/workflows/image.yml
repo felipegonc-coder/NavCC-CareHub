@@ -26,9 +26,13 @@ defaults:
 jobs:
   image:
     name: image
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'image'
+    # Never for a pull request from a fork: this job runs the pull request's deploy scripts with
+    # sudo. Only branches in this repository get the label run.
+    if: >-
+      github.event_name == 'workflow_dispatch' || (github.event.label.name == 'image'
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -106,7 +110,7 @@ jobs:
 
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       # The same image up.sh builds on the server, with the Actions cache.
       - name: Build
