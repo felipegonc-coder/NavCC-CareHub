@@ -4,10 +4,10 @@ import {
   type Course,
   type LearnerCourseState,
 } from '@carehub/learning';
+import { DEFAULT_TIME_ZONE } from '@carehub/shared';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_TIME_ZONE } from '../player/data';
 import { inOrder, learner, LEARNER, renderRoute, serveCourse } from '../player/test-utils';
 import { CourseStartScreen } from './index';
 import { formatSignedAt } from './SignOff';

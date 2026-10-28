@@ -22,8 +22,21 @@ Switch and workspace-approval changes go to the Security log (`logSecurityEvent`
 - `askClaude(db, { workspaceId, userId, feature, system, instruction, documents?, selection?, maxTokens? }): Promise<{ text }>`
 - `askClaudeJson(db, { ...the same, schema }): Promise<{ data }>` asks for JSON and checks it with the caller's zod schema. If it doesn't match, it throws `bad_output`.
 - `ClaudeError` has `reason` (`ClaudeErrorReason`) and plain-words `message`. Routes answer `CLAUDE_ERRORS[reason]` with `details: { reason }`.
-- `summarizeMeeting(db, { userId, workspaceId, notesPageId, agenda, notes, actionItems, attendees, transcript? })` is for Meetings. Its result goes to nobody who can't open the notes.
+- `summarizeMeeting(db, { userId, workspaceId, notesPageId, agenda, notes, actionItems, attendees, transcript? }): Promise<MeetingSummary>` is for Meetings.
+  - `MeetingSummary` is `{ summary, decisions: string[], actionItems: { text, owner?, due? }[] }`, checked with `meetingSummarySchema` from `@carehub/extras/claude`. `due` is YYYY-MM-DD; an owner or date Claude can't give properly is left out.
+  - It's plain text: show it as text, never as HTML.
+  - The person must be able to open the notes page, and the result goes to nobody who can't open the notes.
+  - A long transcript is cut to fit; the agenda and notes always go in whole.
 - `fillClaudeFields(db, { userId, databaseId, propertyId, rowIds })` is for the Databases field type, once it lands.
+
+The numbers:
+
+- `MAX_TOKENS` is 2,048, and a request holds at most `MAX_REQUEST_CHARS` (60,000) characters.
+- Each person can send 30 requests in any 10 minutes.
+- The monthly cap counts the calendar month in America/Denver.
+- Every request sent is a row in `claude_usage`, failures included. Refusals before sending aren't.
+
+Until Settings → Claude binds the real checks with `configureClaude`, every switch reads as off and nobody has `claude.use`, so nothing is sent. Until the page model binds `pages`, no page counts as open. Tests bind fakes the same way and put the old ones back with the function `configureClaude` returns.
 
 The `documents` are `{ title, text }` pairs the **server** loaded by ID after the access check. A caller never passes text a client says came from a page; only the person's own selection comes from the client. The model and the largest `max_tokens` are set on the server. `maxTokens` can only lower that limit for one feature.
 
