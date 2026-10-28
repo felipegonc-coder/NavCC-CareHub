@@ -21,7 +21,7 @@ export const LAYOUTS: Record<ViewLayout, LayoutComponent> = {
 
   calendar: lazy(() => import('./shell/not-built')),
 
-  timeline: lazy(() => import('./shell/not-built')),
+  timeline: lazy(() => import('./timeline/layout')),
 
   chart: lazy(() => import('./shell/not-built')),
 
