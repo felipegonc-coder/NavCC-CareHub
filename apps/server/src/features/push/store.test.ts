@@ -14,6 +14,8 @@ interface Opened {
   store: PushStore;
   avery: string;
   sam: string;
+  /** Someone whose account a site admin locked. */
+  locked: string;
 }
 
 const t = (minute: number) => new Date(Date.UTC(2026, 9, 27, 15, minute));
@@ -176,14 +178,21 @@ function describeStore(name: string, open: () => Promise<Opened>) {
         pause: { until: null },
       });
     });
+
+    it('says whose account a site admin locked', async () => {
+      const { store, avery, locked } = await setup();
+      expect(await store.isLocked(locked)).toBe(true);
+      expect(await store.isLocked(avery)).toBe(false);
+    });
   });
 }
 
-describeStore('memory push store', async () => ({
-  store: createMemoryPushStore(),
-  avery: randomUUID(),
-  sam: randomUUID(),
-}));
+describeStore('memory push store', async () => {
+  const store = createMemoryPushStore();
+  const locked = randomUUID();
+  store.locked.add(locked);
+  return { store, avery: randomUUID(), sam: randomUUID(), locked };
+});
 
 describe.skipIf(!hasDatabase)('Postgres push store', () => {
   let testApp: TestApp;
@@ -197,7 +206,9 @@ describe.skipIf(!hasDatabase)('Postgres push store', () => {
   describeStore('contract', async () => {
     const avery = await createUser(testApp.db, { name: 'Avery Lin' });
     const sam = await createUser(testApp.db, { name: 'Sam Ortiz' });
-    return { store: createPostgresPushStore(testApp.db), avery: avery.id, sam: sam.id };
+    const locked = await createUser(testApp.db, { name: 'Morgan Diaz', locked: true });
+    const store = createPostgresPushStore(testApp.db);
+    return { store, avery: avery.id, sam: sam.id, locked: locked.id };
   });
 
   it('creates the tables exactly as the Drizzle definitions describe them', async () => {

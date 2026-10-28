@@ -150,6 +150,18 @@ describe('pushToUser', () => {
     expect(await pushToUser(runtime, avery, notice)).toEqual({ sent: 1, removed: 0, failed: 0 });
   });
 
+  it('sends no message to a locked account, not even the test', async () => {
+    const { store, runtime, requests, addBrowser } = await setup();
+    await addBrowser('laptop');
+    store.locked.add(avery);
+    expect(await pushToUser(runtime, avery, notice)).toEqual({ sent: 0, removed: 0, failed: 0 });
+    const test = await pushToUser(runtime, avery, notice, { evenIfPaused: true });
+    expect(test).toEqual({ sent: 0, removed: 0, failed: 0 });
+    expect(requests).toHaveLength(0);
+    store.locked.delete(avery);
+    expect(await pushToUser(runtime, avery, notice)).toEqual({ sent: 1, removed: 0, failed: 0 });
+  });
+
   it('sends nothing while push is off or the person has no browsers', async () => {
     const { runtime, requests, addBrowser } = await setup();
     expect(await pushToUser(runtime, avery, notice)).toEqual({ sent: 0, removed: 0, failed: 0 });

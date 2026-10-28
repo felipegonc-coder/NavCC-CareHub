@@ -52,4 +52,6 @@ export interface PushStore {
     changes: Partial<NotificationPreferences>,
     now: Date,
   ): Promise<NotificationPreferences>;
+  /** Whether a site admin locked the person's account (`users.locked_at`). */
+  isLocked(userId: string): Promise<boolean>;
 }
