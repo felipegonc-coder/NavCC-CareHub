@@ -6,7 +6,7 @@ import { sql } from 'drizzle-orm';
 import { httpError } from '../../core/errors';
 import { loadViewer, resolvePages, type Executor } from './access';
 import { invalid, isUuid, notFound, uuidArray } from './http';
-import { MAX_DEPTH, tooDeep } from './pages';
+import { MAX_DEPTH, pageArchived, tooDeep } from './pages';
 import { positionAt } from './position';
 
 export type PageMove = {
@@ -42,13 +42,15 @@ export async function lockMoves(tx: Executor, pageId: string): Promise<void> {
 export async function movePage(tx: Executor, pageId: string, move: PageMove, by: string) {
   if (!isUuid(pageId)) throw notFound();
   await lockMoves(tx, pageId);
-  type Facts = Place & { workspaceId: string; isInline: boolean };
+  type Facts = Place & { workspaceId: string; isInline: boolean; archived: boolean };
   const facts = sql`SELECT space_id AS "spaceId", parent_id AS "parentId", kind,
-    workspace_id AS "workspaceId", is_inline AS "isInline" FROM pages`;
+    workspace_id AS "workspaceId", is_inline AS "isInline", archived_at IS NOT NULL AS archived
+    FROM pages`;
   const { rows } = await tx.execute<Facts>(sql`
     ${facts} WHERE id = ${pageId} AND deleted_at IS NULL FOR UPDATE`);
   const page = rows[0];
   if (!page) throw notFound();
+  if (page.archived) throw pageArchived();
   const { parentId } = move;
   let spaceId = move.spaceId ?? page.spaceId;
   let kind: PageKind = page.kind === 'row' ? 'page' : page.kind;
@@ -58,6 +60,7 @@ export async function movePage(tx: Executor, pageId: string, move: PageMove, by:
       ${facts} WHERE id = ${parentId} AND deleted_at IS NULL FOR SHARE`);
     const parent = parents[0];
     if (!parent || parent.workspaceId !== page.workspaceId) throw notFound();
+    if (parent.archived) throw pageArchived();
     if (move.spaceId !== undefined && move.spaceId !== parent.spaceId) {
       throw invalid('The parent page is in another space.');
     }
@@ -140,7 +143,8 @@ async function checkSpaceChange(tx: Executor, pageId: string, fromSpaceId: strin
     throw httpError(403, 'forbidden', "This space's pages can't be moved to other spaces.");
   }
   const ids = await ownAccessPages(tx, pageId);
-  const levels = await resolvePages(tx, await loadViewer(tx, by), ids);
+  // Sub-pages archived on their own count with the level they'd have without their archive.
+  const levels = await resolvePages(tx, await loadViewer(tx, by), ids, { unarchiving: true });
   if (ids.some((id) => levels.get(id)?.level !== 'full')) {
     throw httpError(403, 'forbidden', 'You need Full access to every page that would move.');
   }

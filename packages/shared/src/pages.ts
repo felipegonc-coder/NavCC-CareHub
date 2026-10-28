@@ -210,6 +210,9 @@ export type PageJson = {
   deletedAt: string | null;
 };
 
+/** Archive and Unarchive: the page as it is now, and how many pages under it went along. */
+export type ArchivedPageJson = PageJson & { subPages: number };
+
 /**
  * What a link, mention, notice or chart shows for a page. `spaceName` is null in Private sections
  * and in Private spaces the person isn't in.

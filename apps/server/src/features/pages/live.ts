@@ -34,7 +34,8 @@ export const pageChanged = (pageId: string) =>
 
 /**
  * After a commit that changed a page's title, icon, cover or style outside these routes (History's
- * restore): open pages and sidebars refetch it.
+ * restore): open pages and sidebars refetch it. The caller also emits `page.updated` with the keys
+ * that changed (`setPageLook` returns them), so search reads the title again.
  */
 export async function nudgePage(db: Executor, pageId: string): Promise<void> {
   const { rows } = await db.execute<{ spaceId: string; inTree: boolean }>(sql`
